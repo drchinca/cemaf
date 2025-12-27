@@ -1,0 +1,103 @@
+[project]
+name = "cemaf"
+version = "0.1.0"
+description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "CEMAF Contributors" }]
+keywords = ["ai", "agents", "multi-agent", "context-engineering", "llm", "dag", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# =============================================================================
+# CORE DEPENDENCIES - Minimal, framework-agnostic
+# =============================================================================
+dependencies = [
+    "pydantic>=2.0",
+    "typing-extensions>=4.9",
+]
+
+# =============================================================================
+# OPTIONAL DEPENDENCIES - Install only what you need
+# =============================================================================
+[project.optional-dependencies]
+# Development tools
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.8",
+    "ruff>=0.3",
+]
+
+# Accurate token counting (OpenAI tokenizer)
+tiktoken = [
+    "tiktoken>=0.5",
+]
+
+# OpenAI integration
+openai = [
+    "openai>=1.0",
+    "tiktoken>=0.5",
+]
+
+# Anthropic integration  
+anthropic = [
+    "anthropic>=0.20",
+]
+
+# Vector store integrations
+pinecone = [
+    "pinecone-client>=3.0",
+]
+
+chromadb = [
+    "chromadb>=0.4",
+]
+
+# All optional integrations
+all = [
+    "tiktoken>=0.5",
+    "openai>=1.0",
+    "anthropic>=0.20",
+]
+
+# =============================================================================
+# BUILD SYSTEM
+# =============================================================================
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cemaf"]
+
+# =============================================================================
+# TOOL CONFIGURATION
+# =============================================================================
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
