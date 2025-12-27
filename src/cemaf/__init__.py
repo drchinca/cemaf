@@ -7,6 +7,9 @@ A pluggable, modular framework for building AI agent systems with:
 - Agents: Autonomous entities with goals and memory
 - DeepAgent: Hierarchical orchestration with context isolation
 - Dynamic DAGs: Runtime workflow composition
+
+Author: drchinca Hikuri Bado Chinca
+Email: kuri@brighthive.io, drchinca@gmail.com
 """
 
 __version__ = "0.1.0"
