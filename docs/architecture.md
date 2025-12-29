@@ -4,72 +4,84 @@ CEMAF is built on a modular, pluggable architecture where all components are def
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        ORCHESTRATION                            │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ DeepAgent   │    │ DAGExecutor │    │ Checkpointer        │  │
-│  │ Orchestrator│───▶│             │───▶│ (state persistence) │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-         │                    │
-         ▼                    ▼
-┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│     AGENTS      │   │     SKILLS      │   │     TOOLS       │
-│  (goals,state)  │──▶│  (composable)   │──▶│   (atomic)      │
-└─────────────────┘   └─────────────────┘   └─────────────────┘
-         │                    │                     │
-         └────────────────────┴─────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│     CONTEXT     │   │     MEMORY      │   │       LLM       │
-│  TokenBudget    │   │  Short/Long     │   │  Protocols      │
-│  Compiler       │   │  Scoped         │   │  Streaming      │
-└─────────────────┘   └─────────────────┘   └─────────────────┘
-         │                    │                     │
-         └────────────────────┴─────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│   PERSISTENCE   │   │   RETRIEVAL     │   │  OBSERVABILITY  │
-│  Entities       │   │  VectorStore    │   │  Logger/Tracer  │
-│  Protocols      │   │  Embeddings     │   │  Metrics        │
-└─────────────────┘   └─────────────────┘   └─────────────────┘
+```mermaid
+flowchart TB
+    subgraph Orchestration
+        DEEP[DeepAgent<br/>Orchestrator]
+        EXEC[DAGExecutor]
+        CHECK[Checkpointer]
+        DEEP --> EXEC --> CHECK
+    end
+
+    subgraph Execution
+        AGENTS[Agents<br/>Goals & State]
+        SKILLS[Skills<br/>Composable]
+        TOOLS[Tools<br/>Atomic]
+        AGENTS --> SKILLS --> TOOLS
+    end
+
+    subgraph Context Engineering
+        CTX[Context<br/>Immutable]
+        PATCH[Patches<br/>Provenance]
+        BUDGET[TokenBudget]
+        CTX --> PATCH
+        BUDGET --> CTX
+    end
+
+    subgraph Memory
+        MEM[MemoryStore]
+        SCOPE[Scoped + TTL]
+        MEM --> SCOPE
+    end
+
+    subgraph Infrastructure
+        LLM[LLM Clients]
+        OBS[Observability]
+        PERSIST[Persistence]
+    end
+
+    Orchestration --> Execution
+    Execution --> Context Engineering
+    Execution --> Memory
+    Context Engineering --> Infrastructure
+    Memory --> Infrastructure
 ```
 
 ## Core Concepts
 
 ### Tool → Skill → Agent Hierarchy
 
-```
-Tool     Atomic, stateless function (e.g., web_search, calculate)
-  │
-  ▼
-Skill    Composable capability using tools (e.g., research, summarize)
-  │
-  ▼
-Agent    Autonomous entity with goals, memory, decision-making
+```mermaid
+flowchart TB
+    TOOL[Tool<br/>Atomic, stateless function<br/>e.g., web_search, calculate]
+    SKILL[Skill<br/>Composable capability<br/>e.g., research, summarize]
+    AGENT[Agent<br/>Autonomous entity<br/>Goals, memory, decisions]
+
+    TOOL --> SKILL --> AGENT
+
+    style TOOL fill:#e1f5fe
+    style SKILL fill:#fff3e0
+    style AGENT fill:#e8f5e9
 ```
 
 ### Dynamic DAG Execution
 
-```
-        ┌───┐
-        │ A │  Entry
-        └─┬─┘
-     ┌────┴────┐
-     ▼         ▼
-   ┌───┐     ┌───┐
-   │ B │     │ C │  Parallel
-   └─┬─┘     └─┬─┘
-     │  ┌──┐  │
-     └──▶D◀──┘     Convergence
-        └─┬─┘
-          ▼
-       [output]
+```mermaid
+flowchart TB
+    A[A - Entry]
+    B[B]
+    C[C]
+    D[D - Convergence]
+    OUT[Output]
+
+    A --> B
+    A --> C
+    B --> D
+    C --> D
+    D --> OUT
+
+    style A fill:#e3f2fd
+    style D fill:#e8f5e9
 ```
 
 ## Pluggability

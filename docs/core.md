@@ -2,6 +2,51 @@
 
 The core module provides fundamental types, enums, utilities, and patterns used throughout CEMAF.
 
+## Overview
+
+```mermaid
+flowchart LR
+    subgraph Types
+        JSON[JSON]
+        IDS[AgentID, NodeID, etc.]
+    end
+
+    subgraph Patterns
+        RESULT[Result T]
+        EXEC[ExecutionContext]
+    end
+
+    subgraph Utilities
+        UTILS[utc_now, generate_id]
+        STORAGE[InMemoryStorage]
+    end
+
+    subgraph Enums
+        STATUS[AgentStatus, RunStatus]
+        SCOPE[MemoryScope, NodeType]
+    end
+
+    Types --> Patterns
+    Patterns --> Utilities
+    Utilities --> Enums
+```
+
+## Result Flow
+
+```mermaid
+flowchart TB
+    OP[Operation]
+    OP --> SUCCESS{Success?}
+    SUCCESS -->|Yes| OK[Result.ok data]
+    SUCCESS -->|No| FAIL[Result.fail error]
+
+    OK --> CHECK{result.success}
+    FAIL --> CHECK
+
+    CHECK -->|True| DATA[result.data]
+    CHECK -->|False| ERROR[result.error]
+```
+
 ## Result Pattern
 
 All operations return a generic `Result[T]` type for explicit error handling:

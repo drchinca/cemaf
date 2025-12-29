@@ -2,6 +2,59 @@
 
 CEMAF provides powerful orchestration capabilities through DAGs, executors, and deep agent hierarchies.
 
+## Orchestration Architecture
+
+```mermaid
+flowchart TB
+    subgraph DAG Definition
+        NODES[Nodes<br/>Tool, Skill, Agent]
+        EDGES[Edges<br/>Conditions]
+        DAG[DAG<br/>Workflow graph]
+    end
+
+    subgraph Execution
+        EXEC[DAGExecutor<br/>Run DAG]
+        CHECK[Checkpointer<br/>Save state]
+        CTX[Context<br/>Data flow]
+    end
+
+    subgraph Deep Agent
+        DEEP[DeepAgentOrchestrator<br/>Hierarchy]
+        CHILDREN[Child Agents<br/>Subtasks]
+    end
+
+    NODES --> DAG
+    EDGES --> DAG
+    DAG --> EXEC
+    EXEC --> CHECK
+    CTX --> EXEC
+    EXEC --> DEEP
+    DEEP --> CHILDREN
+```
+
+## DAG Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Executor as DAGExecutor
+    participant Checkpointer
+    participant Node
+    participant Context
+
+    Client->>Executor: run(dag, initial_context)
+    Executor->>Context: Initialize
+
+    loop For each node
+        Executor->>Node: Execute
+        Node-->>Executor: Result
+        Executor->>Context: Update
+        Executor->>Checkpointer: Save checkpoint
+    end
+
+    Executor-->>Client: DAGResult
+```
+
 ## Building DAGs
 
 Create directed acyclic graphs for workflow execution:

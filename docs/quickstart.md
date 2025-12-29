@@ -2,6 +2,32 @@
 
 Get up and running with CEMAF in minutes.
 
+## Quick Overview
+
+```mermaid
+flowchart LR
+    subgraph "1. Define"
+        TOOL[Tool]
+        DAG[DAG]
+    end
+
+    subgraph "2. Execute"
+        EXEC[Executor]
+        CTX[Context]
+    end
+
+    subgraph "3. Record"
+        LOG[RunLogger]
+        REPLAY[Replayer]
+    end
+
+    TOOL --> DAG
+    DAG --> EXEC
+    CTX --> EXEC
+    EXEC --> LOG
+    LOG --> REPLAY
+```
+
 ## Installation
 
 ```bash

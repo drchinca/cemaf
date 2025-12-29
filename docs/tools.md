@@ -2,6 +2,60 @@
 
 Tools are atomic, stateless functions that perform a single operation.
 
+## Tool Architecture
+
+```mermaid
+flowchart TB
+    subgraph Tool Definition
+        SCHEMA[ToolSchema<br/>name, description, parameters]
+        TOOL[Tool<br/>id, schema, execute]
+    end
+
+    subgraph Execution
+        INPUT[Input kwargs]
+        EXEC[execute]
+        RESULT[Result T]
+    end
+
+    subgraph Recording
+        LOGGER[RunLogger]
+        CALL[ToolCall]
+    end
+
+    SCHEMA --> TOOL
+    INPUT --> EXEC
+    TOOL --> EXEC
+    EXEC --> RESULT
+
+    EXEC -.->|record| LOGGER
+    LOGGER --> CALL
+```
+
+## Tool Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Tool
+    participant Logger as RunLogger
+
+    Caller->>Tool: execute(**kwargs)
+
+    alt With Recording
+        Caller->>Tool: execute_with_recording(logger, **kwargs)
+        Tool->>Tool: execute(**kwargs)
+        Tool->>Logger: record_tool_call(ToolCall)
+    end
+
+    Tool-->>Caller: Result[T]
+
+    alt Success
+        Note over Caller: result.success = True<br/>result.data = output
+    else Failure
+        Note over Caller: result.success = False<br/>result.error = message
+    end
+```
+
 ## Defining a Tool
 
 ```python

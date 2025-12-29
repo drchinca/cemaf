@@ -8,6 +8,8 @@ The executor:
 - Handles ROUTER nodes with conditional branching
 - Manages context propagation
 - Provides checkpointing for resume
+- Emits context patches for provenance tracking
+- Integrates with RunLogger for recording
 """
 
 from __future__ import annotations
@@ -15,14 +17,20 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.constants import MAX_PARALLEL_NODES
 from cemaf.core.utils import utc_now, generate_id
 from cemaf.orchestration.dag import DAG, Node, Edge, EdgeCondition
-from cemaf.context.context import Context # New import
+from cemaf.context.context import Context
+from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
+
+if TYPE_CHECKING:
+    from cemaf.events.protocols import EventBus
+    from cemaf.observability.run_logger import RunLogger
+    from cemaf.moderation.pipeline import ModerationPipeline
 
 
 @dataclass(frozen=True)
@@ -79,53 +87,77 @@ class NodeExecutor(Protocol):
 class DAGExecutor:
     """
     Executes DAGs with dependency resolution and parallel execution.
-    
+
     Supports:
     - TOOL/SKILL/AGENT nodes: Sequential execution
     - PARALLEL nodes: Concurrent execution of sub-nodes
     - ROUTER nodes: Conditional branching based on context
     - Edge conditions: ON_SUCCESS, ON_FAILURE, CONDITIONAL
-    
+    - Context patch emission for provenance tracking
+    - Run logging for replay and debugging
+
     Usage:
         executor = DAGExecutor(node_executor=my_executor)
         result = await executor.run(dag, initial_context)
+
+        # With logging
+        executor = DAGExecutor(
+            node_executor=my_executor,
+            run_logger=InMemoryRunLogger(),
+        )
     """
 
     def __init__(
         self,
         node_executor: NodeExecutor,
         max_parallel: int = MAX_PARALLEL_NODES,
+        run_logger: RunLogger | None = None,
+        event_bus: EventBus | None = None,
+        moderation_pipeline: ModerationPipeline | None = None,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
+        self._run_logger = run_logger
+        self._event_bus = event_bus
+        self._moderation_pipeline = moderation_pipeline
         self._route_choices: dict[NodeID, set[NodeID]] = {}
+        self._correlation_id: str = ""
 
     async def run(
         self,
         dag: DAG,
-        initial_context: Context | None = None, # Updated to Context
+        initial_context: Context | None = None,
         run_id: RunID | None = None,
     ) -> ExecutionResult:
         """
         Execute the DAG.
-        
+
         Args:
             dag: The DAG to execute
             initial_context: Starting context
             run_id: Optional run ID (generated if not provided)
-        
+
         Returns:
             ExecutionResult with all node results and final context
         """
         # Validate DAG
         dag.validate()
-        
+
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
-        context = initial_context or Context() # Updated to Context
+        context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
         self._route_choices = {}
-        
+        self._correlation_id = str(run_id)
+
+        # Start logging if logger is configured
+        if self._run_logger:
+            self._run_logger.start_run(
+                run_id=str(run_id),
+                dag_name=dag.name,
+                initial_context=context,
+            )
+
         try:
             # Get execution order
             order = dag.topological_sort()
@@ -190,6 +222,14 @@ class DAGExecutor:
                     and not node.retry_on_failure
                     and node.type != NodeType.CONDITIONAL
                 ):
+                    # End run logging
+                    if self._run_logger:
+                        self._run_logger.end_run(
+                            final_context=context,
+                            success=False,
+                            error=result.error,
+                        )
+
                     return ExecutionResult(
                         run_id=run_id,
                         dag_name=dag.name,
@@ -200,7 +240,14 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=utc_now(),
                     )
-            
+
+            # End run logging - success
+            if self._run_logger:
+                self._run_logger.end_run(
+                    final_context=context,
+                    success=True,
+                )
+
             return ExecutionResult(
                 run_id=run_id,
                 dag_name=dag.name,
@@ -210,8 +257,16 @@ class DAGExecutor:
                 started_at=started_at,
                 completed_at=utc_now(),
             )
-            
+
         except Exception as e:
+            # End run logging - exception
+            if self._run_logger:
+                self._run_logger.end_run(
+                    final_context=context,
+                    success=False,
+                    error=str(e),
+                )
+
             return ExecutionResult(
                 run_id=run_id,
                 dag_name=dag.name,
@@ -292,12 +347,38 @@ class DAGExecutor:
         self,
         node: Node,
         result: NodeResult,
-        context: Context, # Updated to Context
-    ) -> Context: # Returns new Context
+        context: Context,
+    ) -> Context:
         """Update context with node output if configured."""
-        if (result.success) and node.output_key and result.output is not None: # Removed allow_failed
-            return context.set(node.output_key, result.output) # Updated to context.set
+        if (result.success) and node.output_key and result.output is not None:
+            # Create patch for provenance
+            patch = ContextPatch(
+                path=node.output_key,
+                operation=PatchOperation.SET,
+                value=result.output,
+                source=self._get_patch_source(node),
+                source_id=str(node.id),
+                reason=f"Output from node '{node.id}'",
+                correlation_id=self._correlation_id,
+            )
+
+            # Record patch
+            if self._run_logger:
+                self._run_logger.record_patch(patch)
+
+            return context.apply(patch)
         return context
+
+    def _get_patch_source(self, node: Node) -> PatchSource:
+        """Get the appropriate patch source for a node type."""
+        if node.type == NodeType.TOOL:
+            return PatchSource.TOOL
+        elif node.type == NodeType.AGENT:
+            return PatchSource.AGENT
+        elif node.type in (NodeType.ROUTER, NodeType.CONDITIONAL, NodeType.PARALLEL):
+            return PatchSource.SYSTEM
+        else:
+            return PatchSource.SYSTEM
 
     def _execute_router_node(self, node: Node, context: Context) -> tuple[NodeResult, Context]: # Updated signature
         """Execute a ROUTER node and select allowed downstream targets."""

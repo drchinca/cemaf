@@ -18,33 +18,78 @@ from cemaf.core.types import JSON
 
 class EventType(str, Enum):
     """Common event types."""
-    
+
     # Task lifecycle
     TASK_STARTED = "task.started"
     TASK_COMPLETED = "task.completed"
     TASK_FAILED = "task.failed"
-    
+
     # Validation
     VALIDATION_PASSED = "validation.passed"
     VALIDATION_FAILED = "validation.failed"
-    
+
     # Content
     CONTENT_GENERATED = "content.generated"
     CONTENT_SCHEDULED = "content.scheduled"
     CONTENT_PUBLISHED = "content.published"
-    
+
     # Agent
     AGENT_SPAWNED = "agent.spawned"
     AGENT_COMPLETED = "agent.completed"
-    
+
     # DAG
     DAG_STARTED = "dag.started"
     DAG_COMPLETED = "dag.completed"
     DAG_CHECKPOINT = "dag.checkpoint"
-    
+
     # System
     SYSTEM_ERROR = "system.error"
     SYSTEM_WARNING = "system.warning"
+
+    # Context events (context engineering)
+    CONTEXT_PATCH_APPLIED = "context.patch.applied"
+    CONTEXT_COMPILED = "context.compiled"
+    CONTEXT_BUDGET_EXCEEDED = "context.budget.exceeded"
+
+    # Tool events
+    TOOL_CALL_STARTED = "tool.call.started"
+    TOOL_CALL_COMPLETED = "tool.call.completed"
+    TOOL_CALL_FAILED = "tool.call.failed"
+
+    # Replay events
+    REPLAY_STARTED = "replay.started"
+    REPLAY_COMPLETED = "replay.completed"
+
+    # Memory events
+    MEMORY_ITEM_SET = "memory.item.set"
+    MEMORY_ITEM_EXPIRED = "memory.item.expired"
+    MEMORY_CLEANUP = "memory.cleanup"
+
+    # Execution events
+    EXECUTION_CANCELLED = "execution.cancelled"
+    EXECUTION_TIMEOUT = "execution.timeout"
+
+    # Moderation events
+    MODERATION_CHECK_STARTED = "moderation.check.started"
+    MODERATION_CHECK_PASSED = "moderation.check.passed"
+    MODERATION_CHECK_BLOCKED = "moderation.check.blocked"
+    MODERATION_VIOLATION = "moderation.violation"
+
+    # Citation events
+    CITATION_ADDED = "citation.added"
+    CITATION_MISSING = "citation.missing"
+    CITATION_VALIDATION_FAILED = "citation.validation.failed"
+
+    # MCP events
+    MCP_SERVER_STARTED = "mcp.server.started"
+    MCP_SERVER_STOPPED = "mcp.server.stopped"
+    MCP_TOOL_CALLED = "mcp.tool.called"
+    MCP_RESOURCE_READ = "mcp.resource.read"
+    MCP_PROMPT_GET = "mcp.prompt.get"
+
+    # Blueprint events
+    BLUEPRINT_VALIDATED = "blueprint.validated"
+    BLUEPRINT_VALIDATION_FAILED = "blueprint.validation.failed"
 
 
 class Event(BaseModel):

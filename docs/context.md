@@ -1,13 +1,77 @@
 # Context Management
 
-CEMAF provides sophisticated context management with token budgeting, compilation, and automatic summarization.
+CEMAF provides sophisticated context management with:
+- **Immutable Context**: State that can't be accidentally mutated
+- **Context Patches**: Track every change with full provenance
+- **Patch Logs**: Append-only history for replay and debugging
+- **Token Budgeting**: Stay within LLM limits
+- **Automatic Summarization**: Compress low-priority content
+
+## Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Context Layer
+        CTX[Context<br/>Immutable State]
+        PATCH[ContextPatch<br/>Change Record]
+        LOG[PatchLog<br/>Append-Only History]
+    end
+
+    subgraph Compilation Layer
+        BUDGET[TokenBudget<br/>Limit Management]
+        COMPILER[ContextCompiler<br/>Priority Assembly]
+        ADV[AdvancedCompiler<br/>Auto-Summarization]
+    end
+
+    subgraph Sources
+        TOOL[Tool Output]
+        AGENT[Agent Decision]
+        USER[User Input]
+        LLM[LLM Response]
+    end
+
+    TOOL --> PATCH
+    AGENT --> PATCH
+    USER --> PATCH
+    LLM --> PATCH
+
+    PATCH --> CTX
+    PATCH --> LOG
+    CTX --> COMPILER
+    BUDGET --> COMPILER
+    COMPILER --> ADV
+
+    LOG -.->|Replay| CTX
+```
+
+## Context Flow
+
+```mermaid
+sequenceDiagram
+    participant Tool
+    participant Patch as ContextPatch
+    participant Ctx as Context
+    participant Log as PatchLog
+
+    Tool->>Patch: Create patch with provenance
+    Note over Patch: path, value, source, reason
+
+    Patch->>Ctx: ctx.apply(patch)
+    Note over Ctx: Returns new immutable Context
+
+    Patch->>Log: log.append(patch)
+    Note over Log: Append-only, filterable
+
+    Log-->>Ctx: log.replay(initial)
+    Note over Ctx: Reconstruct from patches
+```
 
 ## Context Class
 
 Immutable context object for state management:
 
 ```python
-from cemaf.context.context import Context
+from cemaf.context import Context
 
 # Create context
 ctx = Context(data={"key": "value"})
@@ -20,11 +84,134 @@ nested = ctx.get("data.user.id", default=None)
 new_ctx = ctx.set("new_key", "new_value")
 nested_ctx = ctx.set("data.user.id", 123)
 
+# Delete values
+ctx = ctx.delete("temp_key")
+
+# Append to lists
+ctx = ctx.append("items", new_item)
+
+# Deep merge dicts
+ctx = ctx.deep_merge("config", {"debug": True})
+
 # Merge contexts
 merged = ctx1.merge(ctx2)
 
 # Convert to dict
 data = ctx.to_dict()
+
+# Copy context
+copy = ctx.copy()
+```
+
+## Context Patches
+
+Track every context change with full provenance:
+
+```python
+from cemaf.context import ContextPatch, PatchOperation, PatchSource
+
+# Create patches with factory methods
+patch = ContextPatch.set(
+    path="user.preferences.theme",
+    value="dark",
+    source=PatchSource.USER,
+    source_id="settings_form",
+    reason="User changed theme preference",
+)
+
+# Convenience methods for common sources
+patch = ContextPatch.from_tool(
+    tool_id="web_search",
+    path="search_results",
+    value={"results": [...]},
+)
+
+patch = ContextPatch.from_agent(
+    agent_id="research_agent",
+    path="findings",
+    value={"summary": "..."},
+)
+
+# Apply patch to context
+new_ctx = ctx.apply(patch)
+```
+
+### Patch Operations
+
+```python
+# SET - Set a value at path
+patch = ContextPatch.set("config.debug", True)
+
+# DELETE - Remove a value
+patch = ContextPatch.delete("temp_data")
+
+# MERGE - Deep merge a dict
+patch = ContextPatch.merge("settings", {"new_key": "value"})
+
+# APPEND - Append to a list
+patch = ContextPatch.append("messages", {"role": "user", "content": "Hi"})
+```
+
+### Patch Sources
+
+| Source | When to Use |
+|--------|-------------|
+| `PatchSource.TOOL` | Change from tool execution |
+| `PatchSource.AGENT` | Change from agent decision |
+| `PatchSource.LLM` | Change from LLM output parsing |
+| `PatchSource.SYSTEM` | Framework-level change |
+| `PatchSource.USER` | User input |
+
+## Patch Logs
+
+Append-only log for recording and replaying changes:
+
+```python
+from cemaf.context import PatchLog, ContextPatch
+
+# Create and build log
+log = PatchLog()
+log = log.append(ContextPatch.set("a", 1))
+log = log.append(ContextPatch.set("b", 2))
+
+# Replay on initial context
+initial = Context()
+final = log.replay(initial)
+
+# Filter patches
+tool_patches = log.filter_by_source(PatchSource.TOOL)
+user_patches = log.filter_by_source_id("user_input")
+config_patches = log.filter_by_path_prefix("config")
+
+# Inspect
+paths = log.get_affected_paths()  # {"a", "b"}
+latest = log.get_latest_for_path("a")
+
+# Serialize for storage
+data = log.to_list()
+restored = PatchLog.from_list(data)
+```
+
+## Context Diffing
+
+Generate patches between two contexts:
+
+```python
+old_ctx = Context(data={"count": 1, "name": "Alice"})
+new_ctx = Context(data={"count": 2, "name": "Alice", "age": 30})
+
+# Generate patches to transform old into new
+patches = old_ctx.diff(new_ctx)
+
+# patches contains:
+# - SET count = 2
+# - SET age = 30
+
+# Apply patches to verify
+result = old_ctx
+for patch in patches:
+    result = result.apply(patch)
+assert result.to_dict() == new_ctx.to_dict()
 ```
 
 ## Token Budget

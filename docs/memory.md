@@ -2,6 +2,66 @@
 
 CEMAF provides scoped memory management for different persistence needs.
 
+## Memory Architecture
+
+```mermaid
+flowchart TB
+    subgraph Memory Store
+        STORE[MemoryStore<br/>Protocol]
+        INMEM[InMemoryStore<br/>Implementation]
+    end
+
+    subgraph Scopes
+        SESSION[SESSION<br/>Request lifetime]
+        PROJECT[PROJECT<br/>Days]
+        BRAND[BRAND<br/>Permanent]
+        PERSONAE[PERSONAE<br/>Permanent]
+    end
+
+    subgraph Features
+        TTL[TTL<br/>Auto-expiration]
+        HOOKS[Hooks<br/>Redaction, Serialization]
+        SEARCH[Search<br/>Query memory]
+    end
+
+    STORE --> INMEM
+    INMEM --> SESSION
+    INMEM --> PROJECT
+    INMEM --> BRAND
+    INMEM --> PERSONAE
+    TTL --> STORE
+    HOOKS --> STORE
+    SEARCH --> STORE
+```
+
+## Memory Operations Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Store as MemoryStore
+    participant Hooks
+    participant Storage
+
+    Client->>Store: set(key, value, scope, ttl)
+    Store->>Hooks: Apply redaction hook
+    Hooks-->>Store: Redacted value
+    Store->>Hooks: Apply serialization hook
+    Hooks-->>Store: Serialized value
+    Store->>Storage: Store item
+
+    Client->>Store: get(key, scope)
+    Store->>Storage: Retrieve item
+    Storage-->>Store: MemoryItem
+
+    alt Item expired
+        Store->>Storage: Delete item
+        Store-->>Client: None
+    else Item valid
+        Store-->>Client: MemoryItem
+    end
+```
+
 ## Memory Scopes
 
 | Scope      | Persistence | Use Case           |
