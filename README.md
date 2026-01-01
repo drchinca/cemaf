@@ -2,25 +2,43 @@
 
 **Context Engineering Multi-Agent Framework**
 
-Context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone OR plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
+[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-814%20passing-brightgreen.svg)]()
 
-## Installation
+Context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
-```bash
-# Minimal installation (core only)
-pip install cemaf
+---
 
-# With optional dependencies
-pip install "cemaf[tiktoken]"      # Accurate token counting
-pip install "cemaf[openai]"        # OpenAI integration
-pip install "cemaf[anthropic]"    # Anthropic integration
-pip install "cemaf[all]"           # All optional dependencies
+## Table of Contents
 
-# Development installation
-pip install -e ".[dev]"
-```
+- [Overview](#overview)
+- [The Hard Problems We Solve](#the-hard-problems-we-solve)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Integration Modes](#integration-modes)
+- [Key Features](#key-features)
+- [Documentation](#documentation)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
 
-**Python 3.14+ required**
+---
+
+## Overview
+
+CEMAF is a protocol-first framework designed for **context engineering** in multi-agent AI systems. It provides:
+
+- Token budgeting and automatic context optimization
+- Deterministic run recording and replay capabilities
+- Full provenance tracking for every context change
+- Memory management with strict scoping and TTL
+- Zero-config defaults with environment-based customization
+
+**Philosophy**: Own the hard infrastructure problems while remaining framework-agnostic.
+
+---
 
 ## The Hard Problems We Solve
 
@@ -32,75 +50,34 @@ pip install -e ".[dev]"
 | **Reproducibility** | Can't replay/debug runs | Run recording + deterministic replay |
 | **Memory Leaks** | State bleeds between scopes | Strict memory boundaries with TTL |
 
-## Two Integration Modes
-
-### Mode A: CEMAF Orchestrates
-CEMAF owns execution, external frameworks are "engines":
-
-```python
-from cemaf.orchestration import DAGExecutor
-from cemaf.observability import InMemoryRunLogger
-
-executor = DAGExecutor(
-    node_executor=LangGraphNodeExecutor(langgraph_app),
-    run_logger=InMemoryRunLogger(),  # Full recording
-)
-result = await executor.run(dag, context)
-
-# Replay later for debugging
-replayer = Replayer(run_logger.get_record("run-123"))
-await replayer.replay()
-```
-
-### Mode B: CEMAF as Library
-External frameworks orchestrate, CEMAF provides infrastructure:
-
-```python
-from cemaf.context import Context, ContextPatch, PatchSource
-from cemaf.observability import InMemoryRunLogger
-
-@langgraph_node
-def my_node(state):
-    ctx = Context.from_dict(state)
-
-    # Track provenance of every change
-    patch = ContextPatch.from_tool("search", "results", search_results)
-    ctx = ctx.apply(patch)
-    run_logger.record_patch(patch)
-
-    # Compile within budget
-    compiled = compiler.compile(ctx, budget)
-    return compiled.to_dict()
-```
-
-## Documentation
-
-**[Full Documentation](docs/README.md)**
-
-- [Quick Start Guide](docs/quickstart.md)
-- [Architecture Overview](docs/architecture.md)
-- [Context Management](docs/context.md) - Patches, provenance, budgeting
-- [Replay & Recording](docs/replay.md) - Deterministic replay
-- [Integration Guide](docs/integration.md) - Mode A/B patterns
-- [Tools, Skills, Agents](docs/tools.md)
+---
 
 ## Installation
 
 ```bash
-# Core only (no AI framework dependencies)
+# Core installation (minimal dependencies)
 pip install cemaf
 
-# With specific integrations
-pip install cemaf[openai]      # OpenAI + tiktoken
-pip install cemaf[anthropic]   # Anthropic
-pip install cemaf[tiktoken]    # Accurate token counting only
-pip install cemaf[all]         # All integrations
+# With optional integrations
+pip install "cemaf[openai]"        # OpenAI + tiktoken
+pip install "cemaf[anthropic]"    # Anthropic
+pip install "cemaf[tiktoken]"     # Accurate token counting only
+pip install "cemaf[all]"          # All optional dependencies
+
+# Development installation
+git clone https://github.com/drchinca/cemaf.git
+cd cemaf
+pip install -e ".[dev]"
 ```
 
-## Quick Example
+**Requirements**: Python 3.14+
+
+---
+
+## Quick Start
 
 ```python
-from cemaf.context import Context, ContextPatch, PatchLog
+from cemaf.context import Context, ContextPatch
 from cemaf.observability import InMemoryRunLogger
 from cemaf.replay import Replayer
 
@@ -121,6 +98,57 @@ result = await replayer.replay()
 assert result.final_context == record.final_context  # Deterministic!
 ```
 
+See the [Quick Start Guide](docs/quickstart.md) for more detailed examples.
+
+---
+
+## Integration Modes
+
+### Mode A: CEMAF Orchestrates
+
+CEMAF owns execution, external frameworks are "engines":
+
+```python
+from cemaf.orchestration import DAGExecutor
+from cemaf.observability import InMemoryRunLogger
+
+executor = DAGExecutor(
+    node_executor=LangGraphNodeExecutor(langgraph_app),
+    run_logger=InMemoryRunLogger(),
+)
+result = await executor.run(dag, context)
+
+# Replay later for debugging
+replayer = Replayer(run_logger.get_record("run-123"))
+await replayer.replay()
+```
+
+### Mode B: CEMAF as Library
+
+External frameworks orchestrate, CEMAF provides infrastructure:
+
+```python
+from cemaf.context import Context, ContextPatch
+from cemaf.observability import InMemoryRunLogger
+
+@langgraph_node
+def my_node(state):
+    ctx = Context.from_dict(state)
+
+    # Track provenance of every change
+    patch = ContextPatch.from_tool("search", "results", search_results)
+    ctx = ctx.apply(patch)
+    run_logger.record_patch(patch)
+
+    # Compile within budget
+    compiled = compiler.compile(ctx, budget)
+    return compiled.to_dict()
+```
+
+See the [Integration Guide](docs/integration.md) for detailed patterns.
+
+---
+
 ## Key Features
 
 - **📍 Context Patches**: Track every context change with full provenance
@@ -131,6 +159,26 @@ assert result.final_context == record.final_context  # Deterministic!
 - **⚡ Cancellation**: Cooperative cancellation with timeouts
 - **🔧 Protocol-Based**: Plug into any framework
 - **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
+
+---
+
+## Documentation
+
+**[Full Documentation →](docs/README.md)**
+
+Core Guides:
+- [Architecture Overview](docs/architecture.md)
+- [Context Management](docs/context.md) - Patches, provenance, budgeting
+- [Replay & Recording](docs/replay.md) - Deterministic replay
+- [Tools, Skills, Agents](docs/tools.md)
+
+Module References:
+- [LLM Integration](docs/llm.md)
+- [Caching](docs/cache.md)
+- [Persistence](docs/persistence.md)
+- [Observability](docs/observability.md)
+
+---
 
 ## Configuration
 
@@ -147,7 +195,7 @@ CEMAF_CACHE_BACKEND=redis
 CEMAF_CACHE_MAX_SIZE=10000
 ```
 
-Use factories for automatic configuration loading:
+Use factory functions for automatic configuration loading:
 
 ```python
 from cemaf.llm import create_llm_client_from_config
@@ -158,19 +206,72 @@ client = create_llm_client_from_config()
 cache = create_cache_from_config()
 ```
 
-See [Configuration Guide](docs/config.md) for all available settings.
+See the [Configuration Guide](docs/config.md) for all available settings.
 
-## Project Stats
-
-- **814 tests** | **100% passing** | **TDD from day one**
-- **Python 3.14+** | **Fully typed** | **Protocol-based design**
-- **MIT License**
+---
 
 ## Testing
 
 ```bash
-pytest tests/                    # all tests
-pytest tests/unit/               # unit only
-pytest tests/ -m "not slow"      # skip slow tests
-pytest tests/ --cov=cemaf        # with coverage
+# Run all tests
+pytest tests/
+
+# Unit tests only
+pytest tests/unit/
+
+# Skip slow tests
+pytest tests/ -m "not slow"
+
+# With coverage
+pytest tests/ --cov=cemaf
+
+# Pre-commit checks
+pre-commit run --all-files
 ```
+
+**Project Stats**: 814 tests | 100% passing | TDD from day one
+
+---
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+Development setup:
+
+```bash
+# Fork and clone the repo
+git clone https://github.com/YOUR_USERNAME/cemaf.git
+cd cemaf
+
+# Install dependencies with uv
+uv venv
+uv sync
+
+# Install pre-commit hooks
+uv run pre-commit install
+```
+
+See [HOW_TO_USE.md](HOW_TO_USE.md) for detailed usage examples.
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Authors
+
+**Dr. Hector Badillo Monroy (Dr. Chinca)**
+
+Copyright (c) 2024-2025
+
+---
+
+## Links
+
+- **Documentation**: [docs/README.md](docs/README.md)
+- **Issues**: [GitHub Issues](https://github.com/drchinca/cemaf/issues)
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
