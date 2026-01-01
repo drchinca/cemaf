@@ -1,5 +1,7 @@
 """HTTP SSE transport for MCP communication."""
+
 from typing import Any
+
 from cemaf.mcp.transport.base import BaseTransport
 
 
@@ -19,6 +21,7 @@ class SSETransport(BaseTransport):
     async def _do_connect(self) -> None:
         try:
             import aiohttp
+
             self._session = aiohttp.ClientSession()
             # Establish SSE connection for receiving
             self._sse_response = await self._session.get(
@@ -26,7 +29,7 @@ class SSETransport(BaseTransport):
                 headers={"Accept": "text/event-stream"},
             )
         except ImportError:
-            raise ImportError("aiohttp package required for SSETransport")
+            raise ImportError("aiohttp package required for SSETransport") from None
 
     async def _do_disconnect(self) -> None:
         if self._sse_response:

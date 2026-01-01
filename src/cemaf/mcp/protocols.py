@@ -4,10 +4,8 @@ MCP (Model Context Protocol) protocols and types.
 JSON-RPC 2.0 message types and transport abstraction for MCP communication.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable, Any
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
 

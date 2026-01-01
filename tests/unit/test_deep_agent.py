@@ -9,31 +9,31 @@ Tests guardrail enforcement:
 - propagate_errors
 """
 
-import pytest
 import asyncio
-from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
-from cemaf.core.types import AgentID, RunID
 from cemaf.agents.base import Agent, AgentContext, AgentResult
-from cemaf.orchestration.dag import DAG, Node, Edge
-from cemaf.orchestration.executor import DAGExecutor
+from cemaf.core.types import AgentID
 from cemaf.orchestration.deep_agent import (
-    DeepAgentOrchestrator,
-    DeepAgentConfig,
-    DeepAgentResult,
     ChildSpawn,
+    DeepAgentConfig,
+    DeepAgentOrchestrator,
+    DeepAgentResult,
 )
+from cemaf.orchestration.executor import DAGExecutor
 
 
 class SimpleGoal(BaseModel):
     """Simple test goal."""
+
     task: str
 
 
 class SimpleResult(BaseModel):
     """Simple test result."""
+
     output: str
 
 
@@ -72,13 +72,13 @@ class MockAgent(Agent[SimpleGoal, SimpleResult]):
     async def run(self, goal: SimpleGoal, context: AgentContext) -> AgentResult[SimpleResult]:
         """Execute the agent."""
         from cemaf.agents.base import AgentState
-        
+
         if self._delay > 0:
             await asyncio.sleep(self._delay)
-        
+
         if self._fail:
             return AgentResult.fail("Intentional failure")
-        
+
         # Spawn children if configured
         for child_id in self._spawn_children:
             if self._orchestrator:
@@ -88,7 +88,7 @@ class MockAgent(Agent[SimpleGoal, SimpleResult]):
                     goal=goal,
                     parent_context=context,
                 )
-        
+
         return AgentResult.ok(SimpleResult(output=f"Done: {goal.task}"), AgentState())
 
 
@@ -99,6 +99,7 @@ class TestDeepAgentOrchestrator:
     def mock_dag_executor(self):
         """Mock DAG executor."""
         from tests.conftest import MockNodeExecutor
+
         return DAGExecutor(node_executor=MockNodeExecutor())
 
     @pytest.fixture
@@ -123,12 +124,12 @@ class TestDeepAgentOrchestrator:
             agents={simple_agent.id: simple_agent},
             dag_executor=mock_dag_executor,
         )
-        
+
         result = await orchestrator.run(
             root_agent_id=simple_agent.id,
             goal=SimpleGoal(task="test"),
         )
-        
+
         assert result.success
         assert result.output is not None
 
@@ -139,12 +140,12 @@ class TestDeepAgentOrchestrator:
             agents={},
             dag_executor=mock_dag_executor,
         )
-        
+
         result = await orchestrator.run(
             root_agent_id=AgentID("nonexistent"),
             goal=SimpleGoal(task="test"),
         )
-        
+
         assert not result.success
         assert "not found" in result.error
 
@@ -157,12 +158,12 @@ class TestDeepAgentOrchestrator:
             dag_executor=mock_dag_executor,
             config=config,
         )
-        
+
         result = await orchestrator.run(
             root_agent_id=slow_agent.id,
             goal=SimpleGoal(task="test"),
         )
-        
+
         assert not result.success
         assert "Timeout" in result.error
 
@@ -173,7 +174,7 @@ class TestDeepAgentOrchestrator:
         agent_a = MockAgent("a", spawn_children=["b"])
         agent_b = MockAgent("b", spawn_children=["c"])
         agent_c = MockAgent("c", spawn_children=["a"])  # Would loop
-        
+
         config = DeepAgentConfig(max_depth=2)
         orchestrator = DeepAgentOrchestrator(
             agents={
@@ -184,17 +185,17 @@ class TestDeepAgentOrchestrator:
             dag_executor=mock_dag_executor,
             config=config,
         )
-        
+
         # Set orchestrator for spawn capability
         agent_a.set_orchestrator(orchestrator)
         agent_b.set_orchestrator(orchestrator)
         agent_c.set_orchestrator(orchestrator)
-        
+
         result = await orchestrator.run(
             root_agent_id=agent_a.id,
             goal=SimpleGoal(task="test"),
         )
-        
+
         # Depth limit was enforced - one agent returned error
         failed_results = [r for r in result.agent_results if not r.success]
         assert len(failed_results) > 0
@@ -206,23 +207,23 @@ class TestDeepAgentOrchestrator:
         # Agent that tries to spawn many children
         parent = MockAgent("parent", spawn_children=["c1", "c2", "c3", "c4", "c5"])
         children = [MockAgent(f"c{i}") for i in range(1, 6)]
-        
+
         config = DeepAgentConfig(max_children_per_agent=2)
         agents = {parent.id: parent}
         agents.update({c.id: c for c in children})
-        
+
         orchestrator = DeepAgentOrchestrator(
             agents=agents,
             dag_executor=mock_dag_executor,
             config=config,
         )
         parent.set_orchestrator(orchestrator)
-        
+
         result = await orchestrator.run(
             root_agent_id=parent.id,
             goal=SimpleGoal(task="test"),
         )
-        
+
         # Should have limited spawns
         assert result.total_agents_spawned <= config.max_children_per_agent
 
@@ -231,7 +232,7 @@ class TestDeepAgentOrchestrator:
         """Errors propagate when configured."""
         parent = MockAgent("parent", spawn_children=["child"])
         child = MockAgent("child", fail=True)
-        
+
         config = DeepAgentConfig(propagate_errors=True)
         orchestrator = DeepAgentOrchestrator(
             agents={parent.id: parent, child.id: child},
@@ -239,12 +240,12 @@ class TestDeepAgentOrchestrator:
             config=config,
         )
         parent.set_orchestrator(orchestrator)
-        
+
         result = await orchestrator.run(
             root_agent_id=parent.id,
             goal=SimpleGoal(task="test"),
         )
-        
+
         # Child failure should propagate
         # Note: parent still completes, but child result shows failure
         child_results = [r for r in result.agent_results if not r.success]
@@ -257,13 +258,13 @@ class TestDeepAgentOrchestrator:
             agents={simple_agent.id: simple_agent},
             dag_executor=mock_dag_executor,
         )
-        
+
         result = await orchestrator.run(
             root_agent_id=simple_agent.id,
             goal=SimpleGoal(task="test"),
             initial_context={"key": "value"},
         )
-        
+
         assert result.success
 
 
@@ -278,7 +279,7 @@ class TestChildSpawn:
             goal=SimpleGoal(task="test"),
             depth=1,
         )
-        
+
         assert spawn.child_id == AgentID("child")
         assert spawn.depth == 1
 
@@ -292,9 +293,9 @@ class TestDeepAgentResult:
             ChildSpawn(child_id=AgentID("c1"), parent_id=AgentID("p"), goal={}, depth=1),
             ChildSpawn(child_id=AgentID("c2"), parent_id=AgentID("p"), goal={}, depth=1),
         )
-        
+
         result = DeepAgentResult(success=True, child_spawns=spawns)
-        
+
         assert result.total_agents_spawned == 2
 
     def test_max_depth_reached(self):
@@ -304,14 +305,13 @@ class TestDeepAgentResult:
             ChildSpawn(child_id=AgentID("c2"), parent_id=AgentID("c1"), goal={}, depth=2),
             ChildSpawn(child_id=AgentID("c3"), parent_id=AgentID("c2"), goal={}, depth=3),
         )
-        
+
         result = DeepAgentResult(success=True, child_spawns=spawns)
-        
+
         assert result.max_depth_reached == 3
 
     def test_max_depth_no_spawns(self):
         """max_depth_reached is 0 with no spawns."""
         result = DeepAgentResult(success=True)
-        
-        assert result.max_depth_reached == 0
 
+        assert result.max_depth_reached == 0

@@ -1,5 +1,7 @@
 """WebSocket transport for remote MCP communication."""
+
 from typing import Any
+
 from cemaf.mcp.transport.base import BaseTransport
 
 
@@ -18,9 +20,10 @@ class WebSocketTransport(BaseTransport):
     async def _do_connect(self) -> None:
         try:
             import websockets
+
             self._ws = await websockets.connect(self._url)
         except ImportError:
-            raise ImportError("websockets package required for WebSocketTransport")
+            raise ImportError("websockets package required for WebSocketTransport") from None
 
     async def _do_disconnect(self) -> None:
         if self._ws:

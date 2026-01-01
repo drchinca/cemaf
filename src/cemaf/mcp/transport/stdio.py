@@ -1,6 +1,8 @@
 """Stdio transport for local MCP communication."""
+
 import asyncio
 import sys
+
 from cemaf.mcp.transport.base import BaseTransport
 
 
@@ -25,12 +27,8 @@ class StdioTransport(BaseTransport):
         await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
         # For stdout
-        transport, _ = await loop.connect_write_pipe(
-            asyncio.Protocol, sys.stdout
-        )
-        self._writer = asyncio.StreamWriter(
-            transport, protocol, self._reader, loop
-        )
+        transport, _ = await loop.connect_write_pipe(asyncio.Protocol, sys.stdout)
+        self._writer = asyncio.StreamWriter(transport, protocol, self._reader, loop)
 
     async def _do_disconnect(self) -> None:
         if self._writer:

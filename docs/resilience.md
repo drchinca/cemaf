@@ -100,4 +100,3 @@ limiter = RateLimiter(max_calls=10, time_window=60)
 
 result = await limiter.execute(async_function)
 ```
-

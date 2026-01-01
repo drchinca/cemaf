@@ -79,3 +79,7 @@ dmypy.json
 Thumbs.db
 *.log
 
+# Project-specific
+setup/
+examples/
+.claude/

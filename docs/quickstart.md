@@ -44,6 +44,35 @@ pip install cemaf[all]         # All integrations
 pip install cemaf[dev]
 ```
 
+## Configuration (Optional)
+
+CEMAF works out-of-the-box with zero configuration. To customize:
+
+```bash
+# Copy example configuration
+cp .env.example .env
+
+# Edit .env with your settings
+CEMAF_LLM_PROVIDER=openai
+CEMAF_LLM_API_KEY=your-api-key-here
+CEMAF_CACHE_BACKEND=redis
+```
+
+Use configuration-driven factories:
+
+```python
+from cemaf.llm import create_llm_client_from_config
+from cemaf.cache import create_cache_from_config
+from cemaf.retrieval import create_vector_store_from_config
+
+# All settings loaded automatically from .env
+llm = create_llm_client_from_config()
+cache = create_cache_from_config()
+store = create_vector_store_from_config()
+```
+
+See [Configuration Guide](config.md) for all available settings.
+
 ## Development Setup
 
 ```bash
@@ -111,4 +140,3 @@ print(result.final_context.get("summary"))
 - Learn about [Tools](tools.md)
 - Explore [Orchestration](orchestration.md)
 - Understand [Context Management](context.md)
-

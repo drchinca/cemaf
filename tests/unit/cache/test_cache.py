@@ -5,14 +5,11 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 
-import pytest
-
+from cemaf.cache.decorators import cache_key, cached
+from cemaf.cache.mock import MockCache
 from cemaf.cache.protocols import CacheEntry, CacheStats
 from cemaf.cache.stores import InMemoryCache, TTLCache
-from cemaf.cache.decorators import cached, cache_key
-from cemaf.cache.mock import MockCache
 from cemaf.core.utils import utc_now
-
 
 # =============================================================================
 # CacheEntry Tests
@@ -139,10 +136,10 @@ class TestInMemoryCache:
         """Test deleting a key."""
         cache = InMemoryCache()
         await cache.set("key", "value")
-        
+
         result = await cache.delete("key")
         assert result is True
-        
+
         value = await cache.get("key")
         assert value is None
 
@@ -157,9 +154,9 @@ class TestInMemoryCache:
         cache = InMemoryCache()
         await cache.set("key1", "value1")
         await cache.set("key2", "value2")
-        
+
         await cache.clear()
-        
+
         assert await cache.get("key1") is None
         assert await cache.get("key2") is None
 
@@ -167,7 +164,7 @@ class TestInMemoryCache:
         """Test existence check."""
         cache = InMemoryCache()
         await cache.set("key", "value")
-        
+
         assert await cache.exists("key") is True
         assert await cache.exists("nonexistent") is False
 
@@ -175,10 +172,10 @@ class TestInMemoryCache:
         """Test TTL expiration."""
         cache = InMemoryCache()
         await cache.set("key", "value", ttl_seconds=0)  # Immediate expiry
-        
+
         # Small delay to ensure expiry
         await asyncio.sleep(0.01)
-        
+
         result = await cache.get("key")
         assert result is None
 
@@ -188,7 +185,7 @@ class TestInMemoryCache:
         await cache.set("key1", "value1")
         await cache.set("key2", "value2")
         await cache.set("key3", "value3")
-        
+
         # One of the first two should be evicted
         stats = await cache.stats()
         assert stats.size == 2
@@ -198,11 +195,11 @@ class TestInMemoryCache:
         """Test statistics tracking."""
         cache = InMemoryCache()
         await cache.set("key", "value")
-        
+
         await cache.get("key")  # Hit
         await cache.get("key")  # Hit
         await cache.get("nonexistent")  # Miss
-        
+
         stats = await cache.stats()
         assert stats.hits == 2
         assert stats.misses == 1
@@ -221,7 +218,7 @@ class TestTTLCache:
         """Test that entries get default TTL."""
         cache = TTLCache(default_ttl_seconds=3600)
         await cache.set("key", "value")
-        
+
         entry = await cache.get_entry("key")
         assert entry is not None
         assert entry.expires_at is not None
@@ -230,7 +227,7 @@ class TestTTLCache:
         """Test overriding default TTL."""
         cache = TTLCache(default_ttl_seconds=3600)
         await cache.set("key", "value", ttl_seconds=1)
-        
+
         entry = await cache.get_entry("key")
         assert entry is not None
         # Entry should expire much sooner than default
@@ -287,16 +284,16 @@ class TestCachedDecorator:
         """Test that results are cached."""
         cache = InMemoryCache()
         call_count = 0
-        
+
         @cached(cache=cache)
         async def expensive_fn(x: int) -> int:
             nonlocal call_count
             call_count += 1
             return x * 2
-        
+
         result1 = await expensive_fn(5)
         result2 = await expensive_fn(5)
-        
+
         assert result1 == 10
         assert result2 == 10
         assert call_count == 1  # Only called once
@@ -305,29 +302,29 @@ class TestCachedDecorator:
         """Test different args are computed separately."""
         cache = InMemoryCache()
         call_count = 0
-        
+
         @cached(cache=cache)
         async def fn(x: int) -> int:
             nonlocal call_count
             call_count += 1
             return x
-        
+
         await fn(1)
         await fn(2)
-        
+
         assert call_count == 2
 
     async def test_ttl_respected(self) -> None:
         """Test TTL is applied to cached values."""
         cache = InMemoryCache()
-        
+
         @cached(cache=cache, ttl_seconds=0)
         async def fn() -> str:
             return "value"
-        
+
         await fn()
         await asyncio.sleep(0.01)
-        
+
         # Should be expired, will compute again
         entry = await cache.get_entry("fn:" + cache_key())
         assert entry is None or entry.is_expired
@@ -335,22 +332,22 @@ class TestCachedDecorator:
     async def test_key_prefix(self) -> None:
         """Test key prefix is applied."""
         cache = InMemoryCache()
-        
+
         @cached(cache=cache, key_prefix="myprefix")
         async def fn() -> str:
             return "value"
-        
+
         await fn()
         assert await cache.exists("myprefix:" + cache_key())
 
     async def test_custom_key_fn(self) -> None:
         """Test custom key function."""
         cache = InMemoryCache()
-        
+
         @cached(cache=cache, key_fn=lambda x: f"custom_{x}")
         async def fn(x: int) -> int:
             return x
-        
+
         await fn(5)
         assert await cache.exists("fn:custom_5")
 
@@ -366,11 +363,11 @@ class TestMockCache:
     async def test_records_operations(self) -> None:
         """Test mock records all operations."""
         cache = MockCache()
-        
+
         await cache.set("key", "value")
         await cache.get("key")
         await cache.delete("key")
-        
+
         assert len(cache.operations) == 3
         assert cache.operations[0] == ("set", "key", "value")
         assert cache.operations[1] == ("get", "key", None)
@@ -381,7 +378,7 @@ class TestMockCache:
         cache = MockCache()
         await cache.get("key1")
         await cache.get("key2")
-        
+
         assert cache.get_calls == ["key1", "key2"]
 
     async def test_set_calls_property(self) -> None:
@@ -389,17 +386,17 @@ class TestMockCache:
         cache = MockCache()
         await cache.set("key1", "value1")
         await cache.set("key2", "value2")
-        
+
         assert cache.set_calls == [("key1", "value1"), ("key2", "value2")]
 
     async def test_preload(self) -> None:
         """Test preloading values."""
         cache = MockCache()
         cache.preload("key", "preloaded")
-        
+
         result = await cache.get("key")
         assert result == "preloaded"
-        
+
         # Preload shouldn't be in operations
         assert len([op for op in cache.operations if op[0] == "set"]) == 0
 
@@ -408,7 +405,6 @@ class TestMockCache:
         cache = MockCache()
         await cache.set("key", "value")
         cache.reset()
-        
+
         assert len(cache.operations) == 0
         assert await cache.get("key") is None
-

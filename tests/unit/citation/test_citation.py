@@ -6,16 +6,15 @@ from datetime import datetime
 
 import pytest
 
-from cemaf.citation.models import Citation, CitedFact, CitationRegistry
-from cemaf.citation.tracker import CitationTracker
-from cemaf.citation.rules import CitationRequiredRule, CitationFormatRule
 from cemaf.citation.mock import (
+    MockCitationTracker,
     create_mock_citation,
     create_mock_cited_fact,
-    MockCitationTracker,
 )
+from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+from cemaf.citation.rules import CitationFormatRule, CitationRequiredRule
+from cemaf.citation.tracker import CitationTracker
 from cemaf.retrieval.protocols import Document, SearchResult
-
 
 # =============================================================================
 # Citation Model Tests
@@ -297,9 +296,7 @@ class TestCitedFact:
 
     def test_citation_count(self) -> None:
         """Test citation_count returns correct count."""
-        citations = tuple(
-            create_mock_citation(id=f"cite-{i}") for i in range(3)
-        )
+        citations = tuple(create_mock_citation(id=f"cite-{i}") for i in range(3))
         fact = CitedFact(
             id="fact-001",
             fact="Well-cited fact",
@@ -337,9 +334,7 @@ class TestCitationRegistry:
     def test_register_many(self) -> None:
         """Test registering multiple citations."""
         registry = CitationRegistry()
-        citations = [
-            create_mock_citation(id=f"cite-{i}") for i in range(3)
-        ]
+        citations = [create_mock_citation(id=f"cite-{i}") for i in range(3)]
 
         registry.register_many(citations)
 
@@ -378,9 +373,7 @@ class TestCitationRegistry:
     def test_get_all_citations(self) -> None:
         """Test getting all citations."""
         registry = CitationRegistry()
-        citations = [
-            create_mock_citation(id=f"cite-{i}") for i in range(3)
-        ]
+        citations = [create_mock_citation(id=f"cite-{i}") for i in range(3)]
         registry.register_many(citations)
 
         all_citations = registry.get_all_citations()
@@ -468,14 +461,8 @@ class TestCitationTracker:
     def test_track_search_results(self) -> None:
         """Test tracking multiple search results."""
         tracker = MockCitationTracker()
-        docs = [
-            Document(id=f"doc-{i}", content=f"Content {i}")
-            for i in range(3)
-        ]
-        results = [
-            SearchResult(document=doc, score=0.9 - i * 0.1, rank=i)
-            for i, doc in enumerate(docs)
-        ]
+        docs = [Document(id=f"doc-{i}", content=f"Content {i}") for i in range(3)]
+        results = [SearchResult(document=doc, score=0.9 - i * 0.1, rank=i) for i, doc in enumerate(docs)]
 
         citations = tracker.track_search_results(results)
 

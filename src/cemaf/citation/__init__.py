@@ -8,14 +8,14 @@ Provides:
 - CitationTracker: Tracks citations through the retrieval/generation pipeline
 """
 
-from cemaf.citation.models import Citation, CitedFact, CitationRegistry
-from cemaf.citation.tracker import CitationTracker
-from cemaf.citation.rules import CitationFormatRule, CitationRequiredRule
 from cemaf.citation.mock import (
     MockCitationTracker,
     create_mock_citation,
     create_mock_cited_fact,
 )
+from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+from cemaf.citation.rules import CitationFormatRule, CitationRequiredRule
+from cemaf.citation.tracker import CitationTracker
 
 __all__ = [
     # Models

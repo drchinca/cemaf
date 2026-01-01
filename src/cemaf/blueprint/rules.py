@@ -4,8 +4,6 @@ Blueprint validation rules.
 Provides validation rules for Blueprint schemas and content quality.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from cemaf.blueprint.schema import Blueprint, Participant, SceneGoal
@@ -90,16 +88,15 @@ class BlueprintSchemaRule:
                     suggestion="Add a 'scene_goal' field with objective and constraints",
                 )
             )
-        elif isinstance(data.get("scene_goal"), dict):
-            if "objective" not in data["scene_goal"]:
-                errors.append(
-                    ValidationError(
-                        code="MISSING_OBJECTIVE",
-                        message="scene_goal requires 'objective' field",
-                        field="scene_goal.objective",
-                        suggestion="Add an 'objective' field to scene_goal",
-                    )
+        elif isinstance(data.get("scene_goal"), dict) and "objective" not in data["scene_goal"]:
+            errors.append(
+                ValidationError(
+                    code="MISSING_OBJECTIVE",
+                    message="scene_goal requires 'objective' field",
+                    field="scene_goal.objective",
+                    suggestion="Add an 'objective' field to scene_goal",
                 )
+            )
 
         if errors:
             return ValidationResult.failure(
@@ -183,10 +180,16 @@ class BlueprintContentRule:
             errors.append(
                 ValidationError(
                     code="OBJECTIVE_TOO_SHORT",
-                    message=f"Objective must be at least {self._min_objective_length} characters, got {len(objective)}",
+                    message=(
+                        f"Objective must be at least {self._min_objective_length} characters, "
+                        f"got {len(objective)}"
+                    ),
                     field="scene_goal.objective",
                     value=objective,
-                    suggestion=f"Provide a more detailed objective (at least {self._min_objective_length} characters)",
+                    suggestion=(
+                        f"Provide a more detailed objective "
+                        f"(at least {self._min_objective_length} characters)"
+                    ),
                 )
             )
 
@@ -195,10 +198,12 @@ class BlueprintContentRule:
             errors.append(
                 ValidationError(
                     code="INSTRUCTION_TOO_LONG",
-                    message=f"Instruction exceeds maximum length of {self._max_instruction_length} characters",
+                    message=(
+                        f"Instruction exceeds maximum length of {self._max_instruction_length} characters"
+                    ),
                     field="instruction",
                     value=len(instruction),
-                    suggestion=f"Reduce instruction to at most {self._max_instruction_length} characters",
+                    suggestion=(f"Reduce instruction to at most {self._max_instruction_length} characters"),
                 )
             )
 

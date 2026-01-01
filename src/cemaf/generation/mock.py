@@ -4,22 +4,20 @@ Mock generators for testing.
 These return placeholder outputs without calling external APIs.
 """
 
-from __future__ import annotations
-
 from cemaf.generation.protocols import (
-    ImageSpec,
     AudioSpec,
-    VideoSpec,
-    DiagramSpec,
-    UISpec,
     CodeSpec,
+    DiagramSpec,
+    ImageSpec,
     MediaOutput,
+    UISpec,
+    VideoSpec,
 )
 
 
 class MockImageGenerator:
     """Mock image generator for testing."""
-    
+
     def __init__(self, latency_ms: float = 0.0) -> None:
         self._latency = latency_ms
         self.call_count = 0
@@ -28,20 +26,21 @@ class MockImageGenerator:
     async def generate(self, spec: ImageSpec) -> MediaOutput:
         """Return mock image output."""
         import asyncio
+
         if self._latency:
             await asyncio.sleep(self._latency / 1000)
-        
+
         self.call_count += 1
         self.last_spec = spec
-        
+
         # Return a 1x1 PNG placeholder
         png_1x1 = (
-            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01'
-            b'\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00'
-            b'\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00'
-            b'\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+            b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
+            b"\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
+            b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
         )
-        
+
         return MediaOutput.ok(
             content=png_1x1,
             format=spec.format.value,
@@ -62,15 +61,12 @@ class MockImageGenerator:
     async def variations(self, image: bytes, count: int = 4) -> list[MediaOutput]:
         """Mock variations."""
         self.call_count += 1
-        return [
-            MediaOutput.ok(content=image, model="mock-image-v1")
-            for _ in range(count)
-        ]
+        return [MediaOutput.ok(content=image, model="mock-image-v1") for _ in range(count)]
 
 
 class MockAudioGenerator:
     """Mock audio generator for testing."""
-    
+
     def __init__(self) -> None:
         self.call_count = 0
         self.last_spec: AudioSpec | None = None
@@ -79,10 +75,10 @@ class MockAudioGenerator:
         """Return mock audio output."""
         self.call_count += 1
         self.last_spec = spec
-        
+
         # Minimal valid WAV header
-        wav_header = b'RIFF\x00\x00\x00\x00WAVEfmt '
-        
+        wav_header = b"RIFF\x00\x00\x00\x00WAVEfmt "
+
         return MediaOutput.ok(
             content=wav_header,
             format=spec.format.value,
@@ -110,7 +106,7 @@ class MockAudioGenerator:
 
 class MockVideoGenerator:
     """Mock video generator for testing."""
-    
+
     def __init__(self) -> None:
         self.call_count = 0
         self.last_spec: VideoSpec | None = None
@@ -119,7 +115,7 @@ class MockVideoGenerator:
         """Return mock video output."""
         self.call_count += 1
         self.last_spec = spec
-        
+
         return MediaOutput.ok(
             url="https://mock-cdn.example.com/video.mp4",
             format=spec.format.value,
@@ -152,7 +148,7 @@ class MockVideoGenerator:
 
 class MockDiagramGenerator:
     """Mock diagram generator for testing."""
-    
+
     def __init__(self) -> None:
         self.call_count = 0
         self.last_spec: DiagramSpec | None = None
@@ -161,15 +157,15 @@ class MockDiagramGenerator:
         """Return mock diagram output."""
         self.call_count += 1
         self.last_spec = spec
-        
+
         # Generate mock Mermaid code
         mermaid_code = f"""graph {spec.direction}
     A[Start] --> B[Process]
     B --> C[End]
-    
+
     %% Generated from: {spec.prompt[:50]}...
 """
-        
+
         return MediaOutput.ok(
             content_str=mermaid_code,
             format="mermaid",
@@ -189,9 +185,9 @@ class MockDiagramGenerator:
     async def render_mermaid(self, mermaid_code: str, format: str = "svg") -> MediaOutput:
         """Mock Mermaid rendering."""
         self.call_count += 1
-        
+
         if format == "svg":
-            svg = f'<svg><text>{mermaid_code[:20]}...</text></svg>'
+            svg = f"<svg><text>{mermaid_code[:20]}...</text></svg>"
             return MediaOutput.ok(content_str=svg, format="svg")
         else:
             return MediaOutput.ok(content=b"PNG", format="png")
@@ -199,7 +195,7 @@ class MockDiagramGenerator:
 
 class MockUIGenerator:
     """Mock UI/wireframe generator for testing."""
-    
+
     def __init__(self) -> None:
         self.call_count = 0
         self.last_spec: UISpec | None = None
@@ -208,9 +204,9 @@ class MockUIGenerator:
         """Return mock UI code."""
         self.call_count += 1
         self.last_spec = spec
-        
+
         if spec.framework == "react":
-            code = f'''// Generated: {spec.prompt[:30]}...
+            code = f"""// Generated: {spec.prompt[:30]}...
 import React from 'react';
 
 export function GeneratedComponent() {{
@@ -221,9 +217,9 @@ export function GeneratedComponent() {{
     </div>
   );
 }}
-'''
+"""
         elif spec.framework == "html":
-            code = f'''<!-- Generated: {spec.prompt[:30]}... -->
+            code = f"""<!-- Generated: {spec.prompt[:30]}... -->
 <!DOCTYPE html>
 <html>
 <head><title>Generated</title></head>
@@ -231,10 +227,10 @@ export function GeneratedComponent() {{
   <h1>Generated UI</h1>
 </body>
 </html>
-'''
+"""
         else:
             code = f"// {spec.framework} component for: {spec.prompt}"
-        
+
         return MediaOutput.ok(
             content_str=code,
             format=spec.framework,
@@ -266,7 +262,7 @@ export function GeneratedComponent() {{
 
 class MockCodeGenerator:
     """Mock code generator for testing."""
-    
+
     def __init__(self) -> None:
         self.call_count = 0
         self.last_spec: CodeSpec | None = None
@@ -275,9 +271,9 @@ class MockCodeGenerator:
         """Return mock generated code."""
         self.call_count += 1
         self.last_spec = spec
-        
+
         lang = spec.language.value
-        
+
         if lang == "python":
             code = f'''"""
 Generated: {spec.prompt[:40]}...
@@ -295,17 +291,17 @@ def test_generated_function():
     assert generated_function() is None
 '''
         elif lang == "typescript":
-            code = f'''/**
+            code = f"""/**
  * Generated: {spec.prompt[:40]}...
  */
 
 export function generatedFunction(): void {{
   // Implementation
 }}
-'''
+"""
         else:
             code = f"// Generated {lang} code for: {spec.prompt}"
-        
+
         return MediaOutput.ok(
             content_str=code,
             format=lang,
@@ -352,4 +348,3 @@ export function generatedFunction(): void {{
             format="markdown",
             model="mock-code-v1",
         )
-

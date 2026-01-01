@@ -14,8 +14,8 @@ Email: kuri@brighthive.io, drchinca@gmail.com
 
 __version__ = "0.1.0"
 
-from cemaf.core.types import JSON, AgentID, NodeID, RunID, SkillID, ToolID
 from cemaf.core.enums import AgentStatus, MemoryScope, NodeType, RunStatus
+from cemaf.core.types import JSON, AgentID, NodeID, RunID, SkillID, ToolID
 
 __all__ = [
     "__version__",
@@ -32,4 +32,3 @@ __all__ = [
     "NodeType",
     "RunStatus",
 ]
-

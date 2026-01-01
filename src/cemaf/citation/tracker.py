@@ -5,14 +5,11 @@ Provides:
 - CitationTracker: Tracks citations through the pipeline
 """
 
-from __future__ import annotations
-
 import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any
 
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
-from cemaf.core.types import JSON
 
 if TYPE_CHECKING:
     from cemaf.events.protocols import EventBus

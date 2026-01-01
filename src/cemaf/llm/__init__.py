@@ -6,19 +6,33 @@ Provides:
 - Message types for conversations
 - Completion/streaming results
 - Adapters for OpenAI, Anthropic, etc.
+
+Configuration:
+    See cemaf.config.protocols.LLMSettings for available settings.
+    Environment variables: CEMAF_LLM_*
+
+Usage:
+    # Recommended: Use factory with configuration
+    from cemaf.llm import create_llm_client_from_config
+    client = create_llm_client_from_config()
+
+    # Direct instantiation
+    from cemaf.llm import MockLLMClient
+    client = MockLLMClient()
 """
 
+from cemaf.llm.factories import create_llm_client_from_config, create_mock_llm_client
+from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import (
+    CompletionResult,
     LLMClient,
     LLMConfig,
     Message,
     MessageRole,
-    CompletionResult,
     StreamChunk,
     ToolCall,
     ToolDefinition,
 )
-from cemaf.llm.mock import MockLLMClient
 
 __all__ = [
     # Protocols
@@ -33,7 +47,9 @@ __all__ = [
     # Tool calling
     "ToolCall",
     "ToolDefinition",
+    # Factories
+    "create_llm_client_from_config",
+    "create_mock_llm_client",
     # Mock
     "MockLLMClient",
 ]
-

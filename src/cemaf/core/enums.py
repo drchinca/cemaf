@@ -4,7 +4,7 @@ Core enums for the framework.
 All status enums, type enums, and scope enums live here.
 """
 
-from enum import Enum, auto
+from enum import Enum
 
 
 class AgentStatus(str, Enum):
@@ -70,4 +70,3 @@ class Priority(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-

@@ -4,11 +4,10 @@ External notifier implementations.
 Provides webhook, logging, and composite notifiers.
 """
 
-from __future__ import annotations
-
 import json
 import logging
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from cemaf.events.protocols import Event, Notifier, NotifyResult
 
@@ -18,12 +17,12 @@ logger = logging.getLogger(__name__)
 class WebhookNotifier:
     """
     Send events to a webhook URL.
-    
+
     Note: This is a protocol-compliant shell. For actual HTTP calls,
     inject an HTTP client or extend with your preferred library
     (httpx, aiohttp, etc.).
     """
-    
+
     def __init__(
         self,
         url: str,
@@ -34,7 +33,7 @@ class WebhookNotifier:
     ) -> None:
         """
         Initialize webhook notifier.
-        
+
         Args:
             url: Webhook URL to POST to.
             headers: Additional HTTP headers.
@@ -47,15 +46,15 @@ class WebhookNotifier:
         self._timeout = timeout_seconds
         self._name = name or f"webhook:{url}"
         self._http_client = http_client
-    
+
     @property
     def name(self) -> str:
         return self._name
-    
+
     async def notify(self, event: Event) -> NotifyResult:
         """
         Send event to webhook.
-        
+
         If no HTTP client is configured, returns a placeholder result.
         """
         payload = {
@@ -67,7 +66,7 @@ class WebhookNotifier:
             "correlation_id": event.correlation_id,
             "metadata": event.metadata,
         }
-        
+
         if self._http_client is None:
             # No HTTP client - log and return placeholder
             logger.info(
@@ -75,10 +74,8 @@ class WebhookNotifier:
                 event.type,
                 self._url,
             )
-            return NotifyResult.ok(
-                f"Webhook prepared (no HTTP client): {self._url}"
-            )
-        
+            return NotifyResult.ok(f"Webhook prepared (no HTTP client): {self._url}")
+
         try:
             # If client is provided, attempt to use it
             # This assumes an httpx-like interface
@@ -91,15 +88,15 @@ class WebhookNotifier:
                 },
                 timeout=self._timeout,
             )
-            
+
             if response.status_code >= 400:
                 return NotifyResult.fail(
                     f"Webhook returned {response.status_code}",
                     retry_after=60 if response.status_code >= 500 else None,
                 )
-            
+
             return NotifyResult.ok(f"Webhook delivered: {response.status_code}")
-            
+
         except Exception as e:
             return NotifyResult.fail(str(e), retry_after=30)
 
@@ -107,10 +104,10 @@ class WebhookNotifier:
 class LoggingNotifier:
     """
     Log events using Python logging.
-    
+
     Useful for development/debugging or as a fallback.
     """
-    
+
     def __init__(
         self,
         logger_name: str = "cemaf.events",
@@ -119,7 +116,7 @@ class LoggingNotifier:
     ) -> None:
         """
         Initialize logging notifier.
-        
+
         Args:
             logger_name: Logger name to use.
             level: Logging level.
@@ -128,11 +125,11 @@ class LoggingNotifier:
         self._logger = logging.getLogger(logger_name)
         self._level = level
         self._name = name
-    
+
     @property
     def name(self) -> str:
         return self._name
-    
+
     async def notify(self, event: Event) -> NotifyResult:
         """Log the event."""
         self._logger.log(
@@ -148,10 +145,10 @@ class LoggingNotifier:
 class CompositeNotifier:
     """
     Send events to multiple notifiers.
-    
+
     Aggregates results from all notifiers.
     """
-    
+
     def __init__(
         self,
         notifiers: Sequence[Notifier],
@@ -160,7 +157,7 @@ class CompositeNotifier:
     ) -> None:
         """
         Initialize composite notifier.
-        
+
         Args:
             notifiers: Notifiers to delegate to.
             fail_fast: Stop on first failure.
@@ -169,29 +166,29 @@ class CompositeNotifier:
         self._notifiers = list(notifiers)
         self._fail_fast = fail_fast
         self._name = name
-    
+
     @property
     def name(self) -> str:
         return self._name
-    
+
     def add_notifier(self, notifier: Notifier) -> None:
         """Add a notifier."""
         self._notifiers.append(notifier)
-    
+
     async def notify(self, event: Event) -> NotifyResult:
         """
         Send to all notifiers.
-        
+
         Returns success if all notifiers succeed, otherwise returns
         the first failure.
         """
         results: list[NotifyResult] = []
         errors: list[str] = []
-        
+
         for notifier in self._notifiers:
             result = await notifier.notify(event)
             results.append(result)
-            
+
             if not result.success:
                 errors.append(f"{notifier.name}: {result.error}")
                 if self._fail_fast:
@@ -199,15 +196,12 @@ class CompositeNotifier:
                         f"Failed at {notifier.name}: {result.error}",
                         retry_after=result.retry_after,
                     )
-        
+
         if errors:
             return NotifyResult(
                 success=False,
                 error=f"Partial failure: {'; '.join(errors)}",
                 metadata={"errors": errors},
             )
-        
-        return NotifyResult.ok(
-            f"Notified {len(self._notifiers)} targets"
-        )
 
+        return NotifyResult.ok(f"Notified {len(self._notifiers)} targets")

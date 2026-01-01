@@ -4,6 +4,24 @@
 
 Context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone OR plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
+## Installation
+
+```bash
+# Minimal installation (core only)
+pip install cemaf
+
+# With optional dependencies
+pip install "cemaf[tiktoken]"      # Accurate token counting
+pip install "cemaf[openai]"        # OpenAI integration
+pip install "cemaf[anthropic]"    # Anthropic integration
+pip install "cemaf[all]"           # All optional dependencies
+
+# Development installation
+pip install -e ".[dev]"
+```
+
+**Python 3.14+ required**
+
 ## The Hard Problems We Solve
 
 | Problem | What Happens | CEMAF Solution |
@@ -112,10 +130,40 @@ assert result.final_context == record.final_context  # Deterministic!
 - **🔒 Memory Boundaries**: Strict scoping prevents state leaks
 - **⚡ Cancellation**: Cooperative cancellation with timeouts
 - **🔧 Protocol-Based**: Plug into any framework
+- **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
+
+## Configuration
+
+CEMAF is designed for zero-config startup with production-ready defaults. Customize via environment variables:
+
+```bash
+# Copy example configuration
+cp .env.example .env
+
+# Configure your setup
+CEMAF_LLM_PROVIDER=openai
+CEMAF_LLM_API_KEY=your-key
+CEMAF_CACHE_BACKEND=redis
+CEMAF_CACHE_MAX_SIZE=10000
+```
+
+Use factories for automatic configuration loading:
+
+```python
+from cemaf.llm import create_llm_client_from_config
+from cemaf.cache import create_cache_from_config
+
+# Automatically loads from .env or environment
+client = create_llm_client_from_config()
+cache = create_cache_from_config()
+```
+
+See [Configuration Guide](docs/config.md) for all available settings.
 
 ## Project Stats
 
-- **519 tests** | **55 fixtures** | **TDD from day one**
+- **814 tests** | **100% passing** | **TDD from day one**
+- **Python 3.14+** | **Fully typed** | **Protocol-based design**
 - **MIT License**
 
 ## Testing

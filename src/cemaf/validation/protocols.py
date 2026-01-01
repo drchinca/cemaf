@@ -4,8 +4,6 @@ Validation protocols and base types.
 Defines the contracts for validators, rules, and validation results.
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
@@ -16,7 +14,7 @@ from cemaf.core.types import JSON
 
 class ValidationSeverity(str, Enum):
     """Severity level for validation issues."""
-    
+
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
@@ -24,9 +22,9 @@ class ValidationSeverity(str, Enum):
 
 class ValidationError(BaseModel):
     """A validation error."""
-    
+
     model_config = {"frozen": True}
-    
+
     code: str
     message: str
     field: str | None = None
@@ -36,9 +34,9 @@ class ValidationError(BaseModel):
 
 class ValidationWarning(BaseModel):
     """A validation warning (non-blocking)."""
-    
+
     model_config = {"frozen": True}
-    
+
     code: str
     message: str
     field: str | None = None
@@ -48,24 +46,24 @@ class ValidationWarning(BaseModel):
 class ValidationResult(BaseModel):
     """
     Result of a validation operation.
-    
+
     Contains errors (blocking), warnings (non-blocking),
     and suggestions for repair.
     """
-    
+
     model_config = {"frozen": True}
-    
+
     passed: bool
     errors: tuple[ValidationError, ...] = ()
     warnings: tuple[ValidationWarning, ...] = ()
     suggestions: tuple[str, ...] = ()
     metadata: JSON = Field(default_factory=dict)
-    
+
     @classmethod
     def success(cls, warnings: tuple[ValidationWarning, ...] = ()) -> ValidationResult:
         """Create a successful validation result."""
         return cls(passed=True, warnings=warnings)
-    
+
     @classmethod
     def failure(
         cls,
@@ -80,7 +78,7 @@ class ValidationResult(BaseModel):
             warnings=warnings,
             suggestions=suggestions,
         )
-    
+
     @classmethod
     def error(
         cls,
@@ -101,7 +99,7 @@ class ValidationResult(BaseModel):
             ),
             suggestions=(suggestion,) if suggestion else (),
         )
-    
+
     def merge(self, other: ValidationResult) -> ValidationResult:
         """Merge two validation results."""
         return ValidationResult(
@@ -117,23 +115,23 @@ class ValidationResult(BaseModel):
 class Rule(Protocol):
     """
     Protocol for validation rules.
-    
+
     A Rule checks a single aspect of data validity.
     """
-    
+
     @property
     def name(self) -> str:
         """Unique identifier for this rule."""
         ...
-    
+
     async def check(self, data: Any, context: JSON | None = None) -> ValidationResult:
         """
         Check data against this rule.
-        
+
         Args:
             data: The data to validate.
             context: Optional context for validation (e.g., user info).
-            
+
         Returns:
             ValidationResult indicating pass/fail with details.
         """
@@ -144,20 +142,19 @@ class Rule(Protocol):
 class Validator(Protocol):
     """
     Protocol for validators.
-    
+
     A Validator can validate data using one or more rules.
     """
-    
+
     async def validate(self, data: Any, context: JSON | None = None) -> ValidationResult:
         """
         Validate data.
-        
+
         Args:
             data: The data to validate.
             context: Optional context for validation.
-            
+
         Returns:
             ValidationResult with all errors and warnings.
         """
         ...
-

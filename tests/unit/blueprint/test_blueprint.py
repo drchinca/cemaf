@@ -5,16 +5,15 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from cemaf.blueprint.builder import BlueprintBuilder
+from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
+from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
 from cemaf.blueprint.schema import (
     Blueprint,
     Participant,
     SceneGoal,
     StyleGuide,
 )
-from cemaf.blueprint.builder import BlueprintBuilder
-from cemaf.blueprint.rules import BlueprintSchemaRule, BlueprintContentRule
-from cemaf.blueprint.mock import create_mock_blueprint, MockBlueprintRegistry
-
 
 # =============================================================================
 # SceneGoal Tests
@@ -273,9 +272,7 @@ class TestBlueprint:
         """Test to_prompt includes style section when non-empty."""
         goal = SceneGoal(objective="Test objective")
         style = StyleGuide(tone="professional", format="markdown")
-        blueprint = Blueprint(
-            id="bp-1", name="Test", scene_goal=goal, style_guide=style
-        )
+        blueprint = Blueprint(id="bp-1", name="Test", scene_goal=goal, style_guide=style)
         prompt = blueprint.to_prompt()
 
         assert "## Style Guide" in prompt
@@ -285,12 +282,8 @@ class TestBlueprint:
     def test_to_prompt_with_participants(self) -> None:
         """Test to_prompt includes participants section."""
         goal = SceneGoal(objective="Test objective")
-        participant = Participant(
-            name="Writer", role="Content Creator", traits=("creative",)
-        )
-        blueprint = Blueprint(
-            id="bp-1", name="Test", scene_goal=goal, participants=(participant,)
-        )
+        participant = Participant(name="Writer", role="Content Creator", traits=("creative",))
+        blueprint = Blueprint(id="bp-1", name="Test", scene_goal=goal, participants=(participant,))
         prompt = blueprint.to_prompt()
 
         assert "## Participants" in prompt
@@ -348,11 +341,7 @@ class TestBlueprintBuilder:
 
     def test_basic_build(self) -> None:
         """Test building a basic blueprint."""
-        blueprint = (
-            BlueprintBuilder("bp-1", "Test Blueprint")
-            .with_goal("Test objective")
-            .build()
-        )
+        blueprint = BlueprintBuilder("bp-1", "Test Blueprint").with_goal("Test objective").build()
 
         assert blueprint.id == "bp-1"
         assert blueprint.name == "Test Blueprint"
@@ -379,10 +368,7 @@ class TestBlueprintBuilder:
     def test_with_description(self) -> None:
         """Test with_description method."""
         blueprint = (
-            BlueprintBuilder("bp-1", "Test")
-            .with_description("A description")
-            .with_goal("Objective")
-            .build()
+            BlueprintBuilder("bp-1", "Test").with_description("A description").with_goal("Objective").build()
         )
         assert blueprint.description == "A description"
 
@@ -471,21 +457,13 @@ class TestBlueprintBuilder:
 
     def test_with_version(self) -> None:
         """Test with_version method."""
-        blueprint = (
-            BlueprintBuilder("bp-1", "Test")
-            .with_goal("Objective")
-            .with_version("2.0")
-            .build()
-        )
+        blueprint = BlueprintBuilder("bp-1", "Test").with_goal("Objective").with_version("2.0").build()
         assert blueprint.version == "2.0"
 
     def test_with_tags(self) -> None:
         """Test with_tags method."""
         blueprint = (
-            BlueprintBuilder("bp-1", "Test")
-            .with_goal("Objective")
-            .with_tags("tag1", "tag2", "tag3")
-            .build()
+            BlueprintBuilder("bp-1", "Test").with_goal("Objective").with_tags("tag1", "tag2", "tag3").build()
         )
         assert len(blueprint.tags) == 3
         assert "tag1" in blueprint.tags
@@ -619,9 +597,7 @@ class TestBlueprintContentRule:
     async def test_valid_content(self) -> None:
         """Test valid content passes."""
         rule = BlueprintContentRule()
-        blueprint = create_mock_blueprint(
-            objective="This is a sufficiently long objective"
-        )
+        blueprint = create_mock_blueprint(objective="This is a sufficiently long objective")
         result = await rule.check(blueprint)
         assert result.passed is True
 

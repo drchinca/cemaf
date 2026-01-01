@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import pytest
 
-from cemaf.config.protocols import (
-    ConfigLoadError,
-    Settings,
-    LLMSettings,
-    MemorySettings,
-)
 from cemaf.config.loader import (
-    EnvConfigSource,
     DictConfigSource,
+    EnvConfigSource,
     SettingsProviderImpl,
 )
 from cemaf.config.mock import InMemoryConfigSource
-
+from cemaf.config.protocols import (
+    LLMSettings,
+    Settings,
+)
 
 # =============================================================================
 # EnvConfigSource Tests
@@ -135,7 +131,7 @@ class TestDictConfigSource:
         source = DictConfigSource(data)
         result = await source.load()
         result["key"] = "modified"
-        
+
         result2 = await source.load()
         assert result2["key"] == "value"
 
@@ -270,4 +266,3 @@ class TestSettings:
         """Test custom settings storage."""
         settings = Settings(custom={"my_key": "my_value"})
         assert settings.custom["my_key"] == "my_value"
-

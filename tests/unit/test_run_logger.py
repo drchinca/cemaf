@@ -1,16 +1,15 @@
 """Tests for run logger."""
 
 import pytest
-from datetime import datetime
 
 from cemaf.context.context import Context
-from cemaf.context.patch import ContextPatch, PatchSource
+from cemaf.context.patch import ContextPatch
 from cemaf.observability.run_logger import (
-    ToolCall,
-    LLMCall,
-    RunRecord,
     InMemoryRunLogger,
+    LLMCall,
     NoOpRunLogger,
+    RunRecord,
+    ToolCall,
 )
 
 
@@ -116,12 +115,8 @@ class TestRunRecord:
     def test_record_with_calls(self) -> None:
         """Test record with tool and LLM calls."""
         record = RunRecord(run_id="run-123")
-        record.tool_calls.append(
-            ToolCall(tool_id="tool1", input={}, output={})
-        )
-        record.tool_calls.append(
-            ToolCall(tool_id="tool2", input={}, output={})
-        )
+        record.tool_calls.append(ToolCall(tool_id="tool1", input={}, output={}))
+        record.tool_calls.append(ToolCall(tool_id="tool2", input={}, output={}))
         record.llm_calls.append(
             LLMCall(
                 model="gpt-4",
@@ -154,9 +149,7 @@ class TestRunRecord:
             dag_name="test_dag",
             initial_context=ctx,
         )
-        record.tool_calls.append(
-            ToolCall(tool_id="tool1", input={}, output={})
-        )
+        record.tool_calls.append(ToolCall(tool_id="tool1", input={}, output={}))
 
         data = record.to_dict()
         restored = RunRecord.from_dict(data)
@@ -182,9 +175,7 @@ class TestInMemoryRunLogger:
         )
 
         # Record tool call
-        logger.record_tool_call(
-            ToolCall(tool_id="tool1", input={"x": 1}, output={"y": 2})
-        )
+        logger.record_tool_call(ToolCall(tool_id="tool1", input={"x": 1}, output={"y": 2}))
 
         # Record patch
         logger.record_patch(ContextPatch.set("result", 42))
@@ -290,9 +281,7 @@ class TestNoOpRunLogger:
 
         # All operations should work without error
         logger.start_run(run_id="run-123")
-        logger.record_tool_call(
-            ToolCall(tool_id="tool1", input={}, output={})
-        )
+        logger.record_tool_call(ToolCall(tool_id="tool1", input={}, output={}))
         logger.record_patch(ContextPatch.set("a", 1))
         record = logger.end_run()
 

@@ -7,15 +7,12 @@ This module provides:
 - ReplayResult: Result of a replay operation
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass, field
-from datetime import datetime
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from cemaf.context.context import Context
-from cemaf.context.patch import PatchLog
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 from cemaf.observability.run_logger import RunRecord, ToolCall
@@ -208,9 +205,7 @@ class Replayer:
                 expected = self._mock_tools[patch.source_id]
                 # Record any divergence
                 if patch.value != expected:
-                    divergences.append(
-                        f"Tool '{patch.source_id}' mock differs from recorded value"
-                    )
+                    divergences.append(f"Tool '{patch.source_id}' mock differs from recorded value")
 
             tools_replayed += 1
 
@@ -241,9 +236,7 @@ class Replayer:
 
                 # Compare with recorded output
                 if result != tool_call.output:
-                    divergences.append(
-                        f"Tool '{tool_id}' output differs from recorded"
-                    )
+                    divergences.append(f"Tool '{tool_id}' output differs from recorded")
 
                 tools_replayed += 1
 
@@ -319,8 +312,6 @@ class Replayer:
         patches = replayed_context.diff(recorded)
 
         for patch in patches:
-            differences.append(
-                f"{patch.operation.value} at '{patch.path}': {patch.value}"
-            )
+            differences.append(f"{patch.operation.value} at '{patch.path}': {patch.value}")
 
         return len(differences) == 0, differences

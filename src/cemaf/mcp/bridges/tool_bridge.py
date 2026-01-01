@@ -1,8 +1,8 @@
 """Bridge CEMAF Tools to MCP tool format."""
-from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any
+
 from cemaf.mcp.types import MCPToolDefinition, MCPToolResult
-from cemaf.mcp.protocols import MCPResponse, MCPError
 
 if TYPE_CHECKING:
     from cemaf.tools.base import Tool
@@ -52,6 +52,7 @@ class ToolBridge:
                 return MCPToolResult.text(value)
             elif isinstance(value, dict):
                 import json
+
                 return MCPToolResult.text(json.dumps(value, indent=2))
             else:
                 return MCPToolResult.text(str(value))

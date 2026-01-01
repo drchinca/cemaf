@@ -5,8 +5,6 @@ Based on Denis Rothman's Semantic Blueprint concept for structured context engin
 A blueprint defines HOW to accomplish a task, separate from WHAT data to use.
 """
 
-from __future__ import annotations
-
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import JSON

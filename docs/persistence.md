@@ -75,4 +75,3 @@ artifact = ContextArtifact(
     version=1
 )
 ```
-

@@ -1,5 +1,6 @@
 """Mock implementations for citation testing."""
-from cemaf.citation.models import Citation, CitedFact, CitationRegistry
+
+from cemaf.citation.models import Citation, CitationRegistry, CitedFact
 from cemaf.citation.tracker import CitationTracker
 
 

@@ -4,8 +4,6 @@ Basic evaluators - Deterministic evaluation strategies.
 These evaluators don't require LLM calls.
 """
 
-from __future__ import annotations
-
 import json
 import re
 from typing import Any
@@ -22,7 +20,7 @@ from cemaf.evals.protocols import (
 class ExactMatchEvaluator(BaseEvaluator):
     """
     Evaluates exact string match.
-    
+
     Case sensitivity and whitespace handling configurable.
     """
 
@@ -49,20 +47,20 @@ class ExactMatchEvaluator(BaseEvaluator):
         """Check exact match."""
         if expected is None:
             return self._make_result(0.0, "No expected value provided")
-        
+
         out_str = str(output)
         exp_str = str(expected)
-        
+
         if self._strip_whitespace:
             out_str = out_str.strip()
             exp_str = exp_str.strip()
-        
+
         if not self._case_sensitive:
             out_str = out_str.lower()
             exp_str = exp_str.lower()
-        
+
         matches = out_str == exp_str
-        
+
         return self._make_result(
             score=1.0 if matches else 0.0,
             reason="Exact match" if matches else "Output does not match expected",
@@ -74,7 +72,7 @@ class ExactMatchEvaluator(BaseEvaluator):
 class ContainsEvaluator(BaseEvaluator):
     """
     Evaluates if output contains expected substring(s).
-    
+
     Can check for multiple substrings with AND/OR logic.
     """
 
@@ -101,9 +99,9 @@ class ContainsEvaluator(BaseEvaluator):
         """Check if output contains expected substring(s)."""
         if expected is None:
             return self._make_result(0.0, "No expected value provided")
-        
+
         out_str = str(output)
-        
+
         # Handle single string or list of strings
         if isinstance(expected, str):
             substrings = [expected]
@@ -111,14 +109,14 @@ class ContainsEvaluator(BaseEvaluator):
             substrings = [str(s) for s in expected]
         else:
             substrings = [str(expected)]
-        
+
         if not self._case_sensitive:
             out_str = out_str.lower()
             substrings = [s.lower() for s in substrings]
-        
+
         found = [s for s in substrings if s in out_str]
         not_found = [s for s in substrings if s not in out_str]
-        
+
         if self._require_all:
             # AND logic
             score = len(found) / len(substrings) if substrings else 0.0
@@ -129,7 +127,7 @@ class ContainsEvaluator(BaseEvaluator):
             score = 1.0 if found else 0.0
             passed = len(found) > 0
             reason = f"Found: {found}" if passed else "No substrings found"
-        
+
         return self._make_result(
             score=score,
             reason=reason,
@@ -166,9 +164,9 @@ class RegexEvaluator(BaseEvaluator):
         """Check if output matches regex pattern(s)."""
         if expected is None:
             return self._make_result(0.0, "No pattern provided")
-        
+
         out_str = str(output)
-        
+
         # Handle single pattern or list
         if isinstance(expected, str):
             patterns = [expected]
@@ -176,10 +174,10 @@ class RegexEvaluator(BaseEvaluator):
             patterns = [str(p) for p in expected]
         else:
             patterns = [str(expected)]
-        
+
         matched: list[str] = []
         not_matched: list[str] = []
-        
+
         for pattern in patterns:
             try:
                 if re.search(pattern, out_str, self._flags):
@@ -188,14 +186,12 @@ class RegexEvaluator(BaseEvaluator):
                     not_matched.append(pattern)
             except re.error as e:
                 return self._make_result(0.0, f"Invalid regex: {e}")
-        
+
         if self._require_all:
             score = len(matched) / len(patterns) if patterns else 0.0
-            passed = len(not_matched) == 0
         else:
             score = 1.0 if matched else 0.0
-            passed = len(matched) > 0
-        
+
         return self._make_result(
             score=score,
             reason=f"Matched {len(matched)}/{len(patterns)} patterns",
@@ -233,22 +229,19 @@ class LengthEvaluator(BaseEvaluator):
     ) -> EvalResult:
         """Check if output length is within bounds."""
         out_str = str(output)
-        
-        if self._unit == "words":
-            length = len(out_str.split())
-        else:
-            length = len(out_str)
-        
+
+        length = len(out_str.split()) if self._unit == "words" else len(out_str)
+
         issues: list[str] = []
-        
+
         if self._min is not None and length < self._min:
             issues.append(f"too short ({length} < {self._min})")
-        
+
         if self._max is not None and length > self._max:
             issues.append(f"too long ({length} > {self._max})")
-        
+
         passed = len(issues) == 0
-        
+
         # Calculate score based on how close to acceptable range
         if passed:
             score = 1.0
@@ -258,7 +251,7 @@ class LengthEvaluator(BaseEvaluator):
             score = self._max / length
         else:
             score = 0.0
-        
+
         return self._make_result(
             score=score,
             reason=f"Length: {length} {self._unit}" + (f" ({', '.join(issues)})" if issues else ""),
@@ -293,7 +286,7 @@ class JSONSchemaEvaluator(BaseEvaluator):
         """Check if output is valid JSON (and matches schema if provided)."""
         # Use provided schema or expected as schema
         schema = self._schema or expected
-        
+
         # Try to parse as JSON
         if isinstance(output, str):
             try:
@@ -306,7 +299,7 @@ class JSONSchemaEvaluator(BaseEvaluator):
                 )
         else:
             parsed = output
-        
+
         # If no schema, just validate JSON
         if not schema:
             return self._make_result(
@@ -314,11 +307,11 @@ class JSONSchemaEvaluator(BaseEvaluator):
                 reason="Valid JSON",
                 actual=type(parsed).__name__,
             )
-        
+
         # Simple schema validation (type checking)
         # For full JSON Schema validation, use jsonschema library
         schema_type = schema.get("type") if isinstance(schema, dict) else None
-        
+
         type_map = {
             "object": dict,
             "array": list,
@@ -328,7 +321,7 @@ class JSONSchemaEvaluator(BaseEvaluator):
             "boolean": bool,
             "null": type(None),
         }
-        
+
         if schema_type and schema_type in type_map:
             expected_type = type_map[schema_type]
             if not isinstance(parsed, expected_type):
@@ -338,7 +331,7 @@ class JSONSchemaEvaluator(BaseEvaluator):
                     expected=schema_type,
                     actual=type(parsed).__name__,
                 )
-        
+
         # Check required properties for objects
         if isinstance(parsed, dict) and isinstance(schema, dict):
             required = schema.get("required", [])
@@ -350,10 +343,9 @@ class JSONSchemaEvaluator(BaseEvaluator):
                     expected=required,
                     actual=list(parsed.keys()),
                 )
-        
+
         return self._make_result(
             score=1.0,
             reason="Matches schema",
             expected=schema,
         )
-

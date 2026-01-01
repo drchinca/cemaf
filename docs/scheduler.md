@@ -72,4 +72,3 @@ await executor.add_job(
 # Run now
 await executor.run_now("daily_task")
 ```
-

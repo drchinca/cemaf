@@ -4,6 +4,21 @@ Moderation module for content safety and compliance.
 Provides rules, gates, and utilities for content moderation.
 """
 
+from cemaf.moderation.gates import (
+    CompositeGate,
+    PostFlightGate,
+    PreFlightGate,
+)
+from cemaf.moderation.mock import (
+    AlwaysBlockGate,
+    AlwaysBlockRule,
+    AlwaysPassGate,
+    AlwaysPassRule,
+    MockModerationPipeline,
+    RecordingGate,
+    RecordingRule,
+)
+from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.moderation.protocols import (
     ModerationGate,
     ModerationResult,
@@ -16,21 +31,6 @@ from cemaf.moderation.rules import (
     LengthRule,
     PatternRule,
     PIIRule,
-)
-from cemaf.moderation.gates import (
-    CompositeGate,
-    PostFlightGate,
-    PreFlightGate,
-)
-from cemaf.moderation.pipeline import ModerationPipeline
-from cemaf.moderation.mock import (
-    AlwaysBlockGate,
-    AlwaysBlockRule,
-    AlwaysPassGate,
-    AlwaysPassRule,
-    MockModerationPipeline,
-    RecordingGate,
-    RecordingRule,
 )
 
 __all__ = [

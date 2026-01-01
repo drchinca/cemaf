@@ -5,8 +5,6 @@ Provides rules for validating citations in content.
 These rules implement the Rule protocol from the validation module.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from cemaf.core.types import JSON
@@ -16,7 +14,7 @@ from cemaf.validation.protocols import (
 )
 
 if TYPE_CHECKING:
-    from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+    pass
 
 
 class CitationRequiredRule:
@@ -78,9 +76,13 @@ class CitationRequiredRule:
                 warnings.append(
                     ValidationWarning(
                         code="INSUFFICIENT_CITATIONS",
-                        message=f"Fact has {data.citation_count} citations, minimum is {self._min_citations}",
+                        message=(
+                            f"Fact has {data.citation_count} citations, minimum is {self._min_citations}"
+                        ),
                         field="citations",
-                        suggestion=f"Add at least {self._min_citations - data.citation_count} more citation(s)",
+                        suggestion=(
+                            f"Add at least {self._min_citations - data.citation_count} more citation(s)"
+                        ),
                     )
                 )
 

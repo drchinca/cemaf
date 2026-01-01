@@ -4,10 +4,7 @@ Hybrid retrieval - Combines vector and keyword search.
 Uses Reciprocal Rank Fusion (RRF) to merge results.
 """
 
-from __future__ import annotations
-
-from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
 
 from pydantic import BaseModel
 
@@ -16,7 +13,6 @@ from cemaf.retrieval.protocols import (
     Document,
     SearchResult,
     VectorStore,
-    EmbeddingProvider,
 )
 
 
@@ -28,13 +24,13 @@ class RetrievalConfig(BaseModel):
     # Number of results from each source
     vector_k: int = 20
     keyword_k: int = 20
-    
+
     # Final number of results
     final_k: int = 10
-    
+
     # RRF constant (higher = more weight to rank)
     rrf_k: int = 60
-    
+
     # Weight for vector vs keyword (0.0 = keyword only, 1.0 = vector only)
     vector_weight: float = 0.5
 
@@ -46,28 +42,28 @@ def reciprocal_rank_fusion(
 ) -> list[tuple[str, float]]:
     """
     Merge multiple rankings using Reciprocal Rank Fusion.
-    
+
     RRF score = sum(weight / (k + rank))
-    
+
     Args:
         rankings: List of ranked document ID lists
         k: RRF constant
         weights: Optional weights for each ranking
-    
+
     Returns:
         List of (doc_id, score) sorted by score descending
     """
     if weights is None:
         weights = [1.0] * len(rankings)
-    
+
     scores: dict[str, float] = {}
-    
-    for ranking, weight in zip(rankings, weights):
+
+    for ranking, weight in zip(rankings, weights, strict=False):
         for rank, doc_id in enumerate(ranking):
             if doc_id not in scores:
                 scores[doc_id] = 0.0
             scores[doc_id] += weight / (k + rank + 1)
-    
+
     # Sort by score descending
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     return sorted_scores
@@ -76,9 +72,9 @@ def reciprocal_rank_fusion(
 class HybridRetriever:
     """
     Hybrid retriever combining vector and keyword search.
-    
+
     Uses RRF to merge results from both sources.
-    
+
     Usage:
         retriever = HybridRetriever(
             vector_store=my_vector_store,
@@ -106,30 +102,30 @@ class HybridRetriever:
     ) -> list[SearchResult]:
         """
         Perform hybrid search.
-        
+
         Args:
             query: Search query
             k: Number of results (defaults to config.final_k)
             filter: Optional metadata filter
-        
+
         Returns:
             List of SearchResults ordered by relevance
         """
         k = k or self._config.final_k
-        
+
         # Vector search
         vector_results = await self._vector_store.search_by_text(
             query,
             k=self._config.vector_k,
             filter=filter,
         )
-        
+
         # Cache documents and get ranking
         vector_ranking: list[str] = []
         for result in vector_results:
             self._documents[result.id] = result.document
             vector_ranking.append(result.id)
-        
+
         # Keyword search (if available)
         keyword_ranking: list[str] = []
         if self._keyword_search:
@@ -137,7 +133,7 @@ class HybridRetriever:
             for result in keyword_results:
                 self._documents[result.id] = result.document
                 keyword_ranking.append(result.id)
-        
+
         # Merge with RRF
         if keyword_ranking:
             merged = reciprocal_rank_fusion(
@@ -148,18 +144,20 @@ class HybridRetriever:
         else:
             # Vector only
             merged = [(doc_id, 1.0 / (i + 1)) for i, doc_id in enumerate(vector_ranking)]
-        
+
         # Build final results
         results: list[SearchResult] = []
         for rank, (doc_id, score) in enumerate(merged[:k]):
             doc = self._documents.get(doc_id)
             if doc:
-                results.append(SearchResult(
-                    document=doc,
-                    score=score,
-                    rank=rank,
-                ))
-        
+                results.append(
+                    SearchResult(
+                        document=doc,
+                        score=score,
+                        rank=rank,
+                    )
+                )
+
         return results
 
     async def search_vector_only(
@@ -171,4 +169,3 @@ class HybridRetriever:
         """Search using only vector similarity."""
         k = k or self._config.final_k
         return await self._vector_store.search_by_text(query, k=k, filter=filter)
-

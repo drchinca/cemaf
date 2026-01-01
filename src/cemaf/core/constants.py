@@ -6,7 +6,7 @@ NO HARDCODED VALUES anywhere else in the codebase.
 
 Usage:
     from cemaf.core.constants import DEFAULT_MAX_RETRIES
-    
+
     class MyConfig(BaseModel):
         max_retries: int = DEFAULT_MAX_RETRIES
 """
@@ -65,4 +65,3 @@ MAX_PARALLEL_NODES: Final[int] = 10
 MAX_DAG_DEPTH: Final[int] = 50
 CYCLE_DETECTION_LIMIT: Final[int] = 1000
 DEFAULT_CHECKPOINT_INTERVAL: Final[int] = 1
-

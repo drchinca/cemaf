@@ -5,21 +5,21 @@ Provides background task scheduling with cron expressions,
 intervals, and async job execution.
 """
 
+from cemaf.scheduler.executor import AsyncJobExecutor
+from cemaf.scheduler.mock import MockScheduler, MockTrigger
 from cemaf.scheduler.protocols import (
-    Trigger,
     Job,
     JobResult,
     JobStatus,
     Scheduler,
+    Trigger,
 )
 from cemaf.scheduler.triggers import (
     CronTrigger,
+    ImmediateTrigger,
     IntervalTrigger,
     OnceTrigger,
-    ImmediateTrigger,
 )
-from cemaf.scheduler.executor import AsyncJobExecutor
-from cemaf.scheduler.mock import MockScheduler, MockTrigger
 
 __all__ = [
     # Protocols
@@ -39,4 +39,3 @@ __all__ = [
     "MockScheduler",
     "MockTrigger",
 ]
-

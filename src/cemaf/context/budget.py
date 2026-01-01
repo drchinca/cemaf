@@ -7,16 +7,13 @@ Budgets define:
 - Reserved tokens for output
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 
-from cemaf.core.types import JSON
 from cemaf.core.constants import (
-    MAX_CONTEXT_TOKENS,
     DEFAULT_CONTEXT_BUDGET,
     RESERVED_OUTPUT_TOKENS,
 )
+from cemaf.core.types import JSON
 
 
 @dataclass(frozen=True)
@@ -33,7 +30,7 @@ class BudgetAllocation:
 class TokenBudget:
     """
     Token budget for context compilation.
-    
+
     Defines how many tokens can be used and how they're allocated.
     """
 
@@ -64,7 +61,7 @@ class TokenBudget:
             "claude-3-sonnet": 200_000,
             "claude-3-haiku": 200_000,
         }
-        
+
         max_tokens = limits.get(model, DEFAULT_CONTEXT_BUDGET)
         return cls(max_tokens=max_tokens)
 
@@ -95,4 +92,3 @@ class TokenBudget:
             if alloc.section == section:
                 return alloc.max_tokens
         return 0
-

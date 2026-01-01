@@ -102,4 +102,3 @@ tool_msg = Message.tool_result("tool_id", "result")
 async for chunk in llm.stream(messages):
     print(chunk.content, end="", flush=True)
 ```
-

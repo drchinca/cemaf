@@ -67,9 +67,8 @@ class ResearchAgent(Agent[dict, dict]):
     @property
     def id(self) -> str:
         return "researcher"
-    
+
     async def run(self, goal: dict, context: AgentContext) -> Result[dict]:
         # Agent logic with memory and decision-making
         return Result.ok({"result": "research complete"})
 ```
-

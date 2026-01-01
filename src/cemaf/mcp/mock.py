@@ -1,9 +1,9 @@
 """Mock implementations for MCP testing."""
-from __future__ import annotations
-import asyncio
+
 from collections import deque
-from cemaf.mcp.protocols import MCPRequest, MCPResponse, MCPError, Transport
+
 from cemaf.mcp.adapter import MCPAdapter
+from cemaf.mcp.protocols import MCPRequest, MCPResponse, Transport
 
 
 class MockTransport(Transport):

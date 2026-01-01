@@ -6,28 +6,26 @@ Tests protocols, specs, and mock implementations.
 
 import pytest
 
-from cemaf.generation.protocols import (
-    MediaOutput,
-    ImageSpec,
-    AudioSpec,
-    VideoSpec,
-    DiagramSpec,
-    UISpec,
-    CodeSpec,
-    ImageFormat,
-    AudioFormat,
-    VideoFormat,
-    DiagramType,
-    UIComponentType,
-    CodeLanguage,
-)
 from cemaf.generation.mock import (
-    MockImageGenerator,
     MockAudioGenerator,
-    MockVideoGenerator,
-    MockDiagramGenerator,
-    MockUIGenerator,
     MockCodeGenerator,
+    MockDiagramGenerator,
+    MockImageGenerator,
+    MockUIGenerator,
+    MockVideoGenerator,
+)
+from cemaf.generation.protocols import (
+    AudioSpec,
+    CodeLanguage,
+    CodeSpec,
+    DiagramSpec,
+    DiagramType,
+    ImageFormat,
+    ImageSpec,
+    MediaOutput,
+    UIComponentType,
+    UISpec,
+    VideoSpec,
 )
 
 
@@ -37,7 +35,7 @@ class TestMediaOutput:
     def test_ok_with_content(self):
         """Create successful output with binary content."""
         output = MediaOutput.ok(content=b"binary", format="png")
-        
+
         assert output.success
         assert output.content == b"binary"
         assert output.format == "png"
@@ -45,21 +43,21 @@ class TestMediaOutput:
     def test_ok_with_string(self):
         """Create successful output with string content."""
         output = MediaOutput.ok(content_str="code here", format="python")
-        
+
         assert output.success
         assert output.content_str == "code here"
 
     def test_ok_with_url(self):
         """Create successful output with URL."""
         output = MediaOutput.ok(url="https://cdn.example.com/file.mp4")
-        
+
         assert output.success
         assert output.url == "https://cdn.example.com/file.mp4"
 
     def test_fail(self):
         """Create failed output."""
         output = MediaOutput.fail("Generation failed: timeout")
-        
+
         assert not output.success
         assert "timeout" in output.error
 
@@ -70,7 +68,7 @@ class TestImageSpec:
     def test_default_spec(self):
         """Default spec has sensible values."""
         spec = ImageSpec(prompt="A cat")
-        
+
         assert spec.prompt == "A cat"
         assert spec.width == 1024
         assert spec.height == 1024
@@ -86,7 +84,7 @@ class TestImageSpec:
             style="photorealistic",
             seed=42,
         )
-        
+
         assert spec.width == 1920
         assert spec.height == 1080
         assert spec.format == ImageFormat.JPEG
@@ -95,7 +93,7 @@ class TestImageSpec:
     def test_spec_is_frozen(self):
         """Spec is immutable."""
         spec = ImageSpec(prompt="Test")
-        
+
         with pytest.raises(Exception):  # ValidationError or TypeError
             spec.prompt = "Modified"
 
@@ -111,7 +109,7 @@ class TestAudioSpec:
             language="en",
             speed=1.0,
         )
-        
+
         assert spec.voice == "professional_female"
         assert spec.language == "en"
 
@@ -123,7 +121,7 @@ class TestAudioSpec:
             tempo_bpm=128,
             duration_seconds=30.0,
         )
-        
+
         assert spec.genre == "electronic"
         assert spec.tempo_bpm == 128
 
@@ -134,7 +132,7 @@ class TestVideoSpec:
     def test_default_video_spec(self):
         """Default video spec."""
         spec = VideoSpec(prompt="A sunrise timelapse")
-        
+
         assert spec.width == 1920
         assert spec.height == 1080
         assert spec.fps == 24
@@ -147,7 +145,7 @@ class TestVideoSpec:
             camera_motion="pan_left",
             motion_strength=0.8,
         )
-        
+
         assert spec.camera_motion == "pan_left"
 
 
@@ -161,7 +159,7 @@ class TestDiagramSpec:
             diagram_type=DiagramType.FLOWCHART,
             direction="LR",
         )
-        
+
         assert spec.diagram_type == DiagramType.FLOWCHART
         assert spec.direction == "LR"
 
@@ -172,7 +170,7 @@ class TestDiagramSpec:
             diagram_type=DiagramType.SEQUENCE,
             output_format="mermaid",
         )
-        
+
         assert spec.diagram_type == DiagramType.SEQUENCE
 
 
@@ -186,7 +184,7 @@ class TestUISpec:
             component_type=UIComponentType.WIREFRAME,
             framework="react",
         )
-        
+
         assert spec.component_type == UIComponentType.WIREFRAME
         assert spec.framework == "react"
 
@@ -197,7 +195,7 @@ class TestUISpec:
             viewport="responsive",
             design_system="tailwind",
         )
-        
+
         assert spec.viewport == "responsive"
         assert spec.design_system == "tailwind"
 
@@ -213,7 +211,7 @@ class TestCodeSpec:
             framework="fastapi",
             include_tests=True,
         )
-        
+
         assert spec.language == CodeLanguage.PYTHON
         assert spec.framework == "fastapi"
         assert spec.include_tests
@@ -225,7 +223,7 @@ class TestCodeSpec:
             language=CodeLanguage.TYPESCRIPT,
             include_types=True,
         )
-        
+
         assert spec.language == CodeLanguage.TYPESCRIPT
         assert spec.include_types
 
@@ -238,9 +236,9 @@ class TestMockImageGenerator:
         """Generate returns valid output."""
         gen = MockImageGenerator()
         spec = ImageSpec(prompt="A cat", width=512, height=512)
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert output.content is not None
         assert gen.call_count == 1
@@ -251,18 +249,18 @@ class TestMockImageGenerator:
         """Edit returns output."""
         gen = MockImageGenerator()
         spec = ImageSpec(prompt="Add a hat")
-        
+
         output = await gen.edit(b"image", None, spec)
-        
+
         assert output.success
 
     @pytest.mark.asyncio
     async def test_variations(self):
         """Variations returns multiple outputs."""
         gen = MockImageGenerator()
-        
+
         outputs = await gen.variations(b"image", count=3)
-        
+
         assert len(outputs) == 3
         assert all(o.success for o in outputs)
 
@@ -275,18 +273,18 @@ class TestMockAudioGenerator:
         """Generate TTS audio."""
         gen = MockAudioGenerator()
         spec = AudioSpec(prompt="Hello world", voice="female_1")
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert output.content is not None
 
     def test_list_voices(self):
         """List available voices."""
         gen = MockAudioGenerator()
-        
+
         voices = gen.list_voices()
-        
+
         assert len(voices) > 0
         assert "id" in voices[0]
         assert "name" in voices[0]
@@ -300,9 +298,9 @@ class TestMockVideoGenerator:
         """Generate video returns URL."""
         gen = MockVideoGenerator()
         spec = VideoSpec(prompt="Sunset timelapse", duration_seconds=5.0)
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert output.url is not None
 
@@ -311,9 +309,9 @@ class TestMockVideoGenerator:
         """Animate static image."""
         gen = MockVideoGenerator()
         spec = VideoSpec(prompt="Animate this")
-        
+
         output = await gen.image_to_video(b"image", spec)
-        
+
         assert output.success
 
 
@@ -328,9 +326,9 @@ class TestMockDiagramGenerator:
             prompt="User auth flow",
             diagram_type=DiagramType.FLOWCHART,
         )
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert output.content_str is not None
         assert "graph" in output.content_str
@@ -339,9 +337,9 @@ class TestMockDiagramGenerator:
     async def test_render_mermaid(self):
         """Render Mermaid to SVG."""
         gen = MockDiagramGenerator()
-        
+
         output = await gen.render_mermaid("graph TD\nA-->B", format="svg")
-        
+
         assert output.success
         assert output.format == "svg"
 
@@ -354,9 +352,9 @@ class TestMockUIGenerator:
         """Generate React component."""
         gen = MockUIGenerator()
         spec = UISpec(prompt="Dashboard", framework="react")
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert "React" in output.content_str
 
@@ -365,9 +363,9 @@ class TestMockUIGenerator:
         """Generate HTML."""
         gen = MockUIGenerator()
         spec = UISpec(prompt="Landing page", framework="html")
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert "DOCTYPE" in output.content_str
 
@@ -376,9 +374,9 @@ class TestMockUIGenerator:
         """Iterate on design."""
         gen = MockUIGenerator()
         spec = UISpec(prompt="Dashboard", framework="react")
-        
+
         output = await gen.iterate("current code", "make it darker", spec)
-        
+
         assert output.success
         assert "darker" in output.content_str
 
@@ -394,9 +392,9 @@ class TestMockCodeGenerator:
             prompt="Calculate factorial",
             language=CodeLanguage.PYTHON,
         )
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert "def " in output.content_str
 
@@ -409,9 +407,9 @@ class TestMockCodeGenerator:
             language=CodeLanguage.PYTHON,
             include_tests=True,
         )
-        
+
         output = await gen.generate(spec)
-        
+
         assert output.success
         assert "test_" in output.content_str
 
@@ -420,9 +418,9 @@ class TestMockCodeGenerator:
         """Refactor code."""
         gen = MockCodeGenerator()
         spec = CodeSpec(prompt="", language=CodeLanguage.PYTHON)
-        
+
         output = await gen.refactor("old_code()", "rename to new_code", spec)
-        
+
         assert output.success
         assert "Refactored" in output.content_str
 
@@ -431,9 +429,8 @@ class TestMockCodeGenerator:
         """Review code."""
         gen = MockCodeGenerator()
         spec = CodeSpec(prompt="", language=CodeLanguage.PYTHON)
-        
+
         output = await gen.review("def foo(): pass", spec)
-        
+
         assert output.success
         assert "Review" in output.content_str
-

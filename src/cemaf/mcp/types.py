@@ -5,8 +5,6 @@ These types are compatible with the MCP specification and provide
 frozen dataclasses for immutability.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 from cemaf.core.types import JSON
@@ -131,9 +129,7 @@ class MCPToolResult:
         return cls(content=({"type": "text", "text": message},), isError=True)
 
     @classmethod
-    def from_content_list(
-        cls, content: list[dict], is_error: bool = False
-    ) -> MCPToolResult:
+    def from_content_list(cls, content: list[dict], is_error: bool = False) -> MCPToolResult:
         """Create a result from a list of content blocks."""
         return cls(content=tuple(content), isError=is_error)
 

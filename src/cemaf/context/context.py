@@ -5,16 +5,15 @@ This module introduces an immutable Context object that encapsulates the dynamic
 and information available to agents and nodes during execution.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any, Mapping
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import JSON
 
 if TYPE_CHECKING:
-    from cemaf.context.patch import ContextPatch, PatchOperation
+    from cemaf.context.patch import ContextPatch
 
 
 class Context(BaseModel):
@@ -31,7 +30,7 @@ class Context(BaseModel):
 
     def get(self, key: str, default: Any = None) -> Any:
         """Retrieve a value from the context using dot notation for nested access."""
-        keys = key.split('.')
+        keys = key.split(".")
         current_data = self.data
         for k in keys:
             if not isinstance(current_data, Mapping) or k not in current_data:
@@ -44,7 +43,7 @@ class Context(BaseModel):
         Return a new Context with the specified key set to the new value.
         Supports dot notation for nested keys.
         """
-        keys = key.split('.')
+        keys = key.split(".")
         new_data = dict(self.data)  # Start with a copy
 
         current_level = new_data
@@ -54,11 +53,13 @@ class Context(BaseModel):
             else:
                 if not isinstance(current_level, dict):
                     # If an intermediate key is not a dict, we can't set nested
-                    raise ValueError(f"Cannot set nested key '{key}': '{'.'.join(keys[:i+1])}' is not a dictionary.")
+                    raise ValueError(
+                        f"Cannot set nested key '{key}': '{'.'.join(keys[: i + 1])}' is not a dictionary."
+                    )
                 if k not in current_level or not isinstance(current_level[k], dict):
-                    current_level[k] = {} # Create dict if it doesn't exist or is not a dict
+                    current_level[k] = {}  # Create dict if it doesn't exist or is not a dict
                 current_level = current_level[k]
-        
+
         return Context(data=new_data)
 
     def merge(self, other: Context) -> Context:
@@ -73,7 +74,7 @@ class Context(BaseModel):
     def to_dict(self) -> JSON:
         """Return the underlying data as a dictionary."""
         return self.data
-    
+
     @classmethod
     def from_dict(cls, data: JSON) -> Context:
         """Create a Context instance from a dictionary."""
@@ -84,7 +85,7 @@ class Context(BaseModel):
         Return a new Context with the specified key removed.
         Supports dot notation for nested keys.
         """
-        keys = key.split('.')
+        keys = key.split(".")
         new_data = dict(self.data)
 
         if len(keys) == 1:
@@ -169,7 +170,6 @@ class Context(BaseModel):
         Returns:
             Tuple of patches that, when applied to self, produce other
         """
-        from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 
         patches: list[ContextPatch] = []
         self._diff_recursive("", self.data, other.data, patches)
@@ -186,7 +186,7 @@ class Context(BaseModel):
         from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 
         # If types differ or values are not dicts, just SET
-        if type(old) != type(new) or not isinstance(old, dict):
+        if type(old) is not type(new) or not isinstance(old, dict):
             if old != new:
                 path = prefix if prefix else "."
                 patches.append(
@@ -238,4 +238,5 @@ class Context(BaseModel):
     def copy(self) -> Context:
         """Create a shallow copy of the context."""
         import copy
+
         return Context(data=copy.deepcopy(self.data))

@@ -1,7 +1,8 @@
 """Bridge CEMAF resources to MCP format."""
-from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+
 import json
+from typing import TYPE_CHECKING
+
 from cemaf.mcp.types import MCPResource, MCPResourceContents
 
 if TYPE_CHECKING:
@@ -32,10 +33,7 @@ class ResourceBridge:
         Convert MemoryItem value to resource contents.
         """
         value = item.value
-        if isinstance(value, str):
-            text = value
-        else:
-            text = json.dumps(value, indent=2, default=str)
+        text = value if isinstance(value, str) else json.dumps(value, indent=2, default=str)
 
         return MCPResourceContents(
             uri=f"memory://{item.scope.value}/{item.key}",

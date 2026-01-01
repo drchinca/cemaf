@@ -1,13 +1,13 @@
 """Tests for enhanced memory store with TTL and hooks."""
 
-import pytest
 import asyncio
 from datetime import timedelta
 
-from cemaf.memory.base import MemoryItem, InMemoryStore
+import pytest
+
 from cemaf.core.enums import MemoryScope
-from cemaf.core.types import Confidence
 from cemaf.core.utils import utc_now
+from cemaf.memory.base import InMemoryStore, MemoryItem
 
 
 class TestMemoryItemTTL:
@@ -118,7 +118,7 @@ class TestInMemoryStoreHooks:
             MemoryItem(
                 scope=MemoryScope.SESSION,
                 key="credentials",
-                value={"username": "admin", "secret": "password123"},
+                value={"username": "admin", "secret": "test_secret_placeholder"},
             )
         )
 

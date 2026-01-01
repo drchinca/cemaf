@@ -60,14 +60,13 @@ class ResearchSkill(Skill[str, dict]):
     @property
     def id(self) -> str:
         return "research"
-    
+
     async def execute(self, input: str, context: SkillContext) -> Result[dict]:
         # Use tools to accomplish the skill
         search_result = await self._search_tool.execute(query=input)
         if not search_result.success:
             return Result.fail("Search failed")
-        
+
         # Process and return
         return Result.ok({"research": search_result.data})
 ```
-

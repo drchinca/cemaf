@@ -65,4 +65,3 @@ dict_source = DictConfigSource({"key": "value"})
 provider = SettingsProvider([env_source, dict_source])
 settings = provider.get_settings()
 ```
-

@@ -70,4 +70,3 @@ logger = SimpleLogger()
 logger.info("Operation started")
 logger.error("Operation failed", exc_info=True)
 ```
-

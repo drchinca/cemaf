@@ -5,8 +5,6 @@ Provides a chainable API for constructing blueprints step by step
 with validation on build.
 """
 
-from __future__ import annotations
-
 from typing import Self
 
 from cemaf.blueprint.schema import Blueprint, Participant, SceneGoal, StyleGuide
@@ -225,9 +223,7 @@ class BlueprintBuilder:
         if not self._name:
             raise ValueError("Blueprint requires a name.")
         if not self._goal_objective:
-            raise ValueError(
-                "Blueprint requires a goal objective. Call with_goal() first."
-            )
+            raise ValueError("Blueprint requires a goal objective. Call with_goal() first.")
 
         scene_goal = SceneGoal(
             objective=self._goal_objective,

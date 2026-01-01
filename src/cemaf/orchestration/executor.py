@@ -12,25 +12,52 @@ The executor:
 - Integrates with RunLogger for recording
 """
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from cemaf.core.types import JSON, NodeID, RunID
-from cemaf.core.enums import NodeType, RunStatus
-from cemaf.core.constants import MAX_PARALLEL_NODES
-from cemaf.core.utils import utc_now, generate_id
-from cemaf.orchestration.dag import DAG, Node, Edge, EdgeCondition
+from pydantic import BaseModel, Field
+
 from cemaf.context.context import Context
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
+from cemaf.core.constants import MAX_PARALLEL_NODES
+from cemaf.core.enums import NodeType, RunStatus
+from cemaf.core.types import JSON, NodeID, RunID
+from cemaf.core.utils import utc_now
+from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 
 if TYPE_CHECKING:
     from cemaf.events.protocols import EventBus
-    from cemaf.observability.run_logger import RunLogger
     from cemaf.moderation.pipeline import ModerationPipeline
+    from cemaf.observability.run_logger import RunLogger
+
+
+class ExecutorConfig(BaseModel):
+    """
+    Configuration for DAGExecutor.
+
+    Provides settings for execution behavior, logging, events, and moderation.
+    """
+
+    model_config = {"frozen": True}
+
+    max_parallel: int = Field(
+        default=MAX_PARALLEL_NODES,
+        description="Maximum number of parallel node executions",
+    )
+    enable_logging: bool = Field(
+        default=True,
+        description="Enable run logging for replay and debugging",
+    )
+    enable_events: bool = Field(
+        default=True,
+        description="Enable event bus integration",
+    )
+    enable_moderation: bool = Field(
+        default=False,
+        description="Enable moderation pipeline for content safety",
+    )
 
 
 @dataclass(frozen=True)
@@ -53,7 +80,7 @@ class ExecutionResult:
     dag_name: str
     status: RunStatus
     node_results: tuple[NodeResult, ...] = field(default_factory=tuple)
-    final_context: Context = field(default_factory=Context) # Updated to Context
+    final_context: Context = field(default_factory=Context)  # Updated to Context
     error: str | None = None
     started_at: datetime = field(default_factory=utc_now)
     completed_at: datetime | None = None
@@ -78,7 +105,7 @@ class NodeExecutor(Protocol):
     async def execute_node(
         self,
         node: Node,
-        context: Context, # Updated to Context
+        context: Context,  # Updated to Context
     ) -> NodeResult:
         """Execute a single node."""
         ...
@@ -161,7 +188,7 @@ class DAGExecutor:
         try:
             # Get execution order
             order = dag.topological_sort()
-            
+
             # Track completed nodes for edge conditions
             completed: dict[NodeID, NodeResult] = {}
 
@@ -182,46 +209,46 @@ class DAGExecutor:
 
                 # Handle different node types
                 if node.type == NodeType.PARALLEL:
-                    group_result, parallel_results, new_context = await self._execute_parallel_node( # Added new_context
+                    (
+                        group_result,
+                        parallel_results,
+                        new_context,
+                    ) = await self._execute_parallel_node(  # Added new_context
                         dag,
                         node,
                         context,
                     )
-                    context = new_context # Update context
+                    context = new_context  # Update context
                     node_results.append(group_result)
                     completed[node_id] = group_result
-                    
+
                     for parallel_result in parallel_results:
                         node_results.append(parallel_result)
                         completed[parallel_result.node_id] = parallel_result
-                        
+
                     result = group_result
 
                 elif node.type == NodeType.ROUTER:
-                    result, new_context = self._execute_router_node(node, context) # Added new_context
-                    context = new_context # Update context
+                    result, new_context = self._execute_router_node(node, context)  # Added new_context
+                    context = new_context  # Update context
                     node_results.append(result)
                     completed[node_id] = result
 
                 elif node.type == NodeType.CONDITIONAL:
-                    result, new_context = self._execute_conditional_node(node, context) # Added new_context
-                    context = new_context # Update context
+                    result, new_context = self._execute_conditional_node(node, context)  # Added new_context
+                    context = new_context  # Update context
                     node_results.append(result)
                     completed[node_id] = result
 
                 else:
                     # Standard execution (TOOL, SKILL, AGENT)
-                    result, new_context = await self._execute_with_retry(node, context) # Added new_context
-                    context = new_context # Update context
+                    result, new_context = await self._execute_with_retry(node, context)  # Added new_context
+                    context = new_context  # Update context
                     node_results.append(result)
                     completed[node_id] = result
 
                 # Stop on failure if retry_on_failure is False
-                if (
-                    not result.success
-                    and not node.retry_on_failure
-                    and node.type != NodeType.CONDITIONAL
-                ):
+                if not result.success and not node.retry_on_failure and node.type != NodeType.CONDITIONAL:
                     # End run logging
                     if self._run_logger:
                         self._run_logger.end_run(
@@ -283,17 +310,14 @@ class DAGExecutor:
         node: Node,
         incoming_edges: tuple[Edge, ...],
         completed: dict[NodeID, NodeResult],
-        context: Context, # Updated to Context
+        context: Context,  # Updated to Context
     ) -> bool:
         """Check if a node should be executed based on join semantics."""
         if not incoming_edges:
             return True
 
         join_mode = self._get_join_mode(node)
-        satisfied_edges = [
-            self._edge_satisfied(edge, completed, context)
-            for edge in incoming_edges
-        ]
+        satisfied_edges = [self._edge_satisfied(edge, completed, context) for edge in incoming_edges]
 
         if join_mode == "any":
             return any(satisfied_edges)
@@ -316,7 +340,7 @@ class DAGExecutor:
         self,
         edge: Edge,
         completed: dict[NodeID, NodeResult],
-        context: Context, # Updated to Context
+        context: Context,  # Updated to Context
     ) -> bool:
         """Check if an edge condition is satisfied."""
         source_result = completed.get(edge.source)
@@ -333,7 +357,7 @@ class DAGExecutor:
             return source_result.success
         if edge.condition == EdgeCondition.ON_FAILURE:
             return not source_result.success
-        if edge.condition == EdgeCondition.JSON_RULE: # Removed CONDITIONAL
+        if edge.condition == EdgeCondition.JSON_RULE:  # Removed CONDITIONAL
             if edge.condition_rule:
                 try:
                     return edge.condition_rule.evaluate(context)
@@ -380,7 +404,9 @@ class DAGExecutor:
         else:
             return PatchSource.SYSTEM
 
-    def _execute_router_node(self, node: Node, context: Context) -> tuple[NodeResult, Context]: # Updated signature
+    def _execute_router_node(
+        self, node: Node, context: Context
+    ) -> tuple[NodeResult, Context]:  # Updated signature
         """Execute a ROUTER node and select allowed downstream targets."""
         route_fn = None
         route_key = "route"
@@ -392,9 +418,9 @@ class DAGExecutor:
             default_route = node.config.get("default_route")
 
         if callable(route_fn):
-            selected = route_fn(context.data) # Still uses context.data for callable
+            selected = route_fn(context.data)  # Still uses context.data for callable
         else:
-            selected = context.get(route_key) # Updated to context.get
+            selected = context.get(route_key)  # Updated to context.get
 
         if isinstance(selected, (list, tuple, set)):
             selections = list(selected)
@@ -405,10 +431,7 @@ class DAGExecutor:
 
         targets: list[NodeID] = []
         for selection in selections:
-            if selection in node.routes:
-                target = node.routes[selection]
-            else:
-                target = selection
+            target = node.routes.get(selection, selection)
             if target:
                 targets.append(NodeID(str(target)))
 
@@ -424,80 +447,99 @@ class DAGExecutor:
         self._route_choices[node.id] = set(targets)
 
         if targets:
-            new_context = context.set(node.output_key, tuple(str(t) for t in targets)) if node.output_key else context
-            return (NodeResult(
+            result = NodeResult(
                 node_id=node.id,
                 success=True,
                 output=tuple(str(t) for t in targets),
-            ), new_context)
+            )
+            new_context = self._apply_node_output(node, result, context)
+            return (result, new_context)
 
-        new_context = context.set(node.output_key, ()) if node.output_key else context
-        return (NodeResult(
+        result = NodeResult(
             node_id=node.id,
             success=False,
             error="No route selected",
             output=(),
-        ), new_context)
+        )
+        new_context = self._apply_node_output(node, result, context)
+        return (result, new_context)
 
-    def _execute_conditional_node(self, node: Node, context: Context) -> tuple[NodeResult, Context]: # Updated signature
-        """Execute a CONDITIONAL node and store boolean result."""
+    def _execute_conditional_node(
+        self, node: Node, context: Context
+    ) -> tuple[NodeResult, Context]:  # Updated signature
+        """Execute a CONDITIONAL node, evaluate condition, and set routing choices."""
         condition_fn = None
         condition_key = "condition"
+        condition_rule = None
 
         if isinstance(node.config, dict):
             condition_fn = node.config.get("condition_fn")
             condition_key = node.config.get("condition_key", condition_key)
+            condition_rule = node.config.get("condition_rule")
 
         if callable(condition_fn):
-            condition_value = bool(condition_fn(context.data)) # Still uses context.data for callable
+            condition_value = bool(condition_fn(context.data))  # Still uses context.data for callable
+        elif condition_rule:
+            try:
+                condition_value = bool(condition_rule.evaluate(context))
+            except Exception:
+                condition_value = False
         else:
-            condition_value = bool(context.get(condition_key)) # Updated to context.get
+            condition_value = bool(context.get(condition_key))  # Updated to context.get
 
-        new_context = context.set(node.output_key, condition_value) if node.output_key else context
-        return (NodeResult(
+        # Determine allowed routes if provided on the node
+        allowed_targets: set[NodeID] | None = None
+        if node.routes:
+            chosen = node.routes.get(condition_value, node.routes.get(str(condition_value), None))
+            allowed_targets = {NodeID(str(chosen))} if chosen is not None else set()
+            self._route_choices[node.id] = allowed_targets
+
+        result = NodeResult(
             node_id=node.id,
             success=condition_value,
             output=condition_value,
             error=None if condition_value else "Condition evaluated to False",
-        ), new_context)
+        )
+        new_context = self._apply_node_output(node, result, context)
+        return (result, new_context)
 
     async def _execute_with_retry(
         self,
         node: Node,
-        context: Context, # Updated to Context
-    ) -> tuple[NodeResult, Context]: # Returns new Context
+        context: Context,  # Updated to Context
+    ) -> tuple[NodeResult, Context]:  # Returns new Context
         """Execute a node with retry logic."""
         # Handle max_retries=0 case - still try once
         max_attempts = max(1, node.max_retries) if node.retry_on_failure else 1
         last_error: str | None = None
         start_time = utc_now()
-        current_context = context # Keep track of context
-        
+        current_context = context  # Keep track of context
+
         for attempt in range(max_attempts):
             try:
-                result = await self._node_executor.execute_node(node, current_context) # Pass current_context
-                
+                result = await self._node_executor.execute_node(node, current_context)  # Pass current_context
+
                 # Apply output to context here, even if it's not a final success,
                 # as intermediate results might be needed for subsequent retries
-                if node.output_key and result.output is not None:
-                    current_context = current_context.set(node.output_key, result.output)
+                # Use _apply_node_output to emit patches with correlation IDs
+                current_context = self._apply_node_output(node, result, current_context)
 
                 if result.success:
                     return result, current_context
-                
+
                 last_error = result.error
-                
+
                 # Don't retry if retry_on_failure is False
                 if not node.retry_on_failure:
                     break
-                
+
             except Exception as e:
                 last_error = str(e)
-            
+
             # Don't sleep on last attempt
             if attempt < max_attempts - 1:
                 await asyncio.sleep(0.1 * (attempt + 1))  # Exponential backoff
-        
+
         end_time = utc_now()
         final_result = NodeResult(
             node_id=node.id,
@@ -511,8 +553,8 @@ class DAGExecutor:
         self,
         dag: DAG,
         node: Node,
-        context: Context, # Updated to Context
-    ) -> tuple[NodeResult, tuple[NodeResult, ...], Context]: # Returns new Context
+        context: Context,  # Updated to Context
+    ) -> tuple[NodeResult, tuple[NodeResult, ...], Context]:  # Returns new Context
         """Execute a PARALLEL node's sub-nodes concurrently."""
         if not node.parallel_nodes:
             return (
@@ -522,7 +564,7 @@ class DAGExecutor:
                     error="Parallel node has no child nodes",
                 ),
                 (),
-                context, # Return original context
+                context,  # Return original context
             )
 
         sub_nodes: list[Node] = []
@@ -542,49 +584,48 @@ class DAGExecutor:
                     error=f"Parallel node missing child nodes: {', '.join(missing)}",
                 ),
                 (),
-                context, # Return original context
+                context,  # Return original context
             )
 
-        results, new_context = await self.run_parallel_nodes(tuple(sub_nodes), context) # Capture new_context from parallel execution
+        results, new_context = await self.run_parallel_nodes(
+            tuple(sub_nodes), context
+        )  # Capture new_context from parallel execution
 
         failures = [r for r in results if not r.success]
-        outputs: dict[str, Any] = {
-            str(r.node_id): r.output for r in results if r.output is not None
-        }
+        outputs: dict[str, Any] = {str(r.node_id): r.output for r in results if r.output is not None}
 
         error = None
         if failures:
-            error = "; ".join(
-                f"{r.node_id}: {r.error or 'failed'}" for r in failures
-            )
-        
-        # Apply parallel node's own output_key if set
-        final_context = new_context
-        if node.output_key:
-            final_context = new_context.set(node.output_key, outputs)
+            error = "; ".join(f"{r.node_id}: {r.error or 'failed'}" for r in failures)
+
+        # Create result for the parallel node itself
+        parallel_result = NodeResult(
+            node_id=node.id,
+            success=len(failures) == 0,
+            output=outputs,
+            error=error,
+        )
+
+        # Apply parallel node's own output_key if set, using _apply_node_output to emit patches
+        final_context = self._apply_node_output(node, parallel_result, new_context)
 
         return (
-            NodeResult(
-                node_id=node.id,
-                success=len(failures) == 0,
-                output=outputs,
-                error=error,
-            ),
+            parallel_result,
             tuple(results),
-            final_context, # Return final context
+            final_context,  # Return final context
         )
 
     async def run_parallel_nodes(
         self,
         nodes: tuple[Node, ...],
-        context: Context, # Updated to Context
-    ) -> tuple[tuple[NodeResult, ...], Context]: # Returns new Context
+        context: Context,  # Updated to Context
+    ) -> tuple[tuple[NodeResult, ...], Context]:  # Returns new Context
         """Execute multiple nodes in parallel (standalone utility)."""
         semaphore = asyncio.Semaphore(self._max_parallel)
-        
+
         # Each parallel execution will get a *copy* of the current context
         # and return its modified context. These will then be merged.
-        
+
         async def execute_with_semaphore(node: Node) -> tuple[NodeResult, Context]:
             async with semaphore:
                 # Pass a clone of the context to each parallel branch to ensure isolation
@@ -593,30 +634,31 @@ class DAGExecutor:
                 # This is already handled inside _execute_with_retry for TOOL/SKILL/AGENT
                 # so we just return the result and the branch_context
                 return result, branch_context
-        
+
         tasks = [execute_with_semaphore(node) for node in nodes]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         final_results: list[NodeResult] = []
         all_branch_contexts: list[Context] = []
-        
+
         for i, res_tuple in enumerate(raw_results):
             if isinstance(res_tuple, Exception):
-                final_results.append(NodeResult(
-                    node_id=nodes[i].id,
-                    success=False,
-                    error=str(res_tuple),
-                ))
-                all_branch_contexts.append(context.copy()) # Failed branch, no changes
+                final_results.append(
+                    NodeResult(
+                        node_id=nodes[i].id,
+                        success=False,
+                        error=str(res_tuple),
+                    )
+                )
+                all_branch_contexts.append(context.copy())  # Failed branch, no changes
             else:
                 result, branch_context = res_tuple
                 final_results.append(result)
                 all_branch_contexts.append(branch_context)
-        
-        # Merge contexts from all parallel branches
-        merged_context = context # Start with the context before parallel execution
-        for branch_context in all_branch_contexts:
-            merged_context = merged_context.merge(branch_context) # Simple merge for now
-            
-        return tuple(final_results), merged_context
 
+        # Merge contexts from all parallel branches
+        merged_context = context  # Start with the context before parallel execution
+        for branch_context in all_branch_contexts:
+            merged_context = merged_context.merge(branch_context)  # Simple merge for now
+
+        return tuple(final_results), merged_context

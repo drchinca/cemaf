@@ -3,7 +3,7 @@
 import pytest
 
 from cemaf.context.context import Context
-from cemaf.context.patch import ContextPatch, PatchSource
+from cemaf.context.patch import ContextPatch
 from cemaf.observability.run_logger import RunRecord, ToolCall
 from cemaf.replay.replayer import Replayer, ReplayMode, ReplayResult
 
@@ -52,7 +52,7 @@ class TestReplayer:
         record.patches.append(ContextPatch.set("a", 1))
         record.patches.append(ContextPatch.set("b", 2))
 
-        replayer = Replayer(record)
+        Replayer(record)
 
     @pytest.mark.asyncio
     async def test_replay_produces_correct_context(self) -> None:
@@ -92,15 +92,9 @@ class TestReplayer:
     def test_get_tool_call(self) -> None:
         """Test getting specific tool call."""
         record = RunRecord(run_id="run-123")
-        record.tool_calls.append(
-            ToolCall(tool_id="tool_a", input={"x": 1}, output={"y": 1})
-        )
-        record.tool_calls.append(
-            ToolCall(tool_id="tool_a", input={"x": 2}, output={"y": 2})
-        )
-        record.tool_calls.append(
-            ToolCall(tool_id="tool_b", input={}, output={})
-        )
+        record.tool_calls.append(ToolCall(tool_id="tool_a", input={"x": 1}, output={"y": 1}))
+        record.tool_calls.append(ToolCall(tool_id="tool_a", input={"x": 2}, output={"y": 2}))
+        record.tool_calls.append(ToolCall(tool_id="tool_b", input={}, output={}))
 
         replayer = Replayer(record)
 
@@ -125,12 +119,8 @@ class TestReplayer:
     def test_get_next_tool_output(self) -> None:
         """Test getting next tool output in sequence."""
         record = RunRecord(run_id="run-123")
-        record.tool_calls.append(
-            ToolCall(tool_id="tool_a", input={}, output={"result": 1})
-        )
-        record.tool_calls.append(
-            ToolCall(tool_id="tool_a", input={}, output={"result": 2})
-        )
+        record.tool_calls.append(ToolCall(tool_id="tool_a", input={}, output={"result": 1}))
+        record.tool_calls.append(ToolCall(tool_id="tool_a", input={}, output={"result": 2}))
 
         replayer = Replayer(record)
 
