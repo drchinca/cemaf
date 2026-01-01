@@ -92,5 +92,6 @@ flowchart TB
 
 ## Project Stats
 
-- **519 tests** | **55 fixtures** | **TDD from day one**
+- **814 tests** | **100% passing** | **TDD from day one**
+- **Python 3.14+** | **Fully typed** | **Protocol-based design**
 - **MIT License**
