@@ -274,7 +274,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Hikuri Bado Chinca** ([@drchinca](https://github.com/drchinca))
 Email: chincadr@gmail.com
 
-Copyright (c) 2024-2025
+Copyright (c) 2026 | Published on 1.1.2026 🎉
 
 ---
 
