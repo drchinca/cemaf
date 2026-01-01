@@ -8,19 +8,18 @@ A Tool is:
 - Can record calls for replay/debugging
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from cemaf.core.types import JSON, ToolID
 from cemaf.core.result import Result
+from cemaf.core.types import JSON, ToolID
 from cemaf.core.utils import utc_now
 
 if TYPE_CHECKING:
-    from cemaf.observability.run_logger import RunLogger, ToolCall
     from cemaf.moderation.pipeline import ModerationPipeline
+    from cemaf.observability.run_logger import RunLogger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -31,12 +30,21 @@ ToolResult = Result[Any]
 @dataclass(frozen=True)
 class ToolSchema:
     """JSON Schema definition for a tool's parameters."""
-    
+
     name: str
     description: str
     parameters: JSON = field(default_factory=lambda: {"type": "object", "properties": {}})
     required: tuple[str, ...] = ()
-    
+
+    def __post_init__(self) -> None:
+        """Validate that schema parameters are JSON-serializable."""
+        import json
+
+        try:
+            json.dumps(self.parameters)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Tool schema parameters must be JSON-serializable: {e}") from e
+
     def to_openai_format(self) -> JSON:
         """Convert to OpenAI function calling format."""
         return {
@@ -47,7 +55,7 @@ class ToolSchema:
                 "parameters": {**self.parameters, "required": list(self.required)},
             },
         }
-    
+
     def to_anthropic_format(self) -> JSON:
         """Convert to Anthropic tool format."""
         return {
@@ -60,13 +68,13 @@ class ToolSchema:
 class Tool(ABC):
     """
     Abstract base class for tools.
-    
+
     Example:
         class CalculateTool(Tool):
             @property
             def id(self) -> ToolID:
                 return ToolID("calculate")
-            
+
             @property
             def schema(self) -> ToolSchema:
                 return ToolSchema(
@@ -75,7 +83,7 @@ class Tool(ABC):
                     parameters={"type": "object", "properties": {"expression": {"type": "string"}}},
                     required=("expression",)
                 )
-            
+
             async def execute(self, expression: str) -> ToolResult:
                 try:
                     result = eval(expression)
@@ -83,19 +91,19 @@ class Tool(ABC):
                 except Exception as e:
                     return Result.fail(str(e))
     """
-    
+
     @property
     @abstractmethod
     def id(self) -> ToolID:
         """Unique identifier for this tool."""
         ...
-    
+
     @property
     @abstractmethod
     def schema(self) -> ToolSchema:
         """Get the tool's schema."""
         ...
-    
+
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Execute the tool. Returns Result, never raises."""
@@ -129,9 +137,10 @@ class Tool(ABC):
             pre_result = await moderation_pipeline.check_input(kwargs)
             if not pre_result.allowed:
                 # Return blocked result
-                return Result.fail(
-                    f"Pre-flight moderation blocked: {pre_result.violations[0].message if pre_result.violations else 'Content blocked'}"
+                violation_msg = (
+                    pre_result.violations[0].message if pre_result.violations else "Content blocked"
                 )
+                return Result.fail(f"Pre-flight moderation blocked: {violation_msg}")
 
         # Execute the tool
         result = await self.execute(**kwargs)
@@ -141,9 +150,10 @@ class Tool(ABC):
             post_result = await moderation_pipeline.check_output(result.data)
             if not post_result.allowed:
                 # Return blocked result
-                return Result.fail(
-                    f"Post-flight moderation blocked: {post_result.violations[0].message if post_result.violations else 'Output blocked'}"
+                violation_msg = (
+                    post_result.violations[0].message if post_result.violations else "Output blocked"
                 )
+                return Result.fail(f"Post-flight moderation blocked: {violation_msg}")
             # Use redacted content if available
             if post_result.redacted_content is not None:
                 result = Result.ok(post_result.redacted_content)
@@ -175,12 +185,13 @@ def tool(
 ) -> Callable[[F], Tool]:
     """
     Decorator to create a Tool from a function.
-    
+
     Example:
         @tool(name="add", description="Add two numbers")
         async def add(a: float, b: float) -> ToolResult:
             return Result.ok(a + b)
     """
+
     def decorator(func: F) -> Tool:
         _schema = ToolSchema(
             name=name,
@@ -188,16 +199,16 @@ def tool(
             parameters=parameters or {"type": "object", "properties": {}},
             required=required,
         )
-        
+
         class FunctionTool(Tool):
             @property
             def id(self) -> ToolID:
                 return ToolID(name)
-            
+
             @property
             def schema(self) -> ToolSchema:
                 return _schema
-            
+
             async def execute(self, **kwargs: Any) -> ToolResult:
                 try:
                     result = await func(**kwargs)
@@ -206,9 +217,9 @@ def tool(
                     return Result.ok(result)
                 except Exception as e:
                     return Result.fail(str(e))
-        
+
         return FunctionTool()
-    
+
     return decorator
 
 

@@ -7,16 +7,13 @@ This module provides:
 - CancelledException: Exception raised when operation is cancelled
 """
 
-from __future__ import annotations
-
 import asyncio
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Callable, Coroutine, TypeVar
+from typing import Any
 
 from cemaf.core.utils import utc_now
-
-T = TypeVar("T")
 
 
 class CancelledException(Exception):
@@ -79,9 +76,7 @@ class CancellationToken:
         """Check if cancellation has been requested."""
         if self._cancelled:
             return True
-        if self._parent and self._parent.is_cancelled:
-            return True
-        return False
+        return bool(self._parent and self._parent.is_cancelled)
 
     @property
     def reason(self) -> str:
@@ -190,9 +185,7 @@ class ExecutionContext:
         remaining = ctx.remaining_ms
     """
 
-    cancellation_token: CancellationToken = field(
-        default_factory=CancellationToken
-    )
+    cancellation_token: CancellationToken = field(default_factory=CancellationToken)
     timeout_ms: int | None = None
     deadline: datetime | None = None
     correlation_id: str = ""
@@ -295,7 +288,7 @@ class ExecutionContext:
         return cls(timeout_ms=max(0, timeout_ms), deadline=deadline)
 
 
-async def with_cancellation(
+async def with_cancellation[T](
     coro: Coroutine[Any, Any, T],
     token: CancellationToken,
 ) -> T:
@@ -331,14 +324,14 @@ async def with_cancellation(
 
     except asyncio.CancelledError:
         if token.is_cancelled:
-            raise CancelledException(token.reason)
+            raise CancelledException(token.reason) from None
         raise
 
     finally:
         unregister()
 
 
-async def with_timeout(
+async def with_timeout[T](
     coro: Coroutine[Any, Any, T],
     timeout_ms: int,
 ) -> T:
@@ -360,14 +353,14 @@ async def with_timeout(
             coro,
             timeout=timeout_ms / 1000,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise TimeoutException(
             f"Operation timed out after {timeout_ms}ms",
             timeout_ms=timeout_ms,
-        )
+        ) from None
 
 
-async def with_execution_context(
+async def with_execution_context[T](
     coro: Coroutine[Any, Any, T],
     ctx: ExecutionContext,
 ) -> T:

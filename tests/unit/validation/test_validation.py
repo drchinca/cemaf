@@ -2,29 +2,27 @@
 
 from __future__ import annotations
 
-import pytest
 from pydantic import BaseModel
 
+from cemaf.validation.mock import (
+    AlwaysFailRule,
+    AlwaysPassRule,
+    MockValidator,
+)
+from cemaf.validation.pipeline import ValidationPipeline
 from cemaf.validation.protocols import (
-    ValidationResult,
     ValidationError,
+    ValidationResult,
     ValidationWarning,
 )
 from cemaf.validation.rules import (
-    SchemaRule,
-    LengthRule,
-    RegexRule,
-    RangeRule,
-    RequiredFieldsRule,
     CustomRule,
+    LengthRule,
+    RangeRule,
+    RegexRule,
+    RequiredFieldsRule,
+    SchemaRule,
 )
-from cemaf.validation.pipeline import ValidationPipeline
-from cemaf.validation.mock import (
-    MockValidator,
-    AlwaysPassRule,
-    AlwaysFailRule,
-)
-
 
 # =============================================================================
 # ValidationResult Tests
@@ -74,7 +72,7 @@ class TestValidationResult:
         result1 = ValidationResult.error("E1", "Error 1")
         result2 = ValidationResult.error("E2", "Error 2")
         merged = result1.merge(result2)
-        
+
         assert merged.passed is False
         assert len(merged.errors) == 2
 
@@ -83,7 +81,7 @@ class TestValidationResult:
         result1 = ValidationResult.success()
         result2 = ValidationResult.success()
         merged = result1.merge(result2)
-        
+
         assert merged.passed is True
 
 
@@ -124,13 +122,13 @@ class TestLengthRule:
     async def test_both_bounds(self) -> None:
         """Test with both min and max bounds."""
         rule = LengthRule(min_length=3, max_length=10)
-        
+
         result = await rule.check("hello")
         assert result.passed is True
-        
+
         result = await rule.check("hi")
         assert result.passed is False
-        
+
         result = await rule.check("hello world!")
         assert result.passed is False
 
@@ -268,20 +266,22 @@ class TestSchemaRule:
 
     async def test_valid_schema(self) -> None:
         """Test valid data against schema."""
+
         class UserSchema(BaseModel):
             name: str
             age: int
-        
+
         rule = SchemaRule(UserSchema)
         result = await rule.check({"name": "John", "age": 30})
         assert result.passed is True
 
     async def test_invalid_schema(self) -> None:
         """Test invalid data against schema."""
+
         class UserSchema(BaseModel):
             name: str
             age: int
-        
+
         rule = SchemaRule(UserSchema)
         result = await rule.check({"name": "John", "age": "not a number"})
         assert result.passed is False
@@ -289,9 +289,10 @@ class TestSchemaRule:
 
     async def test_rule_name(self) -> None:
         """Test schema rule name."""
+
         class UserSchema(BaseModel):
             name: str
-        
+
         rule = SchemaRule(UserSchema)
         assert "UserSchema" in rule.name
 
@@ -306,16 +307,17 @@ class TestCustomRule:
 
     async def test_custom_validation(self) -> None:
         """Test custom validation function."""
+
         async def check_even(data: int, context: dict | None) -> ValidationResult:
             if data % 2 == 0:
                 return ValidationResult.success()
             return ValidationResult.error("NOT_EVEN", "Value must be even")
-        
+
         rule = CustomRule(check_fn=check_even, name="even_check")
-        
+
         result = await rule.check(4)
         assert result.passed is True
-        
+
         result = await rule.check(5)
         assert result.passed is False
 
@@ -338,10 +340,10 @@ class TestValidationPipeline:
         """Test pipeline with single rule."""
         pipeline = ValidationPipeline()
         pipeline.add_rule(LengthRule(min_length=5))
-        
+
         result = await pipeline.run("hello world")
         assert result.passed is True
-        
+
         result = await pipeline.run("hi")
         assert result.passed is False
 
@@ -350,10 +352,10 @@ class TestValidationPipeline:
         pipeline = ValidationPipeline()
         pipeline.add_rule(LengthRule(min_length=3))
         pipeline.add_rule(RegexRule(pattern=r"^[a-z]+$"))
-        
+
         result = await pipeline.run("hello")
         assert result.passed is True
-        
+
         result = await pipeline.run("hi")  # Too short
         assert result.passed is False
 
@@ -362,7 +364,7 @@ class TestValidationPipeline:
         pipeline = ValidationPipeline(fail_fast=True)
         pipeline.add_rule(AlwaysFailRule(error_code="FIRST"))
         pipeline.add_rule(AlwaysFailRule(error_code="SECOND"))
-        
+
         result = await pipeline.run("data")
         assert result.passed is False
         assert len(result.errors) == 1
@@ -373,7 +375,7 @@ class TestValidationPipeline:
         pipeline = ValidationPipeline(fail_fast=False)
         pipeline.add_rule(AlwaysFailRule(error_code="FIRST"))
         pipeline.add_rule(AlwaysFailRule(error_code="SECOND"))
-        
+
         result = await pipeline.run("data")
         assert result.passed is False
         assert len(result.errors) == 2
@@ -381,9 +383,7 @@ class TestValidationPipeline:
     async def test_method_chaining(self) -> None:
         """Test fluent method chaining."""
         pipeline = (
-            ValidationPipeline()
-            .add_rule(LengthRule(min_length=1))
-            .add_rule(LengthRule(max_length=100))
+            ValidationPipeline().add_rule(LengthRule(min_length=1)).add_rule(LengthRule(max_length=100))
         )
         assert len(pipeline) == 2
 
@@ -391,7 +391,7 @@ class TestValidationPipeline:
         """Test validate() is alias for run()."""
         pipeline = ValidationPipeline()
         pipeline.add_rule(AlwaysPassRule())
-        
+
         result = await pipeline.validate("data")
         assert result.passed is True
 
@@ -421,7 +421,7 @@ class TestMockValidator:
         validator = MockValidator()
         await validator.validate("data1")
         await validator.validate("data2", {"key": "value"})
-        
+
         assert validator.call_count == 2
         assert validator.calls[0] == ("data1", None)
         assert validator.calls[1] == ("data2", {"key": "value"})
@@ -431,7 +431,7 @@ class TestMockValidator:
         validator = MockValidator()
         await validator.validate("data")
         validator.reset()
-        
+
         assert validator.call_count == 0
 
 
@@ -460,4 +460,3 @@ class TestAlwaysFailRule:
         result = await rule.check(None)
         assert result.errors[0].code == "CUSTOM"
         assert result.errors[0].message == "Custom error"
-

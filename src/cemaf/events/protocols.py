@@ -4,11 +4,10 @@ Event protocols and base types.
 Defines the contracts for event buses, handlers, and notifiers.
 """
 
-from __future__ import annotations
-
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -95,12 +94,12 @@ class EventType(str, Enum):
 class Event(BaseModel):
     """
     An event in the system.
-    
+
     Events are immutable records of something that happened.
     """
-    
+
     model_config = {"frozen": True}
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: str  # Event type (use EventType enum or custom string)
     payload: JSON = Field(default_factory=dict)
@@ -108,7 +107,7 @@ class Event(BaseModel):
     source: str = ""  # Component that emitted the event
     correlation_id: str | None = None  # For tracing related events
     metadata: JSON = Field(default_factory=dict)
-    
+
     @classmethod
     def create(
         cls,
@@ -120,14 +119,14 @@ class Event(BaseModel):
     ) -> Event:
         """
         Factory method to create an event.
-        
+
         Args:
             type: Event type.
             payload: Event data.
             source: Component that emitted the event.
             correlation_id: For tracing related events.
             metadata: Additional metadata.
-            
+
         Returns:
             New Event instance.
         """
@@ -143,19 +142,19 @@ class Event(BaseModel):
 
 class NotifyResult(BaseModel):
     """Result of a notification attempt."""
-    
+
     model_config = {"frozen": True}
-    
+
     success: bool
     message: str = ""
     error: str | None = None
     retry_after: int | None = None  # Seconds to wait before retry
     metadata: JSON = Field(default_factory=dict)
-    
+
     @classmethod
     def ok(cls, message: str = "Success") -> NotifyResult:
         return cls(success=True, message=message)
-    
+
     @classmethod
     def fail(
         cls,
@@ -169,17 +168,17 @@ class NotifyResult(BaseModel):
 class EventHandler(Protocol):
     """
     Protocol for event handlers.
-    
+
     An EventHandler processes events of specific types.
     """
-    
+
     async def handle(self, event: Event) -> None:
         """
         Handle an event.
-        
+
         Args:
             event: The event to process.
-            
+
         Raises:
             Any exception if handling fails.
         """
@@ -190,28 +189,28 @@ class EventHandler(Protocol):
 class EventBus(Protocol):
     """
     Protocol for event buses.
-    
+
     An EventBus provides pub/sub functionality for events.
     """
-    
+
     async def publish(self, event: Event) -> None:
         """
         Publish an event to all subscribers.
-        
+
         Args:
             event: The event to publish.
         """
         ...
-    
+
     async def publish_batch(self, events: list[Event]) -> None:
         """
         Publish multiple events.
-        
+
         Args:
             events: Events to publish.
         """
         ...
-    
+
     def subscribe(
         self,
         event_type: str | EventType,
@@ -219,26 +218,26 @@ class EventBus(Protocol):
     ) -> Callable[[], None]:
         """
         Subscribe to events of a specific type.
-        
+
         Args:
             event_type: Type of events to subscribe to.
             handler: Handler to call when event occurs.
-            
+
         Returns:
             Unsubscribe function.
         """
         ...
-    
+
     def subscribe_all(
         self,
         handler: EventHandler | Callable[[Event], Any],
     ) -> Callable[[], None]:
         """
         Subscribe to all events.
-        
+
         Args:
             handler: Handler to call for any event.
-            
+
         Returns:
             Unsubscribe function.
         """
@@ -249,25 +248,24 @@ class EventBus(Protocol):
 class Notifier(Protocol):
     """
     Protocol for external notifiers.
-    
+
     A Notifier sends events to external systems
     (webhooks, Slack, email, etc.).
     """
-    
+
     @property
     def name(self) -> str:
         """Notifier identifier."""
         ...
-    
+
     async def notify(self, event: Event) -> NotifyResult:
         """
         Send notification for an event.
-        
+
         Args:
             event: Event to notify about.
-            
+
         Returns:
             NotifyResult indicating success/failure.
         """
         ...
-

@@ -9,35 +9,33 @@ This module provides the main MCPAdapter class that:
 - Integrates with RunLogger for recording
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
-from typing import TYPE_CHECKING, Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
+from cemaf.core.types import JSON
 from cemaf.mcp.protocols import (
+    MCPError,
     MCPRequest,
     MCPResponse,
-    MCPError,
-    MCPErrorCode,
     Transport,
 )
 from cemaf.mcp.types import (
-    MCPToolDefinition,
-    MCPResource,
-    MCPResourceContents,
     MCPPrompt,
     MCPPromptArgument,
+    MCPResource,
+    MCPResourceContents,
+    MCPToolDefinition,
     MCPToolResult,
 )
-from cemaf.core.types import JSON
 
 if TYPE_CHECKING:
+    from cemaf.blueprint.schema import Blueprint
     from cemaf.events.protocols import EventBus
+    from cemaf.memory.base import MemoryStore
     from cemaf.observability.run_logger import RunLogger
     from cemaf.tools.base import Tool
-    from cemaf.blueprint.schema import Blueprint
-    from cemaf.memory.base import MemoryStore
 
 
 # Type alias for method handlers
@@ -204,7 +202,7 @@ class ResourceBridge:
         if not uri.startswith("memory://"):
             return None
 
-        path = uri[len("memory://"):]
+        path = uri[len("memory://") :]
         parts = path.split("/", 1)
         if len(parts) != 2:
             return None
@@ -257,6 +255,7 @@ class PromptBridge:
         if instruction:
             # Simple placeholder detection: {variable_name}
             import re
+
             placeholders = re.findall(r"\{(\w+)\}", instruction)
             for name in set(placeholders):
                 arguments.append(
@@ -516,10 +515,13 @@ class MCPAdapter:
             )
         except Exception as e:
             # Unexpected errors
-            self._emit_event("mcp.request.error", {
-                "method": method,
-                "error": str(e),
-            })
+            self._emit_event(
+                "mcp.request.error",
+                {
+                    "method": method,
+                    "error": str(e),
+                },
+            )
             return MCPResponse.failure(
                 request.id,
                 MCPError.internal_error(str(e)),
@@ -537,10 +539,13 @@ class MCPAdapter:
         self._client_info = params.get("clientInfo", {})
         client_version = params.get("protocolVersion", "")
 
-        self._emit_event("mcp.client.connected", {
-            "clientInfo": self._client_info,
-            "protocolVersion": client_version,
-        })
+        self._emit_event(
+            "mcp.client.connected",
+            {
+                "clientInfo": self._client_info,
+                "protocolVersion": client_version,
+            },
+        )
 
         return {
             "protocolVersion": self.PROTOCOL_VERSION,
@@ -579,7 +584,7 @@ class MCPAdapter:
 
         Returns list of available tools.
         """
-        cursor = params.get("cursor")
+        params.get("cursor")
         # Pagination not implemented - return all tools
         tools = [ToolBridge.to_mcp(t).to_dict() for t in self._tools.values()]
         return {"tools": tools}
@@ -605,6 +610,7 @@ class MCPAdapter:
         correlation_id = ""
         if self._run_logger:
             from cemaf.core.utils import generate_id
+
             correlation_id = generate_id("mcp")
 
         result = await ToolBridge.call(
@@ -614,11 +620,14 @@ class MCPAdapter:
             correlation_id=correlation_id,
         )
 
-        self._emit_event("mcp.tool.called", {
-            "tool": name,
-            "arguments": arguments,
-            "success": not result.isError,
-        })
+        self._emit_event(
+            "mcp.tool.called",
+            {
+                "tool": name,
+                "arguments": arguments,
+                "success": not result.isError,
+            },
+        )
 
         return result.to_dict()
 
@@ -684,10 +693,13 @@ class MCPAdapter:
         blueprint = self._blueprints[name]
         text = PromptBridge.get_prompt_text(blueprint, arguments)
 
-        self._emit_event("mcp.prompt.rendered", {
-            "name": name,
-            "arguments": arguments,
-        })
+        self._emit_event(
+            "mcp.prompt.rendered",
+            {
+                "name": name,
+                "arguments": arguments,
+            },
+        )
 
         return {
             "messages": [

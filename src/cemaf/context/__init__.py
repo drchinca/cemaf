@@ -9,15 +9,22 @@ Context engineering involves:
 - PATCHING: Tracking provenance of context changes
 """
 
-from cemaf.context.compiler import ContextCompiler, CompiledContext
-from cemaf.context.budget import TokenBudget, BudgetAllocation
-from cemaf.context.context import Context
 from cemaf.context.advanced_compiler import AdvancedContextCompiler
+from cemaf.context.algorithm import (
+    ContextSelectionAlgorithm,
+    GreedySelectionAlgorithm,
+    KnapsackSelectionAlgorithm,
+    OptimalSelectionAlgorithm,
+    SelectionResult,
+)
+from cemaf.context.budget import BudgetAllocation, TokenBudget
+from cemaf.context.compiler import CompiledContext, ContextCompiler
+from cemaf.context.context import Context
 from cemaf.context.patch import (
     ContextPatch,
+    PatchLog,
     PatchOperation,
     PatchSource,
-    PatchLog,
 )
 
 __all__ = [
@@ -27,10 +34,15 @@ __all__ = [
     "BudgetAllocation",
     "Context",
     "AdvancedContextCompiler",
+    # Selection algorithms
+    "ContextSelectionAlgorithm",
+    "GreedySelectionAlgorithm",
+    "KnapsackSelectionAlgorithm",
+    "OptimalSelectionAlgorithm",
+    "SelectionResult",
     # Patch system
     "ContextPatch",
     "PatchOperation",
     "PatchSource",
     "PatchLog",
 ]
-

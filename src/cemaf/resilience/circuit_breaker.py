@@ -7,17 +7,15 @@ States:
 - HALF_OPEN: Testing if service recovered
 """
 
-from __future__ import annotations
-
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
 
@@ -36,16 +34,16 @@ class CircuitConfig(BaseModel):
 
     # Failure threshold to open circuit
     failure_threshold: int = 5
-    
+
     # Time window for counting failures
     failure_window_seconds: float = 60.0
-    
+
     # Time to wait before testing recovery
     recovery_timeout_seconds: float = 30.0
-    
+
     # Successes needed in half-open to close
     success_threshold: int = 2
-    
+
     # Exceptions that count as failures
     failure_exceptions: tuple[type, ...] = (Exception,)
 
@@ -58,14 +56,14 @@ class CircuitMetrics:
     successful_calls: int = 0
     failed_calls: int = 0
     rejected_calls: int = 0
-    
+
     # Recent failures (within window)
     recent_failures: list[datetime] = field(default_factory=list)
-    
+
     # State transitions
     times_opened: int = 0
     times_closed: int = 0
-    
+
     last_failure: datetime | None = None
     last_success: datetime | None = None
     last_state_change: datetime | None = None
@@ -84,12 +82,12 @@ T = TypeVar("T")
 class CircuitBreaker:
     """
     Circuit breaker for fault tolerance.
-    
+
     Prevents cascading failures by failing fast when service is unhealthy.
-    
+
     Usage:
         breaker = CircuitBreaker(CircuitConfig(failure_threshold=5))
-        
+
         try:
             result = await breaker.execute(my_function)
         except CircuitOpenError:
@@ -122,12 +120,8 @@ class CircuitBreaker:
 
     def _clean_old_failures(self) -> None:
         """Remove failures outside the window."""
-        cutoff = utc_now() - timedelta(
-            seconds=self._config.failure_window_seconds
-        )
-        self._metrics.recent_failures = [
-            f for f in self._metrics.recent_failures if f > cutoff
-        ]
+        cutoff = utc_now() - timedelta(seconds=self._config.failure_window_seconds)
+        self._metrics.recent_failures = [f for f in self._metrics.recent_failures if f > cutoff]
 
     def _should_open(self) -> bool:
         """Check if circuit should open."""
@@ -138,7 +132,7 @@ class CircuitBreaker:
         """Check if we should try half-open state."""
         if self._opened_at is None:
             return True
-        
+
         elapsed = (utc_now() - self._opened_at).total_seconds()
         return elapsed >= self._config.recovery_timeout_seconds
 
@@ -147,7 +141,7 @@ class CircuitBreaker:
         self._metrics.total_calls += 1
         self._metrics.successful_calls += 1
         self._metrics.last_success = utc_now()
-        
+
         if self._state == CircuitState.HALF_OPEN:
             self._half_open_successes += 1
             if self._half_open_successes >= self._config.success_threshold:
@@ -160,7 +154,7 @@ class CircuitBreaker:
         self._metrics.failed_calls += 1
         self._metrics.last_failure = now
         self._metrics.recent_failures.append(now)
-        
+
         if self._state == CircuitState.HALF_OPEN:
             # Any failure in half-open opens circuit
             self._open()
@@ -197,7 +191,7 @@ class CircuitBreaker:
     ) -> T:
         """
         Execute function through circuit breaker.
-        
+
         Raises CircuitOpenError if circuit is open.
         """
         async with self._lock:
@@ -208,7 +202,7 @@ class CircuitBreaker:
                 else:
                     self._metrics.rejected_calls += 1
                     raise CircuitOpenError()
-        
+
         # Execute the function
         try:
             result = await func(*args, **kwargs)
@@ -231,4 +225,3 @@ class CircuitBreaker:
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         return False
-

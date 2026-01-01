@@ -8,15 +8,12 @@ This module provides:
 - InMemoryRunLogger: In-memory implementation
 """
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
-from cemaf.core.utils import utc_now, generate_id
+from cemaf.core.utils import generate_id, utc_now
 
 if TYPE_CHECKING:
     from cemaf.context.context import Context
@@ -72,9 +69,7 @@ class ToolCall:
             input=data.get("input", {}),
             output=data.get("output", {}),
             duration_ms=data.get("duration_ms", 0.0),
-            timestamp=datetime.fromisoformat(data["timestamp"])
-            if "timestamp" in data
-            else utc_now(),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else utc_now(),
             correlation_id=data.get("correlation_id", ""),
             success=data.get("success", True),
             error=data.get("error"),
@@ -131,9 +126,7 @@ class LLMCall:
             input_tokens=data.get("input_tokens", 0),
             output_tokens=data.get("output_tokens", 0),
             duration_ms=data.get("duration_ms", 0.0),
-            timestamp=datetime.fromisoformat(data["timestamp"])
-            if "timestamp" in data
-            else utc_now(),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else utc_now(),
             correlation_id=data.get("correlation_id", ""),
         )
 
@@ -201,7 +194,7 @@ class RunRecord:
             "final_context": self.final_context.to_dict() if self.final_context else None,
             "patches": [p.to_dict() for p in self.patches],
             "tool_calls": [t.to_dict() for t in self.tool_calls],
-            "llm_calls": [l.to_dict() for l in self.llm_calls],
+            "llm_calls": [llm_call.to_dict() for llm_call in self.llm_calls],
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "success": self.success,
@@ -230,13 +223,9 @@ class RunRecord:
             final_context=final_ctx,
             patches=[ContextPatch.from_dict(p) for p in data.get("patches", [])],
             tool_calls=[ToolCall.from_dict(t) for t in data.get("tool_calls", [])],
-            llm_calls=[LLMCall.from_dict(l) for l in data.get("llm_calls", [])],
-            started_at=datetime.fromisoformat(data["started_at"])
-            if "started_at" in data
-            else utc_now(),
-            completed_at=datetime.fromisoformat(data["completed_at"])
-            if data.get("completed_at")
-            else None,
+            llm_calls=[LLMCall.from_dict(llm_call) for llm_call in data.get("llm_calls", [])],
+            started_at=datetime.fromisoformat(data["started_at"]) if "started_at" in data else utc_now(),
+            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
             success=data.get("success", True),
             error=data.get("error"),
             metadata=data.get("metadata", {}),
@@ -245,6 +234,7 @@ class RunRecord:
     def get_patch_log(self) -> PatchLog:
         """Get patches as a PatchLog."""
         from cemaf.context.patch import PatchLog
+
         return PatchLog(patches=tuple(self.patches))
 
 

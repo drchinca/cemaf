@@ -8,14 +8,13 @@ This module provides:
 - PatchLog: An append-only log of patches for replay/debugging
 """
 
-from __future__ import annotations
-
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 
-from cemaf.core.utils import utc_now, generate_id
+from cemaf.core.utils import generate_id, utc_now
 
 if TYPE_CHECKING:
     from cemaf.context.context import Context
@@ -232,9 +231,7 @@ class ContextPatch:
             value=data.get("value"),
             source=PatchSource(data.get("source", "system")),
             source_id=data.get("source_id", ""),
-            timestamp=datetime.fromisoformat(data["timestamp"])
-            if "timestamp" in data
-            else utc_now(),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else utc_now(),
             reason=data.get("reason", ""),
             correlation_id=data.get("correlation_id"),
         )
@@ -308,9 +305,7 @@ class PatchLog:
 
     def filter_by_correlation_id(self, correlation_id: str) -> PatchLog:
         """Filter patches by correlation ID."""
-        filtered = tuple(
-            p for p in self.patches if p.correlation_id == correlation_id
-        )
+        filtered = tuple(p for p in self.patches if p.correlation_id == correlation_id)
         return PatchLog(patches=filtered)
 
     def filter_by_path_prefix(self, prefix: str) -> PatchLog:

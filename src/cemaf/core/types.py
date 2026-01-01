@@ -22,4 +22,3 @@ TokenCount = NewType("TokenCount", int)
 
 # Confidence scores (0.0 - 1.0)
 Confidence = NewType("Confidence", float)
-

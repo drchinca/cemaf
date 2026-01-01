@@ -81,4 +81,3 @@ async def expensive_operation(arg: str) -> dict:
     # Expensive computation
     return {"result": "data"}
 ```
-

@@ -4,13 +4,10 @@ Moderation protocols and base types.
 Defines the contracts for moderation rules, gates, and moderation results.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
-
 
 # Type alias for moderation severity levels
 ModerationSeverity = Literal["error", "warning", "info"]

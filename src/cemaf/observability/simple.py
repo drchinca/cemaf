@@ -4,15 +4,12 @@ Simple implementations of observability interfaces.
 For development/testing - swap with real implementations in production.
 """
 
-from __future__ import annotations
-
 import logging
 import sys
-from datetime import datetime, timezone
 from typing import Any
 
 from cemaf.core.types import JSON
-from cemaf.observability.protocols import Logger, Tracer, Span, MetricsCollector
+from cemaf.observability.protocols import Span
 
 
 class SimpleLogger:
@@ -27,16 +24,14 @@ class SimpleLogger:
         self._name = name
         self._level = level
         self._context = context or {}
-        
+
         # Configure Python logger
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
-        
+
         if not self._logger.handlers:
             handler = logging.StreamHandler(sys.stdout)
-            handler.setFormatter(
-                logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-            )
+            handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
             self._logger.addHandler(handler)
 
     def _format_kwargs(self, kwargs: dict[str, Any]) -> str:
@@ -119,4 +114,3 @@ class NoOpMetrics:
     def timing(self, name: str, value_ms: float, tags: JSON | None = None) -> None:
         """No-op."""
         pass
-

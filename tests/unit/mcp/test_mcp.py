@@ -11,32 +11,32 @@ Tests:
 - Transport: base protocol
 """
 
-import pytest
 from typing import Any
 
+import pytest
+
+from cemaf.core.result import Result
+from cemaf.core.types import ToolID
+from cemaf.mcp.adapter import MCPAdapter
+from cemaf.mcp.mock import InMemoryTransport, MockTransport
 from cemaf.mcp.protocols import (
-    MCPRequest,
-    MCPResponse,
     MCPError,
     MCPErrorCode,
-    Transport,
+    MCPRequest,
+    MCPResponse,
 )
 from cemaf.mcp.types import (
-    MCPToolDefinition,
-    MCPResource,
     MCPPrompt,
     MCPPromptArgument,
+    MCPResource,
     MCPResourceContents,
+    MCPToolDefinition,
     MCPToolResult,
 )
-from cemaf.mcp.mock import MockTransport, InMemoryTransport
-from cemaf.mcp.adapter import MCPAdapter
 from cemaf.tools.base import Tool, ToolSchema
-from cemaf.core.types import ToolID
-from cemaf.core.result import Result
-
 
 # --- Mock Tool for Testing ---
+
 
 class EchoTool(Tool):
     """Simple tool that echoes input for testing."""
@@ -101,6 +101,7 @@ class CalculatorTool(Tool):
 
 
 # --- MCPRequest Tests ---
+
 
 class TestMCPRequest:
     """Tests for MCPRequest."""
@@ -222,6 +223,7 @@ class TestMCPRequest:
 
 # --- MCPResponse Tests ---
 
+
 class TestMCPResponse:
     """Tests for MCPResponse."""
 
@@ -313,6 +315,7 @@ class TestMCPResponse:
 
 # --- MCPError Tests ---
 
+
 class TestMCPError:
     """Tests for MCPError."""
 
@@ -399,6 +402,7 @@ class TestMCPError:
 
 
 # --- MCP Type Tests ---
+
 
 class TestMCPToolDefinition:
     """Tests for MCPToolDefinition."""
@@ -506,9 +510,7 @@ class TestMCPPrompt:
         prompt = MCPPrompt(
             name="greeting",
             description="Generates a greeting",
-            arguments=(
-                MCPPromptArgument(name="name", description="Person's name", required=True),
-            ),
+            arguments=(MCPPromptArgument(name="name", description="Person's name", required=True),),
         )
 
         assert prompt.name == "greeting"
@@ -564,6 +566,7 @@ class TestMCPToolResult:
 
 
 # --- MockTransport Tests ---
+
 
 class TestMockTransport:
     """Tests for MockTransport."""
@@ -665,6 +668,7 @@ class TestMockTransport:
 
 # --- InMemoryTransport Tests ---
 
+
 class TestInMemoryTransport:
     """Tests for InMemoryTransport."""
 
@@ -700,6 +704,7 @@ class TestInMemoryTransport:
 
 
 # --- MCPAdapter Tests ---
+
 
 class TestMCPAdapter:
     """Tests for MCPAdapter."""
@@ -826,6 +831,7 @@ class TestMCPAdapter:
 
 
 # --- Transport Protocol Tests ---
+
 
 class TestTransportProtocol:
     """Tests for Transport protocol compliance."""

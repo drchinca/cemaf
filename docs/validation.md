@@ -64,4 +64,3 @@ pipeline = ValidationPipeline() \
 
 result = pipeline.validate("teststring")
 ```
-

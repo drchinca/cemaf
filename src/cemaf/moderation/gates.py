@@ -5,8 +5,6 @@ Provides PreFlightGate and PostFlightGate implementations that compose
 multiple ModerationRule instances into checkpoints for content moderation.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from cemaf.moderation.protocols import (
@@ -128,9 +126,7 @@ class PreFlightGate:
 
                 # In fail-fast mode, stop on first error-level violation
                 if self._fail_fast:
-                    has_error = any(
-                        v.severity == "error" for v in result.violations
-                    )
+                    has_error = any(v.severity == "error" for v in result.violations)
                     if has_error:
                         return ModerationResult.blocked(
                             violations=tuple(all_violations),

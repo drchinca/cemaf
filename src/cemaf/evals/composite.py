@@ -6,8 +6,6 @@ Provides:
 - EvalSuite: Named collection of evaluators for test suites
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -15,11 +13,10 @@ from typing import Any
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 from cemaf.evals.protocols import (
-    BaseEvaluator,
-    Evaluator,
     EvalConfig,
     EvalMetric,
     EvalResult,
+    Evaluator,
 )
 
 
@@ -100,15 +97,15 @@ class AggregationStrategy:
         total_weight = sum(weights)
         if total_weight == 0:
             return 0.0
-        return sum(s * w for s, w in zip(scores, weights)) / total_weight
+        return sum(s * w for s, w in zip(scores, weights, strict=False)) / total_weight
 
 
 class CompositeEvaluator:
     """
     Combines multiple evaluators into one.
-    
+
     Runs all evaluators and aggregates results.
-    
+
     Usage:
         composite = CompositeEvaluator([
             ExactMatchEvaluator(),
@@ -140,18 +137,18 @@ class CompositeEvaluator:
     ) -> CompositeEvalResult:
         """Run all evaluators and aggregate."""
         results: list[EvalResult] = []
-        
+
         for evaluator in self._evaluators:
             result = await evaluator.evaluate(output, expected, context)
             results.append(result)
-            
+
             # Fail fast if configured
             if self._config.fail_fast and not result.passed:
                 break
-        
+
         # Aggregate scores
         scores = [r.score for r in results]
-        
+
         if self._aggregation == "min":
             overall_score = AggregationStrategy.min(scores)
         elif self._aggregation == "max":
@@ -160,15 +157,15 @@ class CompositeEvaluator:
             overall_score = AggregationStrategy.weighted(scores, self._weights)
         else:
             overall_score = AggregationStrategy.mean(scores)
-        
+
         # Determine overall pass
         if self._require_all:
             overall_passed = all(r.passed for r in results)
         else:
             overall_passed = overall_score >= self._config.pass_threshold
-        
+
         failed_metrics = tuple(r.metric for r in results if not r.passed)
-        
+
         return CompositeEvalResult(
             results=tuple(results),
             overall_score=overall_score,
@@ -209,19 +206,16 @@ class EvalSuiteResult:
             "passed_cases": self.passed_cases,
             "failed_cases": self.failed_cases,
             "duration_ms": self.duration_ms,
-            "cases": {
-                name: result.to_dict()
-                for name, result in self.case_results
-            },
+            "cases": {name: result.to_dict() for name, result in self.case_results},
         }
 
 
 class EvalSuite:
     """
     Named collection of evaluators and test cases.
-    
+
     Useful for regression testing and benchmarking.
-    
+
     Usage:
         suite = EvalSuite(
             name="quality_checks",
@@ -260,24 +254,24 @@ class EvalSuite:
     async def run(self, filter_tags: list[str] | None = None) -> EvalSuiteResult:
         """
         Run all test cases.
-        
+
         Args:
             filter_tags: Only run cases with these tags
-        
+
         Returns:
             EvalSuiteResult with all results
         """
         start_time = utc_now()
-        
+
         # Filter cases by tags
         cases = self._cases
         if filter_tags:
             cases = [c for c in cases if any(t in c.tags for t in filter_tags)]
-        
+
         # Run each case
         case_results: list[tuple[str, CompositeEvalResult]] = []
         passed = 0
-        
+
         for case in cases:
             result = await self._composite.evaluate(
                 case.output,
@@ -285,13 +279,13 @@ class EvalSuite:
                 case.context,
             )
             case_results.append((case.name, result))
-            
+
             if result.overall_passed:
                 passed += 1
-        
+
         end_time = utc_now()
         duration = (end_time - start_time).total_seconds() * 1000
-        
+
         return EvalSuiteResult(
             suite_name=self._name,
             case_results=tuple(case_results),
@@ -301,4 +295,3 @@ class EvalSuite:
             failed_cases=len(cases) - passed,
             duration_ms=duration,
         )
-

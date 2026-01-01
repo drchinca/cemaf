@@ -68,4 +68,3 @@ await bus.subscribe("my_event", handler)
 # Publish
 await bus.publish(Event(type="my_event", data={"key": "value"}))
 ```
-

@@ -78,10 +78,10 @@ class Result(Generic[T]):
     error: str | None = None
     metadata: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
-    
+
     @classmethod
     def ok(cls, data: T, metadata: JSON | None = None) -> Result[T]
-    
+
     @classmethod
     def fail(cls, error: str, metadata: JSON | None = None) -> Result[T]
 ```
@@ -156,4 +156,3 @@ from cemaf.core.constants import (
     MAX_CONTEXT_TOKENS,
 )
 ```
-

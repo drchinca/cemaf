@@ -5,16 +5,15 @@ Provides a complete moderation solution with event integration
 for observability and convenient methods for input/output checking.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from cemaf.moderation.gates import PostFlightGate, PreFlightGate
 from cemaf.moderation.protocols import ModerationResult
 
 if TYPE_CHECKING:
     from cemaf.context.context import Context
-    from cemaf.events.protocols import Event, EventBus
+    from cemaf.events.protocols import EventBus
 
 
 class ModerationPipeline:
@@ -362,9 +361,7 @@ class ModerationPipeline:
 
         # Return redacted content if available, otherwise the original result
         output = (
-            post_result.redacted_content
-            if post_result.redacted_content is not None
-            else execution_result
+            post_result.redacted_content if post_result.redacted_content is not None else execution_result
         )
         return final_result, output
 

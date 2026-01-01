@@ -12,15 +12,15 @@ Protocols for pluggable storage backends.
 """
 
 from cemaf.persistence.entities import (
-    Project,
-    ContextArtifact,
     ContentItem,
+    ContextArtifact,
+    Project,
     Run,
 )
 from cemaf.persistence.protocols import (
-    ProjectStore,
     ArtifactStore,
     ContentStore,
+    ProjectStore,
     RunStore,
 )
 
@@ -36,4 +36,3 @@ __all__ = [
     "ContentStore",
     "RunStore",
 ]
-

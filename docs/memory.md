@@ -111,4 +111,3 @@ item = MemoryItem(
 # Full key includes scope
 full_key = item.full_key  # "PROJECT:key"
 ```
-

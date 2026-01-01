@@ -5,8 +5,6 @@ Provides reusable, composable rules for detecting PII, keywords,
 content length issues, and custom patterns.
 """
 
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -249,7 +247,9 @@ class KeywordRule:
                     if pos == -1:
                         break
                     # Create a simple match-like object
-                    matches.append(type("Match", (), {"start": lambda p=pos: p, "group": lambda w=word_lower: w})())
+                    matches.append(
+                        type("Match", (), {"start": lambda p=pos: p, "group": lambda w=word_lower: w})()
+                    )
                     start = pos + 1
 
             for match in matches:
@@ -259,7 +259,7 @@ class KeywordRule:
                         message=f"Blocked keyword detected: '{word}'",
                         severity=self.severity,
                         field=f"position:{match.start()}",
-                        suggestion=f"Remove or replace the blocked word",
+                        suggestion="Remove or replace the blocked word",
                     )
                 )
 

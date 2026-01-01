@@ -8,13 +8,11 @@ Supports:
 - Event typing
 """
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, AsyncIterator, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
@@ -36,7 +34,7 @@ class EventType(str, Enum):
 class StreamEvent:
     """
     A single event in a stream.
-    
+
     Used for typed event handling.
     """
 
@@ -81,7 +79,7 @@ class StreamEvent:
 class StreamHandler(Protocol):
     """
     Protocol for handling stream events.
-    
+
     Implement for different output targets:
     - Console (print as received)
     - WebSocket (send to client)
@@ -109,13 +107,13 @@ class StreamHandler(Protocol):
 class StreamBuffer:
     """
     Buffer that accumulates streaming content.
-    
+
     Tracks:
     - Accumulated text content
     - All events
     - Tool calls
     - Timing
-    
+
     Usage:
         buffer = StreamBuffer()
         async for chunk in llm.stream(messages):
@@ -169,9 +167,9 @@ class StreamBuffer:
         """Add an event to the buffer."""
         if self._started_at is None:
             self._started_at = utc_now()
-        
+
         self._events.append(event)
-        
+
         if event.type == EventType.CONTENT:
             self._content_parts.append(str(event.data))
         elif event.type == EventType.TOOL_CALL_END:
@@ -200,7 +198,7 @@ class StreamBuffer:
 class CallbackStreamHandler:
     """
     Stream handler that calls user-provided callbacks.
-    
+
     Usage:
         handler = CallbackStreamHandler(
             on_content=lambda c: print(c, end=""),
@@ -239,4 +237,3 @@ class CallbackStreamHandler:
         """Handle stream completion."""
         if self._on_done:
             self._on_done()
-

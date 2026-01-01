@@ -1,17 +1,17 @@
 """Tests for execution context and cancellation."""
 
-import pytest
 import asyncio
-from datetime import timedelta
+
+import pytest
 
 from cemaf.core.execution import (
     CancellationToken,
     CancelledException,
-    TimeoutException,
     ExecutionContext,
+    TimeoutException,
     with_cancellation,
-    with_timeout,
     with_execution_context,
+    with_timeout,
 )
 
 
@@ -238,6 +238,7 @@ class TestWithTimeout:
     @pytest.mark.asyncio
     async def test_normal_completion(self) -> None:
         """Test normal completion within timeout."""
+
         async def task() -> int:
             await asyncio.sleep(0.01)
             return 42
@@ -248,6 +249,7 @@ class TestWithTimeout:
     @pytest.mark.asyncio
     async def test_timeout(self) -> None:
         """Test timeout exception."""
+
         async def slow_task() -> int:
             await asyncio.sleep(10)
             return 42

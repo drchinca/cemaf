@@ -1,14 +1,11 @@
 """Tests for context patch system."""
 
-import pytest
-from datetime import datetime
-
 from cemaf.context.context import Context
 from cemaf.context.patch import (
     ContextPatch,
+    PatchLog,
     PatchOperation,
     PatchSource,
-    PatchLog,
 )
 
 

@@ -280,6 +280,81 @@ The `AdvancedContextCompiler`:
 3. Summarizes lowest-priority sources first
 4. Continues until budget is met or all sources processed
 
+### AdvancedContextCompiler Modes
+
+The `AdvancedContextCompiler` supports two operational modes based on configuration:
+
+#### Mode 1: Pure Summarization (Default)
+
+When no algorithm is specified, all sources are included and low-priority sources are summarized to fit budget.
+
+**Example**:
+```python
+from cemaf.context.advanced_compiler import AdvancedContextCompiler
+from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.llm.mock_client import MockLLMClient
+
+compiler = AdvancedContextCompiler(
+    llm_client=MockLLMClient(),
+    token_estimator=SimpleTokenEstimator(),
+)
+# No algorithm → Pure summarization mode
+
+compiled = await compiler.compile(
+    artifacts=(("doc1", content1), ("doc2", content2)),
+    memories=(),
+    budget=TokenBudget(max_tokens=1000, reserved_for_output=200),
+)
+# Result: All sources included (some may be summarized)
+```
+
+**Use when**:
+- All sources must be represented in output
+- Information preservation is critical
+- Compliance/audit scenarios
+
+#### Mode 2: Two-Stage Optimization
+
+When an algorithm is provided, the compiler first uses the algorithm to select sources, then applies summarization if needed.
+
+**Example**:
+```python
+from cemaf.context.algorithm import KnapsackSelectionAlgorithm
+
+algorithm = KnapsackSelectionAlgorithm()
+compiler = AdvancedContextCompiler(
+    llm_client=MockLLMClient(),
+    token_estimator=SimpleTokenEstimator(),
+    algorithm=algorithm,  # Two-stage mode
+)
+
+compiled = await compiler.compile(
+    artifacts=artifacts,
+    memories=memories,
+    budget=budget,
+    priorities=priorities,
+)
+# Result: Algorithm selects best sources, may exclude some
+# Metadata includes excluded_keys for debugging
+```
+
+**Use when**:
+- Performance-critical (minimize LLM calls)
+- Large source sets need optimal selection
+- Some information loss is acceptable
+- Need metadata about exclusions
+
+#### Choosing a Mode
+
+| Scenario | Recommended Mode | Configuration |
+|----------|------------------|---------------|
+| Document review, all sections matter | Mode 1 | `algorithm=None` |
+| Large-scale retrieval (100+ candidates) | Mode 2 | `algorithm=KnapsackSelectionAlgorithm()` |
+| Compliance/audit trail | Mode 1 | `algorithm=None` |
+| Budget-constrained agent | Mode 2 | `algorithm=GreedySelectionAlgorithm()` |
+| Analysis requiring complete context | Mode 1 | `algorithm=None` |
+| Performance-critical generation | Mode 2 | `algorithm=GreedySelectionAlgorithm()` |
+
 ## Token Estimation
 
 Estimate tokens for content:
@@ -290,4 +365,3 @@ from cemaf.context.compiler import SimpleTokenEstimator
 estimator = SimpleTokenEstimator()
 tokens = estimator.estimate("Hello world")  # ~2 tokens
 ```
-

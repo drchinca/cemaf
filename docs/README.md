@@ -94,4 +94,3 @@ flowchart TB
 
 - **519 tests** | **55 fixtures** | **TDD from day one**
 - **MIT License**
-

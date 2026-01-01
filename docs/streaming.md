@@ -81,4 +81,3 @@ from cemaf.streaming.sse import SSEFormatter
 formatter = SSEFormatter()
 sse_data = formatter.format_content_event("Hello")
 ```
-

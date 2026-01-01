@@ -4,12 +4,10 @@ Rate limiter - Control request rates.
 Implements token bucket algorithm for smooth rate limiting.
 """
 
-from __future__ import annotations
-
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -23,13 +21,13 @@ class RateLimitConfig(BaseModel):
 
     # Requests per second
     rate: float = 10.0
-    
+
     # Burst capacity (max tokens)
     burst: int = 10
-    
+
     # Whether to wait or reject when limited
     wait_on_limit: bool = True
-    
+
     # Max wait time before rejecting
     max_wait_seconds: float = 30.0
 
@@ -59,16 +57,16 @@ T = TypeVar("T")
 class RateLimiter:
     """
     Token bucket rate limiter.
-    
+
     Provides smooth rate limiting with burst support.
-    
+
     Usage:
         limiter = RateLimiter(RateLimitConfig(rate=10, burst=20))
-        
+
         # Will wait if rate limited
         await limiter.acquire()
         result = await my_function()
-        
+
         # Or wrap function
         result = await limiter.execute(my_function, arg1, arg2)
     """
@@ -98,12 +96,9 @@ class RateLimiter:
         now = utc_now()
         elapsed = (now - self._last_update).total_seconds()
         self._last_update = now
-        
+
         # Add tokens at configured rate
-        self._tokens = min(
-            self._config.burst,
-            self._tokens + elapsed * self._config.rate
-        )
+        self._tokens = min(self._config.burst, self._tokens + elapsed * self._config.rate)
 
     def _time_until_token(self) -> float:
         """Calculate time until next token is available."""
@@ -115,45 +110,45 @@ class RateLimiter:
     async def acquire(self, tokens: int = 1) -> bool:
         """
         Acquire tokens from the bucket.
-        
+
         If wait_on_limit is True, waits until tokens available.
         Otherwise raises RateLimitExceeded.
-        
+
         Returns True if acquired, raises if not.
         """
         async with self._lock:
             self._metrics.total_requests += 1
             self._add_tokens()
-            
+
             if self._tokens >= tokens:
                 self._tokens -= tokens
                 self._metrics.allowed_requests += 1
                 return True
-            
+
             if not self._config.wait_on_limit:
                 retry_after = self._time_until_token()
                 self._metrics.rejected_requests += 1
                 raise RateLimitExceeded(retry_after)
-        
+
         # Wait for tokens
         total_wait = 0.0
         while True:
             async with self._lock:
                 self._add_tokens()
-                
+
                 if self._tokens >= tokens:
                     self._tokens -= tokens
                     self._metrics.allowed_requests += 1
                     self._metrics.throttled_requests += 1
                     self._metrics.total_wait_time_seconds += total_wait
                     return True
-                
+
                 wait_time = self._time_until_token()
-            
+
             if total_wait + wait_time > self._config.max_wait_seconds:
                 self._metrics.rejected_requests += 1
                 raise RateLimitExceeded(wait_time)
-            
+
             await asyncio.sleep(min(wait_time, 0.1))  # Check every 100ms max
             total_wait += min(wait_time, 0.1)
 
@@ -165,7 +160,7 @@ class RateLimiter:
     ) -> T:
         """
         Execute function with rate limiting.
-        
+
         Acquires a token before executing.
         """
         await self.acquire()
@@ -176,4 +171,3 @@ class RateLimiter:
         self._tokens = float(self._config.burst)
         self._last_update = utc_now()
         self._metrics = RateLimiterMetrics()
-

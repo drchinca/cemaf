@@ -8,21 +8,22 @@ The compiler:
 - Produces deterministic output (same inputs → same hash)
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from cemaf.core.types import JSON
-from cemaf.core.enums import ContextArtifactType, MemoryScope
-from cemaf.core.utils import utc_now
+from cemaf.context.algorithm import (
+    ContextSelectionAlgorithm,
+    GreedySelectionAlgorithm,
+    SelectionResult,
+)
 from cemaf.context.budget import TokenBudget
+from cemaf.core.types import JSON
+from cemaf.core.utils import utc_now
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class ContextSource:
 class CompiledContext:
     """
     Compiled context ready for LLM consumption.
-    
+
     Immutable, hashable, deterministic.
     """
 
@@ -55,7 +56,7 @@ class CompiledContext:
     def content_hash(self) -> str:
         """
         Deterministic hash of context content.
-        
+
         Same inputs always produce same hash.
         """
         # Sort sources by key for determinism
@@ -69,22 +70,24 @@ class CompiledContext:
     def to_messages(self) -> list[JSON]:
         """Convert context to message format for LLM."""
         messages: list[JSON] = []
-        
+
         # Group by type
         system_parts: list[str] = []
-        
+
         for source in self.sources:
             if source.type == "artifact":
                 system_parts.append(f"[{source.key}]\n{source.content}")
             elif source.type == "memory":
                 system_parts.append(f"[Memory: {source.key}]\n{source.content}")
-        
+
         if system_parts:
-            messages.append({
-                "role": "system",
-                "content": "\n\n".join(system_parts),
-            })
-        
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "\n\n".join(system_parts),
+                }
+            )
+
         return messages
 
     def within_budget(self) -> bool:
@@ -112,16 +115,45 @@ class SimpleTokenEstimator:
         return max(1, int(len(text) / self._chars_per_token))
 
 
-class ContextCompiler(ABC):
+class AdvancedCompilerConfig(BaseModel):
     """
-    Abstract context compiler.
-    
-    Subclass to implement custom context compilation strategies.
-    
+    Configuration for AdvancedContextCompiler.
+
+    Controls summarization and fallback behavior for context compilation.
+    """
+
+    model_config = {"frozen": True}
+
+    target_summary_tokens: int = Field(
+        default=50,
+        description="Target token count for summarized content",
+    )
+    max_summarization_retries: int = Field(
+        default=3,
+        description="Maximum retry attempts for LLM summarization",
+    )
+    fallback_on_error: bool = Field(
+        default=True,
+        description="Fall back to base compiler on summarization failure",
+    )
+
+
+@runtime_checkable
+class ContextCompiler(Protocol):
+    """
+    Protocol for context compilation strategies.
+
+    Implementations must provide the compile() method to assemble
+    context from artifacts and memories within token budget.
+
     Example:
-        class MyCompiler(ContextCompiler):
+        class MyCompiler:
             async def compile(
-                self, request: ContextRequest
+                self,
+                artifacts: tuple[tuple[str, str], ...],
+                memories: tuple[tuple[str, str], ...],
+                budget: TokenBudget,
+                priorities: dict[str, int] | None = None,
             ) -> CompiledContext:
                 sources = []
                 # Gather artifacts
@@ -130,13 +162,6 @@ class ContextCompiler(ABC):
                 return CompiledContext(...)
     """
 
-    def __init__(
-        self,
-        token_estimator: TokenEstimator | None = None,
-    ) -> None:
-        self._estimator = token_estimator or SimpleTokenEstimator()
-
-    @abstractmethod
     async def compile(
         self,
         artifacts: tuple[tuple[str, str], ...],  # (key, content) pairs
@@ -146,25 +171,41 @@ class ContextCompiler(ABC):
     ) -> CompiledContext:
         """
         Compile context from sources.
-        
+
         Args:
             artifacts: Context artifacts as (key, content) pairs
             memories: Memory items as (key, content) pairs
             budget: Token budget constraints
             priorities: Optional priority overrides by key
-        
+
         Returns:
             CompiledContext ready for LLM
         """
         ...
 
 
-class PriorityContextCompiler(ContextCompiler):
+class PriorityContextCompiler:
     """
     Context compiler that prioritizes sources by importance.
-    
-    Higher priority sources are included first until budget exhausted.
+
+    Uses a pluggable selection algorithm to choose which sources to include.
+    Defaults to greedy algorithm if not specified.
     """
+
+    def __init__(
+        self,
+        token_estimator: TokenEstimator,
+        algorithm: ContextSelectionAlgorithm | None = None,
+    ) -> None:
+        """
+        Initialize priority-based context compiler.
+
+        Args:
+            token_estimator: Token estimation strategy (required)
+            algorithm: Selection algorithm to use (defaults to GreedySelectionAlgorithm)
+        """
+        self._estimator = token_estimator
+        self._algorithm = algorithm or GreedySelectionAlgorithm()
 
     async def compile(
         self,
@@ -173,10 +214,21 @@ class PriorityContextCompiler(ContextCompiler):
         budget: TokenBudget,
         priorities: dict[str, int] | None = None,
     ) -> CompiledContext:
-        """Compile context using priority ordering."""
+        """
+        Compile context using priority ordering and selection algorithm.
+
+        Args:
+            artifacts: Context artifacts as (key, content) pairs
+            memories: Memory items as (key, content) pairs
+            budget: Token budget constraints
+            priorities: Optional priority overrides by key
+
+        Returns:
+            CompiledContext ready for LLM
+        """
         priorities = priorities or {}
         sources: list[ContextSource] = []
-        
+
         # Create sources from artifacts and memories
         for key, content in artifacts:
             tokens = self._estimator.estimate(content)
@@ -204,23 +256,18 @@ class PriorityContextCompiler(ContextCompiler):
                 )
             )
 
-        # Sort by priority (descending)
+        # Sort by priority (descending) - most algorithms expect this
         sources.sort(key=lambda s: s.priority, reverse=True)
 
-        # Filter sources to fit within budget
-        selected_sources: list[ContextSource] = []
-        total_tokens = 0
-        available_tokens = budget.available_tokens
-
-        for source in sources:
-            if total_tokens + source.token_count <= available_tokens:
-                selected_sources.append(source)
-                total_tokens += source.token_count
-            # Skip sources that don't fit
+        # Use algorithm to select sources within budget
+        selection_result: SelectionResult = self._algorithm.select_sources(sources, budget)
 
         return CompiledContext(
-            sources=tuple(selected_sources),
-            total_tokens=total_tokens,
+            sources=selection_result.selected_sources,
+            total_tokens=selection_result.total_tokens,
             budget=budget,
+            metadata={
+                **selection_result.metadata,
+                "algorithm_used": selection_result.selection_method,
+            },
         )
-

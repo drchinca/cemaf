@@ -1,5 +1,6 @@
 """Mock implementations for blueprint testing."""
-from cemaf.blueprint.schema import Blueprint, SceneGoal, StyleGuide, Participant
+
+from cemaf.blueprint.schema import Blueprint, SceneGoal
 
 
 def create_mock_blueprint(

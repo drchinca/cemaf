@@ -8,15 +8,13 @@ Supports:
 - Confidence scores
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
@@ -27,27 +25,27 @@ class EvalMetric(str, Enum):
 
     # Binary
     PASS_FAIL = "pass_fail"
-    
+
     # Similarity
     EXACT_MATCH = "exact_match"
     CONTAINS = "contains"
     SEMANTIC_SIMILARITY = "semantic_similarity"
-    
+
     # Quality
     COHERENCE = "coherence"
     RELEVANCE = "relevance"
     FACTUALITY = "factuality"
     HELPFULNESS = "helpfulness"
-    
+
     # Safety
     TOXICITY = "toxicity"
     BIAS = "bias"
-    
+
     # Format
     JSON_VALID = "json_valid"
     SCHEMA_VALID = "schema_valid"
     LENGTH = "length"
-    
+
     # Custom
     CUSTOM = "custom"
 
@@ -56,26 +54,26 @@ class EvalMetric(str, Enum):
 class EvalResult:
     """
     Result of an evaluation.
-    
+
     Contains score, pass/fail, and reasoning.
     """
 
     metric: EvalMetric
     score: float  # 0.0 to 1.0
     passed: bool
-    
+
     # Details
     reason: str = ""
     expected: Any = None
     actual: Any = None
-    
+
     # Confidence
     confidence: float = 1.0  # How confident is the evaluation
-    
+
     # Timing
     evaluated_at: datetime = field(default_factory=utc_now)
     latency_ms: float = 0.0
-    
+
     # Additional data
     metadata: JSON = field(default_factory=dict)
 
@@ -121,11 +119,11 @@ class EvalConfig(BaseModel):
 
     # Thresholds
     pass_threshold: float = 0.5  # Score >= this = pass
-    
+
     # Behavior
     fail_fast: bool = False  # Stop on first failure
     include_reasoning: bool = True  # Generate explanations
-    
+
     # For LLM-based evals
     llm_model: str = "gpt-4"
     max_tokens: int = 1000
@@ -136,7 +134,7 @@ class EvalConfig(BaseModel):
 class Evaluator(Protocol):
     """
     Protocol for evaluators.
-    
+
     Implement for different evaluation strategies:
     - Exact match
     - Semantic similarity
@@ -162,12 +160,12 @@ class Evaluator(Protocol):
     ) -> EvalResult:
         """
         Evaluate an output.
-        
+
         Args:
             output: The output to evaluate
             expected: Expected output (if applicable)
             context: Additional context for evaluation
-        
+
         Returns:
             EvalResult with score and pass/fail
         """
@@ -177,7 +175,7 @@ class Evaluator(Protocol):
 class BaseEvaluator(ABC):
     """
     Base class for evaluators.
-    
+
     Provides common functionality.
     """
 
@@ -233,4 +231,3 @@ class BaseEvaluator(ABC):
             actual=actual,
             confidence=confidence,
         )
-

@@ -4,8 +4,6 @@ Mock implementations for testing moderation.
 Provides test doubles for moderation rules, gates, and pipelines.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from cemaf.moderation.protocols import (

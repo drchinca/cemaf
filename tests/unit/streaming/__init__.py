@@ -1,2 +1,1 @@
 """Streaming module tests."""
-

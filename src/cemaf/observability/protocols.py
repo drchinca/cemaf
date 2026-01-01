@@ -8,8 +8,6 @@ Implement these protocols for different backends:
 - PrometheusMetrics
 """
 
-from __future__ import annotations
-
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
@@ -93,4 +91,3 @@ class MetricsCollector(Protocol):
     def timing(self, name: str, value_ms: float, tags: JSON | None = None) -> None:
         """Record a timing value."""
         ...
-

@@ -13,20 +13,20 @@ All generators follow Protocol pattern for pluggability.
 """
 
 from cemaf.generation.protocols import (
-    MediaSpec,
-    MediaOutput,
-    ImageSpec,
-    AudioSpec,
-    VideoSpec,
-    DiagramSpec,
-    UISpec,
-    CodeSpec,
-    ImageGenerator,
     AudioGenerator,
-    VideoGenerator,
-    DiagramGenerator,
-    UIGenerator,
+    AudioSpec,
     CodeGenerator,
+    CodeSpec,
+    DiagramGenerator,
+    DiagramSpec,
+    ImageGenerator,
+    ImageSpec,
+    MediaOutput,
+    MediaSpec,
+    UIGenerator,
+    UISpec,
+    VideoGenerator,
+    VideoSpec,
 )
 
 __all__ = [
@@ -47,4 +47,3 @@ __all__ = [
     "UIGenerator",
     "CodeGenerator",
 ]
-

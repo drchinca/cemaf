@@ -10,17 +10,14 @@ Memory items have:
 - Redaction/serialization hooks
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Callable, Any
 
-from cemaf.core.types import JSON, Confidence
 from cemaf.core.enums import MemoryScope
+from cemaf.core.types import JSON, Confidence
 from cemaf.core.utils import utc_now
-
 
 # Type aliases for hooks
 RedactionHook = Callable[["MemoryItem"], "MemoryItem"]
@@ -44,11 +41,7 @@ class MemoryItem:
         """Set expires_at from ttl if not provided."""
         if self.ttl and not self.expires_at:
             # Work around frozen dataclass
-            object.__setattr__(
-                self,
-                "expires_at",
-                self.created_at + self.ttl
-            )
+            object.__setattr__(self, "expires_at", self.created_at + self.ttl)
 
     @property
     def full_key(self) -> str:
@@ -175,20 +168,16 @@ class MemoryStore(ABC):
         }
 
     @abstractmethod
-    async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
-        ...
+    async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None: ...
 
     @abstractmethod
-    async def set(self, item: MemoryItem) -> None:
-        ...
+    async def set(self, item: MemoryItem) -> None: ...
 
     @abstractmethod
-    async def delete(self, scope: MemoryScope, key: str) -> bool:
-        ...
+    async def delete(self, scope: MemoryScope, key: str) -> bool: ...
 
     @abstractmethod
-    async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]:
-        ...
+    async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]: ...
 
     async def cleanup_expired(self) -> int:
         """
@@ -269,20 +258,14 @@ class InMemoryStore(MemoryStore):
 
     async def cleanup_expired(self) -> int:
         """Remove all expired items from the store."""
-        expired_keys = [
-            key for key, item in self._data.items()
-            if item.is_expired
-        ]
+        expired_keys = [key for key, item in self._data.items() if item.is_expired]
         for key in expired_keys:
             del self._data[key]
         return len(expired_keys)
 
     async def get_all_expired(self) -> tuple[MemoryItem, ...]:
         """Get all expired items (for inspection before cleanup)."""
-        return tuple(
-            item for item in self._data.values()
-            if item.is_expired
-        )
+        return tuple(item for item in self._data.values() if item.is_expired)
 
     def clear(self) -> None:
         """Clear all items from the store."""

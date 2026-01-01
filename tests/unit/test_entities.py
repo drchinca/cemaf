@@ -14,16 +14,15 @@ Uses fixtures from conftest.py:
 """
 
 import pytest
-from datetime import datetime, timezone
 
-from cemaf.core.types import ProjectID, RunID
 from cemaf.core.enums import ContextArtifactType, RunStatus
+from cemaf.core.types import ProjectID
 from cemaf.persistence.entities import (
-    Project,
-    ProjectStatus,
-    ContextArtifact,
     ContentItem,
     ContentStatus,
+    ContextArtifact,
+    Project,
+    ProjectStatus,
     Run,
 )
 
@@ -39,7 +38,7 @@ class TestProject:
     def test_project_with_status(self, sample_project: Project):
         """Project.with_status creates copy with new status."""
         active = sample_project.with_status(ProjectStatus.ACTIVE)
-        
+
         # Original unchanged
         assert sample_project.status == ProjectStatus.DRAFT
         # New project has new status
@@ -50,6 +49,7 @@ class TestProject:
     def test_project_is_immutable(self, sample_project: Project):
         """Project is frozen/immutable."""
         from pydantic import ValidationError
+
         with pytest.raises((TypeError, AttributeError, ValidationError)):
             sample_project.name = "New Name"  # type: ignore
 
@@ -66,7 +66,7 @@ class TestContextArtifact:
             version=1,
             sha="abc123",
         )
-        
+
         assert artifact.type == ContextArtifactType.BRAND_CONSTITUTION
         assert artifact.version == 1
 
@@ -79,12 +79,12 @@ class TestContextArtifact:
             version=1,
             sha="abc",
         )
-        
+
         updated = original.with_new_version(
             content="Updated content",
             sha="def",
         )
-        
+
         # Original unchanged
         assert original.version == 1
         assert original.content == "Original content"
@@ -108,7 +108,7 @@ class TestContentItem:
             brief="Create engagement post",
             body="This is the content...",
         )
-        
+
         assert content.platform == "instagram"
         assert content.status == ContentStatus.DRAFT
 
@@ -120,9 +120,9 @@ class TestContentItem:
             format="tweet",
             brief="Tweet about product",
         )
-        
+
         scheduled = content.with_status(ContentStatus.SCHEDULED)
-        
+
         assert content.status == ContentStatus.DRAFT
         assert scheduled.status == ContentStatus.SCHEDULED
 
@@ -137,7 +137,7 @@ class TestRun:
             pipeline="content_generation",
             inputs={"topic": "AI"},
         )
-        
+
         assert run.pipeline == "content_generation"
         assert run.status == RunStatus.PENDING
 
@@ -148,12 +148,12 @@ class TestRun:
             pipeline="test",
             inputs={},
         )
-        
+
         completed = run.with_completion(
             status=RunStatus.COMPLETED,
             outputs={"result": "success"},
         )
-        
+
         assert run.status == RunStatus.PENDING
         assert completed.status == RunStatus.COMPLETED
         assert completed.outputs == {"result": "success"}
@@ -166,14 +166,13 @@ class TestRun:
             pipeline="test",
             inputs={},
         )
-        
+
         # Not completed yet
         assert run.duration_seconds is None
-        
+
         # Complete it
         completed = run.with_completion(RunStatus.COMPLETED, {})
-        
+
         # Should have duration now
         assert completed.duration_seconds is not None
         assert completed.duration_seconds >= 0
-

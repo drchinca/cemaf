@@ -8,9 +8,6 @@ Supports:
 - Filtering by metadata
 """
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, runtime_checkable
@@ -23,7 +20,7 @@ from cemaf.core.utils import utc_now
 class Document:
     """
     A document for vector storage.
-    
+
     Contains content, embedding, and metadata.
     """
 
@@ -53,7 +50,7 @@ class Document:
 class SearchResult:
     """
     Result of a vector search.
-    
+
     Includes document and similarity score.
     """
 
@@ -77,7 +74,7 @@ class SearchResult:
 class EmbeddingProvider(Protocol):
     """
     Protocol for embedding providers.
-    
+
     Implement for different embedding models:
     - OpenAI text-embedding-3
     - Sentence Transformers
@@ -98,10 +95,10 @@ class EmbeddingProvider(Protocol):
     async def embed(self, text: str) -> tuple[float, ...]:
         """
         Generate embedding for text.
-        
+
         Args:
             text: Text to embed
-        
+
         Returns:
             Embedding vector as tuple of floats
         """
@@ -110,12 +107,12 @@ class EmbeddingProvider(Protocol):
     async def embed_batch(self, texts: list[str]) -> list[tuple[float, ...]]:
         """
         Generate embeddings for multiple texts.
-        
+
         More efficient than calling embed() multiple times.
-        
+
         Args:
             texts: List of texts to embed
-        
+
         Returns:
             List of embedding vectors
         """
@@ -126,20 +123,45 @@ class EmbeddingProvider(Protocol):
 class VectorStore(Protocol):
     """
     Protocol for vector stores.
-    
-    Implement for different backends:
-    - Pinecone
-    - Chroma
-    - Qdrant
-    - PGVector
-    - Weaviate
-    - FAISS (local)
+
+    This is the extension point for implementing custom vector store backends.
+    CEMAF provides the protocol; you bring your own implementation.
+
+    Built-in implementations:
+    - InMemoryVectorStore (for development/testing)
+
+    Common backends you can implement:
+    - Pinecone (cloud vector database)
+    - Qdrant (open-source vector database)
+    - Weaviate (graph + vector database)
+    - Chroma (embeddings database)
+    - PGVector (PostgreSQL extension)
+    - FAISS (local vector search)
+
+    To implement your own:
+    1. Create a class that implements all methods below
+    2. Use @runtime_checkable to make it compatible with this protocol
+    3. Add it to create_vector_store_from_config() in factories.py
+    4. See cemaf/retrieval/factories.py for extension instructions
+
+    Example:
+        from cemaf.retrieval.protocols import VectorStore, Document, SearchResult
+
+        class MyCustomVectorStore:
+            def __init__(self, api_key: str):
+                self._client = MyClient(api_key)
+
+            async def add(self, document: Document) -> None:
+                # Your implementation
+                ...
+
+            # Implement all other protocol methods
     """
 
     async def add(self, document: Document) -> None:
         """
         Add a document to the store.
-        
+
         Document must have an embedding.
         """
         ...
@@ -147,7 +169,7 @@ class VectorStore(Protocol):
     async def add_batch(self, documents: list[Document]) -> None:
         """
         Add multiple documents.
-        
+
         More efficient than calling add() multiple times.
         """
         ...
@@ -155,7 +177,7 @@ class VectorStore(Protocol):
     async def get(self, document_id: str) -> Document | None:
         """
         Get a document by ID.
-        
+
         Returns None if not found.
         """
         ...
@@ -163,7 +185,7 @@ class VectorStore(Protocol):
     async def delete(self, document_id: str) -> bool:
         """
         Delete a document.
-        
+
         Returns True if existed and was deleted.
         """
         ...
@@ -176,12 +198,12 @@ class VectorStore(Protocol):
     ) -> list[SearchResult]:
         """
         Search for similar documents.
-        
+
         Args:
             query_embedding: Embedding to search for
             k: Number of results to return
             filter: Optional metadata filter
-        
+
         Returns:
             List of SearchResults ordered by similarity
         """
@@ -195,7 +217,7 @@ class VectorStore(Protocol):
     ) -> list[SearchResult]:
         """
         Search by text (embedding generated internally).
-        
+
         Requires store to have an embedding provider configured.
         """
         ...
@@ -207,4 +229,3 @@ class VectorStore(Protocol):
     async def clear(self) -> None:
         """Remove all documents."""
         ...
-

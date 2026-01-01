@@ -8,10 +8,10 @@ Provides:
 """
 
 from cemaf.streaming.protocols import (
-    StreamHandler,
+    EventType,
     StreamBuffer,
     StreamEvent,
-    EventType,
+    StreamHandler,
 )
 from cemaf.streaming.sse import SSEFormatter
 
@@ -22,4 +22,3 @@ __all__ = [
     "EventType",
     "SSEFormatter",
 ]
-

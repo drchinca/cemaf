@@ -13,37 +13,35 @@ Usage:
         assert result.success
 """
 
+from datetime import UTC, datetime
+from typing import Any
+from unittest.mock import patch
+
 import pytest
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+
+from cemaf.core.enums import (
+    ContextArtifactType,
+    MemoryScope,
+    RunStatus,
+)
 
 # =============================================================================
 # Core Types & Enums
 # =============================================================================
-
 from cemaf.core.types import (
     AgentID,
+    Confidence,
     NodeID,
     ProjectID,
     RunID,
     SkillID,
     ToolID,
-    TokenCount,
-    Confidence,
 )
-from cemaf.core.enums import (
-    AgentStatus,
-    MemoryScope,
-    ContextArtifactType,
-    RunStatus,
-    NodeType,
-)
-
 
 # =============================================================================
 # ID FIXTURES - Consistent test identifiers
 # =============================================================================
+
 
 @pytest.fixture
 def agent_id() -> AgentID:
@@ -85,7 +83,7 @@ def run_id() -> RunID:
 # TOOL FIXTURES
 # =============================================================================
 
-from cemaf.tools.base import Tool, ToolSchema, ToolResult
+from cemaf.tools.base import Tool, ToolResult, ToolSchema
 
 
 class MockTool(Tool):
@@ -155,16 +153,12 @@ def raising_tool() -> MockTool:
 # LLM FIXTURES
 # =============================================================================
 
-from cemaf.llm.protocols import (
-    Message,
-    MessageRole,
-    ToolCall,
-    ToolDefinition,
-    CompletionResult,
-    StreamChunk,
-    LLMConfig,
-)
 from cemaf.llm.mock import MockLLMClient
+from cemaf.llm.protocols import (
+    LLMConfig,
+    Message,
+    ToolCall,
+)
 
 
 @pytest.fixture
@@ -223,7 +217,7 @@ def conversation() -> list[Message]:
 # MEMORY FIXTURES
 # =============================================================================
 
-from cemaf.memory.base import MemoryItem, InMemoryStore
+from cemaf.memory.base import InMemoryStore, MemoryItem
 
 
 @pytest.fixture
@@ -260,8 +254,8 @@ async def populated_memory_store(memory_store: InMemoryStore) -> InMemoryStore:
 # RETRIEVAL FIXTURES
 # =============================================================================
 
-from cemaf.retrieval.protocols import Document, SearchResult
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.protocols import Document
 
 
 @pytest.fixture
@@ -312,11 +306,9 @@ async def populated_vector_store(
 # =============================================================================
 
 from cemaf.persistence.entities import (
+    ContextArtifact,
     Project,
     ProjectStatus,
-    ContextArtifact,
-    ContentItem,
-    ContentStatus,
     Run,
 )
 
@@ -371,7 +363,7 @@ def sample_run(project_id: ProjectID, run_id: RunID) -> Run:
 # DAG FIXTURES
 # =============================================================================
 
-from cemaf.orchestration.dag import DAG, Node, Edge, EdgeCondition
+from cemaf.orchestration.dag import DAG, Edge, Node
 
 
 @pytest.fixture
@@ -405,8 +397,8 @@ def diamond_dag() -> DAG:
 # EXECUTOR FIXTURES
 # =============================================================================
 
+from cemaf.context.context import Context  # New import
 from cemaf.orchestration.executor import DAGExecutor, NodeResult
-from cemaf.context.context import Context # New import
 
 
 class MockNodeExecutor:
@@ -424,7 +416,7 @@ class MockNodeExecutor:
         self.executed: list[str] = []
         self.execution_order: list[str] = []
 
-    async def execute_node(self, node: Node, context: Context) -> NodeResult: # Updated to Context
+    async def execute_node(self, node: Node, context: Context) -> NodeResult:  # Updated to Context
         """Execute a node and record it."""
         self.executed.append(node.id)
         self.execution_order.append(node.id)
@@ -492,14 +484,12 @@ def sample_checkpoint(run_id: RunID) -> DAGCheckpoint:
 # EVAL FIXTURES
 # =============================================================================
 
-from cemaf.evals.protocols import EvalConfig, EvalResult, EvalMetric
+from cemaf.evals.composite import CompositeEvaluator, EvalCase, EvalSuite
 from cemaf.evals.evaluators import (
     ExactMatchEvaluator,
-    ContainsEvaluator,
     LengthEvaluator,
-    JSONSchemaEvaluator,
 )
-from cemaf.evals.composite import CompositeEvaluator, EvalSuite, EvalCase
+from cemaf.evals.protocols import EvalConfig
 
 
 @pytest.fixture
@@ -540,10 +530,12 @@ def eval_suite() -> EvalSuite:
         name="test-suite",
         evaluators=[ExactMatchEvaluator(), LengthEvaluator(min_length=1)],
     )
-    suite.add_cases([
-        EvalCase(name="simple", output="hello", expected="hello"),
-        EvalCase(name="mismatch", output="hi", expected="hello"),
-    ])
+    suite.add_cases(
+        [
+            EvalCase(name="simple", output="hello", expected="hello"),
+            EvalCase(name="mismatch", output="hi", expected="hello"),
+        ]
+    )
     return suite
 
 
@@ -551,9 +543,9 @@ def eval_suite() -> EvalSuite:
 # RESILIENCE FIXTURES
 # =============================================================================
 
-from cemaf.resilience.retry import RetryPolicy, RetryConfig, BackoffStrategy
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
-from cemaf.resilience.rate_limiter import RateLimiter, RateLimitConfig
+from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiter
+from cemaf.resilience.retry import BackoffStrategy, RetryConfig, RetryPolicy
 
 
 @pytest.fixture
@@ -600,7 +592,7 @@ def rate_limiter() -> RateLimiter:
 # STREAMING FIXTURES
 # =============================================================================
 
-from cemaf.streaming.protocols import StreamEvent, EventType, StreamBuffer
+from cemaf.streaming.protocols import StreamBuffer, StreamEvent
 
 
 @pytest.fixture
@@ -624,7 +616,7 @@ def sample_stream_events() -> list[StreamEvent]:
 # OBSERVABILITY FIXTURES
 # =============================================================================
 
-from cemaf.observability.simple import SimpleLogger, NoOpTracer, NoOpMetrics
+from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger
 
 
 @pytest.fixture
@@ -653,16 +645,20 @@ def metrics() -> NoOpMetrics:
 @pytest.fixture
 def async_success():
     """Async function that succeeds."""
+
     async def _success(*args, **kwargs):
         return "success"
+
     return _success
 
 
 @pytest.fixture
 def async_failure():
     """Async function that always fails."""
+
     async def _failure(*args, **kwargs):
         raise ValueError("Intentional failure")
+
     return _failure
 
 
@@ -670,13 +666,13 @@ def async_failure():
 def async_flaky():
     """Async function that fails N times then succeeds."""
     call_count = {"count": 0}
-    
+
     async def _flaky(fail_times: int = 2):
         call_count["count"] += 1
         if call_count["count"] <= fail_times:
             raise ValueError(f"Failure {call_count['count']}")
         return "success"
-    
+
     _flaky.call_count = call_count
     return _flaky
 
@@ -689,8 +685,8 @@ def async_flaky():
 @pytest.fixture
 def patch_datetime():
     """Fixture to patch datetime.now() for deterministic tests."""
-    fixed_time = datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-    
+    fixed_time = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
+
     with patch("datetime.datetime") as mock_dt:
         mock_dt.now.return_value = fixed_time
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -711,7 +707,13 @@ def patch_uuid():
 # =============================================================================
 
 from cemaf.context.budget import TokenBudget
-from cemaf.context.compiler import PriorityContextCompiler
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+
+
+@pytest.fixture
+def token_estimator() -> SimpleTokenEstimator:
+    """Token estimator for tests."""
+    return SimpleTokenEstimator()
 
 
 @pytest.fixture
@@ -721,6 +723,6 @@ def token_budget() -> TokenBudget:
 
 
 @pytest.fixture
-def context_compiler() -> PriorityContextCompiler:
+def context_compiler(token_estimator: SimpleTokenEstimator) -> PriorityContextCompiler:
     """Context compiler for tests."""
-    return PriorityContextCompiler()
+    return PriorityContextCompiler(token_estimator)

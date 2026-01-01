@@ -7,20 +7,19 @@ from typing import Any
 
 import pytest
 
+from cemaf.core.types import JSON
 from cemaf.moderation import (
-    ModerationResult,
-    ModerationViolation,
-    ModerationSeverity,
-    PIIRule,
+    CompositeGate,
     KeywordRule,
     LengthRule,
+    ModerationResult,
+    ModerationSeverity,
+    ModerationViolation,
     PatternRule,
-    PreFlightGate,
+    PIIRule,
     PostFlightGate,
-    CompositeGate,
+    PreFlightGate,
 )
-from cemaf.core.types import JSON
-
 
 # =============================================================================
 # Mock Rules for Testing
@@ -596,7 +595,7 @@ class TestPatternRule:
             violation_code="PASSWORD_EXPOSED",
             violation_message="Password detected in content",
         )
-        result = await rule.check("password=secret123")
+        result = await rule.check("password=test_secret_placeholder")
         assert result.allowed is False
         assert result.violations[0].code == "PASSWORD_EXPOSED"
 
@@ -643,7 +642,7 @@ class TestPatternRule:
             violation_message="API key found",
             suggestion="Remove the API key",
         )
-        result = await rule.check("api_key=abc123")
+        result = await rule.check("api_key=test_api_key_placeholder")
         assert result.violations[0].suggestion == "Remove the API key"
 
     @pytest.mark.asyncio
@@ -1150,11 +1149,11 @@ class TestModerationIntegration:
 
         gate = PreFlightGate(rules=secret_patterns, fail_fast=True)
 
-        result = await gate.check("api_key=abc123secret")
+        result = await gate.check("api_key=test_api_key_placeholder")
         assert result.allowed is False
         assert result.violations[0].code == "API_KEY"
 
-        result = await gate.check("password: mysecret123")
+        result = await gate.check("password: test_password_placeholder")
         assert result.allowed is False
         assert result.violations[0].code == "PASSWORD"
 

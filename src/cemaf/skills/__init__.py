@@ -9,13 +9,49 @@ Skills are the MIDDLE level of the hierarchy:
 
 Skills are used BY Agents, and USE Tools.
 
-Example skills:
-- DataFetchSkill: Uses http_request + parse_json tools
-- SQLAnalysisSkill: Uses sql_query + format_table tools
-- ContentGenerationSkill: Uses llm_call + validate_output tools
+## Configuration
+
+Settings for this module are defined in ToolsSettings (skills and tools share settings).
+
+Environment Variables:
+    CEMAF_TOOLS_ENABLE_CALL_RECORDING: Record all tool calls (default: True)
+    CEMAF_TOOLS_MAX_TOOL_TIMEOUT_SECONDS: Max timeout for tools (default: 60.0)
+    CEMAF_TOOLS_ENABLE_MODERATION: Enable content moderation (default: False)
+    CEMAF_TOOLS_ENABLE_CACHING: Enable result caching (default: True)
+
+## Usage
+
+Protocol-based:
+    >>> from cemaf.skills import Skill, SkillContext, SkillOutput, SkillResult
+    >>> from cemaf.core.types import SkillID
+    >>> from cemaf.core.result import Result
+    >>>
+    >>> class MySkill:
+    ...     @property
+    ...     def id(self) -> SkillID:
+    ...         return SkillID("my_skill")
+    ...
+    ...     @property
+    ...     def description(self) -> str:
+    ...         return "My custom skill"
+    ...
+    ...     @property
+    ...     def tools(self) -> tuple:
+    ...         return ()
+    ...
+    ...     async def execute(self, input, context: SkillContext) -> SkillResult:
+    ...         return Result.ok(SkillOutput(data="result"))
+
+## Extension
+
+Skill implementations are discovered via protocols. No registration needed.
+Simply implement the Skill protocol and your skill is compatible with all
+CEMAF orchestration systems.
+
+See cemaf.skills.protocols.Skill for the protocol definition.
 """
 
-from cemaf.skills.base import Skill, SkillResult, SkillOutput, SkillContext
+from cemaf.skills.protocols import Skill, SkillContext, SkillOutput, SkillResult
 
 __all__ = [
     "Skill",
@@ -23,4 +59,3 @@ __all__ = [
     "SkillOutput",
     "SkillContext",
 ]
-

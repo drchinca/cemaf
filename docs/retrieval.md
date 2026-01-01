@@ -88,4 +88,3 @@ retriever = HybridRetriever(
 
 results = await retriever.retrieve("query", top_k=10)
 ```
-

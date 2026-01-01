@@ -4,16 +4,13 @@ Mock LLM client for testing.
 Provides deterministic responses for unit tests.
 """
 
-from __future__ import annotations
-
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import (
-    LLMClient,
+    CompletionResult,
     LLMConfig,
     Message,
-    CompletionResult,
     StreamChunk,
     ToolCall,
     ToolDefinition,
@@ -23,9 +20,9 @@ from cemaf.llm.protocols import (
 class MockLLMClient:
     """
     Mock LLM client for testing.
-    
+
     Returns predefined responses or generates deterministic outputs.
-    
+
     Usage:
         mock = MockLLMClient(responses=["Hello!", "How can I help?"])
         result = await mock.complete([Message.user("Hi")])
@@ -69,24 +66,24 @@ class MockLLMClient:
     ) -> CompletionResult:
         """Generate a mock completion."""
         self._calls.append(list(messages))
-        
+
         # Get response based on call count
         response_idx = self._call_count % len(self._responses)
         response_text = self._responses[response_idx]
-        
+
         # Get tool calls if provided
         tool_calls_for_response: tuple[ToolCall, ...] = ()
         if self._tool_calls and self._call_count < len(self._tool_calls):
             tool_calls_for_response = tuple(self._tool_calls[self._call_count])
-        
+
         self._call_count += 1
-        
+
         # Calculate tokens
         prompt_tokens = self.count_messages_tokens(messages)
         completion_tokens = self.count_tokens(response_text)
-        
+
         message = Message.assistant(response_text, tool_calls_for_response)
-        
+
         return CompletionResult.ok(
             message=message,
             prompt_tokens=prompt_tokens,
@@ -103,19 +100,19 @@ class MockLLMClient:
     ) -> AsyncIterator[StreamChunk]:
         """Generate a mock streaming completion."""
         self._calls.append(list(messages))
-        
+
         response_idx = self._call_count % len(self._responses)
         response_text = self._responses[response_idx]
         self._call_count += 1
-        
+
         # Stream word by word
         words = response_text.split()
         accumulated = ""
-        
+
         for i, word in enumerate(words):
             chunk_content = word + (" " if i < len(words) - 1 else "")
             accumulated += chunk_content
-            
+
             yield StreamChunk(
                 content=chunk_content,
                 accumulated_content=accumulated,
@@ -148,4 +145,3 @@ class MockLLMClient:
         """Reset call tracking."""
         self._call_count = 0
         self._calls.clear()
-

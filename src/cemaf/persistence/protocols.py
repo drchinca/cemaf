@@ -7,19 +7,16 @@ Protocols allow swapping storage implementations:
 - FileStore for development
 """
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
 from typing import Protocol, runtime_checkable
 
-from cemaf.core.types import ProjectID, RunID
 from cemaf.core.enums import ContextArtifactType, RunStatus
+from cemaf.core.types import ProjectID, RunID
 from cemaf.persistence.entities import (
-    Project,
-    ProjectStatus,
-    ContextArtifact,
     ContentItem,
     ContentStatus,
+    ContextArtifact,
+    Project,
+    ProjectStatus,
     Run,
 )
 
@@ -152,4 +149,3 @@ class RunStore(Protocol):
     async def get_latest(self, project_id: ProjectID) -> Run | None:
         """Get most recent run for a project."""
         ...
-

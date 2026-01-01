@@ -8,18 +8,16 @@ Supports:
 - Retry on specific exceptions
 """
 
-from __future__ import annotations
-
 import asyncio
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
 
@@ -44,7 +42,7 @@ class RetryConfig(BaseModel):
     backoff_multiplier: float = 2.0
     jitter: bool = True  # Add randomness to prevent thundering herd
     jitter_factor: float = 0.1  # +/- 10% of delay
-    
+
     # Retry conditions
     retry_on_exceptions: tuple[type, ...] = (Exception,)
     retry_on_result: Callable[[Any], bool] | None = None  # Retry if returns True
@@ -74,11 +72,11 @@ T = TypeVar("T")
 class RetryPolicy:
     """
     Configurable retry policy with backoff.
-    
+
     Usage:
         policy = RetryPolicy(RetryConfig(max_attempts=3))
         result = await policy.execute(my_async_function, arg1, arg2)
-        
+
         # Or as context manager
         async with policy:
             result = await my_function()
@@ -97,37 +95,37 @@ class RetryPolicy:
     def _calculate_delay(self, attempt: int) -> float:
         """Calculate delay for an attempt (0-indexed)."""
         base = self._config.initial_delay_seconds
-        
+
         if self._config.backoff_strategy == BackoffStrategy.CONSTANT:
             delay = base
         elif self._config.backoff_strategy == BackoffStrategy.LINEAR:
             delay = base * (attempt + 1)
         elif self._config.backoff_strategy == BackoffStrategy.EXPONENTIAL:
-            delay = base * (self._config.backoff_multiplier ** attempt)
+            delay = base * (self._config.backoff_multiplier**attempt)
         elif self._config.backoff_strategy == BackoffStrategy.FIBONACCI:
             fib_idx = min(attempt, len(self._FIBONACCI) - 1)
             delay = base * self._FIBONACCI[fib_idx]
         else:
             delay = base
-        
+
         # Apply max delay
         delay = min(delay, self._config.max_delay_seconds)
-        
-        # Add jitter
+
+        # Add jitter (not security-critical, just for retry backoff variance)
         if self._config.jitter:
             jitter_range = delay * self._config.jitter_factor
-            delay += random.uniform(-jitter_range, jitter_range)
-        
+            delay += random.uniform(-jitter_range, jitter_range)  # nosec B311
+
         return max(0, delay)
 
     def _should_retry(self, error: Exception | None, result: Any) -> bool:
         """Check if operation should be retried."""
         if error:
             return isinstance(error, self._config.retry_on_exceptions)
-        
+
         if self._config.retry_on_result:
             return self._config.retry_on_result(result)
-        
+
         return False
 
     async def execute(
@@ -138,29 +136,29 @@ class RetryPolicy:
     ) -> RetryResult:
         """
         Execute function with retry policy.
-        
+
         Args:
             func: Async function to execute
             *args: Positional arguments
             **kwargs: Keyword arguments
-        
+
         Returns:
             RetryResult with success/failure and attempt info
         """
         started_at = utc_now()
         attempt_errors: list[str] = []
         total_delay = 0.0
-        
+
         for attempt in range(self._config.max_attempts):
             error: Exception | None = None
             result: Any = None
-            
+
             try:
                 result = await func(*args, **kwargs)
             except Exception as e:
                 error = e
                 attempt_errors.append(str(e))
-            
+
             # Check if we should retry
             if not self._should_retry(error, result):
                 return RetryResult(
@@ -173,13 +171,13 @@ class RetryPolicy:
                     completed_at=utc_now(),
                     attempt_errors=tuple(attempt_errors),
                 )
-            
+
             # Don't delay after last attempt
             if attempt < self._config.max_attempts - 1:
                 delay = self._calculate_delay(attempt)
                 total_delay += delay
                 await asyncio.sleep(delay)
-        
+
         # All attempts failed
         return RetryResult(
             success=False,
@@ -197,4 +195,3 @@ class RetryPolicy:
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
         # Don't suppress exceptions
         return False
-

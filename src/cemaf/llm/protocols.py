@@ -8,17 +8,17 @@ Supports:
 - Token counting
 """
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
-from typing import AsyncIterator, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import JSON, TokenCount
+
+# Type alias for message content - supports text and structured content (multimodal)
+MessageContent = str | list[dict[str, Any]]
 
 
 class MessageRole(str, Enum):
@@ -34,40 +34,59 @@ class MessageRole(str, Enum):
 class Message:
     """
     A single message in a conversation.
-    
+
     Supports text content and tool calls/results.
     """
 
     role: MessageRole
-    content: str
+    content: MessageContent
     name: str | None = None  # For tool messages
     tool_call_id: str | None = None  # For tool results
-    tool_calls: tuple["ToolCall", ...] = field(default_factory=tuple)
+    tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
     metadata: JSON = field(default_factory=dict)
 
     @classmethod
-    def system(cls, content: str) -> Message:
+    def system(cls, content: MessageContent, *, metadata: JSON | None = None) -> Message:
         """Create a system message."""
-        return cls(role=MessageRole.SYSTEM, content=content)
+        return cls(role=MessageRole.SYSTEM, content=content, metadata=metadata or {})
 
     @classmethod
-    def user(cls, content: str) -> Message:
+    def user(cls, content: MessageContent, *, metadata: JSON | None = None) -> Message:
         """Create a user message."""
-        return cls(role=MessageRole.USER, content=content)
+        return cls(role=MessageRole.USER, content=content, metadata=metadata or {})
 
     @classmethod
-    def assistant(cls, content: str, tool_calls: tuple["ToolCall", ...] = ()) -> Message:
+    def assistant(
+        cls,
+        content: MessageContent,
+        tool_calls: tuple[ToolCall, ...] = (),
+        *,
+        metadata: JSON | None = None,
+    ) -> Message:
         """Create an assistant message."""
-        return cls(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls)
+        return cls(
+            role=MessageRole.ASSISTANT,
+            content=content,
+            tool_calls=tool_calls,
+            metadata=metadata or {},
+        )
 
     @classmethod
-    def tool_result(cls, tool_call_id: str, content: str, name: str | None = None) -> Message:
+    def tool_result(
+        cls,
+        tool_call_id: str,
+        content: MessageContent,
+        name: str | None = None,
+        *,
+        metadata: JSON | None = None,
+    ) -> Message:
         """Create a tool result message."""
         return cls(
             role=MessageRole.TOOL,
             content=content,
             name=name,
             tool_call_id=tool_call_id,
+            metadata=metadata or {},
         )
 
     def to_dict(self) -> JSON:
@@ -79,14 +98,31 @@ class Message:
             d["tool_call_id"] = self.tool_call_id
         if self.tool_calls:
             d["tool_calls"] = [tc.to_dict() for tc in self.tool_calls]
+        if self.metadata:
+            d["metadata"] = self.metadata
         return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Message:
+        """Create a Message from a serialized dict."""
+        role = MessageRole(data.get("role", "user"))
+        tool_calls_data = data.get("tool_calls", []) or []
+        tool_calls = tuple(ToolCall.from_dict(tc) for tc in tool_calls_data)
+        return cls(
+            role=role,
+            content=data.get("content", ""),
+            name=data.get("name"),
+            tool_call_id=data.get("tool_call_id"),
+            tool_calls=tool_calls,
+            metadata=data.get("metadata", {}),
+        )
 
 
 @dataclass(frozen=True)
 class ToolCall:
     """
     A tool call requested by the LLM.
-    
+
     The LLM wants to call a tool with these arguments.
     """
 
@@ -105,12 +141,22 @@ class ToolCall:
             },
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ToolCall:
+        """Create a ToolCall from a serialized dict."""
+        function = data.get("function", {}) if isinstance(data.get("function"), dict) else {}
+        return cls(
+            id=data.get("id", ""),
+            name=function.get("name") or data.get("name", ""),
+            arguments=function.get("arguments", data.get("arguments", {})),
+        )
+
 
 @dataclass(frozen=True)
 class ToolDefinition:
     """
     Definition of a tool for LLM function calling.
-    
+
     Describes what a tool does and its parameters.
     """
 
@@ -162,26 +208,26 @@ class LLMConfig(BaseModel):
 class CompletionResult:
     """
     Result of a completion request.
-    
+
     Contains the response and metadata.
     """
 
     success: bool
     message: Message | None = None
     error: str | None = None
-    
+
     # Token usage
     prompt_tokens: TokenCount = TokenCount(0)
     completion_tokens: TokenCount = TokenCount(0)
     total_tokens: TokenCount = TokenCount(0)
-    
+
     # Timing
     latency_ms: float = 0.0
-    
+
     # Model info
     model: str = ""
     finish_reason: str = ""
-    
+
     metadata: JSON = field(default_factory=dict)
 
     @classmethod
@@ -212,7 +258,7 @@ class CompletionResult:
         return cls(success=False, error=error)
 
     @property
-    def content(self) -> str:
+    def content(self) -> MessageContent:
         """Get the message content, or empty string if no message."""
         return self.message.content if self.message else ""
 
@@ -226,7 +272,7 @@ class CompletionResult:
 class StreamChunk:
     """
     A single chunk from a streaming response.
-    
+
     Used for incremental output display.
     """
 
@@ -234,7 +280,7 @@ class StreamChunk:
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
     finish_reason: str | None = None
     is_final: bool = False
-    
+
     # Running totals (updated each chunk)
     accumulated_content: str = ""
     prompt_tokens: TokenCount = TokenCount(0)
@@ -245,7 +291,7 @@ class StreamChunk:
 class LLMClient(Protocol):
     """
     Protocol for LLM clients.
-    
+
     Implement this for different LLM providers:
     - OpenAI
     - Anthropic
@@ -267,12 +313,12 @@ class LLMClient(Protocol):
     ) -> CompletionResult:
         """
         Generate a completion.
-        
+
         Args:
             messages: Conversation history
             tools: Available tools for function calling
             config_override: Override default config for this request
-        
+
         Returns:
             CompletionResult with response or error
         """
@@ -286,24 +332,21 @@ class LLMClient(Protocol):
     ) -> AsyncIterator[StreamChunk]:
         """
         Generate a streaming completion.
-        
+
         Args:
             messages: Conversation history
             tools: Available tools for function calling
             config_override: Override default config for this request
-        
+
         Yields:
             StreamChunk with incremental content
         """
         ...
-        # Make this a generator
-        if False:
-            yield StreamChunk()
 
     def count_tokens(self, text: str) -> TokenCount:
         """
         Count tokens in text.
-        
+
         Used for context budget management.
         """
         ...
@@ -311,8 +354,7 @@ class LLMClient(Protocol):
     def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
         """
         Count tokens in a list of messages.
-        
+
         Includes message overhead (role tokens, etc).
         """
         ...
-

@@ -77,4 +77,3 @@ result = await judge.evaluate(
     response="The answer is 42"
 )
 ```
-

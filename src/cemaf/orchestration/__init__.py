@@ -9,9 +9,9 @@ This module provides:
 - Executor: Runs DAGs with parallel execution support
 """
 
-from cemaf.orchestration.dag import DAG, Node, Edge, EdgeCondition
-from cemaf.orchestration.executor import DAGExecutor, ExecutionResult
+from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.deep_agent import DeepAgentOrchestrator
+from cemaf.orchestration.executor import DAGExecutor, ExecutionResult
 
 __all__ = [
     "DAG",
@@ -22,4 +22,3 @@ __all__ = [
     "ExecutionResult",
     "DeepAgentOrchestrator",
 ]
-
