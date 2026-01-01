@@ -132,7 +132,17 @@ line-length = 110
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 # Ignore specific rules for code style preferences and test patterns
-ignore = ["E402", "B017", "N815", "N818", "SIM105", "SIM108"]
+ignore = [
+    "E402",      # Module level import not at top of file
+    "B017",      # assertRaises(Exception) should be considered evil
+    "N815",      # Variable in function should be lowercase
+    "N818",      # Exception name should end in Error
+    "SIM105",    # Use contextlib.suppress() instead of try-except-pass
+    "SIM108",    # Use ternary operator instead of if-else
+    "TCH001",    # Move application import into TYPE_CHECKING block
+    "TCH002",    # Move third-party import into TYPE_CHECKING block
+    "TCH003",    # Move standard library import into TYPE_CHECKING block
+]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "venv", "build", "dist", ".pytest_cache"]
