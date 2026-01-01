@@ -6,8 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [
-    { name = "Hikuri Bado Chinca", email = "kuri@brighthive.io" },
-    { name = "drchinca", email = "drchinca@gmail.com" },
+    { name = "Hikuri Bado Chinca", email = "chincadr@gmail.com" },
 ]
 keywords = ["ai", "agents", "multi-agent", "context-engineering", "llm", "dag", "orchestration"]
 classifiers = [
@@ -85,10 +84,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/cemaf"
-Documentation = "https://github.com/yourusername/cemaf/docs"
-Repository = "https://github.com/yourusername/cemaf"
-Issues = "https://github.com/yourusername/cemaf/issues"
+Homepage = "https://github.com/drchinca/cemaf"
+Documentation = "https://github.com/drchinca/cemaf/docs"
+Repository = "https://github.com/drchinca/cemaf"
+Issues = "https://github.com/drchinca/cemaf/issues"
 
 # =============================================================================
 # BUILD SYSTEM

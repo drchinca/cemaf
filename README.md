@@ -2,9 +2,14 @@
 
 **Context Engineering Multi-Agent Framework**
 
-[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-814%20passing-brightgreen.svg)]()
+[![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/Tests-814_Passing-success?style=for-the-badge&logo=pytest&logoColor=white)](.)
+[![Coverage](https://img.shields.io/badge/Coverage-100%25-success?style=for-the-badge)](.)
+[![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=for-the-badge&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
+[![MyPy](https://img.shields.io/badge/Typed-MyPy-blue?style=for-the-badge)](http://mypy-lang.org/)
+[![Stars](https://img.shields.io/github/stars/drchinca/cemaf?style=for-the-badge&logo=github)](https://github.com/drchinca/cemaf)
+[![Issues](https://img.shields.io/github/issues/drchinca/cemaf?style=for-the-badge&logo=github)](https://github.com/drchinca/cemaf/issues)
 
 Context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
@@ -264,7 +269,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Authors
 
-**Dr. Hector Badillo Monroy (Dr. Chinca)**
+**Hikuri Bado Chinca** ([@drchinca](https://github.com/drchinca))
+Email: chincadr@gmail.com
 
 Copyright (c) 2024-2025
 
