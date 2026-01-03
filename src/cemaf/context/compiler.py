@@ -22,20 +22,9 @@ from cemaf.context.algorithm import (
     SelectionResult,
 )
 from cemaf.context.budget import TokenBudget
+from cemaf.context.source import ContextSource
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
-
-
-@dataclass(frozen=True)
-class ContextSource:
-    """A source of context (artifact, memory, etc.)."""
-
-    type: str  # "artifact", "memory", "message", "tool_result"
-    key: str
-    content: str
-    token_count: int
-    priority: int = 0  # Higher = more important
-    metadata: JSON = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
