@@ -25,8 +25,9 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.context import Context
 
@@ -64,8 +65,7 @@ class MergeConflictError(Exception):
         self.conflicts = conflicts
         keys = [c.key for c in conflicts]
         super().__init__(
-            f"Merge conflict detected for keys: {', '.join(keys)}. "
-            f"{len(conflicts)} conflict(s) found."
+            f"Merge conflict detected for keys: {', '.join(keys)}. {len(conflicts)} conflict(s) found."
         )
 
 
@@ -159,9 +159,7 @@ class LastWriteWinsStrategy:
             conflicts=conflicts,
         )
 
-    def _get_changes_from_base(
-        self, base: Context, branch: Context
-    ) -> dict[str, Any]:
+    def _get_changes_from_base(self, base: Context, branch: Context) -> dict[str, Any]:
         """Get keys that changed between base and branch."""
         changes = {}
         for key, value in branch.data.items():
@@ -170,9 +168,7 @@ class LastWriteWinsStrategy:
                 changes[key] = value
         return changes
 
-    def _detect_conflicts(
-        self, branch_changes: list[dict[str, Any]]
-    ) -> list[MergeConflict]:
+    def _detect_conflicts(self, branch_changes: list[dict[str, Any]]) -> list[MergeConflict]:
         """Detect keys written by multiple branches with different values."""
         # Map key -> [(branch_index, value), ...]
         key_writes: dict[str, list[tuple[int, Any]]] = {}
@@ -251,9 +247,7 @@ class RaiseOnConflictStrategy:
             conflicts=[],
         )
 
-    def _get_changes_from_base(
-        self, base: Context, branch: Context
-    ) -> dict[str, Any]:
+    def _get_changes_from_base(self, base: Context, branch: Context) -> dict[str, Any]:
         """Get keys that changed between base and branch."""
         changes = {}
         for key, value in branch.data.items():
@@ -262,9 +256,7 @@ class RaiseOnConflictStrategy:
                 changes[key] = value
         return changes
 
-    def _detect_conflicts(
-        self, branch_changes: list[dict[str, Any]]
-    ) -> list[MergeConflict]:
+    def _detect_conflicts(self, branch_changes: list[dict[str, Any]]) -> list[MergeConflict]:
         """Detect conflicting writes (different values to same key)."""
         key_writes: dict[str, list[tuple[int, Any]]] = {}
 
@@ -321,14 +313,16 @@ class DeepMergeStrategy:
 
         conflicts: list[MergeConflict] = []
 
-        # Start with base data
+        # Start with base data and track which branch wrote each value
         merged_data = dict(base.data)
+        value_sources: dict[str, int] = {}  # Maps key path -> branch index that wrote it
 
         # Deep merge each branch
         for idx, branch in enumerate(branches):
-            merged_data, branch_conflicts = self._deep_merge_dicts(
-                merged_data, branch.data, "", idx, base.data
+            merged_data, branch_conflicts, new_sources = self._deep_merge_dicts(
+                merged_data, branch.data, "", idx, base.data, value_sources
             )
+            value_sources.update(new_sources)
             conflicts.extend(branch_conflicts)
 
         return MergeResult(
@@ -344,14 +338,16 @@ class DeepMergeStrategy:
         prefix: str,
         branch_idx: int,
         base_data: dict[str, Any],
-    ) -> tuple[dict[str, Any], list[MergeConflict]]:
+        value_sources: dict[str, int],
+    ) -> tuple[dict[str, Any], list[MergeConflict], dict[str, int]]:
         """
         Recursively merge source into target.
 
-        Returns merged dict and list of conflicts detected.
+        Returns merged dict, list of conflicts detected, and source tracking dict.
         """
         result = dict(target)
         conflicts: list[MergeConflict] = []
+        new_sources: dict[str, int] = {}
 
         for key, source_value in source.items():
             full_key = f"{prefix}.{key}" if prefix else key
@@ -365,6 +361,7 @@ class DeepMergeStrategy:
             # If target doesn't have this key, just set it
             if key not in result:
                 result[key] = source_value
+                new_sources[full_key] = branch_idx
                 continue
 
             # Both have the key - check for conflict
@@ -376,27 +373,39 @@ class DeepMergeStrategy:
             if target_value == base_value:
                 # Target has base value, source is new - no conflict
                 result[key] = source_value
+                new_sources[full_key] = branch_idx
                 continue
 
             # Both are dicts - recurse
             if isinstance(target_value, dict) and isinstance(source_value, dict):
-                merged_nested, nested_conflicts = self._deep_merge_dicts(
-                    target_value, source_value, full_key, branch_idx, base_data
+                merged_nested, nested_conflicts, nested_sources = self._deep_merge_dicts(
+                    target_value, source_value, full_key, branch_idx, base_data, value_sources
                 )
                 result[key] = merged_nested
                 conflicts.extend(nested_conflicts)
+                new_sources.update(nested_sources)
             else:
                 # Conflict at leaf level - last write wins but track conflict
+                # Get the branch index that previously wrote this value
+                prev_branch_idx = value_sources.get(full_key, -1)
+                if prev_branch_idx >= 0:
+                    # We know which branch wrote the target value
+                    branch_indices = [prev_branch_idx, branch_idx]
+                else:
+                    # Target value might be from base or unknown source
+                    branch_indices = [branch_idx]
+
                 conflicts.append(
                     MergeConflict(
                         key=full_key,
                         values=[target_value, source_value],
-                        branch_indices=[branch_idx - 1, branch_idx] if branch_idx > 0 else [branch_idx],
+                        branch_indices=branch_indices,
                     )
                 )
                 result[key] = source_value
+                new_sources[full_key] = branch_idx
 
-        return result, conflicts
+        return result, conflicts, new_sources
 
     def _get_nested(self, data: dict[str, Any], path: str) -> Any:
         """Get nested value using dot notation."""
@@ -487,9 +496,7 @@ class ReducerMergeStrategy:
 
                 # Track conflicts for keys without reducers
                 if len(writes) > 1 and not self._all_equal(values):
-                    conflicts.append(
-                        MergeConflict(key=key, values=values, branch_indices=indices)
-                    )
+                    conflicts.append(MergeConflict(key=key, values=values, branch_indices=indices))
 
         if errors:
             return MergeResult(
@@ -537,10 +544,7 @@ def create_merge_strategy(
     }
 
     if strategy_type not in strategies:
-        raise ValueError(
-            f"Unknown strategy: {strategy_type}. "
-            f"Available: {list(strategies.keys())}"
-        )
+        raise ValueError(f"Unknown strategy: {strategy_type}. Available: {list(strategies.keys())}")
 
     return strategies[strategy_type](**kwargs)
 

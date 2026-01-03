@@ -225,18 +225,23 @@ class Context(BaseModel):
         from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 
         # If types differ or values are not dicts, just SET
-        if type(old) is not type(new) or not isinstance(old, dict):
-            if old != new:
-                path = prefix if prefix else "."
+        if (type(old) is not type(new) or not isinstance(old, dict)) and old != new:
+            # Skip root-level type changes (Context.data must always be dict)
+            # For nested paths, generate SET patch
+            if prefix:
                 patches.append(
                     ContextPatch(
-                        path=path,
+                        path=prefix,
                         operation=PatchOperation.SET,
                         value=new,
                         source=PatchSource.SYSTEM,
                         reason="diff",
                     )
                 )
+            # If at root and types differ, this indicates an error condition
+            # Context.data should always be dict, so this shouldn't happen in normal use
+            return
+        if type(old) is not type(new) or not isinstance(old, dict):
             return
 
         # Both are dicts - diff keys

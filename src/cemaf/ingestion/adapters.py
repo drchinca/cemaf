@@ -25,6 +25,17 @@ class TextAdapter:
     preserve_structure: bool = True
     chars_per_token: float = 4.0
 
+    def __post_init__(self) -> None:
+        """Validate adapter configuration."""
+        if self.chars_per_token <= 0:
+            raise ValueError(f"chars_per_token must be > 0, got {self.chars_per_token}")
+        if self.max_tokens <= 0:
+            raise ValueError(f"max_tokens must be > 0, got {self.max_tokens}")
+        if self.truncation_strategy not in ("head", "tail", "middle"):
+            raise ValueError(
+                f"truncation_strategy must be 'head', 'tail', or 'middle', got '{self.truncation_strategy}'"
+            )
+
     async def adapt(
         self,
         data: str,
@@ -82,6 +93,15 @@ class JSONAdapter:
     flatten_depth: int = 2
     array_limit: int = 10
     chars_per_token: float = 4.0
+
+    def __post_init__(self) -> None:
+        """Validate adapter configuration."""
+        if self.chars_per_token <= 0:
+            raise ValueError(f"chars_per_token must be > 0, got {self.chars_per_token}")
+        if self.flatten_depth < 0:
+            raise ValueError(f"flatten_depth must be >= 0, got {self.flatten_depth}")
+        if self.array_limit < 0:
+            raise ValueError(f"array_limit must be >= 0, got {self.array_limit}")
 
     async def adapt(
         self,
@@ -152,6 +172,15 @@ class TableAdapter:
     priority_columns: list[str] | None = None
     format: str = "markdown"  # markdown, csv, json
     chars_per_token: float = 4.0
+
+    def __post_init__(self) -> None:
+        """Validate adapter configuration."""
+        if self.chars_per_token <= 0:
+            raise ValueError(f"chars_per_token must be > 0, got {self.chars_per_token}")
+        if self.max_rows < 0:
+            raise ValueError(f"max_rows must be >= 0, got {self.max_rows}")
+        if self.format not in ("markdown", "csv", "json"):
+            raise ValueError(f"format must be 'markdown', 'csv', or 'json', got '{self.format}'")
 
     async def adapt(
         self,
@@ -245,7 +274,7 @@ class TableAdapter:
         else:  # json
             import json
 
-            return json.dumps([dict(zip(columns, row)) for row in rows], indent=2)
+            return json.dumps([dict(zip(columns, row, strict=True)) for row in rows], indent=2)
 
 
 @dataclass
@@ -262,6 +291,19 @@ class ChunkAdapter:
     chars_per_token: float = 4.0
     metadata: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Validate adapter configuration."""
+        if self.chars_per_token <= 0:
+            raise ValueError(f"chars_per_token must be > 0, got {self.chars_per_token}")
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be > 0, got {self.chunk_size}")
+        if self.overlap < 0:
+            raise ValueError(f"overlap must be >= 0, got {self.overlap}")
+        if self.overlap >= self.chunk_size:
+            raise ValueError(f"overlap ({self.overlap}) must be < chunk_size ({self.chunk_size})")
+        if self.strategy not in ("fixed", "sentence", "semantic"):
+            raise ValueError(f"strategy must be 'fixed', 'sentence', or 'semantic', got '{self.strategy}'")
+
     async def adapt(
         self,
         data: str,
@@ -270,12 +312,16 @@ class ChunkAdapter:
     ) -> ContextSource:
         """Adapt to single source (first chunk only)."""
         chunks = await self.adapt_many(data, budget)
-        return chunks[0] if chunks else ContextSource(
-            type="chunk",
-            key="empty_chunk",
-            content="",
-            token_count=0,
-            priority=priority,
+        return (
+            chunks[0]
+            if chunks
+            else ContextSource(
+                type="chunk",
+                key="empty_chunk",
+                content="",
+                token_count=0,
+                priority=priority,
+            )
         )
 
     async def adapt_many(
