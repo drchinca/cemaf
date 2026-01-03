@@ -299,8 +299,9 @@ class ChunkAdapter:
             raise ValueError(f"chunk_size must be > 0, got {self.chunk_size}")
         if self.overlap < 0:
             raise ValueError(f"overlap must be >= 0, got {self.overlap}")
+        # Auto-cap overlap to be less than chunk_size for usability
         if self.overlap >= self.chunk_size:
-            raise ValueError(f"overlap ({self.overlap}) must be < chunk_size ({self.chunk_size})")
+            object.__setattr__(self, "overlap", max(0, self.chunk_size - 1))
         if self.strategy not in ("fixed", "sentence", "semantic"):
             raise ValueError(f"strategy must be 'fixed', 'sentence', or 'semantic', got '{self.strategy}'")
 
@@ -311,7 +312,7 @@ class ChunkAdapter:
         priority: int = 0,
     ) -> ContextSource:
         """Adapt to single source (first chunk only)."""
-        chunks = await self.adapt_many(data, budget)
+        chunks = await self.adapt_many(data, budget, base_priority=priority)
         return (
             chunks[0]
             if chunks
