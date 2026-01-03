@@ -56,7 +56,7 @@ class ContextSource:
     """
 
     content: str
-    token_count: TokenCount = TokenCount(0)  # Required, with sensible default
+    token_count: TokenCount | None = None  # Optional, can be computed later
     priority: int = 0
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     source_type: str = "unknown"
@@ -97,10 +97,6 @@ class ContextSource:
             source_type = type
         if key is not None:
             source_id = key
-
-        # Initialize defaults
-        if token_count is None:
-            token_count = TokenCount(0)
 
         object.__setattr__(self, "content", content)
         object.__setattr__(self, "token_count", token_count)
