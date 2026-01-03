@@ -15,6 +15,7 @@ from cemaf.core.execution import (
     with_execution_context,
     with_timeout,
 )
+from cemaf.core.registry import BaseRegistry, RegistryError
 from cemaf.core.result import Result
 from cemaf.core.storage import InMemoryStorage, StorageEntry
 from cemaf.core.types import JSON, AgentID, NodeID, RunID, SkillID, ToolID
@@ -37,6 +38,9 @@ __all__ = [
     "DEFAULT_MAX_RETRIES",
     "DEFAULT_TIMEOUT_SECONDS",
     "MAX_CONTEXT_TOKENS",
+    # Registry
+    "BaseRegistry",
+    "RegistryError",
     # Result
     "Result",
     # Storage
