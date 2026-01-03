@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from cemaf.core.types import JSON
 
 if TYPE_CHECKING:
+    from cemaf.context.merge import MergeResult, MergeStrategy
     from cemaf.context.patch import ContextPatch
 
 
@@ -67,9 +68,45 @@ class Context(BaseModel):
         Return a new Context by merging another Context into this one.
         Values from 'other' will overwrite values in 'self'.
         Performs a shallow merge for top-level keys.
+
+        For more control over merge behavior (e.g., conflict detection),
+        use merge_branches() with a MergeStrategy.
         """
         merged_data = {**self.data, **other.data}
         return Context(data=merged_data)
+
+    def merge_branches(
+        self,
+        branches: list[Context],
+        strategy: MergeStrategy | None = None,
+    ) -> MergeResult:
+        """
+        Merge multiple branch contexts using a specified strategy.
+
+        This is the preferred method for merging parallel execution branches
+        as it provides conflict detection and custom merge strategies.
+
+        Args:
+            branches: List of contexts from parallel branches
+            strategy: MergeStrategy to use. Defaults to LastWriteWinsStrategy.
+
+        Returns:
+            MergeResult with merged context and any conflicts detected
+
+        Example:
+            from cemaf.context.merge import DeepMergeStrategy
+
+            result = base.merge_branches(
+                [branch1, branch2],
+                strategy=DeepMergeStrategy()
+            )
+            if result.success:
+                merged = result.context
+        """
+        from cemaf.context.merge import DEFAULT_MERGE_STRATEGY
+
+        merge_strategy = strategy or DEFAULT_MERGE_STRATEGY
+        return merge_strategy.merge(self, branches)
 
     def to_dict(self) -> JSON:
         """Return the underlying data as a dictionary."""

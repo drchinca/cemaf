@@ -22,6 +22,18 @@ from cemaf.context.algorithm import (
 from cemaf.context.budget import BudgetAllocation, TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
+from cemaf.context.merge import (
+    DEFAULT_MERGE_STRATEGY,
+    DeepMergeStrategy,
+    LastWriteWinsStrategy,
+    MergeConflict,
+    MergeConflictError,
+    MergeResult,
+    MergeStrategy,
+    RaiseOnConflictStrategy,
+    ReducerMergeStrategy,
+    create_merge_strategy,
+)
 from cemaf.context.patch import (
     ContextPatch,
     PatchLog,
@@ -49,6 +61,17 @@ __all__ = [
     "PatchOperation",
     "PatchSource",
     "PatchLog",
+    # Merge strategies (new - parallel context merge)
+    "MergeStrategy",
+    "MergeResult",
+    "MergeConflict",
+    "MergeConflictError",
+    "LastWriteWinsStrategy",
+    "RaiseOnConflictStrategy",
+    "DeepMergeStrategy",
+    "ReducerMergeStrategy",
+    "DEFAULT_MERGE_STRATEGY",
+    "create_merge_strategy",
     # Type-safe paths (new in Phase 1)
     "ContextPath",
     "TypedContext",

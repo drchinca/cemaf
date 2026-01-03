@@ -20,6 +20,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 from cemaf.context.context import Context
+from cemaf.context.merge import (
+    DEFAULT_MERGE_STRATEGY,
+    MergeConflictError,
+    MergeStrategy,
+)
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 from cemaf.core.constants import MAX_PARALLEL_NODES
 from cemaf.core.enums import NodeType, RunStatus
@@ -57,6 +62,11 @@ class ExecutorConfig(BaseModel):
     enable_moderation: bool = Field(
         default=False,
         description="Enable moderation pipeline for content safety",
+    )
+    merge_strategy: str = Field(
+        default="last_write_wins",
+        description="Strategy for merging parallel branch contexts: "
+        "'last_write_wins', 'raise_on_conflict', 'deep_merge'",
     )
 
 
@@ -141,12 +151,14 @@ class DAGExecutor:
         run_logger: RunLogger | None = None,
         event_bus: EventBus | None = None,
         moderation_pipeline: ModerationPipeline | None = None,
+        merge_strategy: MergeStrategy | None = None,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
         self._run_logger = run_logger
         self._event_bus = event_bus
         self._moderation_pipeline = moderation_pipeline
+        self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
         self._route_choices: dict[NodeID, set[NodeID]] = {}
         self._correlation_id: str = ""
 
@@ -620,7 +632,13 @@ class DAGExecutor:
         nodes: tuple[Node, ...],
         context: Context,  # Updated to Context
     ) -> tuple[tuple[NodeResult, ...], Context]:  # Returns new Context
-        """Execute multiple nodes in parallel (standalone utility)."""
+        """
+        Execute multiple nodes in parallel (standalone utility).
+
+        Uses the configured merge strategy to combine branch contexts.
+        The merge strategy determines how conflicts are handled when
+        multiple branches write to the same context keys.
+        """
         semaphore = asyncio.Semaphore(self._max_parallel)
 
         # Each parallel execution will get a *copy* of the current context
@@ -656,9 +674,49 @@ class DAGExecutor:
                 final_results.append(result)
                 all_branch_contexts.append(branch_context)
 
-        # Merge contexts from all parallel branches
-        merged_context = context  # Start with the context before parallel execution
-        for branch_context in all_branch_contexts:
-            merged_context = merged_context.merge(branch_context)  # Simple merge for now
+        # Merge contexts from all parallel branches using configured strategy
+        try:
+            merge_result = self._merge_strategy.merge(context, all_branch_contexts)
+
+            # Log conflicts for observability (even when merge succeeds)
+            if merge_result.conflicts and self._run_logger:
+                for conflict in merge_result.conflicts:
+                    # Record conflict as a system patch for debugging
+                    conflict_patch = ContextPatch(
+                        path=f"_merge_conflicts.{conflict.key}",
+                        operation=PatchOperation.SET,
+                        value={
+                            "key": conflict.key,
+                            "values": [str(v) for v in conflict.values],
+                            "branches": conflict.branch_indices,
+                            "resolution": "last_write_wins",
+                        },
+                        source=PatchSource.SYSTEM,
+                        source_id="parallel_merge",
+                        reason=f"Merge conflict detected for key '{conflict.key}'",
+                        correlation_id=self._correlation_id,
+                    )
+                    self._run_logger.record_patch(conflict_patch)
+
+            merged_context = merge_result.context
+
+        except MergeConflictError as e:
+            # Strategy raised on conflict - propagate error
+            # Create a partial result with the error
+            error_msg = f"Parallel merge failed: {e}"
+            # Return base context on merge failure
+            merged_context = context
+            # Update all results to reflect merge failure
+            final_results = [
+                NodeResult(
+                    node_id=r.node_id,
+                    success=False,
+                    output=r.output,
+                    error=error_msg if not r.error else f"{r.error}; {error_msg}",
+                    duration_ms=r.duration_ms,
+                    metadata={**r.metadata, "_merge_conflict": True},
+                )
+                for r in final_results
+            ]
 
         return tuple(final_results), merged_context
