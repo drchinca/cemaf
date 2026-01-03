@@ -16,7 +16,7 @@ from cemaf.context.budget import TokenBudget
 from cemaf.core.types import JSON
 
 if TYPE_CHECKING:
-    from cemaf.context.compiler import ContextSource
+    from cemaf.context.source import ContextSource
 
 
 @dataclass(frozen=True)

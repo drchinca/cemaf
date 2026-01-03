@@ -6,6 +6,296 @@ This guide explains how to use CEMAF in your projects. CEMAF provides **context 
 
 ---
 
+## Philosophy: Foundational Guidance, Not Batteries-Included
+
+**CEMAF is infrastructure for engineers who build AI systems, not a complete framework.**
+
+### What CEMAF Is
+
+CEMAF is **foundational guidance** on how to do context engineering right. Think of it as:
+
+- 📚 **Reference implementations** showing best practices
+- 🏗️ **Extensible patterns** you can fork, modify, and build upon
+- 🎓 **Teaching materials** embodying context engineering principles
+- 🔧 **Core infrastructure** solving hard problems (token budgeting, provenance, replay)
+
+**Not:** A batteries-included framework like LangChain or LangGraph
+**But:** The foundational layer they could be built on
+
+### How Engineers Use CEMAF
+
+```python
+# CEMAF shows you THE pattern
+from cemaf.llm import ResponseParser
+
+# You extend it for YOUR needs
+class XMLResponseParser(ResponseParser):
+    """Parse XML instead of JSON - same pattern"""
+
+class ProtoResponseParser(ResponseParser):
+    """Parse Protocol Buffers - same pattern"""
+```
+
+**You're meant to:**
+- ✅ Fork the patterns for your use case
+- ✅ Extend the classes with domain-specific logic
+- ✅ Learn the principles and apply them
+- ✅ Use what you need, ignore what you don't
+
+**You're not meant to:**
+- ❌ Use CEMAF as a black box
+- ❌ Wait for CEMAF to add every feature you need
+- ❌ Think "CEMAF doesn't do X, so I can't use it"
+
+### The Principles We Teach
+
+Every module in CEMAF embodies core principles:
+
+#### 1. **Immutability** (Context never mutates)
+```python
+@dataclass(frozen=True)  # Everything is frozen
+class ContextSource: ...
+class ParseResult: ...
+
+# Never: ctx.set_value(key, value)
+# Always: new_ctx = ctx.set(key, value)
+```
+
+#### 2. **Provenance Tracking** (Know where every change came from)
+```python
+patch = ContextPatch.from_tool(
+    tool_id="web_search",
+    path="results",
+    value=data,
+)
+ctx = ctx.apply(patch)  # Full audit trail
+```
+
+#### 3. **Protocol-First Design** (Not tied to implementations)
+```python
+# Works with ANY implementation
+def compile(compiler: ContextCompiler, ...):
+    # Don't care what kind of compiler
+```
+
+#### 4. **Progressive Disclosure** (Simple → Advanced)
+```python
+# Level 1: Dead simple
+result = ResponseParser.parse_json(text)
+
+# Level 2: With validation
+result = ResponseParser.parse_to_model(text, UserProfile)
+
+# Level 3: Streaming
+parser = StreamingJSONParser()
+```
+
+### Real-World Example: How Teams Extended CEMAF
+
+**KYI Team** (Instagram analysis):
+```python
+# Started with CEMAF's Context + Patches
+from cemaf.context import Context, ContextPatch
+
+# Extended with domain logic
+class InstagramPostSource(ContextSource):
+    """Their extension - posts with engagement scores"""
+    likes: int
+    comments: int
+    engagement_rate: float
+```
+
+**Warehouse RAG Team** (SQL agent):
+```python
+# Used CEMAF's patterns
+from cemaf.context import ContextCompiler
+
+# Built LangChain bridge (375 lines)
+class LangChainCEMAFBridge:
+    """Connected LangChain to CEMAF patterns"""
+    # Now we provide this officially in cemaf-integrations
+```
+
+**MeridianSight Team** (Content generation):
+```python
+# Adopted 3-level memory pattern
+# Brand → Project → Session scoping
+from cemaf.memory import MemoryScope
+
+# Extended with social media logic
+class SocialPostMemory(MemoryItem):
+    platform: str
+    scheduled_time: datetime
+```
+
+### What CEMAF Provides vs. What You Build
+
+| CEMAF Provides | You Build |
+|----------------|-----------|
+| **ResponseParser** (JSON from LLMs) | XMLParser, ProtoParser for your formats |
+| **ContextPath[T]** (type-safe paths) | Your domain-specific path schemas |
+| **ContextSource** (metadata + priority) | Custom source types (VectorSource, StreamingSource) |
+| **Token budgeting** (stay within limits) | Your compilation strategies (semantic chunking, etc.) |
+| **Provenance tracking** (audit trail) | Your audit visualization/analytics |
+| **Replay system** (deterministic runs) | Your debugging/monitoring tools |
+
+### When to Use CEMAF
+
+✅ **Use CEMAF when:**
+- You're building production AI agents and need **foundational infrastructure**
+- You want to **learn best practices** for context engineering
+- You need **extensible patterns** you can customize
+- You value **determinism, provenance, and reproducibility**
+
+❌ **Don't use CEMAF when:**
+- You want a **complete framework** with batteries included (use LangChain/LangGraph)
+- You're building a **simple chatbot** that doesn't need infrastructure
+- You want **zero code** - just configuration (CEMAF requires engineering)
+
+### CEMAF vs. Other Frameworks
+
+| Framework | Philosophy | When to Use |
+|-----------|-----------|-------------|
+| **LangChain** | Complete toolkit, opinionated | Need pre-built chains, quick prototypes |
+| **LangGraph** | Stateful multi-actor apps | Need framework-managed state graphs |
+| **CrewAI** | Role-based agent teams | Want high-level agent abstractions |
+| **CEMAF** | **Foundational patterns for context engineering** | **Building production systems, need control** |
+
+**CEMAF works WITH these frameworks** - see Mode A/B integration below.
+
+### New in Phase 1: Reference Patterns
+
+We've added **three reference implementations** showing CEMAF patterns:
+
+#### 1. **response_utils.py** - LLM Response Handling Pattern
+
+Shows how to:
+- Parse JSON from markdown code blocks, inline, or raw
+- Validate with Pydantic models
+- Handle streaming responses
+- Provide LLM-friendly error messages for retry loops
+
+```python
+from cemaf.llm import ResponseParser
+
+# The CEMAF way: Multiple strategies with structured results
+result = ResponseParser.parse_json(llm_response)
+if result.success:
+    data = result.data
+else:
+    # Error message designed for LLM to self-correct
+    retry_with_feedback(result.error_message)
+```
+
+**Extend it:**
+```python
+class MyCustomParser(ResponseParser):
+    @classmethod
+    def parse_xml(cls, text: str) -> ParseResult[dict]:
+        # Your logic, same pattern
+```
+
+#### 2. **paths.py** - Type-Safe Context Access Pattern
+
+Shows how to:
+- Add type safety without breaking existing code (wrapper pattern)
+- Use generics for IDE autocomplete
+- Build fluent APIs with builders
+
+```python
+from cemaf.context import ContextPath, TypedContext
+
+# Define typed paths
+class Paths:
+    user_name = ContextPath[str]("user.name")
+    scores = ContextPath[list[float]]("analysis.scores")
+
+# Type-safe access with autocomplete
+ctx = TypedContext(Context())
+ctx = ctx.set(Paths.user_name, "Alice")  # IDE knows types!
+```
+
+**Extend it:**
+```python
+# Copy the pattern for your own types
+class TypedMemory:
+    """Same wrapper pattern for memory"""
+    def get(self, path: MemoryPath[T]) -> T | None: ...
+```
+
+#### 3. **source.py** - Context Source Management Pattern
+
+Shows how to:
+- Model context sources with rich metadata
+- Use priority + recency for intelligent selection
+- Design factory methods for ergonomic APIs
+- Enable token-aware compilation
+
+```python
+from cemaf.context import ContextSource
+
+# Factory methods for common patterns
+system = ContextSource.from_system_prompt("You are...", priority=100)
+memory = ContextSource.from_memory("User likes...", priority=80)
+doc = ContextSource.from_document("Reference...", priority=40)
+
+# Automatic sorting by priority + timestamp
+sources = sorted([doc, memory, system])
+# → [system, memory, doc] - smart prioritization!
+```
+
+**Extend it:**
+```python
+class VectorContextSource(ContextSource):
+    """Add vector similarity"""
+    embedding: list[float]
+    similarity_score: float
+
+    @classmethod
+    def from_vector_search(cls, ...): ...
+```
+
+### The CEMAF Development Cycle
+
+```
+1. Study CEMAF patterns
+   ↓
+2. Fork/extend for your needs
+   ↓
+3. Build domain logic on top
+   ↓
+4. Share improvements back (optional)
+```
+
+**Example:**
+```python
+# 1. Study: CEMAF shows ResponseParser pattern
+from cemaf.llm import ResponseParser
+
+# 2. Fork: You need YAML parsing
+class YAMLResponseParser:
+    """Same pattern, YAML instead of JSON"""
+    @classmethod
+    def parse_yaml(cls, text: str) -> ParseResult[dict]:
+        # Your implementation
+
+# 3. Build: Your domain logic
+class AgentConfigParser(YAMLResponseParser):
+    """Domain-specific: Parse agent configs from LLM"""
+    @classmethod
+    def parse_agent_config(cls, text: str) -> ParseResult[AgentConfig]:
+        # Business logic
+```
+
+### Learning Resources
+
+- **Code is Documentation**: Read the source - it's **teaching material**
+- **Examples/**: Real-world patterns from production systems
+- **Tests/**: Show how to use every feature
+- **IMPROVEMENT_PLAN.md**: Roadmap of upcoming patterns
+
+---
+
 ## Quick Start: Zero-Config Setup
 
 CEMAF works out of the box with sensible defaults. For customization, copy the `.env.example`:

@@ -52,10 +52,14 @@ See cemaf.skills.protocols.Skill for the protocol definition.
 """
 
 from cemaf.skills.protocols import Skill, SkillContext, SkillOutput, SkillResult
+from cemaf.skills.registry import RegistryError, SkillRegistry
 
 __all__ = [
     "Skill",
     "SkillResult",
     "SkillOutput",
     "SkillContext",
+    # Registry (new in Phase 1 Week 2)
+    "SkillRegistry",
+    "RegistryError",
 ]

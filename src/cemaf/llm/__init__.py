@@ -6,6 +6,7 @@ Provides:
 - Message types for conversations
 - Completion/streaming results
 - Adapters for OpenAI, Anthropic, etc.
+- Response parsing and validation utilities
 
 Configuration:
     See cemaf.config.protocols.LLMSettings for available settings.
@@ -19,6 +20,10 @@ Usage:
     # Direct instantiation
     from cemaf.llm import MockLLMClient
     client = MockLLMClient()
+
+    # Parse LLM responses
+    from cemaf.llm import ResponseParser
+    result = ResponseParser.parse_json(llm_response)
 """
 
 from cemaf.llm.factories import create_llm_client_from_config, create_mock_llm_client
@@ -33,6 +38,7 @@ from cemaf.llm.protocols import (
     ToolCall,
     ToolDefinition,
 )
+from cemaf.llm.response_utils import ParseResult, ResponseParser, StreamingJSONParser
 
 __all__ = [
     # Protocols
@@ -52,4 +58,8 @@ __all__ = [
     "create_mock_llm_client",
     # Mock
     "MockLLMClient",
+    # Response utilities
+    "ResponseParser",
+    "ParseResult",
+    "StreamingJSONParser",
 ]
