@@ -110,10 +110,7 @@ def create_adapter(
     }
 
     if adapter_type not in adapters:
-        raise ValueError(
-            f"Unknown adapter type: {adapter_type}. "
-            f"Available: {list(adapters.keys())}"
-        )
+        raise ValueError(f"Unknown adapter type: {adapter_type}. Available: {list(adapters.keys())}")
 
     return adapters[adapter_type](**kwargs)
 

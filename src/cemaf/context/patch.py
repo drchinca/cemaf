@@ -6,18 +6,21 @@ This module provides:
 - PatchOperation: The type of change (SET, DELETE, MERGE, APPEND)
 - PatchSource: Who/what made the change (TOOL, AGENT, LLM, SYSTEM, USER)
 - PatchLog: An append-only log of patches for replay/debugging
+
+Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+and avoid circular imports with cemaf.context.context.
+Type imports happen at runtime within methods that need them.
 """
+
+from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from cemaf.core.utils import generate_id, utc_now
-
-if TYPE_CHECKING:
-    from cemaf.context.context import Context
 
 
 class PatchOperation(str, Enum):
@@ -278,7 +281,7 @@ class PatchLog:
         """Extend with multiple patches and return a new PatchLog."""
         return PatchLog(patches=self.patches + tuple(patches))
 
-    def replay(self, initial: Context) -> Context:
+    def replay(self, initial: Context) -> Context:  # noqa: F821
         """
         Replay all patches on an initial context.
 

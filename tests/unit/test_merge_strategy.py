@@ -304,9 +304,7 @@ class TestReducerMergeStrategy:
 
     def test_sum_reducer(self) -> None:
         """Sum reducer combines numeric values."""
-        strategy = ReducerMergeStrategy(
-            reducers={"count": lambda values: sum(values)}
-        )
+        strategy = ReducerMergeStrategy(reducers={"count": lambda values: sum(values)})
         base = Context()
         branches = [
             Context(data={"count": 10}),
@@ -321,6 +319,7 @@ class TestReducerMergeStrategy:
 
     def test_list_concat_reducer(self) -> None:
         """List concatenation reducer."""
+
         def concat_lists(values: list) -> list:
             result = []
             for v in values:
@@ -330,9 +329,7 @@ class TestReducerMergeStrategy:
                     result.append(v)
             return result
 
-        strategy = ReducerMergeStrategy(
-            reducers={"items": concat_lists}
-        )
+        strategy = ReducerMergeStrategy(reducers={"items": concat_lists})
         base = Context()
         branches = [
             Context(data={"items": [1, 2]}),
@@ -346,6 +343,7 @@ class TestReducerMergeStrategy:
 
     def test_custom_dict_merger(self) -> None:
         """Custom reducer for merging dictionaries."""
+
         def merge_dicts(values: list) -> dict:
             result = {}
             for v in values:
@@ -353,9 +351,7 @@ class TestReducerMergeStrategy:
                     result.update(v)
             return result
 
-        strategy = ReducerMergeStrategy(
-            reducers={"config": merge_dicts}
-        )
+        strategy = ReducerMergeStrategy(reducers={"config": merge_dicts})
         base = Context()
         branches = [
             Context(data={"config": {"a": 1, "b": 2}}),
@@ -369,9 +365,7 @@ class TestReducerMergeStrategy:
 
     def test_fallback_to_last_write_wins(self) -> None:
         """Keys without reducer use last-write-wins."""
-        strategy = ReducerMergeStrategy(
-            reducers={"count": lambda values: sum(values)}
-        )
+        strategy = ReducerMergeStrategy(reducers={"count": lambda values: sum(values)})
         base = Context()
         branches = [
             Context(data={"count": 10, "name": "first"}),
@@ -403,12 +397,11 @@ class TestReducerMergeStrategy:
 
     def test_reducer_error_handling(self) -> None:
         """Reducer errors are caught and reported."""
+
         def bad_reducer(values: list) -> int:
             raise ValueError("Reducer failed")
 
-        strategy = ReducerMergeStrategy(
-            reducers={"key": bad_reducer}
-        )
+        strategy = ReducerMergeStrategy(reducers={"key": bad_reducer})
         base = Context()
         branches = [
             Context(data={"key": 1}),

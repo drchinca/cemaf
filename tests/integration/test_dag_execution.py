@@ -484,8 +484,12 @@ class TestMergeStrategyIntegration:
 
         # Configure branches to write nested data to same key
         mock_node_executor.node_results = {
-            "branch1": NodeResult(node_id="branch1", success=True, output={"name": "Alice", "profile": {"bio": "Hello"}}),
-            "branch2": NodeResult(node_id="branch2", success=True, output={"age": 30, "profile": {"avatar": "pic.png"}}),
+            "branch1": NodeResult(
+                node_id="branch1", success=True, output={"name": "Alice", "profile": {"bio": "Hello"}}
+            ),
+            "branch2": NodeResult(
+                node_id="branch2", success=True, output={"age": 30, "profile": {"avatar": "pic.png"}}
+            ),
         }
 
         executor = DAGExecutor(
@@ -607,9 +611,7 @@ class TestMergeStrategyIntegration:
         # Sum reducer for "count" key
         executor = DAGExecutor(
             node_executor=mock_node_executor,
-            merge_strategy=ReducerMergeStrategy(
-                reducers={"count": lambda values: sum(values)}
-            ),
+            merge_strategy=ReducerMergeStrategy(reducers={"count": lambda values: sum(values)}),
         )
         result = await executor.run(dag)
 

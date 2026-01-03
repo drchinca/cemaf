@@ -10,12 +10,18 @@ The executor:
 - Provides checkpointing for resume
 - Emits context patches for provenance tracking
 - Integrates with RunLogger for recording
+
+Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+and avoid circular imports with cemaf.events, cemaf.moderation, and cemaf.observability.
+Type imports happen at runtime within methods that need them.
 """
+
+from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -31,11 +37,6 @@ from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
-
-if TYPE_CHECKING:
-    from cemaf.events.protocols import EventBus
-    from cemaf.moderation.pipeline import ModerationPipeline
-    from cemaf.observability.run_logger import RunLogger
 
 
 class ExecutorConfig(BaseModel):
@@ -148,9 +149,9 @@ class DAGExecutor:
         self,
         node_executor: NodeExecutor,
         max_parallel: int = MAX_PARALLEL_NODES,
-        run_logger: RunLogger | None = None,
-        event_bus: EventBus | None = None,
-        moderation_pipeline: ModerationPipeline | None = None,
+        run_logger: RunLogger | None = None,  # noqa: F821
+        event_bus: EventBus | None = None,  # noqa: F821
+        moderation_pipeline: ModerationPipeline | None = None,  # noqa: F821
         merge_strategy: MergeStrategy | None = None,
     ) -> None:
         self._node_executor = node_executor

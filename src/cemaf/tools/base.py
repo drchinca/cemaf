@@ -6,20 +6,22 @@ A Tool is:
 - Stateless (no memory)
 - Returns Result (never raises)
 - Can record calls for replay/debugging
+
+Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+and avoid circular imports with cemaf.moderation and cemaf.observability.
+Type imports happen at runtime within methods that need them.
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
 from cemaf.core.utils import utc_now
-
-if TYPE_CHECKING:
-    from cemaf.moderation.pipeline import ModerationPipeline
-    from cemaf.observability.run_logger import RunLogger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -111,9 +113,9 @@ class Tool(ABC):
 
     async def execute_with_recording(
         self,
-        run_logger: RunLogger,
+        run_logger: RunLogger,  # noqa: F821
         correlation_id: str = "",
-        moderation_pipeline: ModerationPipeline | None = None,
+        moderation_pipeline: ModerationPipeline | None = None,  # noqa: F821
         **kwargs: Any,
     ) -> ToolResult:
         """

@@ -15,7 +15,6 @@ from cemaf.ingestion.adapters import (
 )
 from cemaf.ingestion.factories import (
     AdapterConfig,
-    AdapterOverrides,
     create_adapter,
     create_chunk_adapter,
     create_json_adapter,
@@ -263,8 +262,6 @@ class TestChunkAdapter:
 
         # With overlap, there should be shared content between chunks
         if len(sources) >= 2:
-            chunk0_end = sources[0].content[-10:]
-            chunk1_start = sources[1].content[:10]
             # Some overlap should exist
             assert len(sources) >= 2
 

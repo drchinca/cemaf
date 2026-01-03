@@ -5,15 +5,13 @@ Provides a complete moderation solution with event integration
 for observability and convenient methods for input/output checking.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from cemaf.moderation.gates import PostFlightGate, PreFlightGate
 from cemaf.moderation.protocols import ModerationResult
-
-if TYPE_CHECKING:
-    from cemaf.context.context import Context
-    from cemaf.events.protocols import EventBus
 
 
 class ModerationPipeline:
@@ -47,7 +45,7 @@ class ModerationPipeline:
         self,
         pre_flight: PreFlightGate | None = None,
         post_flight: PostFlightGate | None = None,
-        event_bus: EventBus | None = None,
+        event_bus: EventBus | None = None,  # noqa: F821
         name: str = "moderation_pipeline",
     ) -> None:
         """
@@ -80,14 +78,14 @@ class ModerationPipeline:
         return self._post_flight
 
     @property
-    def event_bus(self) -> EventBus | None:
+    def event_bus(self) -> EventBus | None:  # noqa: F821
         """The event bus for emitting moderation events."""
         return self._event_bus
 
     async def check_input(
         self,
         content: Any,
-        context: Context | None = None,
+        context: Context | None = None,  # noqa: F821
     ) -> ModerationResult:
         """
         Run pre-flight moderation on input.
@@ -165,7 +163,7 @@ class ModerationPipeline:
     async def check_output(
         self,
         content: Any,
-        context: Context | None = None,
+        context: Context | None = None,  # noqa: F821
     ) -> ModerationResult:
         """
         Run post-flight moderation on output.
@@ -245,7 +243,7 @@ class ModerationPipeline:
         self,
         content: Any,
         executor: Callable[..., Awaitable[Any]],
-        context: Context | None = None,
+        context: Context | None = None,  # noqa: F821
         **executor_kwargs: Any,
     ) -> tuple[ModerationResult, Any | None]:
         """

@@ -5,16 +5,15 @@ Provides rules for validating citations in content.
 These rules implement the Rule protocol from the validation module.
 """
 
-from typing import TYPE_CHECKING, Any
+from __future__ import annotations
+
+from typing import Any
 
 from cemaf.core.types import JSON
 from cemaf.validation.protocols import (
     ValidationResult,
     ValidationWarning,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 class CitationRequiredRule:

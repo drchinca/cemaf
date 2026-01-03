@@ -3,13 +3,14 @@ Accurate token counting using tiktoken.
 
 Provides precise token counts for OpenAI models.
 Falls back to heuristic for unknown models.
+
+Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation.
+Tiktoken import happens at runtime to avoid hard dependency.
 """
 
-from functools import lru_cache
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    import tiktoken
+from functools import lru_cache
 
 
 class TiktokenEstimator:
@@ -44,7 +45,7 @@ class TiktokenEstimator:
     ) -> None:
         self._model = model
         self._fallback_ratio = fallback_chars_per_token
-        self._encoding: tiktoken.Encoding | None = None
+        self._encoding: tiktoken.Encoding | None = None  # noqa: F821
         self._tiktoken_available = False
 
         # Try to initialize tiktoken

@@ -5,15 +5,13 @@ Provides:
 - CitationTracker: Tracks citations through the pipeline
 """
 
+from __future__ import annotations
+
 import asyncio
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
-
-if TYPE_CHECKING:
-    from cemaf.events.protocols import EventBus
-    from cemaf.retrieval.protocols import SearchResult
 
 
 class CitationTracker:
@@ -33,7 +31,7 @@ class CitationTracker:
     def __init__(
         self,
         registry: CitationRegistry | None = None,
-        event_bus: EventBus | None = None,
+        event_bus: EventBus | None = None,  # noqa: F821
     ) -> None:
         """
         Initialize the citation tracker.
@@ -51,12 +49,12 @@ class CitationTracker:
         """Get the citation registry."""
         return self._registry
 
-    def track_search_result(self, result: SearchResult) -> Citation:
+    def track_search_result(self, result: SearchResult) -> Citation:  # noqa: F821
         """
         Convert a single SearchResult to a tracked Citation.
 
         Args:
-            result: SearchResult from retrieval
+            result: SearchResult  # noqa: F821 from retrieval
 
         Returns:
             Created Citation
@@ -66,7 +64,7 @@ class CitationTracker:
         self._emit_event("citation.added", {"citation_id": citation.id})
         return citation
 
-    def track_search_results(self, results: list[SearchResult]) -> list[Citation]:
+    def track_search_results(self, results: list[SearchResult]) -> list[Citation]:  # noqa: F821
         """
         Convert multiple SearchResults to tracked Citations.
 

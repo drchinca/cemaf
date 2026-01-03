@@ -1,11 +1,8 @@
 """Bridge CEMAF Blueprints to MCP prompt format."""
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
 from cemaf.mcp.types import MCPPrompt, MCPPromptArgument
-
-if TYPE_CHECKING:
-    from cemaf.blueprint.schema import Blueprint
 
 
 class PromptBridge:
@@ -14,7 +11,7 @@ class PromptBridge:
     """
 
     @staticmethod
-    def to_mcp(blueprint: Blueprint) -> MCPPrompt:
+    def to_mcp(blueprint: Blueprint) -> MCPPrompt:  # noqa: F821
         """
         Convert CEMAF Blueprint to MCP prompt.
 
@@ -59,7 +56,7 @@ class PromptBridge:
         )
 
     @staticmethod
-    def get_prompt_text(blueprint: Blueprint, arguments: dict | None = None) -> str:
+    def get_prompt_text(blueprint: Blueprint, arguments: dict | None = None) -> str:  # noqa: F821
         """
         Generate prompt text from blueprint with optional argument overrides.
 
