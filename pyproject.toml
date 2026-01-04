@@ -139,9 +139,9 @@ ignore = [
     "N818",      # Exception name should end in Error
     "SIM105",    # Use contextlib.suppress() instead of try-except-pass
     "SIM108",    # Use ternary operator instead of if-else
-    "TCH001",    # Move application import into TYPE_CHECKING block
-    "TCH002",    # Move third-party import into TYPE_CHECKING block
-    "TCH003",    # Move standard library import into TYPE_CHECKING block
+    "TC001",     # Move application import into TYPE_CHECKING block (replaces TCH001)
+    "TC002",     # Move third-party import into TYPE_CHECKING block (replaces TCH002)
+    "TC003",     # Move standard library import into TYPE_CHECKING block (replaces TCH003)
 ]
 
 [tool.bandit]
