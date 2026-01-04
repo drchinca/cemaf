@@ -69,8 +69,6 @@ All complaints will be reviewed and investigated promptly and fairly.
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
 
-We are committed to responding to reports within 48 hours.
-
 ## Enforcement Guidelines
 
 Community leaders will follow these Community Impact Guidelines in determining

@@ -1,76 +1,30 @@
 name: Bug Report
-description: Report a bug or unexpected behavior in CEMAF
+description: Report a bug in CEMAF (Alpha)
 title: "[Bug]: "
-labels: ["bug", "needs-triage"]
-assignees:
-  - drchinca
+labels: ["bug"]
 
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report a bug! Please fill out the information below to help us resolve the issue.
+        Thanks for reporting! CEMAF is in Alpha - bugs are expected and appreciated.
 
   - type: textarea
     id: description
     attributes:
-      label: Bug Description
-      description: A clear and concise description of what the bug is.
-      placeholder: "When I use the ContextCompiler with a large token budget, it..."
-    validations:
-      required: true
-
-  - type: textarea
-    id: reproduction
-    attributes:
-      label: Steps to Reproduce
-      description: How can we reproduce this bug?
-      placeholder: |
-        1. Create a Context with...
-        2. Call compiler.compile(...) with...
-        3. Observe that...
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: Expected Behavior
-      description: What did you expect to happen?
-      placeholder: "The compiler should..."
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual Behavior
-      description: What actually happened?
-      placeholder: "Instead, it..."
+      label: What happened?
+      description: Describe the bug
+      placeholder: "When I tried X, Y happened instead of Z..."
     validations:
       required: true
 
   - type: textarea
     id: code
     attributes:
-      label: Minimal Reproducible Code
-      description: Please provide a minimal code snippet that reproduces the issue.
+      label: Code to reproduce (if you have it)
       render: python
       placeholder: |
-        from cemaf.context import Context, TokenBudget
-        from cemaf.context.compiler import PriorityContextCompiler
-
-        # Your code here...
-    validations:
-      required: false
-
-  - type: textarea
-    id: logs
-    attributes:
-      label: Error Logs
-      description: If applicable, paste relevant error logs or stack traces.
-      render: shell
-      placeholder: "Paste error logs here..."
+        from cemaf import ...
     validations:
       required: false
 
@@ -78,62 +32,14 @@ body:
     id: version
     attributes:
       label: CEMAF Version
-      description: What version of CEMAF are you using?
       placeholder: "0.1.0"
-    validations:
-      required: true
-
-  - type: input
-    id: python-version
-    attributes:
-      label: Python Version
-      description: What version of Python are you using?
-      placeholder: "3.14.0"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: os
-    attributes:
-      label: Operating System
-      description: What operating system are you using?
-      options:
-        - macOS
-        - Linux
-        - Windows
-        - Other (please specify in Additional Context)
-    validations:
-      required: true
-
-  - type: dropdown
-    id: integration
-    attributes:
-      label: Integration Mode
-      description: Are you using CEMAF standalone, or integrated with another framework?
-      options:
-        - Standalone (Mode A - CEMAF orchestrates)
-        - LangGraph integration (Mode B)
-        - AutoGen integration (Mode B)
-        - CrewAI integration (Mode B)
-        - Other integration (please specify in Additional Context)
-        - Not applicable
     validations:
       required: false
 
   - type: textarea
     id: additional
     attributes:
-      label: Additional Context
-      description: Any other context, screenshots, or information that might help.
-      placeholder: "I'm using CEMAF with..."
+      label: Anything else?
+      placeholder: "Python version, OS, error logs, etc."
     validations:
       required: false
-
-  - type: checkboxes
-    id: terms
-    attributes:
-      label: Code of Conduct
-      description: By submitting this issue, you agree to follow our Code of Conduct.
-      options:
-        - label: I have read and agree to follow the Code of Conduct
-          required: true
