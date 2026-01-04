@@ -3,6 +3,7 @@
 **Context Engineering Multi-Agent Framework**
 
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=flat-square)](https://opensource.org)
+[![Project Status: Alpha](https://img.shields.io/badge/Status-Alpha-yellow?style=flat-square)](https://github.com/drchinca/cemaf)
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
@@ -29,6 +30,7 @@
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [Contributing](#contributing)
+- [Getting Help](#getting-help)
 - [License](#license)
 
 ---
@@ -260,6 +262,31 @@ uv run pre-commit install
 ```
 
 See [HOW_TO_USE.md](HOW_TO_USE.md) for detailed usage examples.
+
+---
+
+## Getting Help
+
+We're here to help! Here are the best ways to get support:
+
+### Documentation
+
+- [Full Documentation](docs/README.md) - Comprehensive guides for all features
+- [Quick Start Guide](docs/quickstart.md) - Get started in minutes
+- [HOW_TO_USE.md](HOW_TO_USE.md) - Detailed usage patterns
+- [Architecture Guide](docs/architecture.md) - Understand CEMAF's design
+
+### Community
+
+- [Discord Server](https://discord.gg/C8ZXAbD8) - Join our community for real-time help
+- [GitHub Discussions](https://github.com/drchinca/cemaf/discussions) - Ask questions and share ideas
+- [GitHub Issues](https://github.com/drchinca/cemaf/issues) - Report bugs or request features
+
+### Contributing
+
+Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
+
+We're in **Alpha** and actively seeking feedback!
 
 ---
 
