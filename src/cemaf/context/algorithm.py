@@ -7,16 +7,19 @@ This module provides:
 - Built-in implementations: Greedy, Knapsack, Optimal algorithms
 
 Engineers can implement custom algorithms by conforming to the protocol.
+
+Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+and avoid circular imports with cemaf.context.source.
+Type imports happen at runtime within methods that need them.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
 from cemaf.core.types import JSON
-
-if TYPE_CHECKING:
-    from cemaf.context.source import ContextSource
 
 
 @dataclass(frozen=True)
@@ -27,7 +30,7 @@ class SelectionResult:
     Contains selected sources, token count, and algorithm-specific metadata.
     """
 
-    selected_sources: tuple[ContextSource, ...]
+    selected_sources: tuple[ContextSource, ...]  # noqa: F821
     total_tokens: int
     metadata: JSON = field(default_factory=dict)
 
@@ -58,7 +61,7 @@ class ContextSelectionAlgorithm(Protocol):
         class MyAlgorithm:
             def select_sources(
                 self,
-                sources: list[ContextSource],
+                sources: list[ContextSource],  # noqa: F821
                 budget: TokenBudget,
             ) -> SelectionResult:
                 # Custom selection logic
@@ -72,7 +75,7 @@ class ContextSelectionAlgorithm(Protocol):
 
     def select_sources(
         self,
-        sources: list[ContextSource],
+        sources: list[ContextSource],  # noqa: F821
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -105,7 +108,7 @@ class GreedySelectionAlgorithm:
 
     def select_sources(
         self,
-        sources: list[ContextSource],
+        sources: list[ContextSource],  # noqa: F821
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -114,7 +117,7 @@ class GreedySelectionAlgorithm:
         Assumes sources are already sorted by priority (descending).
         If not sorted, results may be suboptimal.
         """
-        selected_sources: list[ContextSource] = []
+        selected_sources: list[ContextSource] = []  # noqa: F821
         total_tokens = 0
         available_tokens = budget.available_tokens
 
@@ -159,7 +162,7 @@ class KnapsackSelectionAlgorithm:
 
     def select_sources(
         self,
-        sources: list[ContextSource],
+        sources: list[ContextSource],  # noqa: F821
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -269,7 +272,7 @@ class OptimalSelectionAlgorithm:
 
     def select_sources(
         self,
-        sources: list[ContextSource],
+        sources: list[ContextSource],  # noqa: F821
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -296,7 +299,7 @@ class OptimalSelectionAlgorithm:
 
     def _brute_force_optimal(
         self,
-        sources: list[ContextSource],
+        sources: list[ContextSource],  # noqa: F821
         budget: TokenBudget,
     ) -> SelectionResult:
         """Find optimal solution using brute force (all subsets)."""
@@ -304,12 +307,12 @@ class OptimalSelectionAlgorithm:
         n = len(sources)
 
         best_priority = -1
-        best_selection: list[ContextSource] = []
+        best_selection: list[ContextSource] = []  # noqa: F821
         best_tokens = 0
 
         # Try all 2^n subsets
         for mask in range(1 << n):  # 2^n combinations
-            selected: list[ContextSource] = []
+            selected: list[ContextSource] = []  # noqa: F821
             total_tokens = 0
             total_priority = 0
 

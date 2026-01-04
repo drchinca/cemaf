@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord Community
+    url: https://discord.gg/C8ZXAbD8
+    about: Join our Discord server for questions, discussions, and community support
+  - name: Documentation
+    url: https://github.com/drchinca/cemaf/blob/main/docs/README.md
+    about: Check our comprehensive documentation for guides and examples
+  - name: Q&A Discussions
+    url: https://github.com/drchinca/cemaf/discussions
+    about: Ask questions and discuss CEMAF with the community

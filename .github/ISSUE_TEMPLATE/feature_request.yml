@@ -1,0 +1,98 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for CEMAF
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+assignees:
+  - drchinca
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please fill out the information below to help us understand your request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? Describe the use case.
+      placeholder: "I'm building a multi-agent system and need to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this feature to work? Be as specific as possible.
+      placeholder: |
+        I'd like to be able to...
+
+        ```python
+        # Example API you envision
+        from cemaf.new_feature import ...
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: "I tried using X, but it doesn't..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Which part of CEMAF does this feature relate to?
+      multiple: true
+      options:
+        - Context Management
+        - Token Budgeting
+        - Orchestration (DAG)
+        - Memory Management
+        - LLM Integration
+        - Caching
+        - Vector Stores
+        - Tools/Skills
+        - Replay/Recording
+        - Configuration
+        - Documentation
+        - Other (please specify in Additional Context)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to your use case?
+      options:
+        - Critical (blocking my use case)
+        - High (would significantly improve my workflow)
+        - Medium (nice to have)
+        - Low (just an idea)
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, examples, or links that might help.
+      placeholder: "This is similar to how LangGraph handles..."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our Code of Conduct.
+      options:
+        - label: I have read and agree to follow the Code of Conduct
+          required: true

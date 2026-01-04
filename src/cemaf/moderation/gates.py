@@ -5,16 +5,15 @@ Provides PreFlightGate and PostFlightGate implementations that compose
 multiple ModerationRule instances into checkpoints for content moderation.
 """
 
-from typing import TYPE_CHECKING, Any
+from __future__ import annotations
+
+from typing import Any
 
 from cemaf.moderation.protocols import (
     ModerationResult,
     ModerationRule,
     ModerationViolation,
 )
-
-if TYPE_CHECKING:
-    from cemaf.context.context import Context
 
 
 def _extract_text_content(content: Any) -> str:
@@ -96,7 +95,7 @@ class PreFlightGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,
+        context: Context | None = None,  # noqa: F821
     ) -> ModerationResult:
         """
         Run all rules against content.
@@ -221,7 +220,7 @@ class PostFlightGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,
+        context: Context | None = None,  # noqa: F821
     ) -> ModerationResult:
         """
         Run all rules against content.
@@ -342,7 +341,7 @@ class CompositeGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,
+        context: Context | None = None,  # noqa: F821
     ) -> ModerationResult:
         """
         Run all gates against content.

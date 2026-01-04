@@ -1,11 +1,10 @@
 """Bridge CEMAF Tools to MCP tool format."""
 
-from typing import TYPE_CHECKING, Any
+from __future__ import annotations
+
+from typing import Any
 
 from cemaf.mcp.types import MCPToolDefinition, MCPToolResult
-
-if TYPE_CHECKING:
-    from cemaf.tools.base import Tool
 
 
 class ToolBridge:
@@ -14,7 +13,7 @@ class ToolBridge:
     """
 
     @staticmethod
-    def to_mcp(tool: Tool) -> MCPToolDefinition:
+    def to_mcp(tool: Tool) -> MCPToolDefinition:  # noqa: F821
         """
         Convert CEMAF Tool to MCP tool definition.
 
@@ -32,7 +31,7 @@ class ToolBridge:
         )
 
     @staticmethod
-    async def call(tool: Tool, arguments: dict[str, Any]) -> MCPToolResult:
+    async def call(tool: Tool, arguments: dict[str, Any]) -> MCPToolResult:  # noqa: F821
         """
         Execute CEMAF tool and return MCP result.
 

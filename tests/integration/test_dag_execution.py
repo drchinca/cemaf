@@ -460,3 +460,234 @@ class TestDAGExecution:
         assert len(parallel_patches) > 0
         assert parallel_patches[0].correlation_id  # Should have correlation ID
         assert parallel_patches[0].path == "parallel_output"
+
+
+class TestMergeStrategyIntegration:
+    """Integration tests for merge strategies in DAG execution."""
+
+    @pytest.mark.asyncio
+    async def test_parallel_merge_with_deep_merge_strategy(self, mock_node_executor: MockNodeExecutor):
+        """DeepMergeStrategy recursively merges nested dictionaries from parallel branches."""
+        from cemaf.context.merge import DeepMergeStrategy
+
+        dag = DAG(name="deep_merge_test")
+        dag = dag.add_node(
+            Node.parallel(
+                id="parallel",
+                name="Parallel",
+                parallel_nodes=["branch1", "branch2"],
+                output_key="parallel_out",
+            )
+        )
+        dag = dag.add_node(Node.tool(id="branch1", name="Branch 1", tool_id="t", output_key="user"))
+        dag = dag.add_node(Node.tool(id="branch2", name="Branch 2", tool_id="t", output_key="user"))
+
+        # Configure branches to write nested data to same key
+        mock_node_executor.node_results = {
+            "branch1": NodeResult(
+                node_id="branch1", success=True, output={"name": "Alice", "profile": {"bio": "Hello"}}
+            ),
+            "branch2": NodeResult(
+                node_id="branch2", success=True, output={"age": 30, "profile": {"avatar": "pic.png"}}
+            ),
+        }
+
+        executor = DAGExecutor(
+            node_executor=mock_node_executor,
+            merge_strategy=DeepMergeStrategy(),
+        )
+        result = await executor.run(dag)
+
+        assert result.success
+        # Deep merge should combine nested structures
+        user_data = result.final_context.get("user")
+        assert user_data["name"] == "Alice"  # From branch1
+        assert user_data["age"] == 30  # From branch2
+        assert user_data["profile"]["bio"] == "Hello"  # From branch1.profile
+        assert user_data["profile"]["avatar"] == "pic.png"  # From branch2.profile
+
+    @pytest.mark.asyncio
+    async def test_parallel_merge_with_raise_on_conflict_strategy(self, mock_node_executor: MockNodeExecutor):
+        """RaiseOnConflictStrategy fails when parallel branches write different values to same key."""
+        from cemaf.context.merge import RaiseOnConflictStrategy
+
+        dag = DAG(name="conflict_test")
+        # Set retry_on_failure=False so merge conflict fails the execution
+        parallel_node = Node.parallel(
+            id="parallel",
+            name="Parallel",
+            parallel_nodes=["branch1", "branch2"],
+            output_key="parallel_out",
+        )
+        # Create node with retry_on_failure=False to propagate failure
+        parallel_node = Node(
+            id=NodeID("parallel"),
+            type=NodeType.PARALLEL,
+            name="Parallel",
+            parallel_nodes=["branch1", "branch2"],
+            output_key="parallel_out",
+            retry_on_failure=False,  # Critical: fail execution on merge conflict
+        )
+        dag = dag.add_node(parallel_node)
+        dag = dag.add_node(Node.tool(id="branch1", name="Branch 1", tool_id="t", output_key="shared"))
+        dag = dag.add_node(Node.tool(id="branch2", name="Branch 2", tool_id="t", output_key="shared"))
+
+        # Configure branches to write conflicting values
+        mock_node_executor.node_results = {
+            "branch1": NodeResult(node_id="branch1", success=True, output="value_from_branch1"),
+            "branch2": NodeResult(node_id="branch2", success=True, output="value_from_branch2"),
+        }
+
+        executor = DAGExecutor(
+            node_executor=mock_node_executor,
+            merge_strategy=RaiseOnConflictStrategy(),
+        )
+        result = await executor.run(dag)
+
+        # The parallel node should fail due to merge conflict
+        assert not result.success
+        assert "conflict" in (result.error or "").lower() or any(
+            "conflict" in (r.error or "").lower() for r in result.node_results
+        )
+
+    @pytest.mark.asyncio
+    async def test_parallel_merge_same_values_no_conflict(self, mock_node_executor: MockNodeExecutor):
+        """RaiseOnConflictStrategy allows same value from multiple branches."""
+        from cemaf.context.merge import RaiseOnConflictStrategy
+
+        dag = DAG(name="same_value_test")
+        dag = dag.add_node(
+            Node.parallel(
+                id="parallel",
+                name="Parallel",
+                parallel_nodes=["branch1", "branch2"],
+                output_key="parallel_out",
+            )
+        )
+        dag = dag.add_node(Node.tool(id="branch1", name="Branch 1", tool_id="t", output_key="shared"))
+        dag = dag.add_node(Node.tool(id="branch2", name="Branch 2", tool_id="t", output_key="shared"))
+
+        # Configure branches to write SAME value
+        mock_node_executor.node_results = {
+            "branch1": NodeResult(node_id="branch1", success=True, output="same_value"),
+            "branch2": NodeResult(node_id="branch2", success=True, output="same_value"),
+        }
+
+        executor = DAGExecutor(
+            node_executor=mock_node_executor,
+            merge_strategy=RaiseOnConflictStrategy(),
+        )
+        result = await executor.run(dag)
+
+        # Should succeed because values are identical
+        assert result.success
+        assert result.final_context.get("shared") == "same_value"
+
+    @pytest.mark.asyncio
+    async def test_parallel_merge_with_reducer_strategy(self, mock_node_executor: MockNodeExecutor):
+        """ReducerMergeStrategy applies custom reducers to merge values."""
+        from cemaf.context.merge import ReducerMergeStrategy
+
+        dag = DAG(name="reducer_test")
+        dag = dag.add_node(
+            Node.parallel(
+                id="parallel",
+                name="Parallel",
+                parallel_nodes=["branch1", "branch2", "branch3"],
+                output_key="parallel_out",
+            )
+        )
+        dag = dag.add_node(Node.tool(id="branch1", name="Branch 1", tool_id="t", output_key="count"))
+        dag = dag.add_node(Node.tool(id="branch2", name="Branch 2", tool_id="t", output_key="count"))
+        dag = dag.add_node(Node.tool(id="branch3", name="Branch 3", tool_id="t", output_key="count"))
+
+        # Configure branches to write numeric values
+        mock_node_executor.node_results = {
+            "branch1": NodeResult(node_id="branch1", success=True, output=10),
+            "branch2": NodeResult(node_id="branch2", success=True, output=20),
+            "branch3": NodeResult(node_id="branch3", success=True, output=30),
+        }
+
+        # Sum reducer for "count" key
+        executor = DAGExecutor(
+            node_executor=mock_node_executor,
+            merge_strategy=ReducerMergeStrategy(reducers={"count": lambda values: sum(values)}),
+        )
+        result = await executor.run(dag)
+
+        assert result.success
+        assert result.final_context.get("count") == 60  # 10 + 20 + 30
+
+    @pytest.mark.asyncio
+    async def test_parallel_merge_conflict_logged(self, mock_node_executor: MockNodeExecutor):
+        """Merge conflicts are logged for observability even with LastWriteWinsStrategy."""
+        from cemaf.context.merge import LastWriteWinsStrategy
+        from cemaf.observability.run_logger import InMemoryRunLogger
+
+        run_logger = InMemoryRunLogger()
+        dag = DAG(name="conflict_log_test")
+        dag = dag.add_node(
+            Node.parallel(
+                id="parallel",
+                name="Parallel",
+                parallel_nodes=["branch1", "branch2"],
+                output_key="parallel_out",
+            )
+        )
+        dag = dag.add_node(Node.tool(id="branch1", name="Branch 1", tool_id="t", output_key="shared"))
+        dag = dag.add_node(Node.tool(id="branch2", name="Branch 2", tool_id="t", output_key="shared"))
+
+        # Configure branches to write conflicting values
+        mock_node_executor.node_results = {
+            "branch1": NodeResult(node_id="branch1", success=True, output="first"),
+            "branch2": NodeResult(node_id="branch2", success=True, output="second"),
+        }
+
+        executor = DAGExecutor(
+            node_executor=mock_node_executor,
+            merge_strategy=LastWriteWinsStrategy(),
+            run_logger=run_logger,
+        )
+        result = await executor.run(dag)
+
+        assert result.success
+        assert result.final_context.get("shared") == "second"  # Last wins
+
+        # Verify conflict was logged
+        record = run_logger.get_current_record() or run_logger._history[-1]
+        conflict_patches = [p for p in record.patches if "merge_conflict" in p.path]
+        assert len(conflict_patches) > 0
+        assert "shared" in str(conflict_patches[0].value)
+
+    @pytest.mark.asyncio
+    async def test_disjoint_keys_no_conflict_any_strategy(self, mock_node_executor: MockNodeExecutor):
+        """Disjoint keys from parallel branches merge cleanly with any strategy."""
+        from cemaf.context.merge import RaiseOnConflictStrategy
+
+        dag = DAG(name="disjoint_test")
+        dag = dag.add_node(
+            Node.parallel(
+                id="parallel",
+                name="Parallel",
+                parallel_nodes=["branch1", "branch2"],
+                output_key="parallel_out",
+            )
+        )
+        dag = dag.add_node(Node.tool(id="branch1", name="Branch 1", tool_id="t", output_key="key1"))
+        dag = dag.add_node(Node.tool(id="branch2", name="Branch 2", tool_id="t", output_key="key2"))
+
+        # Configure branches to write to different keys
+        mock_node_executor.node_results = {
+            "branch1": NodeResult(node_id="branch1", success=True, output="value1"),
+            "branch2": NodeResult(node_id="branch2", success=True, output="value2"),
+        }
+
+        executor = DAGExecutor(
+            node_executor=mock_node_executor,
+            merge_strategy=RaiseOnConflictStrategy(),  # Strictest strategy
+        )
+        result = await executor.run(dag)
+
+        assert result.success
+        assert result.final_context.get("key1") == "value1"
+        assert result.final_context.get("key2") == "value2"

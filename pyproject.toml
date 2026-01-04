@@ -8,16 +8,38 @@ license = { text = "MIT" }
 authors = [
     { name = "Hikuri Bado Chinca", email = "chincadr@gmail.com" },
 ]
-keywords = ["ai", "agents", "multi-agent", "context-engineering", "llm", "dag", "orchestration"]
+keywords = [
+    "ai",
+    "agents",
+    "multi-agent",
+    "context-engineering",
+    "llm",
+    "dag",
+    "orchestration",
+    "langchain",
+    "langgraph",
+    "autogen",
+    "crewai",
+    "context-management",
+    "token-budgeting",
+    "provenance",
+    "replay",
+    "framework-agnostic",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
+    "Framework :: AsyncIO",
 ]
 
 # =============================================================================
@@ -85,9 +107,13 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/drchinca/cemaf"
-Documentation = "https://github.com/drchinca/cemaf/docs"
+Documentation = "https://github.com/drchinca/cemaf/blob/main/docs/README.md"
 Repository = "https://github.com/drchinca/cemaf"
-Issues = "https://github.com/drchinca/cemaf/issues"
+"Bug Tracker" = "https://github.com/drchinca/cemaf/issues"
+"Discussions" = "https://github.com/drchinca/cemaf/discussions"
+"Discord Community" = "https://discord.gg/C8ZXAbD8"
+"Changelog" = "https://github.com/drchinca/cemaf/blob/main/CHANGELOG.md"
+"Source Code" = "https://github.com/drchinca/cemaf"
 
 # =============================================================================
 # BUILD SYSTEM
@@ -139,9 +165,9 @@ ignore = [
     "N818",      # Exception name should end in Error
     "SIM105",    # Use contextlib.suppress() instead of try-except-pass
     "SIM108",    # Use ternary operator instead of if-else
-    "TCH001",    # Move application import into TYPE_CHECKING block
-    "TCH002",    # Move third-party import into TYPE_CHECKING block
-    "TCH003",    # Move standard library import into TYPE_CHECKING block
+    "TC001",     # Move application import into TYPE_CHECKING block (replaces TCH001)
+    "TC002",     # Move third-party import into TYPE_CHECKING block (replaces TCH002)
+    "TC003",     # Move standard library import into TYPE_CHECKING block (replaces TCH003)
 ]
 
 [tool.bandit]

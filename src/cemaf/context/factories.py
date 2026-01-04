@@ -3,9 +3,32 @@ Factory functions for context compilers.
 
 Provides convenient ways to create context compiler instances
 with sensible defaults while maintaining dependency injection principles.
+
+All factories follow the DI-friendly pattern:
+- Accept explicit dependencies for testing/customization
+- Support config objects for structured configuration
+- Support overrides dict for partial customization
+- Provide from_config() variants for environment-based setup
+
+Example:
+    # Explicit injection (testing)
+    compiler = create_priority_compiler(
+        token_estimator=MockTokenEstimator(),
+        algorithm=MockAlgorithm(),
+    )
+
+    # Config-based (production)
+    compiler = create_priority_compiler(
+        config=CompilerConfig(chars_per_token=3.5),
+    )
+
+    # Environment-based
+    compiler = create_context_compiler_from_config()
 """
 
 import os
+from dataclasses import dataclass, field
+from typing import Any
 
 from cemaf.context.algorithm import (
     ContextSelectionAlgorithm,
@@ -21,34 +44,85 @@ from cemaf.context.compiler import (
 )
 
 
+@dataclass
+class CompilerConfig:
+    """Configuration for context compilers."""
+
+    chars_per_token: float = 4.0
+    algorithm: str = "greedy"
+    max_sources_for_optimal: int = 20
+
+
+@dataclass
+class FactoryOverrides:
+    """
+    Override specific factory dependencies.
+
+    Use this to inject mocks or custom implementations
+    while keeping other defaults.
+    """
+
+    token_estimator: TokenEstimator | None = None
+    algorithm: ContextSelectionAlgorithm | None = None
+    llm_client: Any | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
 def create_priority_compiler(
     token_estimator: TokenEstimator | None = None,
     chars_per_token: float = 4.0,
     algorithm: ContextSelectionAlgorithm | None = None,
+    config: CompilerConfig | None = None,
+    overrides: FactoryOverrides | None = None,
 ) -> PriorityContextCompiler:
     """
     Factory for PriorityContextCompiler with sensible defaults.
+
+    Supports three usage patterns:
+    1. Explicit injection: Pass dependencies directly
+    2. Config-based: Use CompilerConfig for structured settings
+    3. Override-based: Use FactoryOverrides for partial customization
 
     Args:
         token_estimator: Custom token estimation strategy (optional)
         chars_per_token: Characters per token for default estimator
         algorithm: Selection algorithm to use (defaults to GreedySelectionAlgorithm)
+        config: Structured configuration (optional)
+        overrides: Dependency overrides for testing (optional)
 
     Returns:
         Configured PriorityContextCompiler instance
 
     Example:
-        # With defaults (greedy algorithm)
+        # Simple usage with defaults
         compiler = create_priority_compiler()
 
-        # With custom estimator
-        estimator = TiktokenEstimator()
-        compiler = create_priority_compiler(token_estimator=estimator)
+        # Explicit injection (for testing)
+        compiler = create_priority_compiler(
+            token_estimator=MockTokenEstimator(),
+            algorithm=MockAlgorithm(),
+        )
 
-        # With knapsack algorithm
-        algorithm = KnapsackSelectionAlgorithm()
-        compiler = create_priority_compiler(algorithm=algorithm)
+        # Config-based
+        compiler = create_priority_compiler(
+            config=CompilerConfig(chars_per_token=3.5, algorithm="knapsack"),
+        )
+
+        # Override-based (for testing with partial mocks)
+        compiler = create_priority_compiler(
+            overrides=FactoryOverrides(token_estimator=MockEstimator()),
+        )
     """
+    # Apply config if provided
+    if config:
+        chars_per_token = config.chars_per_token
+
+    # Apply overrides if provided
+    if overrides:
+        token_estimator = overrides.token_estimator or token_estimator
+        algorithm = overrides.algorithm or algorithm
+
+    # Build with defaults for missing dependencies
     estimator = token_estimator or SimpleTokenEstimator(chars_per_token)
     return PriorityContextCompiler(estimator, algorithm=algorithm)
 

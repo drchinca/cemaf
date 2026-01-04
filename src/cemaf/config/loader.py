@@ -83,7 +83,7 @@ class EnvConfigSource:
         """Environment variables don't support watching."""
         # Return immediately - no watching support
         return
-        yield {}  # noqa: unreachable - required for type checking
+        yield {}  # noqa: E501 - unreachable code required for generator type
 
     def _coerce_value(self, value: str) -> Any:
         """Coerce string value to appropriate type."""
@@ -139,7 +139,7 @@ class DictConfigSource:
         """Dictionaries don't change."""
         # Return immediately - no watching support
         return
-        yield {}  # noqa: unreachable - required for type checking
+        yield {}  # noqa: E501 - unreachable code required for generator type
 
 
 class SettingsProviderImpl:
