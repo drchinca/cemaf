@@ -5,8 +5,6 @@ Provides PreFlightGate and PostFlightGate implementations that compose
 multiple ModerationRule instances into checkpoints for content moderation.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from cemaf.context.context import Context

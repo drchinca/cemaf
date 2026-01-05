@@ -7,11 +7,9 @@ This module provides:
 - RunLogger: Protocol for recording runs
 - InMemoryRunLogger: In-memory implementation
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime

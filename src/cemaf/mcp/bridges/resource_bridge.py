@@ -1,7 +1,5 @@
 """Bridge CEMAF resources to MCP format."""
 
-from __future__ import annotations
-
 import json
 
 from cemaf.mcp.types import MCPResource, MCPResourceContents

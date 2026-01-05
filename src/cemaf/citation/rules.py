@@ -5,8 +5,6 @@ Provides rules for validating citations in content.
 These rules implement the Rule protocol from the validation module.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 from cemaf.core.types import JSON

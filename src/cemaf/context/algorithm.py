@@ -8,12 +8,10 @@ This module provides:
 
 Engineers can implement custom algorithms by conforming to the protocol.
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.source.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable

@@ -4,11 +4,9 @@ Accurate token counting using tiktoken.
 Provides precise token counts for OpenAI models.
 Falls back to heuristic for unknown models.
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation.
+Note: Uses PEP 563 () to defer annotation evaluation.
 Tiktoken import happens at runtime to avoid hard dependency.
 """
-
-from __future__ import annotations
 
 from functools import lru_cache
 from typing import Any

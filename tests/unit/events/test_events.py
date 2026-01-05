@@ -1,7 +1,5 @@
 """Tests for events module."""
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest

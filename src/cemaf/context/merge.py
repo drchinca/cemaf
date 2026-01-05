@@ -23,8 +23,6 @@ Usage:
         handle_error(result.error)
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable

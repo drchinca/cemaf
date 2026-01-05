@@ -7,12 +7,10 @@ A Tool is:
 - Returns Result (never raises)
 - Can record calls for replay/debugging
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.moderation and cemaf.observability.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable

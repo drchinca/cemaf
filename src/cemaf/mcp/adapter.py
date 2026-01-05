@@ -8,11 +8,9 @@ This module provides the main MCPAdapter class that:
 - Integrates with EventBus for observability
 - Integrates with RunLogger for recording
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports.
 """
-
-from __future__ import annotations
 
 import asyncio
 import json

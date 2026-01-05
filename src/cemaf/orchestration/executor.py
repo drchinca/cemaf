@@ -11,12 +11,10 @@ The executor:
 - Emits context patches for provenance tracking
 - Integrates with RunLogger for recording
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.events, cemaf.moderation, and cemaf.observability.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field

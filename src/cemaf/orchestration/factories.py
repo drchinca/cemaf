@@ -4,11 +4,9 @@ Factory functions for orchestration components.
 Provides convenient ways to create executor instances
 with sensible defaults while maintaining dependency injection principles.
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports.
 """
-
-from __future__ import annotations
 
 import os
 

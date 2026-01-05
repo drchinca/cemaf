@@ -4,12 +4,10 @@ cemaf.context.context - Manages the flow and state of context within agentic wor
 This module introduces an immutable Context object that encapsulates the dynamic state
 and information available to agents and nodes during execution.
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.merge and cemaf.context.patch.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any

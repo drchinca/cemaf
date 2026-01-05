@@ -7,8 +7,6 @@ Provides:
 - CitationRegistry: Registry for tracking all citations in a run
 """
 
-from __future__ import annotations
-
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime

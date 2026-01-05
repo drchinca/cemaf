@@ -7,12 +7,10 @@ This module provides:
 - PatchSource: Who/what made the change (TOOL, AGENT, LLM, SYSTEM, USER)
 - PatchLog: An append-only log of patches for replay/debugging
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.context.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field

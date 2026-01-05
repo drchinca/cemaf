@@ -1,7 +1,5 @@
 """Bridge CEMAF Tools to MCP tool format."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from cemaf.mcp.types import MCPToolDefinition, MCPToolResult

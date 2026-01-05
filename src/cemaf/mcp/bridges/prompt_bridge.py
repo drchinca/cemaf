@@ -1,7 +1,5 @@
 """Bridge CEMAF Blueprints to MCP prompt format."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from cemaf.blueprint.schema import Blueprint

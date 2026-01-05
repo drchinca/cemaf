@@ -1,7 +1,5 @@
 """Tests for validation module."""
 
-from __future__ import annotations
-
 from pydantic import BaseModel
 
 from cemaf.validation.mock import (

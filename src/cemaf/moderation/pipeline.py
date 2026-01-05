@@ -5,8 +5,6 @@ Provides a complete moderation solution with event integration
 for observability and convenient methods for input/output checking.
 """
 
-from __future__ import annotations
-
 from collections.abc import Awaitable, Callable
 from typing import Any
 
