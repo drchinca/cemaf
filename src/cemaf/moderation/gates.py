@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cemaf.context.context import Context
 from cemaf.moderation.protocols import (
     ModerationResult,
     ModerationRule,
@@ -95,7 +96,7 @@ class PreFlightGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Run all rules against content.
@@ -220,7 +221,7 @@ class PostFlightGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Run all rules against content.
@@ -341,7 +342,7 @@ class CompositeGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Run all gates against content.

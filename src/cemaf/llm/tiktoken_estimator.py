@@ -11,6 +11,7 @@ Tiktoken import happens at runtime to avoid hard dependency.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 
 class TiktokenEstimator:
@@ -45,7 +46,7 @@ class TiktokenEstimator:
     ) -> None:
         self._model = model
         self._fallback_ratio = fallback_chars_per_token
-        self._encoding: tiktoken.Encoding | None = None  # noqa: F821
+        self._encoding: Any = None  # tiktoken.Encoding when available
         self._tiktoken_available = False
 
         # Try to initialize tiktoken
@@ -86,7 +87,7 @@ class TiktokenEstimator:
 
     def estimate_messages(
         self,
-        messages: list[dict],
+        messages: list[dict[str, Any]],
         include_overhead: bool = True,
     ) -> int:
         """

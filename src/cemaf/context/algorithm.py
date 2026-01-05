@@ -16,9 +16,10 @@ Type imports happen at runtime within methods that need them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
+from cemaf.context.source import ContextSource
 from cemaf.core.types import JSON
 
 
@@ -30,24 +31,27 @@ class SelectionResult:
     Contains selected sources, token count, and algorithm-specific metadata.
     """
 
-    selected_sources: tuple[ContextSource, ...]  # noqa: F821
+    selected_sources: tuple[ContextSource, ...]
     total_tokens: int
     metadata: JSON = field(default_factory=dict)
 
     @property
     def excluded_count(self) -> int:
         """Number of sources that were excluded (if available in metadata)."""
-        return self.metadata.get("excluded_count", 0)
+        value: Any = self.metadata.get("excluded_count", 0)
+        return int(value)
 
     @property
     def excluded_keys(self) -> list[str]:
         """Keys of sources that were excluded (if available in metadata)."""
-        return self.metadata.get("excluded_keys", [])
+        value: Any = self.metadata.get("excluded_keys", [])
+        return list(value)
 
     @property
     def selection_method(self) -> str:
         """Algorithm method used (e.g., 'greedy', 'knapsack', 'optimal')."""
-        return self.metadata.get("selection_method", "unknown")
+        value: Any = self.metadata.get("selection_method", "unknown")
+        return str(value)
 
 
 @runtime_checkable
@@ -61,7 +65,7 @@ class ContextSelectionAlgorithm(Protocol):
         class MyAlgorithm:
             def select_sources(
                 self,
-                sources: list[ContextSource],  # noqa: F821
+                sources: list[ContextSource],
                 budget: TokenBudget,
             ) -> SelectionResult:
                 # Custom selection logic
@@ -75,7 +79,7 @@ class ContextSelectionAlgorithm(Protocol):
 
     def select_sources(
         self,
-        sources: list[ContextSource],  # noqa: F821
+        sources: list[ContextSource],
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -108,7 +112,7 @@ class GreedySelectionAlgorithm:
 
     def select_sources(
         self,
-        sources: list[ContextSource],  # noqa: F821
+        sources: list[ContextSource],
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -117,7 +121,7 @@ class GreedySelectionAlgorithm:
         Assumes sources are already sorted by priority (descending).
         If not sorted, results may be suboptimal.
         """
-        selected_sources: list[ContextSource] = []  # noqa: F821
+        selected_sources: list[ContextSource] = []
         total_tokens = 0
         available_tokens = budget.available_tokens
 
@@ -162,7 +166,7 @@ class KnapsackSelectionAlgorithm:
 
     def select_sources(
         self,
-        sources: list[ContextSource],  # noqa: F821
+        sources: list[ContextSource],
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -272,7 +276,7 @@ class OptimalSelectionAlgorithm:
 
     def select_sources(
         self,
-        sources: list[ContextSource],  # noqa: F821
+        sources: list[ContextSource],
         budget: TokenBudget,
     ) -> SelectionResult:
         """
@@ -299,7 +303,7 @@ class OptimalSelectionAlgorithm:
 
     def _brute_force_optimal(
         self,
-        sources: list[ContextSource],  # noqa: F821
+        sources: list[ContextSource],
         budget: TokenBudget,
     ) -> SelectionResult:
         """Find optimal solution using brute force (all subsets)."""
@@ -307,12 +311,12 @@ class OptimalSelectionAlgorithm:
         n = len(sources)
 
         best_priority = -1
-        best_selection: list[ContextSource] = []  # noqa: F821
+        best_selection: list[ContextSource] = []
         best_tokens = 0
 
         # Try all 2^n subsets
         for mask in range(1 << n):  # 2^n combinations
-            selected: list[ContextSource] = []  # noqa: F821
+            selected: list[ContextSource] = []
             total_tokens = 0
             total_priority = 0
 

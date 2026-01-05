@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from cemaf.blueprint.schema import Blueprint
 from cemaf.mcp.types import MCPPrompt, MCPPromptArgument
 
 
@@ -11,7 +14,7 @@ class PromptBridge:
     """
 
     @staticmethod
-    def to_mcp(blueprint: Blueprint) -> MCPPrompt:  # noqa: F821
+    def to_mcp(blueprint: Blueprint) -> MCPPrompt:
         """
         Convert CEMAF Blueprint to MCP prompt.
 
@@ -56,7 +59,7 @@ class PromptBridge:
         )
 
     @staticmethod
-    def get_prompt_text(blueprint: Blueprint, arguments: dict | None = None) -> str:  # noqa: F821
+    def get_prompt_text(blueprint: Blueprint, arguments: dict[str, Any] | None = None) -> str:
         """
         Generate prompt text from blueprint with optional argument overrides.
 

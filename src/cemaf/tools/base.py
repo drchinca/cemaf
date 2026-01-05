@@ -22,6 +22,8 @@ from typing import Any, TypeVar
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
 from cemaf.core.utils import utc_now
+from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.observability.run_logger import RunLogger
 
 F = TypeVar("F", bound=Callable[..., Any])
 

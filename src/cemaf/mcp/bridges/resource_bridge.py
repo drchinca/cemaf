@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 
 from cemaf.mcp.types import MCPResource, MCPResourceContents
+from cemaf.memory.base import MemoryItem
+from cemaf.retrieval.protocols import SearchResult
 
 
 class ResourceBridge:
@@ -13,7 +15,7 @@ class ResourceBridge:
     """
 
     @staticmethod
-    def memory_to_mcp(item: MemoryItem) -> MCPResource:  # noqa: F821
+    def memory_to_mcp(item: MemoryItem) -> MCPResource:
         """
         Convert CEMAF MemoryItem to MCP resource.
         """
@@ -25,7 +27,7 @@ class ResourceBridge:
         )
 
     @staticmethod
-    def memory_to_contents(item: MemoryItem) -> MCPResourceContents:  # noqa: F821
+    def memory_to_contents(item: MemoryItem) -> MCPResourceContents:
         """
         Convert MemoryItem value to resource contents.
         """
@@ -39,7 +41,7 @@ class ResourceBridge:
         )
 
     @staticmethod
-    def search_result_to_mcp(result: SearchResult) -> MCPResource:  # noqa: F821
+    def search_result_to_mcp(result: SearchResult) -> MCPResource:
         """
         Convert SearchResult to MCP resource.
         """
@@ -52,7 +54,7 @@ class ResourceBridge:
         )
 
     @staticmethod
-    def search_result_to_contents(result: SearchResult) -> MCPResourceContents:  # noqa: F821
+    def search_result_to_contents(result: SearchResult) -> MCPResourceContents:
         """
         Convert SearchResult to resource contents.
         """

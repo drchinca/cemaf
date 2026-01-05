@@ -36,6 +36,9 @@ from cemaf.core.constants import MAX_PARALLEL_NODES
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
+from cemaf.events.protocols import EventBus
+from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 
 
@@ -149,9 +152,9 @@ class DAGExecutor:
         self,
         node_executor: NodeExecutor,
         max_parallel: int = MAX_PARALLEL_NODES,
-        run_logger: RunLogger | None = None,  # noqa: F821
-        event_bus: EventBus | None = None,  # noqa: F821
-        moderation_pipeline: ModerationPipeline | None = None,  # noqa: F821
+        run_logger: RunLogger | None = None,
+        event_bus: EventBus | None = None,
+        moderation_pipeline: ModerationPipeline | None = None,
         merge_strategy: MergeStrategy | None = None,
     ) -> None:
         self._node_executor = node_executor

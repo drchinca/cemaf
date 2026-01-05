@@ -20,7 +20,7 @@ from typing import Any
 from cemaf.core.types import JSON
 
 
-def _utc_now():
+def _utc_now() -> datetime:
     """Local utc_now to avoid circular import."""
     from datetime import datetime
 

@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from cemaf.core.types import JSON
+from cemaf.retrieval.protocols import SearchResult
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ class Citation:
         )
 
     @classmethod
-    def from_search_result(cls, result: SearchResult, id_prefix: str = "cite") -> Citation:  # noqa: F821
+    def from_search_result(cls, result: SearchResult, id_prefix: str = "cite") -> Citation:
         """
         Create citation from a SearchResult.
 

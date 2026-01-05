@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from cemaf.mcp.types import MCPToolDefinition, MCPToolResult
+from cemaf.tools.protocols import Tool
 
 
 class ToolBridge:
@@ -13,7 +14,7 @@ class ToolBridge:
     """
 
     @staticmethod
-    def to_mcp(tool: Tool) -> MCPToolDefinition:  # noqa: F821
+    def to_mcp(tool: Tool) -> MCPToolDefinition:
         """
         Convert CEMAF Tool to MCP tool definition.
 
@@ -31,7 +32,7 @@ class ToolBridge:
         )
 
     @staticmethod
-    async def call(tool: Tool, arguments: dict[str, Any]) -> MCPToolResult:  # noqa: F821
+    async def call(tool: Tool, arguments: dict[str, Any]) -> MCPToolResult:
         """
         Execute CEMAF tool and return MCP result.
 

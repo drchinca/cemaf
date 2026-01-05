@@ -12,6 +12,8 @@ import uuid
 from typing import Any
 
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+from cemaf.events.protocols import EventBus
+from cemaf.retrieval.protocols import SearchResult
 
 
 class CitationTracker:
