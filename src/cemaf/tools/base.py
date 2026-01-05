@@ -166,10 +166,18 @@ class Tool(ABC):
         duration_ms = (end_time - start_time).total_seconds() * 1000
 
         # Create and record the call
+        output_data: dict[str, Any]
+        if result.success and isinstance(result.data, dict):
+            output_data = result.data
+        elif result.success:
+            output_data = {"result": result.data}
+        else:
+            output_data = {}
+
         call = ToolCall(
             tool_id=str(self.id),
             input=kwargs,
-            output=result.data if result.success else {},
+            output=output_data,
             duration_ms=duration_ms,
             timestamp=start_time,
             correlation_id=correlation_id,

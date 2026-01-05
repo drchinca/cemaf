@@ -81,9 +81,10 @@ def create_composite_evaluator(
         evals = [create_exact_match_evaluator(), create_numeric_evaluator()]
         evaluator = create_composite_evaluator(evaluators=evals)
     """
+    # Note: pass_threshold parameter exists but is not used in current CompositeEvaluator implementation
+    _ = pass_threshold  # Acknowledge the parameter
     return CompositeEvaluator(
         evaluators=evaluators or [],
-        pass_threshold=pass_threshold,
     )
 
 

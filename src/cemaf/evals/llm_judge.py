@@ -169,6 +169,14 @@ class LLMJudgeEvaluator(BaseEvaluator):
         """Evaluate using LLM as judge."""
         import re
 
+        # Ensure prompt is available (should be guaranteed by __init__)
+        if self._prompt is None:
+            return self._make_result(
+                score=0.0,
+                reason="No prompt configured for this criteria",
+                confidence=0.0,
+            )
+
         # Build prompt
         user_content = self._prompt.user_template.format(
             output=str(output),
@@ -193,8 +201,11 @@ class LLMJudgeEvaluator(BaseEvaluator):
 
         response = result.message.content
 
+        # Ensure response is a string
+        response_str = str(response) if not isinstance(response, str) else response
+
         # Extract score
-        score_match = re.search(self._prompt.score_extraction_pattern, response)
+        score_match = re.search(self._prompt.score_extraction_pattern, response_str)
         if score_match:
             raw_score = float(score_match.group(1))
             # Normalize to 0-1 if on 0-10 scale
@@ -203,12 +214,12 @@ class LLMJudgeEvaluator(BaseEvaluator):
             score = 0.5  # Default if extraction fails
 
         # Extract reason
-        reason_match = re.search(r"Reason:\s*(.+)", response, re.DOTALL)
-        reason = reason_match.group(1).strip() if reason_match else response
+        reason_match = re.search(r"Reason:\s*(.+)", response_str, re.DOTALL)
+        reason_str = reason_match.group(1).strip() if reason_match else response_str
 
         return self._make_result(
             score=score,
-            reason=reason[:500],  # Truncate long reasons
+            reason=reason_str[:500],  # Truncate long reasons
             expected=expected,
             actual=output,
             confidence=0.8,  # LLM judgments have inherent uncertainty

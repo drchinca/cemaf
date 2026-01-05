@@ -55,8 +55,10 @@ def with_retry(
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             result = await policy.execute(func, *args, **kwargs)
-            if result.success:
-                return result.result
+            if result.success and result.result is not None:
+                # Cast to T since we know the result type matches the function return type
+                return_value: T = result.result
+                return return_value
             raise result.error or Exception("Retry failed")
 
         return wrapper
