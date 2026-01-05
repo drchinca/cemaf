@@ -102,7 +102,7 @@ def create_adapter(
             kwargs.setdefault("overlap", config.chunk_overlap)
 
     # Build adapter
-    adapters = {
+    adapters: dict[str, type[ContextAdapter]] = {
         "text": TextAdapter,
         "json": JSONAdapter,
         "table": TableAdapter,
@@ -112,7 +112,8 @@ def create_adapter(
     if adapter_type not in adapters:
         raise ValueError(f"Unknown adapter type: {adapter_type}. Available: {list(adapters.keys())}")
 
-    return adapters[adapter_type](**kwargs)
+    adapter_class = adapters[adapter_type]
+    return adapter_class(**kwargs)
 
 
 def create_adapter_from_config() -> ContextAdapter:

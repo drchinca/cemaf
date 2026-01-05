@@ -184,7 +184,7 @@ class DAGExecutor:
             ExecutionResult with all node results and final context
         """
         # Validate DAG
-        dag.validate()
+        dag.validate_structure()
 
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
         context = initial_context or Context()
@@ -506,7 +506,9 @@ class DAGExecutor:
         # Determine allowed routes if provided on the node
         allowed_targets: set[NodeID] | None = None
         if node.routes:
-            chosen = node.routes.get(condition_value, node.routes.get(str(condition_value), None))
+            # Try boolean key first, then string key (supports both route types)
+            # Type ignore: node.routes is JSON (dict[str, Any]) but we support bool keys too
+            chosen = node.routes.get(condition_value, node.routes.get(str(condition_value), None))  # type: ignore[call-overload]
             allowed_targets = {NodeID(str(chosen))} if chosen is not None else set()
             self._route_choices[node.id] = allowed_targets
 
@@ -651,7 +653,7 @@ class DAGExecutor:
         async def execute_with_semaphore(node: Node) -> tuple[NodeResult, Context]:
             async with semaphore:
                 # Pass a clone of the context to each parallel branch to ensure isolation
-                result, branch_context = await self._execute_with_retry(node, context.copy())
+                result, branch_context = await self._execute_with_retry(node, context.copy_context())
                 # For parallel nodes, we should apply output of each child node to its branch_context
                 # This is already handled inside _execute_with_retry for TOOL/SKILL/AGENT
                 # so we just return the result and the branch_context
@@ -664,7 +666,7 @@ class DAGExecutor:
         all_branch_contexts: list[Context] = []
 
         for i, res_tuple in enumerate(raw_results):
-            if isinstance(res_tuple, Exception):
+            if isinstance(res_tuple, BaseException):
                 final_results.append(
                     NodeResult(
                         node_id=nodes[i].id,
@@ -672,7 +674,7 @@ class DAGExecutor:
                         error=str(res_tuple),
                     )
                 )
-                all_branch_contexts.append(context.copy())  # Failed branch, no changes
+                all_branch_contexts.append(context.copy_context())  # Failed branch, no changes
             else:
                 result, branch_context = res_tuple
                 final_results.append(result)

@@ -35,7 +35,8 @@ def _extract_text_content(content: Any) -> str:
         # Try common text fields
         for key in ("text", "content", "message", "body", "output", "input"):
             if key in content and isinstance(content[key], str):
-                return content[key]
+                value: str = content[key]
+                return value
         # Fall back to string representation
         return str(content)
     return str(content)

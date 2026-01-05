@@ -128,9 +128,9 @@ def create_priority_compiler(
 
 
 def create_advanced_compiler(
-    llm_client,  # LLMClient type (avoid circular import)
+    llm_client: Any,  # LLMClient type (avoid circular import)
     token_estimator: TokenEstimator | None = None,
-    config=None,  # AdvancedCompilerConfig type (avoid circular import)
+    config: Any = None,  # AdvancedCompilerConfig type (avoid circular import)
     algorithm: ContextSelectionAlgorithm | None = None,
 ) -> ContextCompiler:
     """

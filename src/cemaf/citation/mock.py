@@ -1,5 +1,7 @@
 """Mock implementations for citation testing."""
 
+from typing import Any
+
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
 from cemaf.citation.tracker import CitationTracker
 
@@ -9,7 +11,7 @@ def create_mock_citation(
     source_id: str = "doc-001",
     source_type: str = "document",
     title: str = "Mock Source",
-    **kwargs,
+    **kwargs: Any,
 ) -> Citation:
     """Create a mock citation for testing."""
     return Citation(
@@ -24,7 +26,7 @@ def create_mock_citation(
 def create_mock_cited_fact(
     fact: str = "This is a test fact.",
     citations: list[Citation] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> CitedFact:
     """Create a mock cited fact for testing."""
     if citations is None:

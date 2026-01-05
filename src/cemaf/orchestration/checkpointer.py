@@ -108,7 +108,7 @@ class CheckpointingDAGExecutor:
         run_id: RunID | None = None,
     ) -> Any:
         """Run DAG with checkpointing."""
-        dag.validate()
+        dag.validate_structure()
         order = dag.topological_sort()
         run_id = run_id or RunID(generate_id("ckpt"))
 

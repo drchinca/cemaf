@@ -9,7 +9,7 @@ from typing import Any
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.source import ContextSource
-from cemaf.core.types import JSON
+from cemaf.core.types import JSON, TokenCount
 
 
 @dataclass
@@ -55,7 +55,7 @@ class TextAdapter:
             type="text",
             key=f"text_{hash(data) % 10000}",
             content=content,
-            token_count=self.estimate_tokens(content),
+            token_count=TokenCount(self.estimate_tokens(content)),
             priority=priority,
             metadata={"original_tokens": estimated},
         )
@@ -133,7 +133,7 @@ class JSONAdapter:
             type="json",
             key=f"json_{hash(str(data)) % 10000}",
             content=content,
-            token_count=self.estimate_tokens(content),
+            token_count=TokenCount(self.estimate_tokens(content)),
             priority=priority,
             metadata={"fields": list(processed.keys()) if isinstance(processed, dict) else []},
         )
@@ -215,7 +215,7 @@ class TableAdapter:
             type="table",
             key=f"table_{hash(str(data)[:100]) % 10000}",
             content=content,
-            token_count=self.estimate_tokens(content),
+            token_count=TokenCount(self.estimate_tokens(content)),
             priority=priority,
             metadata={"rows": len(rows), "columns": columns},
         )
@@ -226,7 +226,7 @@ class TableAdapter:
             return max(1, int(len(data) / self.chars_per_token))
         return max(1, int(len(str(data)) / self.chars_per_token))
 
-    def _extract_table(self, data: Any) -> tuple[list[list], list[str]]:
+    def _extract_table(self, data: Any) -> tuple[list[list[Any]], list[str]]:
         """Extract rows and columns from various formats."""
         # Handle pandas DataFrame
         if hasattr(data, "to_dict") and hasattr(data, "columns"):
@@ -248,7 +248,7 @@ class TableAdapter:
 
         return [], []
 
-    def _format_table(self, rows: list[list], columns: list[str]) -> str:
+    def _format_table(self, rows: list[list[Any]], columns: list[str]) -> str:
         """Format table as string."""
         if not rows or not columns:
             return ""
@@ -289,7 +289,7 @@ class ChunkAdapter:
     overlap: int = 50
     strategy: str = "fixed"  # fixed, sentence, semantic
     chars_per_token: float = 4.0
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate adapter configuration."""
@@ -320,7 +320,7 @@ class ChunkAdapter:
                 type="chunk",
                 key="empty_chunk",
                 content="",
-                token_count=0,
+                token_count=TokenCount(0),
                 priority=priority,
             )
         )
@@ -346,7 +346,7 @@ class ChunkAdapter:
                     type="chunk",
                     key=f"chunk_{i}",
                     content=chunk,
-                    token_count=self.estimate_tokens(chunk),
+                    token_count=TokenCount(self.estimate_tokens(chunk)),
                     priority=base_priority - i,  # Earlier chunks higher priority
                     metadata={
                         "chunk_index": i,
@@ -392,7 +392,7 @@ class ChunkAdapter:
         sentences = re.split(r"(?<=[.!?])\s+", text)
 
         chunks = []
-        current_chunk = []
+        current_chunk: list[str] = []
         current_tokens = 0
 
         for sentence in sentences:

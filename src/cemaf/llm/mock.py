@@ -130,7 +130,14 @@ class MockLLMClient:
         for msg in messages:
             # Add overhead per message
             total += 4  # role, content separators
-            total += self.count_tokens(msg.content)
+            # Handle both string and list content
+            if isinstance(msg.content, str):
+                total += self.count_tokens(msg.content)
+            else:
+                # For list content, estimate from JSON representation
+                import json
+
+                total += self.count_tokens(json.dumps(msg.content))
         return TokenCount(total)
 
     def add_response(self, response: str) -> None:

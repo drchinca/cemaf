@@ -281,7 +281,7 @@ class PatchLog:
         """Extend with multiple patches and return a new PatchLog."""
         return PatchLog(patches=self.patches + tuple(patches))
 
-    def replay(self, initial: Context) -> Context:  # noqa: F821
+    def replay(self, initial: Context) -> Context:  # type: ignore[name-defined]  # noqa: F821
         """
         Replay all patches on an initial context.
 

@@ -128,9 +128,10 @@ class GreedySelectionAlgorithm:
         excluded_keys: list[str] = []
 
         for source in sources:
-            if total_tokens + source.token_count <= available_tokens:
+            source_tokens = source.token_count or 0
+            if total_tokens + source_tokens <= available_tokens:
                 selected_sources.append(source)
-                total_tokens += source.token_count
+                total_tokens += source_tokens
             else:
                 excluded_keys.append(source.key)
 
@@ -211,7 +212,7 @@ class KnapsackSelectionAlgorithm:
         choices: list[list[int]] = [[] for _ in range(max_weight + 1)]
 
         for i, source in enumerate(sources):
-            weight = source.token_count
+            weight = source.token_count or 0
             value = source.priority
 
             # Skip if item doesn't fit
@@ -232,7 +233,7 @@ class KnapsackSelectionAlgorithm:
         excluded_indices = set(range(n)) - set(selected_indices)
         excluded_keys = [sources[i].key for i in excluded_indices]
 
-        total_tokens = sum(s.token_count for s in selected_sources)
+        total_tokens = sum(s.token_count or 0 for s in selected_sources)
 
         return SelectionResult(
             selected_sources=tuple(selected_sources),
@@ -323,9 +324,10 @@ class OptimalSelectionAlgorithm:
             for i in range(n):
                 if mask & (1 << i):
                     source = sources[i]
-                    if total_tokens + source.token_count <= available_tokens:
+                    source_tokens = source.token_count or 0
+                    if total_tokens + source_tokens <= available_tokens:
                         selected.append(source)
-                        total_tokens += source.token_count
+                        total_tokens += source_tokens
                         total_priority += source.priority
                     else:
                         # This subset doesn't fit, skip it

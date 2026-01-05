@@ -41,10 +41,17 @@ def create_retry_policy(
         # Custom configuration
         policy = create_retry_policy(max_attempts=5, backoff_strategy="fibonacci")
     """
+    from cemaf.resilience.retry import BackoffStrategy
+
+    # Convert string to enum if needed
+    strategy_enum = (
+        BackoffStrategy(backoff_strategy) if isinstance(backoff_strategy, str) else backoff_strategy
+    )
+
     config = RetryConfig(
         max_attempts=max_attempts,
         initial_delay_seconds=initial_delay_seconds,
-        backoff_strategy=backoff_strategy,
+        backoff_strategy=strategy_enum,
     )
     return RetryPolicy(config)
 
@@ -102,7 +109,7 @@ def create_rate_limiter(
         limiter = create_rate_limiter(requests_per_second=100.0, burst=200)
     """
     config = RateLimitConfig(
-        requests_per_second=requests_per_second,
+        rate=requests_per_second,  # rate field, not requests_per_second
         burst=burst,
     )
     return RateLimiter(config)

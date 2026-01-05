@@ -169,7 +169,7 @@ class Tool(ABC):
         call = ToolCall(
             tool_id=str(self.id),
             input=kwargs,
-            output=result.data if result.success else None,
+            output=result.data if result.success else {},
             duration_ms=duration_ms,
             timestamp=start_time,
             correlation_id=correlation_id,

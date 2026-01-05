@@ -5,6 +5,8 @@ Based on Denis Rothman's Semantic Blueprint concept for structured context engin
 A blueprint defines HOW to accomplish a task, separate from WHAT data to use.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import JSON
@@ -178,11 +180,11 @@ class Blueprint(BaseModel):
         """Format the instructions section of the prompt."""
         return f"## Instructions\n{self.instruction}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict) -> Blueprint:
+    def from_dict(cls, data: dict[str, Any]) -> Blueprint:
         """Create blueprint from dictionary."""
         return cls.model_validate(data)

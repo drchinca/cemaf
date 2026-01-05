@@ -8,7 +8,7 @@ repos:
       - id: check-toml
       - id: check-json
       - id: check-added-large-files
-        args: ['--maxkb=1000']
+        args: ["--maxkb=1000"]
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-docstring-first
@@ -17,7 +17,7 @@ repos:
         files: ^(src/|tests/).*\.py$
       - id: mixed-line-ending
       - id: name-tests-test
-        args: ['--pytest-test-first']
+        args: ["--pytest-test-first"]
         files: ^tests/.*\.py$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -29,33 +29,27 @@ repos:
       - id: ruff-format
         files: ^(src/|tests/).*\.py$
 
-  # Mypy disabled - TODO: Add type hints to test files and re-enable
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.13.0
-  #   hooks:
-  #     - id: mypy
-  #       additional_dependencies: [
-  #         types-requests,
-  #         types-aiofiles,
-  #         pydantic>=2.0,
-  #       ]
-  #       args: [--strict, --ignore-missing-imports]
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-requests, types-aiofiles, pydantic>=2.0]
+        args: [--strict, --ignore-missing-imports]
 
   - repo: https://github.com/pycqa/bandit
     rev: 1.8.0
     hooks:
       - id: bandit
-        args: ['-c', 'pyproject.toml']
-        additional_dependencies: ['bandit[toml]']
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
         files: ^(src/|tests/).*\.py$
 
-  # Validate pyproject.toml disabled - schema outdated for ruff configuration
-  # - repo: https://github.com/abravalheri/validate-pyproject
-  #   rev: v0.20.2
-  #   hooks:
-  #     - id: validate-pyproject
-  #       files: pyproject.toml
-  #       additional_dependencies: ['validate-pyproject-schema-store[all]']
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.20.2
+    hooks:
+      - id: validate-pyproject
+        files: pyproject.toml
+        additional_dependencies: ["validate-pyproject-schema-store[all]"]
 
   - repo: local
     hooks:

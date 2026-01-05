@@ -1,5 +1,7 @@
 """Mock implementations for blueprint testing."""
 
+from typing import Any
+
 from cemaf.blueprint.schema import Blueprint, SceneGoal
 
 
@@ -7,7 +9,7 @@ def create_mock_blueprint(
     id: str = "mock-bp-1",
     name: str = "Mock Blueprint",
     objective: str = "Test objective for mocking",
-    **kwargs,
+    **kwargs: Any,
 ) -> Blueprint:
     """Create a mock blueprint for testing."""
     scene_goal = SceneGoal(objective=objective)

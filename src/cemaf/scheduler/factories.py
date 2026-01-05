@@ -9,13 +9,13 @@ import os
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
-from cemaf.scheduler.executor import SchedulerExecutor
+from cemaf.scheduler.executor import AsyncJobExecutor
 
 
 def create_scheduler_executor(
     max_concurrent_jobs: int = 10,
     default_job_timeout_seconds: float = 300.0,
-) -> SchedulerExecutor:
+) -> AsyncJobExecutor:
     """
     Factory for SchedulerExecutor with sensible defaults.
 
@@ -33,13 +33,13 @@ def create_scheduler_executor(
         # Custom configuration
         scheduler = create_scheduler_executor(max_concurrent_jobs=20)
     """
-    return SchedulerExecutor(
-        max_concurrent_jobs=max_concurrent_jobs,
-        default_job_timeout_seconds=default_job_timeout_seconds,
+    # AsyncJobExecutor uses max_concurrent, not max_concurrent_jobs
+    return AsyncJobExecutor(
+        max_concurrent=max_concurrent_jobs,
     )
 
 
-def create_scheduler_executor_from_config(settings: Settings | None = None) -> SchedulerExecutor:
+def create_scheduler_executor_from_config(settings: Settings | None = None) -> AsyncJobExecutor:
     """
     Create SchedulerExecutor from environment configuration.
 

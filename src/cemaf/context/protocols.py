@@ -68,7 +68,7 @@ class ContextCompiler(Protocol):
 
     async def compile(
         self,
-        sources: list,
+        sources: list[Any],
         budget: TokenBudget,
     ) -> CompiledContext:
         """
@@ -115,7 +115,7 @@ class ContextSelectionAlgorithm(Protocol):
         >>> assert isinstance(algo, ContextSelectionAlgorithm)
     """
 
-    def select(self, sources: list, budget: int) -> Any:
+    def select(self, sources: list[Any], budget: int) -> Any:
         """
         Select context sources that fit within budget.
 

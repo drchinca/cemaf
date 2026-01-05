@@ -536,7 +536,7 @@ def create_merge_strategy(
     Returns:
         Configured MergeStrategy instance
     """
-    strategies = {
+    strategies: dict[str, type[MergeStrategy]] = {
         "last_write_wins": LastWriteWinsStrategy,
         "raise_on_conflict": RaiseOnConflictStrategy,
         "deep_merge": DeepMergeStrategy,
@@ -546,7 +546,8 @@ def create_merge_strategy(
     if strategy_type not in strategies:
         raise ValueError(f"Unknown strategy: {strategy_type}. Available: {list(strategies.keys())}")
 
-    return strategies[strategy_type](**kwargs)
+    strategy_class = strategies[strategy_type]
+    return strategy_class(**kwargs)
 
 
 # Default strategy instance

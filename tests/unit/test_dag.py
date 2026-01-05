@@ -275,7 +275,7 @@ class TestDAG:
         dag = DAG(name="empty")
 
         with pytest.raises(ValueError, match="no nodes"):
-            dag.validate()
+            dag.validate_structure()
 
     def test_validate_valid_dag(self):
         """Valid DAG passes validation."""
@@ -284,7 +284,7 @@ class TestDAG:
         dag = dag.add_node(Node.tool(id="end", name="End", tool_id="e"))
         dag = dag.add_edge(Edge(source=NodeID("start"), target=NodeID("end")))
 
-        assert dag.validate() is True
+        assert dag.validate_structure() is True
 
     def test_to_dict_serialization(self):
         """DAG can be serialized to dict."""

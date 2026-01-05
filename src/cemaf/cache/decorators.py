@@ -91,7 +91,7 @@ def cached(
             # Check cache
             cached_value = await cache.get(key)
             if cached_value is not None:
-                return cached_value  # type: ignore[return-value]
+                return cached_value  # type: ignore[no-any-return]
 
             # Call function
             result = await fn(*args, **kwargs)
@@ -138,7 +138,7 @@ def cached_property(
             # Check cache
             cached_value = await cache.get(cache_k)
             if cached_value is not None:
-                return cached_value  # type: ignore[return-value]
+                return cached_value  # type: ignore[no-any-return]
 
             # Call method
             result = await fn(self)

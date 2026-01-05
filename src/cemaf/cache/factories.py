@@ -44,7 +44,7 @@ def create_cache(
     elif backend == "ttl":
         if ttl_seconds is None:
             ttl_seconds = 3600.0  # Default 1 hour
-        return TTLCache(max_size=max_size, ttl_seconds=ttl_seconds)
+        return TTLCache(max_size=max_size, default_ttl_seconds=int(ttl_seconds))
     else:
         raise ValueError(f"Unsupported cache backend: {backend}")
 

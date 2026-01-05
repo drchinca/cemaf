@@ -4,6 +4,8 @@ Mock generators for testing.
 These return placeholder outputs without calling external APIs.
 """
 
+from typing import Any
+
 from cemaf.generation.protocols import (
     AudioSpec,
     CodeSpec,
@@ -95,7 +97,7 @@ class MockAudioGenerator:
             model="mock-tts-v1",
         )
 
-    def list_voices(self) -> list[dict]:
+    def list_voices(self) -> list[dict[str, Any]]:
         """List mock voices."""
         return [
             {"id": "voice_1", "name": "Professional Female", "language": "en"},
@@ -173,7 +175,7 @@ class MockDiagramGenerator:
             metadata={"diagram_type": spec.diagram_type.value},
         )
 
-    async def from_data(self, data: dict, spec: DiagramSpec) -> MediaOutput:
+    async def from_data(self, data: dict[str, Any], spec: DiagramSpec) -> MediaOutput:
         """Generate from structured data."""
         self.call_count += 1
         return MediaOutput.ok(

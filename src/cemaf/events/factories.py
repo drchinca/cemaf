@@ -9,13 +9,13 @@ import os
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
-from cemaf.events.bus import EventBus
+from cemaf.events.bus import AsyncEventBus
 
 
 def create_event_bus(
     max_queue_size: int = 10000,
     enable_async_handlers: bool = True,
-) -> EventBus:
+) -> AsyncEventBus:
     """
     Factory for EventBus with sensible defaults.
 
@@ -33,13 +33,13 @@ def create_event_bus(
         # Custom configuration
         bus = create_event_bus(max_queue_size=5000)
     """
-    return EventBus(
-        max_queue_size=max_queue_size,
-        enable_async_handlers=enable_async_handlers,
+    # AsyncEventBus uses max_concurrent, not max_queue_size
+    return AsyncEventBus(
+        max_concurrent=max_queue_size,
     )
 
 
-def create_event_bus_from_config(settings: Settings | None = None) -> EventBus:
+def create_event_bus_from_config(settings: Settings | None = None) -> AsyncEventBus:
     """
     Create EventBus from environment configuration.
 

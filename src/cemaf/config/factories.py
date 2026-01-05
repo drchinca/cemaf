@@ -34,7 +34,7 @@ async def load_settings_from_env() -> Settings:
         which supports async configuration sources (e.g., remote config servers).
     """
     provider = SettingsProviderImpl()
-    provider.add_source(EnvConfigSource())
+    provider.add_source(EnvConfigSource())  # type: ignore[arg-type]
     return await provider.get()
 
 
