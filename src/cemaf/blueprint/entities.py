@@ -1,8 +1,8 @@
 """
-cemaf.blueprint.schema - Semantic blueprint models for content generation.
+Context entities for blueprint composition.
 
-Based on Denis Rothman's Semantic Blueprint concept for structured context engineering.
-A blueprint defines HOW to accomplish a task, separate from WHAT data to use.
+Defines entity types, factory methods, and metadata patterns for
+representing various roles and components in semantic blueprints.
 """
 
 from enum import Enum
@@ -10,43 +10,20 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from cemaf.blueprint.contracts import DataContract
 from cemaf.core.types import JSON
 
 # =============================================================================
-# CEMAF Blueprint Philosophy: Extensibility over Prescription
+# Type aliases for common patterns (extensible at runtime via # type: ignore)
 # =============================================================================
 #
-# The Literal types below are EXAMPLES showing common patterns, not exhaustive
-# restrictions. They provide IDE autocomplete and type checking support, but
-# Python's runtime doesn't enforce them - you can pass ANY string value.
+# These Literal types provide IDE autocomplete and guidance for common
+# patterns, but are NOT exhaustive. Python runtime doesn't enforce them.
 #
-# Blueprint is a PROTOCOL - extend it with domain-specific values:
-#
-# Example 1: Scientific Research Blueprint
-#   style="peer-reviewed-academic"
-#   methodology="randomized-controlled-trial"
-#   depth="meta-analysis"
-#
-# Example 2: Financial Analysis Blueprint
-#   style="regulatory-compliant"
-#   methodology="monte-carlo-simulation"
-#   validation_type="sox-compliance"
-#
-# Example 3: Creative Writing Blueprint
-#   style="magical-realism"
-#   perspective="unreliable-narrator"
-#   tone="dystopian-hopeful"
-#
-# Example 4: Data Engineering Blueprint
-#   domain="streaming-architecture"
-#   validation_type="data-quality-sla"
-#   incremental_mode="change-data-capture"
-#
-# The types guide you, the metadata escape hatch (**extra) gives you freedom.
-# This is CEMAF: flexible primitives that users compose and extend.
+# For domain-specific extensions, use custom values with # type: ignore.
+# See examples/extensibility_patterns.py for demonstrations.
 # =============================================================================
 
-# Type aliases for common patterns (extensible at runtime)
 ContentStyle = Literal["narrative", "technical", "creative", "persuasive", "marketing"]
 Perspective = Literal["first-person", "second-person", "third-person", "omniscient"]
 AnalysisDepth = Literal["surface", "moderate", "detailed", "comprehensive"]
@@ -57,141 +34,6 @@ BiasAwareness = Literal["objective", "preferential", "neutral"]
 TeachingStyle = Literal["socratic", "lecture", "demonstration", "discovery"]
 KnowledgeLevel = Literal["beginner", "intermediate", "advanced"]
 ValidationType = Literal["schema", "business_rules", "compliance", "quality"]
-OutputFormat = Literal["json", "yaml", "markdown", "python", "sql"]
-RequiredSections = tuple[str, ...]
-
-
-class OutputContract(BaseModel):
-    """
-    Defines expected deliverables and output format.
-
-    Specifies format, required sections, and content requirements to prevent
-    model from responding with unstructured prose instead of requested output.
-    """
-
-    model_config = {"frozen": True}
-
-    format: OutputFormat = "yaml"
-    required_sections: RequiredSections = ()
-    must_include: tuple[str, ...] = ()
-    forbidden: tuple[str, ...] = ()
-    schema_definition: str = ""  # Optional JSON Schema or YAML schema
-    metadata: JSON = Field(default_factory=dict)
-
-
-class ExecutionPolicy(BaseModel):
-    """
-    Defines execution semantics for idempotency and retry behavior.
-
-    Specifies checkpoint strategy, retry conditions, and failure handling
-    for production data pipelines.
-    """
-
-    model_config = {"frozen": True}
-
-    # Incremental processing strategy
-    incremental_strategy: Literal["full", "watermark", "checkpoint"] = "full"
-    incremental_field: str = ""  # e.g., "updated_at", "event_timestamp"
-    checkpoint_location: str = ""  # e.g., "s3://bucket/checkpoints"
-
-    # Idempotency
-    idempotency_key: str = "run_id"  # Field to ensure idempotent operations
-    deterministic_batching: bool = True  # Use consistent batch keys
-
-    # Retry semantics
-    max_retries: int = 3
-    retry_on: tuple[str, ...] = ("rate_limit", "transient_network", "timeout")
-    fail_on: tuple[str, ...] = ("data_quality_fail", "schema_mismatch")
-
-    # Execution mode
-    exactly_once: bool = False  # vs effectively-once (at-least-once + idempotency)
-
-    metadata: JSON = Field(default_factory=dict)
-
-
-class SecurityPolicy(BaseModel):
-    """
-    Defines security requirements for data handling.
-
-    Specifies PII handling, encryption requirements, and secret management
-    for compliance with data protection regulations.
-    """
-
-    model_config = {"frozen": True}
-
-    pii_fields: tuple[str, ...] = ()  # List of PII field names
-    encryption: Literal["at_rest", "in_transit", "at_rest_and_in_transit", "none"] = "none"
-
-    # Secret management
-    secret_rotation: bool = False
-    secret_provider: Literal["kms", "vault", "env", "none"] = "none"
-    secret_rotation_days: int = 90
-
-    # Compliance
-    compliance_frameworks: tuple[str, ...] = ()  # e.g., ("GDPR", "HIPAA", "SOC2")
-
-    metadata: JSON = Field(default_factory=dict)
-
-
-class SCD2Config(BaseModel):
-    """Configuration for Slowly Changing Dimension Type 2."""
-
-    model_config = {"frozen": True}
-
-    business_key: str  # Natural key field
-    effective_from: str = "valid_from_ts"
-    effective_to: str = "valid_to_ts"
-    is_current: str = "is_current"
-    record_hash: str = "attr_hash"  # For change detection
-
-
-class RateLimitConfig(BaseModel):
-    """Configuration for API rate limiting."""
-
-    model_config = {"frozen": True}
-
-    max_requests_per_minute: int = 100
-    max_requests_per_day: int = 10000
-    on_429_action: Literal["backoff_exponential", "backoff_linear", "fail"] = "backoff_exponential"
-    backoff_initial_delay_seconds: float = 1.0
-    backoff_max_delay_seconds: float = 300.0
-
-
-class DataContract(BaseModel):
-    """
-    Defines data schema, keys, and processing requirements for an entity.
-
-    Specifies table/object structure, identity strategies, and processing
-    patterns for data engineering use cases.
-    """
-
-    model_config = {"frozen": True}
-
-    # Schema definition
-    schema_type: Literal["table", "object", "file", "stream", "api"] = "table"
-    fields: tuple[str, ...] = ()  # Column/field names
-    primary_key: str = ""
-    partition_keys: tuple[str, ...] = ()
-
-    # Incremental processing
-    incremental_field: str = ""  # Watermark field (e.g., "updated_at")
-    incremental_mode: Literal["append", "upsert", "full_refresh"] = "append"
-
-    # Deduplication and identity
-    dedup_keys: tuple[str, ...] = ()  # For deduplication
-    match_features: tuple[str, ...] = ()  # For fuzzy matching
-
-    # SCD2 configuration (for dimension tables)
-    scd2_config: SCD2Config | None = None
-
-    # Rate limiting (for APIs)
-    rate_limit: RateLimitConfig | None = None
-
-    # Data quality
-    required_fields: tuple[str, ...] = ()
-    nullable_fields: tuple[str, ...] = ()
-
-    metadata: JSON = Field(default_factory=dict)
 
 
 class EntityType(str, Enum):
@@ -219,7 +61,7 @@ class ContextEntity(BaseModel):
     General-purpose role abstraction for Blueprint (replaces narrative-specific Participant).
 
     Uses discriminated union pattern with EntityType enum. Follows CEMAF's ContextSource pattern.
-    Designed for pluggable, contextual/niche-specific roles.
+    Designed for pluggable, contextual/niche-specific roles across various domains.
 
     Factory methods for type-safe creation:
     - ContextEntity.content() - Content generation (storytelling, articles, creative writing)
@@ -229,14 +71,31 @@ class ContextEntity(BaseModel):
     - ContextEntity.educational() - Teaching, explaining concepts
     - ContextEntity.validation() - Compliance checking, verification
 
-    Example:
-        >>> role = ContextEntity.content(
+    Examples:
+        >>> # Content generation role
+        >>> writer = ContextEntity.content(
         ...     name="technical_writer",
         ...     description="Create clear technical documentation",
         ...     style="technical",
         ...     traits=("precise", "clear")
         ... )
-        >>> assert role.entity_type == EntityType.CONTENT
+        >>> assert writer.entity_type == EntityType.CONTENT
+
+        >>> # Analysis role
+        >>> analyst = ContextEntity.analysis(
+        ...     name="data_analyst",
+        ...     methodology="quantitative",
+        ...     depth="comprehensive"
+        ... )
+        >>> assert analyst.entity_type == EntityType.ANALYSIS
+
+        >>> # Technical role
+        >>> engineer = ContextEntity.technical(
+        ...     name="code_reviewer",
+        ...     domain="software",
+        ...     audience_level="advanced"
+        ... )
+        >>> assert engineer.entity_type == EntityType.TECHNICAL
     """
 
     model_config = {"frozen": True}
@@ -287,6 +146,40 @@ class ContextEntity(BaseModel):
         return self
 
     @classmethod
+    def _create_entity(
+        cls,
+        *,
+        name: str,
+        entity_type: EntityType,
+        description: str,
+        default_description: str,
+        traits: tuple[str, ...],
+        voice: str,
+        constraints: tuple[str, ...],
+        token_priority: int,
+        type_specific_metadata: dict[str, Any],
+        extra: dict[str, Any],
+    ) -> ContextEntity:
+        """
+        Internal helper to reduce duplication in factory methods.
+
+        Consolidates common entity creation logic across all factory methods.
+        """
+        metadata = type_specific_metadata.copy()
+        metadata.update(extra)
+
+        return cls(
+            name=name,
+            entity_type=entity_type,
+            description=description or default_description,
+            traits=traits,
+            voice=voice,
+            constraints=constraints,
+            metadata=metadata,
+            token_priority=token_priority,
+        )
+
+    @classmethod
     def content(
         cls,
         name: str,
@@ -319,22 +212,17 @@ class ContextEntity(BaseModel):
         Returns:
             Immutable ContextEntity configured for content generation
         """
-        metadata: dict[str, Any] = {
-            "style": style,
-            "perspective": perspective,
-            "tone": tone,
-        }
-        metadata.update(extra)
-
-        return cls(
+        return cls._create_entity(
             name=name,
             entity_type=EntityType.CONTENT,
-            description=description or "Content generation role",
+            description=description,
+            default_description="Content generation role",
             traits=traits,
             voice=voice,
             constraints=constraints,
-            metadata=metadata,
             token_priority=token_priority,
+            type_specific_metadata={"style": style, "perspective": perspective, "tone": tone},
+            extra=extra,
         )
 
     @classmethod
@@ -370,22 +258,17 @@ class ContextEntity(BaseModel):
         Returns:
             Immutable ContextEntity configured for analysis
         """
-        metadata: dict[str, Any] = {
-            "methodology": methodology,
-            "depth": depth,
-            "focus_areas": focus_areas,
-        }
-        metadata.update(extra)
-
-        return cls(
+        return cls._create_entity(
             name=name,
             entity_type=EntityType.ANALYSIS,
-            description=description or "Analysis role",
+            description=description,
+            default_description="Analysis role",
             traits=traits,
             voice=voice,
             constraints=constraints,
-            metadata=metadata,
             token_priority=token_priority,
+            type_specific_metadata={"methodology": methodology, "depth": depth, "focus_areas": focus_areas},
+            extra=extra,
         )
 
     @classmethod
@@ -423,23 +306,22 @@ class ContextEntity(BaseModel):
         Returns:
             Immutable ContextEntity configured for technical content
         """
-        metadata: dict[str, Any] = {
-            "domain": domain,
-            "audience_level": audience_level,
-            "include_code_examples": include_code_examples,
-            "include_diagrams": include_diagrams,
-        }
-        metadata.update(extra)
-
-        return cls(
+        return cls._create_entity(
             name=name,
             entity_type=EntityType.TECHNICAL,
-            description=description or "Technical role",
+            description=description,
+            default_description="Technical role",
             traits=traits,
             voice=voice,
             constraints=constraints,
-            metadata=metadata,
             token_priority=token_priority,
+            type_specific_metadata={
+                "domain": domain,
+                "audience_level": audience_level,
+                "include_code_examples": include_code_examples,
+                "include_diagrams": include_diagrams,
+            },
+            extra=extra,
         )
 
     @classmethod
@@ -475,22 +357,21 @@ class ContextEntity(BaseModel):
         Returns:
             Immutable ContextEntity configured for comparison
         """
-        metadata: dict[str, Any] = {
-            "dimensions": dimensions,
-            "format": format,
-            "bias_awareness": bias_awareness,
-        }
-        metadata.update(extra)
-
-        return cls(
+        return cls._create_entity(
             name=name,
             entity_type=EntityType.COMPARATIVE,
-            description=description or "Comparative role",
+            description=description,
+            default_description="Comparative role",
             traits=traits,
             voice=voice,
             constraints=constraints,
-            metadata=metadata,
             token_priority=token_priority,
+            type_specific_metadata={
+                "dimensions": dimensions,
+                "format": format,
+                "bias_awareness": bias_awareness,
+            },
+            extra=extra,
         )
 
     @classmethod
@@ -528,23 +409,22 @@ class ContextEntity(BaseModel):
         Returns:
             Immutable ContextEntity configured for education
         """
-        metadata: dict[str, Any] = {
-            "teaching_style": teaching_style,
-            "knowledge_level": knowledge_level,
-            "include_examples": include_examples,
-            "include_exercises": include_exercises,
-        }
-        metadata.update(extra)
-
-        return cls(
+        return cls._create_entity(
             name=name,
             entity_type=EntityType.EDUCATIONAL,
-            description=description or "Educational role",
+            description=description,
+            default_description="Educational role",
             traits=traits,
             voice=voice,
             constraints=constraints,
-            metadata=metadata,
             token_priority=token_priority,
+            type_specific_metadata={
+                "teaching_style": teaching_style,
+                "knowledge_level": knowledge_level,
+                "include_examples": include_examples,
+                "include_exercises": include_exercises,
+            },
+            extra=extra,
         )
 
     @classmethod
@@ -582,23 +462,22 @@ class ContextEntity(BaseModel):
         Returns:
             Immutable ContextEntity configured for validation
         """
-        metadata: dict[str, Any] = {
-            "validation_type": validation_type,
-            "rules": rules,
-            "severity_levels": severity_levels,
-            "auto_fix": auto_fix,
-        }
-        metadata.update(extra)
-
-        return cls(
+        return cls._create_entity(
             name=name,
             entity_type=EntityType.VALIDATION,
-            description=description or "Validation role",
+            description=description,
+            default_description="Validation role",
             traits=traits,
             voice=voice,
             constraints=constraints,
-            metadata=metadata,
             token_priority=token_priority,
+            type_specific_metadata={
+                "validation_type": validation_type,
+                "rules": rules,
+                "severity_levels": severity_levels,
+                "auto_fix": auto_fix,
+            },
+            extra=extra,
         )
 
     def to_prompt(self) -> str:
@@ -730,279 +609,3 @@ class ContextEntity(BaseModel):
             parts.append(f"Rate Limit: {rl.max_requests_per_minute} req/min, on_429={rl.on_429_action}")
 
         return "\n".join(parts)
-
-
-class SceneGoal(BaseModel):
-    """Goal/objective of a blueprint scene."""
-
-    model_config = {"frozen": True}
-
-    objective: str  # REQUIRED - what should be accomplished
-    success_criteria: tuple[str, ...] = ()
-    constraints: tuple[str, ...] = ()
-    priority: int = 1
-
-
-class StyleGuide(BaseModel):
-    """Style guidelines for content generation."""
-
-    model_config = {"frozen": True}
-
-    tone: str = ""  # e.g., "professional", "casual", "urgent"
-    format: str = ""  # e.g., "markdown", "plain", "html"
-    length_hint: str = ""  # e.g., "concise", "detailed", "brief"
-    vocabulary: tuple[str, ...] = ()  # Preferred terms
-    avoid: tuple[str, ...] = ()  # Terms to avoid
-    examples: tuple[str, ...] = ()  # Example outputs
-
-    def is_empty(self) -> bool:
-        """Check if the style guide has any non-default values."""
-        return (
-            not self.tone
-            and not self.format
-            and not self.length_hint
-            and not self.vocabulary
-            and not self.avoid
-            and not self.examples
-        )
-
-
-class Participant(BaseModel):
-    """A participant/role in a blueprint scene."""
-
-    model_config = {"frozen": True}
-
-    name: str
-    role: str
-    traits: tuple[str, ...] = ()
-    voice: str = ""  # Voice/tone description
-    constraints: tuple[str, ...] = ()
-
-
-class Blueprint(BaseModel):
-    """
-    Semantic blueprint for content generation.
-
-    Based on Denis Rothman's structured context engineering approach.
-    A blueprint defines HOW to accomplish a task, separate from WHAT data to use.
-    """
-
-    model_config = {"frozen": True}
-
-    # Required fields
-    id: str
-    name: str
-    scene_goal: SceneGoal
-
-    # Optional fields
-    description: str = ""
-    style_guide: StyleGuide = Field(default_factory=StyleGuide)
-    entities: tuple[ContextEntity, ...] = ()
-    instruction: str = ""  # Detailed instructions for the task
-
-    # Metadata
-    version: str = "1.0"
-    tags: tuple[str, ...] = ()
-    metadata: JSON = Field(default_factory=dict)
-
-    # Production policies and contracts
-    output_contract: OutputContract | None = None
-    execution_policy: ExecutionPolicy | None = None
-    security_policy: SecurityPolicy | None = None
-
-    def to_prompt(self) -> str:
-        """
-        Convert blueprint to a structured prompt string.
-
-        Returns a formatted string suitable for LLM consumption.
-        """
-        sections: list[str] = []
-
-        # Goal section (always included)
-        sections.append(self._format_goal_section())
-
-        # Style section (if non-empty)
-        if not self.style_guide.is_empty():
-            sections.append(self._format_style_section())
-
-        # Entities section (OPTIONAL - many blueprints won't need this)
-        if self.entities:
-            sections.append(self._format_entities_section())
-
-        # Instructions section (if non-empty)
-        if self.instruction:
-            sections.append(self._format_instructions_section())
-
-        # Output contract section
-        if self.output_contract:
-            output_section = self._format_output_contract_section()
-            if output_section:
-                sections.append(output_section)
-
-        # Execution policy section
-        if self.execution_policy:
-            exec_section = self._format_execution_policy_section()
-            if exec_section:
-                sections.append(exec_section)
-
-        # Security policy section
-        if self.security_policy:
-            sec_section = self._format_security_policy_section()
-            if sec_section:
-                sections.append(sec_section)
-
-        return "\n\n".join(sections)
-
-    def _format_goal_section(self) -> str:
-        """Format the goal section of the prompt."""
-        lines = ["## Goal", f"Objective: {self.scene_goal.objective}"]
-
-        if self.scene_goal.success_criteria:
-            lines.append("Success Criteria:")
-            for criterion in self.scene_goal.success_criteria:
-                lines.append(f"  - {criterion}")
-
-        if self.scene_goal.constraints:
-            lines.append("Constraints:")
-            for constraint in self.scene_goal.constraints:
-                lines.append(f"  - {constraint}")
-
-        if self.scene_goal.priority != 1:
-            lines.append(f"Priority: {self.scene_goal.priority}")
-
-        return "\n".join(lines)
-
-    def _format_style_section(self) -> str:
-        """Format the style section of the prompt."""
-        lines = ["## Style Guide"]
-
-        if self.style_guide.tone:
-            lines.append(f"Tone: {self.style_guide.tone}")
-
-        if self.style_guide.format:
-            lines.append(f"Format: {self.style_guide.format}")
-
-        if self.style_guide.length_hint:
-            lines.append(f"Length: {self.style_guide.length_hint}")
-
-        if self.style_guide.vocabulary:
-            lines.append(f"Preferred Terms: {', '.join(self.style_guide.vocabulary)}")
-
-        if self.style_guide.avoid:
-            lines.append(f"Avoid: {', '.join(self.style_guide.avoid)}")
-
-        if self.style_guide.examples:
-            lines.append("Examples:")
-            for example in self.style_guide.examples:
-                lines.append(f"  - {example}")
-
-        return "\n".join(lines)
-
-    def _format_entities_section(self) -> str:
-        """Format the entities section (OPTIONAL - omit if not needed for your use case)."""
-        if not self.entities:
-            return ""
-
-        lines = ["## Context Entities"]
-        for entity in self.entities:
-            lines.append(entity.to_prompt())
-
-        return "\n".join(lines)
-
-    def _format_instructions_section(self) -> str:
-        """Format the instructions section of the prompt."""
-        return f"## Instructions\n{self.instruction}"
-
-    def _format_output_contract_section(self) -> str:
-        """Format output contract section."""
-        if not self.output_contract:
-            return ""
-
-        oc = self.output_contract
-
-        # Skip if all defaults
-        if (
-            oc.format == "yaml"
-            and not oc.required_sections
-            and not oc.must_include
-            and not oc.forbidden
-            and not oc.schema_definition
-        ):
-            return ""
-
-        lines = ["## Output Contract", f"Format: {oc.format}"]
-
-        if oc.required_sections:
-            lines.append("Required Sections:")
-            for section in oc.required_sections:
-                lines.append(f"  - {section}")
-
-        if oc.must_include:
-            lines.append("Must Include:")
-            for item in oc.must_include:
-                lines.append(f"  - {item}")
-
-        if oc.forbidden:
-            lines.append("Forbidden:")
-            for item in oc.forbidden:
-                lines.append(f"  - {item}")
-
-        if oc.schema_definition:
-            lines.append(f"Schema:\n{oc.schema_definition}")
-
-        return "\n".join(lines)
-
-    def _format_execution_policy_section(self) -> str:
-        """Format execution policy section."""
-        if not self.execution_policy:
-            return ""
-
-        ep = self.execution_policy
-        lines = ["## Execution Policy"]
-
-        lines.append(f"Incremental Strategy: {ep.incremental_strategy}")
-        if ep.incremental_field:
-            lines.append(f"Incremental Field: {ep.incremental_field}")
-        if ep.checkpoint_location:
-            lines.append(f"Checkpoint Location: {ep.checkpoint_location}")
-
-        lines.append(f"Idempotency Key: {ep.idempotency_key}")
-        lines.append(f"Exactly-Once: {ep.exactly_once}")
-        lines.append(f"Max Retries: {ep.max_retries}")
-
-        if ep.retry_on:
-            lines.append(f"Retry On: {', '.join(ep.retry_on)}")
-        if ep.fail_on:
-            lines.append(f"Fail On: {', '.join(ep.fail_on)}")
-
-        return "\n".join(lines)
-
-    def _format_security_policy_section(self) -> str:
-        """Format security policy section."""
-        if not self.security_policy:
-            return ""
-
-        sp = self.security_policy
-        lines = ["## Security Policy"]
-
-        if sp.pii_fields:
-            lines.append(f"PII Fields: {', '.join(sp.pii_fields)}")
-
-        lines.append(f"Encryption: {sp.encryption}")
-
-        if sp.secret_rotation:
-            lines.append(f"Secret Rotation: {sp.secret_rotation_days} days via {sp.secret_provider}")
-
-        if sp.compliance_frameworks:
-            lines.append(f"Compliance: {', '.join(sp.compliance_frameworks)}")
-
-        return "\n".join(lines)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return self.model_dump()
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Blueprint:
-        """Create blueprint from dictionary."""
-        return cls.model_validate(data)

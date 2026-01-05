@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from cemaf.blueprint.schema import Blueprint, SceneGoal
+from cemaf.blueprint.core import Blueprint, SceneGoal
 
 
 def create_mock_blueprint(

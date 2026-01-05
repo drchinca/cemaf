@@ -6,7 +6,7 @@ Provides validation rules for Blueprint schemas and content quality.
 
 from typing import Any
 
-from cemaf.blueprint.schema import Blueprint, SceneGoal
+from cemaf.blueprint.core import Blueprint, SceneGoal
 from cemaf.core.types import JSON
 from cemaf.validation.protocols import (
     ValidationError,

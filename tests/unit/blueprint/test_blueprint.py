@@ -4,15 +4,10 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 
 from cemaf.blueprint.builder import BlueprintBuilder
+from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
+from cemaf.blueprint.entities import ContextEntity, EntityType  #
 from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
-from cemaf.blueprint.schema import (
-    Blueprint,
-    ContextEntity,
-    EntityType,
-    SceneGoal,
-    StyleGuide,
-)
 
 # =============================================================================
 # SceneGoal Tests
@@ -379,16 +374,18 @@ class TestBlueprintBuilder:
         assert "Example" in blueprint.style_guide.examples
 
     def test_add_content_entity(self) -> None:
-        """Test add_content_entity method."""
+        """Test adding entity using ContextEntity factory method."""
         blueprint = (
             BlueprintBuilder("bp-1", "Test")
             .with_goal("Objective")
-            .add_content_entity(
-                name="Writer",
-                description="Content Creator",
-                traits=("creative",),
-                voice="friendly",
-                constraints=("no jargon",),
+            .add_entity(
+                ContextEntity.content(
+                    name="Writer",
+                    description="Content Creator",
+                    traits=("creative",),
+                    voice="friendly",
+                    constraints=("no jargon",),
+                )
             )
             .build()
         )
@@ -403,8 +400,8 @@ class TestBlueprintBuilder:
         blueprint = (
             BlueprintBuilder("bp-1", "Test")
             .with_goal("Objective")
-            .add_content_entity("Writer", description="Create content")
-            .add_validation_entity("Reviewer", description="Review and validate")
+            .add_entity(ContextEntity.content("Writer", description="Create content"))
+            .add_entity(ContextEntity.validation("Reviewer", description="Review and validate"))
             .build()
         )
 
@@ -458,8 +455,8 @@ class TestBlueprintBuilder:
                 constraints=["On time"],
             )
             .with_style(tone="professional", format="html")
-            .add_content_entity("Writer", description="Content Writer")
-            .add_validation_entity("Reviewer", description="Quality Reviewer")
+            .add_entity(ContextEntity.content("Writer", description="Content Writer"))
+            .add_entity(ContextEntity.validation("Reviewer", description="Quality Reviewer"))
             .with_instruction("Follow the guide")
             .with_version("1.5")
             .with_tags("important", "urgent")

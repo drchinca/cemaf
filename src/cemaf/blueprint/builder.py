@@ -5,29 +5,19 @@ Provides a chainable API for constructing blueprints step by step
 with validation on build.
 """
 
-from typing import Any, Self
+from typing import Self
 
-from cemaf.blueprint.schema import (
-    AnalysisDepth,
-    AnalysisMethodology,
-    AudienceLevel,
-    BiasAwareness,
-    Blueprint,
-    ComparisonFormat,
-    ContentStyle,
+from cemaf.blueprint.contracts import DataContract
+from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
+from cemaf.blueprint.entities import (
     ContextEntity,
-    DataContract,
+)
+from cemaf.blueprint.policies import (
     ExecutionPolicy,
-    KnowledgeLevel,
     OutputContract,
     OutputFormat,
-    Perspective,
     RequiredSections,
-    SceneGoal,
     SecurityPolicy,
-    StyleGuide,
-    TeachingStyle,
-    ValidationType,
 )
 
 
@@ -149,344 +139,31 @@ class BlueprintBuilder:
             self._style["examples"] = list(examples)
         return self
 
-    def add_entity(self, role: ContextEntity) -> Self:
-        """
-        Add a role to the blueprint.
-
-        Args:
-            role: The ContextEntity instance to add.
-
-        Returns:
-            Self for method chaining.
-        """
-        self._entities.append(role)
-        return self
-
-    def add_content_entity(
+    def add_entity(
         self,
-        name: str,
-        *,
-        description: str = "",
-        style: ContentStyle = "narrative",
-        perspective: Perspective = "third-person",
-        tone: str = "neutral",
-        traits: tuple[str, ...] = (),
-        voice: str = "",
-        constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
+        entity: ContextEntity,
         data_contract: DataContract | None = None,
-        **extra: Any,
     ) -> Self:
         """
-        Add a content generation role (storytelling, articles, creative writing).
+        Add an entity to the blueprint with optional data contract.
 
         Args:
-            name: ContextEntity identifier.
-            description: ContextEntity description.
-            style: Content style (narrative, journalistic, marketing, etc.).
-            perspective: Narrative perspective (first-person, third-person).
-            tone: Content tone.
-            traits: ContextEntity traits.
-            voice: ContextEntity voice.
-            constraints: ContextEntity constraints.
-            token_priority: Token budget priority (1-15).
+            entity: The ContextEntity instance to add.
             data_contract: Optional data contract specification.
-            **extra: Additional metadata.
 
         Returns:
             Self for method chaining.
-        """
-        role = ContextEntity.content(
-            name=name,
-            description=description,
-            style=style,
-            perspective=perspective,
-            tone=tone,
-            traits=traits,
-            voice=voice,
-            constraints=constraints,
-            token_priority=token_priority,
-            **extra,
-        )
 
+        Example:
+            >>> builder.add_entity(
+            ...     ContextEntity.content(name="writer", style="narrative"),
+            ...     data_contract=DataContract(schema_type="table", fields=("id", "text"))
+            ... )
+        """
         if data_contract:
-            role = role.model_copy(update={"data_contract": data_contract})
+            entity = entity.model_copy(update={"data_contract": data_contract})
 
-        self._entities.append(role)
-        return self
-
-    def add_analysis_entity(
-        self,
-        name: str,
-        *,
-        description: str = "",
-        methodology: AnalysisMethodology = "quantitative",
-        depth: AnalysisDepth = "comprehensive",
-        focus_areas: tuple[str, ...] = (),
-        traits: tuple[str, ...] = (),
-        voice: str = "",
-        constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
-        data_contract: DataContract | None = None,
-        **extra: Any,
-    ) -> Self:
-        """
-        Add an analysis role (data analysis, research, evaluation).
-
-        Args:
-            name: ContextEntity identifier.
-            description: ContextEntity description.
-            methodology: Analysis methodology (quantitative, qualitative, mixed).
-            depth: Analysis depth (surface, moderate, comprehensive).
-            focus_areas: Areas to focus analysis on.
-            traits: ContextEntity traits.
-            voice: ContextEntity voice.
-            constraints: ContextEntity constraints.
-            token_priority: Token budget priority (1-15).
-            data_contract: Optional data contract specification.
-            **extra: Additional metadata.
-
-        Returns:
-            Self for method chaining.
-        """
-        role = ContextEntity.analysis(
-            name=name,
-            description=description,
-            methodology=methodology,
-            depth=depth,
-            focus_areas=focus_areas,
-            traits=traits,
-            voice=voice,
-            constraints=constraints,
-            token_priority=token_priority,
-            **extra,
-        )
-
-        if data_contract:
-            role = role.model_copy(update={"data_contract": data_contract})
-
-        self._entities.append(role)
-        return self
-
-    def add_technical_entity(
-        self,
-        name: str,
-        *,
-        description: str = "",
-        domain: str = "software",
-        audience_level: AudienceLevel = "intermediate",
-        include_code_examples: bool = True,
-        include_diagrams: bool = False,
-        traits: tuple[str, ...] = (),
-        voice: str = "",
-        constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
-        data_contract: DataContract | None = None,
-        **extra: Any,
-    ) -> Self:
-        """
-        Add a technical role (code, documentation, specifications).
-
-        Args:
-            name: ContextEntity identifier.
-            description: ContextEntity description.
-            domain: Technical domain (software, hardware, infrastructure).
-            audience_level: Target audience level (beginner, intermediate, expert).
-            include_code_examples: Whether to include code examples.
-            include_diagrams: Whether to include diagrams.
-            traits: ContextEntity traits.
-            voice: ContextEntity voice.
-            constraints: ContextEntity constraints.
-            token_priority: Token budget priority (1-15).
-            data_contract: Optional data contract specification.
-            **extra: Additional metadata.
-
-        Returns:
-            Self for method chaining.
-        """
-        role = ContextEntity.technical(
-            name=name,
-            description=description,
-            domain=domain,
-            audience_level=audience_level,
-            include_code_examples=include_code_examples,
-            include_diagrams=include_diagrams,
-            traits=traits,
-            voice=voice,
-            constraints=constraints,
-            token_priority=token_priority,
-            **extra,
-        )
-
-        if data_contract:
-            role = role.model_copy(update={"data_contract": data_contract})
-
-        self._entities.append(role)
-        return self
-
-    def add_comparative_entity(
-        self,
-        name: str,
-        *,
-        description: str = "",
-        dimensions: tuple[str, ...] = (),
-        format: ComparisonFormat = "side-by-side",
-        bias_awareness: BiasAwareness = "objective",
-        traits: tuple[str, ...] = (),
-        voice: str = "",
-        constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
-        data_contract: DataContract | None = None,
-        **extra: Any,
-    ) -> Self:
-        """
-        Add a comparative role (compare/contrast options).
-
-        Args:
-            name: ContextEntity identifier.
-            description: ContextEntity description.
-            dimensions: Dimensions to compare on.
-            format: Comparison format (side-by-side, narrative, table).
-            bias_awareness: Bias awareness level (objective, subjective, balanced).
-            traits: ContextEntity traits.
-            voice: ContextEntity voice.
-            constraints: ContextEntity constraints.
-            token_priority: Token budget priority (1-15).
-            data_contract: Optional data contract specification.
-            **extra: Additional metadata.
-
-        Returns:
-            Self for method chaining.
-        """
-        role = ContextEntity.comparative(
-            name=name,
-            description=description,
-            dimensions=dimensions,
-            format=format,
-            bias_awareness=bias_awareness,
-            traits=traits,
-            voice=voice,
-            constraints=constraints,
-            token_priority=token_priority,
-            **extra,
-        )
-
-        if data_contract:
-            role = role.model_copy(update={"data_contract": data_contract})
-
-        self._entities.append(role)
-        return self
-
-    def add_educational_entity(
-        self,
-        name: str,
-        *,
-        description: str = "",
-        teaching_style: TeachingStyle = "socratic",
-        knowledge_level: KnowledgeLevel = "beginner",
-        include_examples: bool = True,
-        include_exercises: bool = False,
-        traits: tuple[str, ...] = (),
-        voice: str = "",
-        constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
-        data_contract: DataContract | None = None,
-        **extra: Any,
-    ) -> Self:
-        """
-        Add an educational role (teaching, explaining concepts).
-
-        Args:
-            name: ContextEntity identifier.
-            description: ContextEntity description.
-            teaching_style: Teaching approach (socratic, lecture, demonstration).
-            knowledge_level: Target knowledge level (beginner, intermediate, advanced).
-            include_examples: Whether to include examples.
-            include_exercises: Whether to include exercises.
-            traits: ContextEntity traits.
-            voice: ContextEntity voice.
-            constraints: ContextEntity constraints.
-            token_priority: Token budget priority (1-15).
-            data_contract: Optional data contract specification.
-            **extra: Additional metadata.
-
-        Returns:
-            Self for method chaining.
-        """
-        role = ContextEntity.educational(
-            name=name,
-            description=description,
-            teaching_style=teaching_style,
-            knowledge_level=knowledge_level,
-            include_examples=include_examples,
-            include_exercises=include_exercises,
-            traits=traits,
-            voice=voice,
-            constraints=constraints,
-            token_priority=token_priority,
-            **extra,
-        )
-
-        if data_contract:
-            role = role.model_copy(update={"data_contract": data_contract})
-
-        self._entities.append(role)
-        return self
-
-    def add_validation_entity(
-        self,
-        name: str,
-        *,
-        description: str = "",
-        validation_type: ValidationType = "schema",
-        rules: tuple[str, ...] = (),
-        severity_levels: tuple[str, ...] = ("error", "warning"),
-        auto_fix: bool = False,
-        traits: tuple[str, ...] = (),
-        voice: str = "",
-        constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
-        data_contract: DataContract | None = None,
-        **extra: Any,
-    ) -> Self:
-        """
-        Add a validation role (compliance checking, verification).
-
-        Args:
-            name: ContextEntity identifier.
-            description: ContextEntity description.
-            validation_type: Type of validation (schema, business_rules, compliance).
-            rules: Validation rules to apply.
-            severity_levels: Severity levels to report (error, warning, info).
-            auto_fix: Whether to attempt automatic fixes.
-            traits: ContextEntity traits.
-            voice: ContextEntity voice.
-            constraints: ContextEntity constraints.
-            token_priority: Token budget priority (1-15).
-            data_contract: Optional data contract specification.
-            **extra: Additional metadata.
-
-        Returns:
-            Self for method chaining.
-        """
-        role = ContextEntity.validation(
-            name=name,
-            description=description,
-            validation_type=validation_type,
-            rules=rules,
-            severity_levels=severity_levels,
-            auto_fix=auto_fix,
-            traits=traits,
-            voice=voice,
-            constraints=constraints,
-            token_priority=token_priority,
-            **extra,
-        )
-
-        if data_contract:
-            role = role.model_copy(update={"data_contract": data_contract})
-
-        self._entities.append(role)
+        self._entities.append(entity)
         return self
 
     def with_instruction(self, instruction: str) -> Self:

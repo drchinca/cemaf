@@ -19,14 +19,13 @@ Extension Point:
 
 from typing import Protocol, runtime_checkable
 
-# Re-export data classes (not changed)
-from cemaf.blueprint.schema import Blueprint, Participant, SceneGoal, StyleGuide
+# Re-export data classes
+from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
 
 __all__ = [
     "BlueprintRegistry",
     # Data classes
     "Blueprint",
-    "Participant",
     "SceneGoal",
     "StyleGuide",
 ]

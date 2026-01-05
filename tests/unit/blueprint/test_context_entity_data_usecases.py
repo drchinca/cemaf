@@ -12,7 +12,7 @@ NO storytelling. NO human roles. Pure technical context entities.
 """
 
 from cemaf.blueprint.builder import BlueprintBuilder
-from cemaf.blueprint.schema import EntityType
+from cemaf.blueprint.entities import ContextEntity, EntityType
 
 
 class TestDataEngineeringUseCases:
@@ -38,64 +38,76 @@ class TestDataEngineeringUseCases:
             )
             .with_description("Production ETL pipeline for customer 360 view")
             # Data sources as TECHNICAL entities
-            .add_technical_entity(
-                name="postgres_source",
-                description="PostgreSQL customer transactions database",
-                domain="database",
-                audience_level="expert",
-                include_code_examples=True,
-                traits=("relational", "ACID-compliant"),
-                constraints=("read-only access", "connection pooling required"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="postgres_source",
+                    description="PostgreSQL customer transactions database",
+                    domain="database",
+                    audience_level="expert",
+                    include_code_examples=True,
+                    traits=("relational", "ACID-compliant"),
+                    constraints=("read-only access", "connection pooling required"),
+                )
             )
-            .add_technical_entity(
-                name="salesforce_api",
-                description="Salesforce CRM API for customer profiles",
-                domain="api",
-                audience_level="expert",
-                include_code_examples=True,
-                traits=("REST", "rate-limited", "paginated"),
-                constraints=("API key rotation required", "max 100 requests/min"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="salesforce_api",
+                    description="Salesforce CRM API for customer profiles",
+                    domain="api",
+                    audience_level="expert",
+                    include_code_examples=True,
+                    traits=("REST", "rate-limited", "paginated"),
+                    constraints=("API key rotation required", "max 100 requests/min"),
+                )
             )
             # Transformation logic as ANALYSIS entities
-            .add_analysis_entity(
-                name="deduplication_analyzer",
-                description="Identify and merge duplicate customer records",
-                methodology="quantitative",
-                depth="comprehensive",
-                focus_areas=("fuzzy matching", "merge rules", "conflict resolution"),
-                traits=("deterministic", "auditable"),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="deduplication_analyzer",
+                    description="Identify and merge duplicate customer records",
+                    methodology="quantitative",
+                    depth="comprehensive",
+                    focus_areas=("fuzzy matching", "merge rules", "conflict resolution"),
+                    traits=("deterministic", "auditable"),
+                )
             )
-            .add_analysis_entity(
-                name="enrichment_processor",
-                description="Enrich customer data with demographics and behavior scores",
-                methodology="mixed",
-                depth="detailed",
-                focus_areas=("demographic lookup", "behavior scoring", "segment assignment"),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="enrichment_processor",
+                    description="Enrich customer data with demographics and behavior scores",
+                    methodology="mixed",
+                    depth="detailed",
+                    focus_areas=("demographic lookup", "behavior scoring", "segment assignment"),
+                )
             )
             # Data quality as VALIDATION entity
-            .add_validation_entity(
-                name="data_quality_checker",
-                description="Validate data quality before warehouse load",
-                validation_type="schema",
-                rules=(
-                    "email_format_valid",
-                    "phone_number_normalized",
-                    "required_fields_present",
-                    "referential_integrity",
-                ),
-                severity_levels=("critical", "error", "warning"),
-                auto_fix=False,
-                traits=("strict", "blocking"),
+            .add_entity(
+                ContextEntity.validation(
+                    name="data_quality_checker",
+                    description="Validate data quality before warehouse load",
+                    validation_type="schema",
+                    rules=(
+                        "email_format_valid",
+                        "phone_number_normalized",
+                        "required_fields_present",
+                        "referential_integrity",
+                    ),
+                    severity_levels=("critical", "error", "warning"),
+                    auto_fix=False,
+                    traits=("strict", "blocking"),
+                )
             )
             # Target system as TECHNICAL entity
-            .add_technical_entity(
-                name="snowflake_warehouse",
-                description="Snowflake data warehouse customer dimension table",
-                domain="data_warehouse",
-                audience_level="expert",
-                include_diagrams=True,
-                traits=("columnar", "partitioned", "clustered"),
-                constraints=("SCD Type 2", "merge on customer_id"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="snowflake_warehouse",
+                    description="Snowflake data warehouse customer dimension table",
+                    domain="data_warehouse",
+                    audience_level="expert",
+                    include_diagrams=True,
+                    traits=("columnar", "partitioned", "clustered"),
+                    constraints=("SCD Type 2", "merge on customer_id"),
+                )
             )
             .with_instruction(
                 "Design ETL pipeline that extracts from both sources, "
@@ -152,67 +164,77 @@ class TestDataEngineeringUseCases:
                 ],
             )
             # Training data as TECHNICAL entity
-            .add_technical_entity(
-                name="feature_store",
-                description="Pre-computed customer features from data warehouse",
-                domain="data_science",
-                audience_level="advanced",
-                include_code_examples=True,
-                traits=("versioned", "partitioned by date", "pre-aggregated"),
-                constraints=("no future data", "7-day lag for feature stability"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="feature_store",
+                    description="Pre-computed customer features from data warehouse",
+                    domain="data_science",
+                    audience_level="advanced",
+                    include_code_examples=True,
+                    traits=("versioned", "partitioned by date", "pre-aggregated"),
+                    constraints=("no future data", "7-day lag for feature stability"),
+                )
             )
             # Feature engineering as ANALYSIS entity
-            .add_analysis_entity(
-                name="feature_analyzer",
-                description="Analyze feature importance and correlations",
-                methodology="quantitative",
-                depth="comprehensive",
-                focus_areas=(
-                    "correlation analysis",
-                    "feature importance",
-                    "multicollinearity detection",
-                    "temporal stability",
-                ),
-                traits=("statistical", "visual"),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="feature_analyzer",
+                    description="Analyze feature importance and correlations",
+                    methodology="quantitative",
+                    depth="comprehensive",
+                    focus_areas=(
+                        "correlation analysis",
+                        "feature importance",
+                        "multicollinearity detection",
+                        "temporal stability",
+                    ),
+                    traits=("statistical", "visual"),
+                )
             )
             # Model comparison as COMPARATIVE entity
-            .add_comparative_entity(
-                name="model_comparator",
-                description="Compare gradient boosting vs random forest vs neural network",
-                dimensions=(
-                    "AUC-ROC",
-                    "precision",
-                    "recall",
-                    "training_time",
-                    "inference_latency",
-                    "memory_footprint",
-                ),
-                format="table",
-                bias_awareness="objective",
-                traits=("metric-based", "statistically significant"),
+            .add_entity(
+                ContextEntity.comparative(
+                    name="model_comparator",
+                    description="Compare gradient boosting vs random forest vs neural network",
+                    dimensions=(
+                        "AUC-ROC",
+                        "precision",
+                        "recall",
+                        "training_time",
+                        "inference_latency",
+                        "memory_footprint",
+                    ),
+                    format="table",
+                    bias_awareness="objective",
+                    traits=("metric-based", "statistically significant"),
+                )
             )
             # Model validation as VALIDATION entity
-            .add_validation_entity(
-                name="model_validator",
-                description="Validate model meets production requirements",
-                validation_type="quality",
-                rules=(
-                    "auc_threshold_met",
-                    "no_data_leakage",
-                    "feature_drift_acceptable",
-                    "prediction_distribution_valid",
-                ),
-                severity_levels=("blocker", "error", "warning"),
-                auto_fix=False,
+            .add_entity(
+                ContextEntity.validation(
+                    name="model_validator",
+                    description="Validate model meets production requirements",
+                    validation_type="quality",
+                    rules=(
+                        "auc_threshold_met",
+                        "no_data_leakage",
+                        "feature_drift_acceptable",
+                        "prediction_distribution_valid",
+                    ),
+                    severity_levels=("blocker", "error", "warning"),
+                    auto_fix=False,
+                )
             )
             # Explainability as EDUCATIONAL entity
-            .add_educational_entity(
-                name="model_explainer",
-                description="Generate SHAP explanations for model predictions",
-                teaching_style="demonstration",
-                knowledge_level="intermediate",
-                include_examples=True,
-                traits=("visual", "feature-level", "instance-level"),
+            .add_entity(
+                ContextEntity.educational(
+                    name="model_explainer",
+                    description="Generate SHAP explanations for model predictions",
+                    teaching_style="demonstration",
+                    knowledge_level="intermediate",
+                    include_examples=True,
+                    traits=("visual", "feature-level", "instance-level"),
+                )
             )
             .with_instruction(
                 "Train XGBoost model on feature store data, "
@@ -251,53 +273,61 @@ class TestDataEngineeringUseCases:
                 ],
             )
             # Kafka as TECHNICAL entity
-            .add_technical_entity(
-                name="kafka_source",
-                description="Kafka topic for raw clickstream events",
-                domain="streaming",
-                audience_level="expert",
-                include_code_examples=True,
-                traits=("distributed", "partitioned", "replicated"),
-                constraints=(
-                    "3 replicas minimum",
-                    "retention 7 days",
-                    "compression: snappy",
-                ),
+            .add_entity(
+                ContextEntity.technical(
+                    name="kafka_source",
+                    description="Kafka topic for raw clickstream events",
+                    domain="streaming",
+                    audience_level="expert",
+                    include_code_examples=True,
+                    traits=("distributed", "partitioned", "replicated"),
+                    constraints=(
+                        "3 replicas minimum",
+                        "retention 7 days",
+                        "compression: snappy",
+                    ),
+                )
             )
             # Stream processing as ANALYSIS entity
-            .add_analysis_entity(
-                name="session_aggregator",
-                description="Window-based aggregation for user session metrics",
-                methodology="quantitative",
-                depth="comprehensive",
-                focus_areas=(
-                    "session boundaries",
-                    "tumbling windows",
-                    "late event handling",
-                    "state management",
-                ),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="session_aggregator",
+                    description="Window-based aggregation for user session metrics",
+                    methodology="quantitative",
+                    depth="comprehensive",
+                    focus_areas=(
+                        "session boundaries",
+                        "tumbling windows",
+                        "late event handling",
+                        "state management",
+                    ),
+                )
             )
             # Data quality monitoring as VALIDATION entity
-            .add_validation_entity(
-                name="stream_validator",
-                description="Real-time data quality monitoring",
-                validation_type="quality",
-                rules=(
-                    "schema_conformance",
-                    "event_timestamp_valid",
-                    "user_id_not_null",
-                    "event_type_in_whitelist",
-                ),
-                auto_fix=True,  # Dead letter queue for invalid events
+            .add_entity(
+                ContextEntity.validation(
+                    name="stream_validator",
+                    description="Real-time data quality monitoring",
+                    validation_type="quality",
+                    rules=(
+                        "schema_conformance",
+                        "event_timestamp_valid",
+                        "user_id_not_null",
+                        "event_type_in_whitelist",
+                    ),
+                    auto_fix=True,  # Dead letter queue for invalid events
+                )
             )
             # Sink as TECHNICAL entity
-            .add_technical_entity(
-                name="timescaledb_sink",
-                description="TimescaleDB for time-series analytics",
-                domain="database",
-                audience_level="advanced",
-                include_diagrams=True,
-                traits=("time-series optimized", "hypertables", "continuous aggregates"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="timescaledb_sink",
+                    description="TimescaleDB for time-series analytics",
+                    domain="database",
+                    audience_level="advanced",
+                    include_diagrams=True,
+                    traits=("time-series optimized", "hypertables", "continuous aggregates"),
+                )
             )
             .with_instruction(
                 "Design Flink streaming job that reads from Kafka, "
@@ -331,62 +361,72 @@ class TestDataEngineeringUseCases:
                 ],
             )
             # Dimension tables as TECHNICAL entities
-            .add_technical_entity(
-                name="dim_customer",
-                description="Customer dimension with SCD Type 2",
-                domain="data_warehouse",
-                audience_level="advanced",
-                include_diagrams=True,
-                traits=("SCD Type 2", "surrogate keys", "natural keys"),
-                constraints=(
-                    "effective_date and end_date for versioning",
-                    "current_flag for active record",
-                ),
+            .add_entity(
+                ContextEntity.technical(
+                    name="dim_customer",
+                    description="Customer dimension with SCD Type 2",
+                    domain="data_warehouse",
+                    audience_level="advanced",
+                    include_diagrams=True,
+                    traits=("SCD Type 2", "surrogate keys", "natural keys"),
+                    constraints=(
+                        "effective_date and end_date for versioning",
+                        "current_flag for active record",
+                    ),
+                )
             )
-            .add_technical_entity(
-                name="dim_product",
-                description="Product hierarchy dimension",
-                domain="data_warehouse",
-                audience_level="advanced",
-                traits=("hierarchical", "SCD Type 1", "conformed dimension"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="dim_product",
+                    description="Product hierarchy dimension",
+                    domain="data_warehouse",
+                    audience_level="advanced",
+                    traits=("hierarchical", "SCD Type 1", "conformed dimension"),
+                )
             )
             # Fact table as TECHNICAL entity
-            .add_technical_entity(
-                name="fact_sales",
-                description="Sales transaction fact table",
-                domain="data_warehouse",
-                audience_level="advanced",
-                include_diagrams=True,
-                traits=("grain: transaction line item", "additive measures", "partitioned by date"),
-                constraints=(
-                    "foreign keys to all dimensions",
-                    "degenerate dimension: order_number",
-                ),
+            .add_entity(
+                ContextEntity.technical(
+                    name="fact_sales",
+                    description="Sales transaction fact table",
+                    domain="data_warehouse",
+                    audience_level="advanced",
+                    include_diagrams=True,
+                    traits=("grain: transaction line item", "additive measures", "partitioned by date"),
+                    constraints=(
+                        "foreign keys to all dimensions",
+                        "degenerate dimension: order_number",
+                    ),
+                )
             )
             # Query pattern analysis as ANALYSIS entity
-            .add_analysis_entity(
-                name="query_pattern_analyzer",
-                description="Analyze typical query patterns for optimization",
-                methodology="quantitative",
-                depth="detailed",
-                focus_areas=(
-                    "aggregation patterns",
-                    "join cardinality",
-                    "filter selectivity",
-                    "index recommendations",
-                ),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="query_pattern_analyzer",
+                    description="Analyze typical query patterns for optimization",
+                    methodology="quantitative",
+                    depth="detailed",
+                    focus_areas=(
+                        "aggregation patterns",
+                        "join cardinality",
+                        "filter selectivity",
+                        "index recommendations",
+                    ),
+                )
             )
             # Schema validation as VALIDATION entity
-            .add_validation_entity(
-                name="schema_validator",
-                description="Validate star schema design best practices",
-                validation_type="schema",
-                rules=(
-                    "fact_table_has_measures",
-                    "dimensions_properly_conformed",
-                    "surrogate_keys_consistent",
-                    "referential_integrity_enforced",
-                ),
+            .add_entity(
+                ContextEntity.validation(
+                    name="schema_validator",
+                    description="Validate star schema design best practices",
+                    validation_type="schema",
+                    rules=(
+                        "fact_table_has_measures",
+                        "dimensions_properly_conformed",
+                        "surrogate_keys_consistent",
+                        "referential_integrity_enforced",
+                    ),
+                )
             )
             .with_instruction(
                 "Design complete star schema for retail analytics. "
@@ -420,56 +460,64 @@ class TestDataEngineeringUseCases:
                 ],
             )
             # Data profiling as ANALYSIS entity
-            .add_analysis_entity(
-                name="data_profiler",
-                description="Statistical profiling of dataset characteristics",
-                methodology="quantitative",
-                depth="comprehensive",
-                focus_areas=(
-                    "column distributions",
-                    "null percentages",
-                    "cardinality",
-                    "data types",
-                    "outlier detection",
-                ),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="data_profiler",
+                    description="Statistical profiling of dataset characteristics",
+                    methodology="quantitative",
+                    depth="comprehensive",
+                    focus_areas=(
+                        "column distributions",
+                        "null percentages",
+                        "cardinality",
+                        "data types",
+                        "outlier detection",
+                    ),
+                )
             )
             # Quality rules engine as VALIDATION entity
-            .add_validation_entity(
-                name="quality_rules_engine",
-                description="Execute data quality rules across datasets",
-                validation_type="quality",
-                rules=(
-                    "completeness_check",
-                    "uniqueness_check",
-                    "validity_check",
-                    "consistency_check",
-                    "timeliness_check",
-                    "accuracy_check",
-                ),
-                severity_levels=("critical", "high", "medium", "low"),
-                auto_fix=False,
+            .add_entity(
+                ContextEntity.validation(
+                    name="quality_rules_engine",
+                    description="Execute data quality rules across datasets",
+                    validation_type="quality",
+                    rules=(
+                        "completeness_check",
+                        "uniqueness_check",
+                        "validity_check",
+                        "consistency_check",
+                        "timeliness_check",
+                        "accuracy_check",
+                    ),
+                    severity_levels=("critical", "high", "medium", "low"),
+                    auto_fix=False,
+                )
             )
             # Lineage tracker as TECHNICAL entity
-            .add_technical_entity(
-                name="lineage_tracker",
-                description="Track data lineage from source to consumption",
-                domain="data_governance",
-                audience_level="advanced",
-                include_diagrams=True,
-                traits=("column-level lineage", "DAG-based", "versioned"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="lineage_tracker",
+                    description="Track data lineage from source to consumption",
+                    domain="data_governance",
+                    audience_level="advanced",
+                    include_diagrams=True,
+                    traits=("column-level lineage", "DAG-based", "versioned"),
+                )
             )
             # Comparison against historical baseline as COMPARATIVE entity
-            .add_comparative_entity(
-                name="baseline_comparator",
-                description="Compare current quality metrics against historical baselines",
-                dimensions=(
-                    "completeness",
-                    "uniqueness",
-                    "validity",
-                    "timeliness",
-                ),
-                format="side-by-side",
-                bias_awareness="objective",
+            .add_entity(
+                ContextEntity.comparative(
+                    name="baseline_comparator",
+                    description="Compare current quality metrics against historical baselines",
+                    dimensions=(
+                        "completeness",
+                        "uniqueness",
+                        "validity",
+                        "timeliness",
+                    ),
+                    format="side-by-side",
+                    bias_awareness="objective",
+                )
             )
             .with_instruction(
                 "Design data quality framework that profiles datasets, "
@@ -504,38 +552,44 @@ class TestBigDataUseCases:
                 ],
             )
             # Input data source as TECHNICAL entity
-            .add_technical_entity(
-                name="s3_raw_logs",
-                description="S3 bucket with compressed JSON log files",
-                domain="storage",
-                audience_level="expert",
-                traits=("gzip compressed", "partitioned by hour", "1TB per partition"),
-                constraints=("read-only", "us-east-1 region", "standard storage class"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="s3_raw_logs",
+                    description="S3 bucket with compressed JSON log files",
+                    domain="storage",
+                    audience_level="expert",
+                    traits=("gzip compressed", "partitioned by hour", "1TB per partition"),
+                    constraints=("read-only", "us-east-1 region", "standard storage class"),
+                )
             )
             # Spark job as ANALYSIS entity
-            .add_analysis_entity(
-                name="log_parser",
-                description="Parse and enrich raw log entries",
-                methodology="quantitative",
-                depth="comprehensive",
-                focus_areas=(
-                    "user agent parsing",
-                    "geo-IP lookup",
-                    "session reconstruction",
-                    "bot detection",
-                ),
+            .add_entity(
+                ContextEntity.analysis(
+                    name="log_parser",
+                    description="Parse and enrich raw log entries",
+                    methodology="quantitative",
+                    depth="comprehensive",
+                    focus_areas=(
+                        "user agent parsing",
+                        "geo-IP lookup",
+                        "session reconstruction",
+                        "bot detection",
+                    ),
+                )
             )
             # Performance optimization as COMPARATIVE entity
-            .add_comparative_entity(
-                name="optimization_analyzer",
-                description="Compare partitioning strategies for best performance",
-                dimensions=(
-                    "execution_time",
-                    "shuffle_size",
-                    "memory_usage",
-                    "skew_factor",
-                ),
-                format="table",
+            .add_entity(
+                ContextEntity.comparative(
+                    name="optimization_analyzer",
+                    description="Compare partitioning strategies for best performance",
+                    dimensions=(
+                        "execution_time",
+                        "shuffle_size",
+                        "memory_usage",
+                        "skew_factor",
+                    ),
+                    format="table",
+                )
             )
             .with_instruction(
                 "Design Spark job that reads from S3, parses JSON logs, "
@@ -564,41 +618,49 @@ class TestBigDataUseCases:
                 ],
             )
             # API Gateway as TECHNICAL entity
-            .add_technical_entity(
-                name="api_gateway",
-                description="Kong API Gateway for request routing and auth",
-                domain="infrastructure",
-                audience_level="expert",
-                include_diagrams=True,
-                traits=("rate limiting", "JWT auth", "request/response transformation"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="api_gateway",
+                    description="Kong API Gateway for request routing and auth",
+                    domain="infrastructure",
+                    audience_level="expert",
+                    include_diagrams=True,
+                    traits=("rate limiting", "JWT auth", "request/response transformation"),
+                )
             )
             # Microservices as TECHNICAL entities
-            .add_technical_entity(
-                name="query_service",
-                description="GraphQL query service with DataLoader batching",
-                domain="software",
-                audience_level="advanced",
-                include_code_examples=True,
-                traits=("stateless", "horizontally scalable", "cache-aside pattern"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="query_service",
+                    description="GraphQL query service with DataLoader batching",
+                    domain="software",
+                    audience_level="advanced",
+                    include_code_examples=True,
+                    traits=("stateless", "horizontally scalable", "cache-aside pattern"),
+                )
             )
-            .add_technical_entity(
-                name="caching_layer",
-                description="Redis cluster for query result caching",
-                domain="infrastructure",
-                audience_level="expert",
-                traits=("distributed", "LRU eviction", "replication factor 3"),
+            .add_entity(
+                ContextEntity.technical(
+                    name="caching_layer",
+                    description="Redis cluster for query result caching",
+                    domain="infrastructure",
+                    audience_level="expert",
+                    traits=("distributed", "LRU eviction", "replication factor 3"),
+                )
             )
             # Load testing as VALIDATION entity
-            .add_validation_entity(
-                name="load_tester",
-                description="Validate system performance under load",
-                validation_type="quality",
-                rules=(
-                    "latency_p95_under_100ms",
-                    "error_rate_below_0.1_percent",
-                    "no_memory_leaks",
-                    "graceful_degradation",
-                ),
+            .add_entity(
+                ContextEntity.validation(
+                    name="load_tester",
+                    description="Validate system performance under load",
+                    validation_type="quality",
+                    rules=(
+                        "latency_p95_under_100ms",
+                        "error_rate_below_0.1_percent",
+                        "no_memory_leaks",
+                        "graceful_degradation",
+                    ),
+                )
             )
             .with_instruction(
                 "Design microservices architecture with API gateway, "
@@ -624,20 +686,26 @@ class TestEndToEndDataPipeline:
         blueprint = (
             BlueprintBuilder("pipeline-design", "Modern Data Pipeline")
             .with_goal("Design production-ready data pipeline")
-            .add_technical_entity(
-                name="postgres_db",
-                description="Source PostgreSQL database",
-                domain="database",
+            .add_entity(
+                ContextEntity.technical(
+                    name="postgres_db",
+                    description="Source PostgreSQL database",
+                    domain="database",
+                )
             )
-            .add_analysis_entity(
-                name="transformer",
-                description="Data transformation logic",
-                methodology="quantitative",
+            .add_entity(
+                ContextEntity.analysis(
+                    name="transformer",
+                    description="Data transformation logic",
+                    methodology="quantitative",
+                )
             )
-            .add_validation_entity(
-                name="validator",
-                description="Data quality validation",
-                validation_type="schema",
+            .add_entity(
+                ContextEntity.validation(
+                    name="validator",
+                    description="Data quality validation",
+                    validation_type="schema",
+                )
             )
             .with_instruction("Design end-to-end pipeline with error handling")
             .build()
@@ -743,7 +811,7 @@ class TestBlueprintContracts:
 
     def test_data_contract_on_entity(self) -> None:
         """Test data contract on technical entity."""
-        from cemaf.blueprint.schema import DataContract, SCD2Config
+        from cemaf.blueprint.contracts import DataContract, SCD2Config
 
         data_contract = DataContract(
             schema_type="table",
@@ -761,10 +829,12 @@ class TestBlueprintContracts:
         blueprint = (
             BlueprintBuilder("test-dc", "Data Contract Test")
             .with_goal("Test data contracts")
-            .add_technical_entity(
-                name="test_table",
-                description="Test table",
-                domain="database",
+            .add_entity(
+                ContextEntity.technical(
+                    name="test_table",
+                    description="Test table",
+                    domain="database",
+                ),
                 data_contract=data_contract,
             )
             .build()
@@ -796,7 +866,7 @@ class TestBlueprintContracts:
         assert "security_policy" in blueprint_dict
 
         # Test deserialization
-        from cemaf.blueprint.schema import Blueprint
+        from cemaf.blueprint.core import Blueprint
 
         restored = Blueprint.from_dict(blueprint_dict)
         assert restored.output_contract is not None
@@ -808,7 +878,7 @@ class TestBlueprintContracts:
         blueprint = (
             BlueprintBuilder("old-style", "Old Style Blueprint")
             .with_goal("Test backward compatibility")
-            .add_technical_entity(name="old_entity", description="No contracts")
+            .add_entity(ContextEntity.technical(name="old_entity", description="No contracts"))
             .build()
         )
 
@@ -820,7 +890,7 @@ class TestBlueprintContracts:
 
         # Should still serialize/deserialize
         blueprint_dict = blueprint.to_dict()
-        from cemaf.blueprint.schema import Blueprint
+        from cemaf.blueprint.core import Blueprint
 
         restored = Blueprint.from_dict(blueprint_dict)
         assert restored.id == "old-style"
