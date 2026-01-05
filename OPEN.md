@@ -2,14 +2,14 @@
 
 We're building AI infrastructure in the open. This page shows our metrics, roadmap, and how you can help.
 
-## Quick Stats (Updated Jan 4, 2026)
+## Quick Stats
 
-- **Version:** 0.1.0 Alpha
-- **PyPI Downloads:** 47
-- **GitHub Stars:** 5
-- **Contributors:** 1 (you could be #2!)
-- **Test Coverage:** 100% (1,016 tests)
-- **Discord:** 12 members
+![GitHub stars](https://img.shields.io/github/stars/drchinca/cemaf?style=social)
+![PyPI downloads](https://img.shields.io/pypi/dm/cemaf)
+![Contributors](https://img.shields.io/github/contributors/drchinca/cemaf)
+![Test Coverage](https://img.shields.io/badge/Coverage-100%25-success)
+
+**Version:** 0.1.0 Alpha | **Tests:** 1,016 passing | **[Join Discord](https://discord.gg/C8ZXAbD8)**
 
 ## This Week
 
