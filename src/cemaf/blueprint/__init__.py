@@ -9,8 +9,8 @@ from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
 from cemaf.blueprint.schema import (
     Blueprint,
-    Role,
-    RoleType,
+    ContextEntity,
+    EntityType,
     SceneGoal,
     StyleGuide,
 )
@@ -18,8 +18,8 @@ from cemaf.blueprint.schema import (
 __all__ = [
     # Schema models
     "Blueprint",
-    "Role",
-    "RoleType",
+    "ContextEntity",
+    "EntityType",
     "SceneGoal",
     "StyleGuide",
     # Builder

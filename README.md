@@ -60,6 +60,8 @@ CEMAF is a protocol-first framework designed for **context engineering** in mult
 | **Cost** | Wasteful token usage | Smart context compilation |
 | **Reproducibility** | Can't replay/debug runs | Run recording + deterministic replay |
 | **Memory Leaks** | State bleeds between scopes | Strict memory boundaries with TTL |
+| **Content Safety** | Harmful outputs slip through | Pre/post-flight moderation gates + PII detection |
+| **Prompt Engineering** | Inconsistent LLM outputs | Semantic blueprints for structured content generation |
 
 ---
 
@@ -91,6 +93,8 @@ pip install -e ".[dev]"
 from cemaf.context import Context, ContextPatch
 from cemaf.observability import InMemoryRunLogger
 from cemaf.replay import Replayer
+from cemaf.blueprint import Blueprint, SceneGoal, StyleGuide
+from cemaf.moderation import ModerationPipeline, PreFlightGate, KeywordRule, PIIRule
 
 # Create context with provenance tracking
 ctx = Context()
@@ -107,6 +111,23 @@ record = logger.end_run(final_context=ctx)
 replayer = Replayer(record)
 result = await replayer.replay()
 assert result.final_context == record.final_context  # Deterministic!
+
+# Use semantic blueprints for structured content generation
+blueprint = Blueprint(
+    id="social-post",
+    name="Social Media Post",
+    scene_goal=SceneGoal(objective="Create engaging social media content"),
+    style_guide=StyleGuide(tone="casual", length_hint="concise")
+)
+prompt = blueprint.to_prompt()  # Convert to LLM-ready prompt
+
+# Add content safety with moderation guardrails
+moderation = ModerationPipeline(
+    pre_flight=PreFlightGate([KeywordRule(["spam", "scam"]), PIIRule()])
+)
+result = await moderation.check_input(user_message)
+if not result.allowed:
+    raise ValueError(f"Content blocked: {result.violations}")
 ```
 
 See the [Quick Start Guide](docs/quickstart.md) for more detailed examples.
@@ -170,6 +191,8 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **⚡ Cancellation**: Cooperative cancellation with timeouts
 - **🔧 Protocol-Based**: Plug into any framework
 - **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
+- **📋 Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
+- **🛡️ Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
 
 ---
 
@@ -188,6 +211,8 @@ Module References:
 - [Caching](docs/cache.md)
 - [Persistence](docs/persistence.md)
 - [Observability](docs/observability.md)
+- [Blueprint](docs/module_reference.md#blueprintconfig) - Semantic blueprints for content generation
+- [Moderation](docs/module_reference.md#validation--moderation) - Guardrails and content safety
 
 ---
 

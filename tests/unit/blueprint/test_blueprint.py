@@ -8,7 +8,8 @@ from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
 from cemaf.blueprint.schema import (
     Blueprint,
-    Participant,
+    ContextEntity,
+    EntityType,
     SceneGoal,
     StyleGuide,
 )
@@ -106,44 +107,10 @@ class TestStyleGuide:
 
 
 # =============================================================================
-# Participant Tests
+# ContextEntity Tests
 # =============================================================================
-
-
-class TestParticipant:
-    """Tests for Participant model."""
-
-    def test_required_fields(self) -> None:
-        """Test name and role are required."""
-        participant = Participant(name="Agent", role="Helper")
-        assert participant.name == "Agent"
-        assert participant.role == "Helper"
-
-    def test_defaults(self) -> None:
-        """Test default values."""
-        participant = Participant(name="Agent", role="Helper")
-        assert participant.traits == ()
-        assert participant.voice == ""
-        assert participant.constraints == ()
-
-    def test_frozen(self) -> None:
-        """Test model is frozen (immutable)."""
-        participant = Participant(name="Agent", role="Helper")
-        with pytest.raises(PydanticValidationError):
-            participant.name = "Modified"  # type: ignore
-
-    def test_with_all_fields(self) -> None:
-        """Test creating with all fields."""
-        participant = Participant(
-            name="Writer",
-            role="Content Writer",
-            traits=("creative", "concise"),
-            voice="friendly",
-            constraints=("avoid jargon",),
-        )
-        assert participant.name == "Writer"
-        assert len(participant.traits) == 2
-        assert participant.voice == "friendly"
+# NOTE: ContextEntity tests are extensive and located in a separate test file
+# test_context_entity.py to keep this file focused on Blueprint integration tests
 
 
 # =============================================================================
@@ -192,7 +159,7 @@ class TestBlueprint:
         blueprint = Blueprint(id="bp-1", name="Test", scene_goal=goal)
         assert blueprint.description == ""
         assert blueprint.style_guide.is_empty() is True
-        assert blueprint.participants == ()
+        assert blueprint.entities == ()
         assert blueprint.instruction == ""
         assert blueprint.version == "1.0"
         assert blueprint.tags == ()
@@ -229,14 +196,14 @@ class TestBlueprint:
             priority=2,
         )
         style = StyleGuide(tone="professional", format="markdown")
-        participant = Participant(name="Writer", role="Helper")
+        entity = ContextEntity.content(name="Writer", description="Helper")
         original = Blueprint(
             id="bp-1",
             name="Test Blueprint",
             description="A test",
             scene_goal=goal,
             style_guide=style,
-            participants=(participant,),
+            entities=(entity,),
             instruction="Do this",
             version="2.0",
             tags=("tag1", "tag2"),
@@ -251,7 +218,7 @@ class TestBlueprint:
         assert restored.description == original.description
         assert restored.scene_goal.objective == original.scene_goal.objective
         assert restored.style_guide.tone == original.style_guide.tone
-        assert len(restored.participants) == 1
+        assert len(restored.entities) == 1
         assert restored.instruction == original.instruction
         assert restored.version == original.version
         assert restored.tags == original.tags
@@ -277,17 +244,17 @@ class TestBlueprint:
         assert "Tone: professional" in prompt
         assert "Format: markdown" in prompt
 
-    def test_to_prompt_with_participants(self) -> None:
-        """Test to_prompt includes participants section."""
+    def test_to_prompt_with_entities(self) -> None:
+        """Test to_prompt includes entities section."""
         goal = SceneGoal(objective="Test objective")
-        participant = Participant(name="Writer", role="Content Creator", traits=("creative",))
-        blueprint = Blueprint(id="bp-1", name="Test", scene_goal=goal, participants=(participant,))
+        entity = ContextEntity.content(name="Writer", description="Content Creator", traits=("creative",))
+        blueprint = Blueprint(id="bp-1", name="Test", scene_goal=goal, entities=(entity,))
         prompt = blueprint.to_prompt()
 
-        assert "## Participants" in prompt
-        assert "### Writer" in prompt
-        assert "Role: Content Creator" in prompt
-        assert "Traits: creative" in prompt
+        assert "## Context Entities" in prompt
+        assert "# ContextEntity: Writer" in prompt  # ContextEntity.to_prompt() uses this format
+        assert "creative" in prompt
+        assert "Type: Content" in prompt
 
     def test_to_prompt_with_instruction(self) -> None:
         """Test to_prompt includes instructions section."""
@@ -411,37 +378,39 @@ class TestBlueprintBuilder:
         assert "avoid1" in blueprint.style_guide.avoid
         assert "Example" in blueprint.style_guide.examples
 
-    def test_add_participant(self) -> None:
-        """Test add_participant method."""
+    def test_add_content_entity(self) -> None:
+        """Test add_content_entity method."""
         blueprint = (
             BlueprintBuilder("bp-1", "Test")
             .with_goal("Objective")
-            .add_participant(
+            .add_content_entity(
                 name="Writer",
-                role="Content Creator",
-                traits=["creative"],
+                description="Content Creator",
+                traits=("creative",),
                 voice="friendly",
-                constraints=["no jargon"],
+                constraints=("no jargon",),
             )
             .build()
         )
 
-        assert len(blueprint.participants) == 1
-        assert blueprint.participants[0].name == "Writer"
-        assert blueprint.participants[0].role == "Content Creator"
-        assert "creative" in blueprint.participants[0].traits
+        assert len(blueprint.entities) == 1
+        assert blueprint.entities[0].name == "Writer"
+        assert blueprint.entities[0].entity_type == EntityType.CONTENT
+        assert "creative" in blueprint.entities[0].traits
 
-    def test_add_multiple_participants(self) -> None:
-        """Test adding multiple participants."""
+    def test_add_multiple_entities(self) -> None:
+        """Test adding multiple entities of different types."""
         blueprint = (
             BlueprintBuilder("bp-1", "Test")
             .with_goal("Objective")
-            .add_participant("Writer", "Writer Role")
-            .add_participant("Reviewer", "Reviewer Role")
+            .add_content_entity("Writer", description="Create content")
+            .add_validation_entity("Reviewer", description="Review and validate")
             .build()
         )
 
-        assert len(blueprint.participants) == 2
+        assert len(blueprint.entities) == 2
+        assert blueprint.entities[0].entity_type == EntityType.CONTENT
+        assert blueprint.entities[1].entity_type == EntityType.VALIDATION
 
     def test_with_instruction(self) -> None:
         """Test with_instruction method."""
@@ -489,8 +458,8 @@ class TestBlueprintBuilder:
                 constraints=["On time"],
             )
             .with_style(tone="professional", format="html")
-            .add_participant("Writer", "Content Writer")
-            .add_participant("Reviewer", "Quality Reviewer")
+            .add_content_entity("Writer", description="Content Writer")
+            .add_validation_entity("Reviewer", description="Quality Reviewer")
             .with_instruction("Follow the guide")
             .with_version("1.5")
             .with_tags("important", "urgent")
@@ -500,7 +469,7 @@ class TestBlueprintBuilder:
 
         assert blueprint.id == "bp-1"
         assert blueprint.description == "Complete blueprint"
-        assert len(blueprint.participants) == 2
+        assert len(blueprint.entities) == 2
         assert len(blueprint.tags) == 2
 
 
@@ -621,39 +590,26 @@ class TestBlueprintContentRule:
         assert any(e.code == "INSTRUCTION_TOO_LONG" for e in result.errors)
 
     @pytest.mark.asyncio
-    async def test_duplicate_participant_names(self) -> None:
-        """Test duplicate participant names fails."""
+    async def test_duplicate_entity_names(self) -> None:
+        """Test duplicate entity names fails."""
         rule = BlueprintContentRule()
         goal = SceneGoal(objective="Valid objective here")
-        participants = (
-            Participant(name="Agent", role="Helper"),
-            Participant(name="Agent", role="Another Role"),  # Duplicate
+        entities = (
+            ContextEntity.content(name="Agent", description="Helper"),
+            ContextEntity.content(name="Agent", description="Another Entity"),  # Duplicate name
         )
         blueprint = Blueprint(
             id="bp-1",
             name="Test",
             scene_goal=goal,
-            participants=participants,
+            entities=entities,
         )
         result = await rule.check(blueprint)
         assert result.passed is False
         assert any(e.code == "DUPLICATE_PARTICIPANT" for e in result.errors)
 
-    @pytest.mark.asyncio
-    async def test_empty_role_warning(self) -> None:
-        """Test empty participant role generates warning."""
-        rule = BlueprintContentRule()
-        goal = SceneGoal(objective="Valid objective here")
-        participant = Participant(name="Agent", role="")
-        blueprint = Blueprint(
-            id="bp-1",
-            name="Test",
-            scene_goal=goal,
-            participants=(participant,),
-        )
-        result = await rule.check(blueprint)
-        # Should pass but with warning
-        assert any(w.code == "EMPTY_ROLE" for w in result.warnings)
+    # NOTE: test_empty_role_warning removed - ContextEntity factory methods
+    # ensure valid entity_type, making empty role impossible
 
     @pytest.mark.asyncio
     async def test_no_description_warning(self) -> None:
