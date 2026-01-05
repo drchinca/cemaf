@@ -41,4 +41,5 @@ class WebSocketTransport(BaseTransport):
         message = await self._ws.recv()
         if isinstance(message, str):
             return message.encode("utf-8")
-        return message
+        # websockets.recv() can return str or bytes, ensure we return bytes
+        return bytes(message) if not isinstance(message, bytes) else message

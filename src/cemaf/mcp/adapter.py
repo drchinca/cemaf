@@ -94,7 +94,9 @@ class ToolBridge:
         """
         try:
             if run_logger:
-                result = await tool.execute_with_recording(
+                # execute_with_recording exists on Tool base class but not protocol
+                # Use type ignore since we can't guarantee all Tool implementations have it
+                result = await tool.execute_with_recording(  # type: ignore[attr-defined]
                     run_logger=run_logger,
                     correlation_id=correlation_id,
                     **arguments,
@@ -102,9 +104,9 @@ class ToolBridge:
             else:
                 result = await tool.execute(**arguments)
 
-            if result.is_ok:
+            if result.success:
                 # Convert result value to text
-                value = result.value
+                value = result.data
                 if isinstance(value, str):
                     text = value
                 elif isinstance(value, (dict, list)):

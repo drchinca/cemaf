@@ -45,9 +45,9 @@ class ToolBridge:
         """
         result = await tool.execute(**arguments)
 
-        if result.is_ok:
+        if result.success:
             # Convert result to text
-            value = result.value
+            value = result.data
             if isinstance(value, str):
                 return MCPToolResult.text(value)
             elif isinstance(value, dict):

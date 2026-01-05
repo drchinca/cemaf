@@ -44,7 +44,11 @@ def create_logger(
         logger = create_logger(level="DEBUG")
     """
     if backend == "simple":
-        return SimpleLogger(level=level)
+        import logging
+
+        # Convert string level to int
+        level_int = getattr(logging, level.upper(), logging.INFO)
+        return SimpleLogger(level=level_int)
     else:
         raise ValueError(f"Unsupported logger backend: {backend}")
 

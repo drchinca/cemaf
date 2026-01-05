@@ -39,7 +39,9 @@ def create_blueprint_registry(
         registry = create_blueprint_registry(strict_validation=True)
     """
     if backend == "mock":
-        return MockBlueprintRegistry(strict_validation=strict_validation)
+        # MockBlueprintRegistry doesn't support strict_validation parameter
+        # Parameter is documented but not implemented in the mock
+        return MockBlueprintRegistry()  # type: ignore[return-value]
     else:
         raise ValueError(f"Unsupported blueprint registry backend: {backend}")
 

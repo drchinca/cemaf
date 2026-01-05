@@ -14,11 +14,11 @@ import os
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.validation.pipeline import ValidationPipeline
-from cemaf.validation.protocols import ValidationRule
+from cemaf.validation.protocols import Rule
 
 
 def create_validation_pipeline(
-    rules: list[ValidationRule] | None = None,
+    rules: list[Rule] | None = None,
     strict_mode: bool = False,
     fail_fast: bool = False,
 ) -> ValidationPipeline:
@@ -42,15 +42,16 @@ def create_validation_pipeline(
         rules = [SchemaValidationRule(schema)]
         pipeline = create_validation_pipeline(rules=rules, strict_mode=True)
     """
-    return ValidationPipeline(
-        rules=rules or [],
-        strict_mode=strict_mode,
-        fail_fast=fail_fast,
-    )
+    # ValidationPipeline only accepts fail_fast, not rules or strict_mode
+    # Rules are added via add_rule() or add_rules() methods
+    pipeline = ValidationPipeline(fail_fast=fail_fast)
+    if rules:
+        pipeline.add_rules(*rules)
+    return pipeline
 
 
 def create_validation_pipeline_from_config(
-    rules: list[ValidationRule] | None = None,
+    rules: list[Rule] | None = None,
     settings: Settings | None = None,
 ) -> ValidationPipeline:
     """

@@ -96,7 +96,7 @@ class TestNode:
 
         assert node.type == NodeType.CONDITIONAL
         assert node.config["condition_key"] == "flag"
-        assert node.routes["True"] == "yes"
+        assert node.routes[True] == "yes"  # type: ignore[index]  # Routes support both bool and str keys
         assert node.output_key == "cond_result"
 
     def test_conditional_node_creation_with_rule(self) -> None:
@@ -114,7 +114,7 @@ class TestNode:
 class TestCondition:
     """Tests for the serializable Condition class."""
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # type: ignore[misc]
         ("field", "op", "value", "context_dict", "expected"),
         [  # Changed 'context' to 'context_dict'
             # EQUALS
@@ -150,7 +150,14 @@ class TestCondition:
             ("non_existent.field", ConditionOperator.EQUALS, 1, {}, False),
         ],
     )
-    def test_condition_evaluation(self, field: str, op: ConditionOperator, value: Any, context_dict: dict[str, Any], expected: bool) -> None:
+    def test_condition_evaluation(
+        self,
+        field: str,
+        op: ConditionOperator,
+        value: Any,
+        context_dict: dict[str, Any],
+        expected: bool,
+    ) -> None:
         """Condition evaluates correctly for all operators."""
         condition = Condition(field=field, operator=op, value=value)
         context = Context(data=context_dict)  # Pass Context object
