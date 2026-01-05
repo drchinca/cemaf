@@ -13,6 +13,7 @@
 [![MyPy](https://img.shields.io/badge/Typed-MyPy-blue?style=flat-square)](http://mypy-lang.org/)
 [![Stars](https://img.shields.io/github/stars/drchinca/cemaf?style=flat-square&logo=github)](https://github.com/drchinca/cemaf)
 [![Issues](https://img.shields.io/github/issues/drchinca/cemaf?style=flat-square&logo=github)](https://github.com/drchinca/cemaf/issues)
+[![Open Startup](https://img.shields.io/badge/Open-Startup-00ADD8?style=flat-square)](OPEN.md)
 
 **Open source** context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
@@ -31,6 +32,7 @@
 - [Testing](#testing)
 - [Contributing](#contributing)
 - [Getting Help](#getting-help)
+- [Philosophy & Open Startup](#philosophy--open-startup)
 - [License](#license)
 
 ---
@@ -287,6 +289,29 @@ We're here to help! Here are the best ways to get support:
 Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
 
 We're in **Alpha** and actively seeking feedback!
+
+---
+
+## Philosophy & Open Startup
+
+CEMAF operates as an **open startup** - we believe in radical transparency, community collaboration, and building in public.
+
+### Our Principles
+
+- **Community First:** We serve developers building AI agents
+- **Transparent:** All decisions, metrics, and roadmap are public
+- **Bias Toward Action:** Show > tell. Open PRs, not long debates
+- **Anyone Can Help:** Contribution > credentials
+- **Learn in Public:** We share wins AND mistakes
+
+### Resources
+
+- **[Philosophy Guide](docs/philosophy.md)** - Our 10 core principles and values
+- **[Open Metrics](OPEN.md)** - Transparent metrics, roadmap, and financials
+- **[Decision Log](docs/decisions/)** - All major decisions documented
+- **[Weekly Updates](https://github.com/drchinca/cemaf/discussions)** - Progress, learnings, and challenges
+
+**We're building CEMAF together. Your voice matters.**
 
 ---
 
