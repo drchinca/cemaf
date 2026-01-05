@@ -20,24 +20,24 @@ We're building AI infrastructure in the open. This page shows our metrics, roadm
 
 **Learned:**
 - Users want streaming LLM support
-- Need better LangGraph integration docs
+- Need more framework integration examples
 - Keep it simple for Alpha
 
 ## Roadmap
 
 **Next (v0.1.1):**
-- Streaming LLM support
-- LangGraph integration guide
+- Streaming LLM response support
+- More real-world examples
 - FAQ from community questions
 
 **Later (v0.2.0):**
-- Plugin system
-- AutoGen/CrewAI integrations
-- Token budget presets
+- Plugin system for extensibility
+- Framework integration guides (community-driven)
+- Token budget presets (aggressive, balanced, conservative)
 
 **Won't Build:**
-- Python 3.10 support (too many compromises)
-- Built-in LLM clients (use LangChain/LiteLLM)
+- Python < 3.14 support (typing compromises)
+- Built-in LLM clients (framework-agnostic by design)
 
 ## How You Can Help
 
