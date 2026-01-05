@@ -20,7 +20,9 @@ from cemaf.blueprint.schema import (
     ExecutionPolicy,
     KnowledgeLevel,
     OutputContract,
+    OutputFormat,
     Perspective,
+    RequiredSections,
     SceneGoal,
     SecurityPolicy,
     StyleGuide,
@@ -541,8 +543,8 @@ class BlueprintBuilder:
 
     def with_output_contract(
         self,
-        format: str = "yaml",
-        required_sections: tuple[str, ...] = (),
+        format: OutputFormat = "yaml",
+        required_sections: RequiredSections = (),
         must_include: tuple[str, ...] = (),
         forbidden: tuple[str, ...] = (),
         schema_definition: str = "",
@@ -563,7 +565,7 @@ class BlueprintBuilder:
             Self for method chaining.
         """
         self._output_contract = OutputContract(
-            format=format,  # type: ignore
+            format=format,
             required_sections=required_sections,
             must_include=must_include,
             forbidden=forbidden,

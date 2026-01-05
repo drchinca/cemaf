@@ -12,7 +12,41 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from cemaf.core.types import JSON
 
-# Type aliases for role metadata
+# =============================================================================
+# CEMAF Blueprint Philosophy: Extensibility over Prescription
+# =============================================================================
+#
+# The Literal types below are EXAMPLES showing common patterns, not exhaustive
+# restrictions. They provide IDE autocomplete and type checking support, but
+# Python's runtime doesn't enforce them - you can pass ANY string value.
+#
+# Blueprint is a PROTOCOL - extend it with domain-specific values:
+#
+# Example 1: Scientific Research Blueprint
+#   style="peer-reviewed-academic"
+#   methodology="randomized-controlled-trial"
+#   depth="meta-analysis"
+#
+# Example 2: Financial Analysis Blueprint
+#   style="regulatory-compliant"
+#   methodology="monte-carlo-simulation"
+#   validation_type="sox-compliance"
+#
+# Example 3: Creative Writing Blueprint
+#   style="magical-realism"
+#   perspective="unreliable-narrator"
+#   tone="dystopian-hopeful"
+#
+# Example 4: Data Engineering Blueprint
+#   domain="streaming-architecture"
+#   validation_type="data-quality-sla"
+#   incremental_mode="change-data-capture"
+#
+# The types guide you, the metadata escape hatch (**extra) gives you freedom.
+# This is CEMAF: flexible primitives that users compose and extend.
+# =============================================================================
+
+# Type aliases for common patterns (extensible at runtime)
 ContentStyle = Literal["narrative", "technical", "creative", "persuasive", "marketing"]
 Perspective = Literal["first-person", "second-person", "third-person", "omniscient"]
 AnalysisDepth = Literal["surface", "moderate", "detailed", "comprehensive"]
@@ -23,6 +57,8 @@ BiasAwareness = Literal["objective", "preferential", "neutral"]
 TeachingStyle = Literal["socratic", "lecture", "demonstration", "discovery"]
 KnowledgeLevel = Literal["beginner", "intermediate", "advanced"]
 ValidationType = Literal["schema", "business_rules", "compliance", "quality"]
+OutputFormat = Literal["json", "yaml", "markdown", "python", "sql"]
+RequiredSections = tuple[str, ...]
 
 
 class OutputContract(BaseModel):
@@ -35,8 +71,8 @@ class OutputContract(BaseModel):
 
     model_config = {"frozen": True}
 
-    format: Literal["json", "yaml", "markdown", "python", "sql"] = "yaml"
-    required_sections: tuple[str, ...] = ()
+    format: OutputFormat = "yaml"
+    required_sections: RequiredSections = ()
     must_include: tuple[str, ...] = ()
     forbidden: tuple[str, ...] = ()
     schema_definition: str = ""  # Optional JSON Schema or YAML schema
