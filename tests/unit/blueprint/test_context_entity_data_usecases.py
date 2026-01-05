@@ -108,6 +108,9 @@ class TestDataEngineeringUseCases:
             .build()
         )
 
+        # Print the blueprint
+        print(blueprint.to_prompt())
+
         # Assertions
         assert blueprint.id == "etl-pipeline-001"
         assert len(blueprint.entities) == 6
@@ -664,3 +667,160 @@ class TestEndToEndDataPipeline:
 
         # This prompt can now be sent to an LLM!
         assert len(prompt) > 100  # Substantive prompt
+
+
+class TestBlueprintContracts:
+    """Test Blueprint contracts and policies for production data engineering."""
+
+    def test_output_contract(self) -> None:
+        """Test output contract specification."""
+        blueprint = (
+            BlueprintBuilder("test-output", "Output Contract Test")
+            .with_goal("Generate structured output")
+            .with_output_contract(
+                format="json",
+                required_sections=("schema", "data", "metadata"),
+                must_include=("timestamp", "version"),
+                forbidden=("debug_info", "internal_ids"),
+            )
+            .build()
+        )
+
+        assert blueprint.output_contract is not None
+        assert blueprint.output_contract.format == "json"
+        assert "schema" in blueprint.output_contract.required_sections
+        assert "timestamp" in blueprint.output_contract.must_include
+        assert "debug_info" in blueprint.output_contract.forbidden
+
+        prompt = blueprint.to_prompt()
+        assert "## Output Contract" in prompt
+        assert "Format: json" in prompt
+        assert "schema" in prompt
+
+    def test_execution_policy(self) -> None:
+        """Test execution policy specification."""
+        blueprint = (
+            BlueprintBuilder("test-exec", "Execution Policy Test")
+            .with_goal("Incremental processing")
+            .with_execution_policy(
+                incremental_strategy="watermark",
+                incremental_field="updated_at",
+                max_retries=5,
+                exactly_once=True,
+            )
+            .build()
+        )
+
+        assert blueprint.execution_policy is not None
+        assert blueprint.execution_policy.incremental_strategy == "watermark"
+        assert blueprint.execution_policy.incremental_field == "updated_at"
+        assert blueprint.execution_policy.exactly_once is True
+
+        prompt = blueprint.to_prompt()
+        assert "## Execution Policy" in prompt
+        assert "watermark" in prompt
+
+    def test_security_policy(self) -> None:
+        """Test security policy specification."""
+        blueprint = (
+            BlueprintBuilder("test-sec", "Security Policy Test")
+            .with_goal("Secure PII handling")
+            .with_security_policy(
+                pii_fields=("email", "ssn"),
+                encryption="at_rest_and_in_transit",
+                compliance_frameworks=("GDPR", "HIPAA"),
+            )
+            .build()
+        )
+
+        assert blueprint.security_policy is not None
+        assert "email" in blueprint.security_policy.pii_fields
+        assert blueprint.security_policy.encryption == "at_rest_and_in_transit"
+
+        prompt = blueprint.to_prompt()
+        assert "## Security Policy" in prompt
+        assert "GDPR" in prompt
+
+    def test_data_contract_on_entity(self) -> None:
+        """Test data contract on technical entity."""
+        from cemaf.blueprint.schema import DataContract, SCD2Config
+
+        data_contract = DataContract(
+            schema_type="table",
+            fields=("id", "name", "updated_at"),
+            primary_key="id",
+            incremental_field="updated_at",
+            incremental_mode="upsert",
+            scd2_config=SCD2Config(
+                business_key="id",
+                effective_from="valid_from",
+                effective_to="valid_to",
+            ),
+        )
+
+        blueprint = (
+            BlueprintBuilder("test-dc", "Data Contract Test")
+            .with_goal("Test data contracts")
+            .add_technical_entity(
+                name="test_table",
+                description="Test table",
+                domain="database",
+                data_contract=data_contract,
+            )
+            .build()
+        )
+
+        assert blueprint.entities[0].data_contract is not None
+        assert blueprint.entities[0].data_contract.primary_key == "id"
+        assert blueprint.entities[0].data_contract.scd2_config is not None
+
+        prompt = blueprint.to_prompt()
+        assert "## Data Contract" in prompt
+        assert "SCD2" in prompt
+
+    def test_full_blueprint_serialization(self) -> None:
+        """Test that blueprint with all features serializes correctly."""
+        blueprint = (
+            BlueprintBuilder("full-test", "Full Featured Blueprint")
+            .with_goal("Test all features")
+            .with_output_contract(format="yaml")
+            .with_execution_policy(incremental_strategy="checkpoint")
+            .with_security_policy(pii_fields=("email",))
+            .build()
+        )
+
+        # Test serialization
+        blueprint_dict = blueprint.to_dict()
+        assert "output_contract" in blueprint_dict
+        assert "execution_policy" in blueprint_dict
+        assert "security_policy" in blueprint_dict
+
+        # Test deserialization
+        from cemaf.blueprint.schema import Blueprint
+
+        restored = Blueprint.from_dict(blueprint_dict)
+        assert restored.output_contract is not None
+        assert restored.execution_policy is not None
+        assert restored.security_policy is not None
+
+    def test_backward_compatibility(self) -> None:
+        """Test that blueprints without new features still work."""
+        blueprint = (
+            BlueprintBuilder("old-style", "Old Style Blueprint")
+            .with_goal("Test backward compatibility")
+            .add_technical_entity(name="old_entity", description="No contracts")
+            .build()
+        )
+
+        # All new fields should be None
+        assert blueprint.output_contract is None
+        assert blueprint.execution_policy is None
+        assert blueprint.security_policy is None
+        assert blueprint.entities[0].data_contract is None
+
+        # Should still serialize/deserialize
+        blueprint_dict = blueprint.to_dict()
+        from cemaf.blueprint.schema import Blueprint
+
+        restored = Blueprint.from_dict(blueprint_dict)
+        assert restored.id == "old-style"

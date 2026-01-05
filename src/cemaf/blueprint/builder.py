@@ -16,9 +16,13 @@ from cemaf.blueprint.schema import (
     ComparisonFormat,
     ContentStyle,
     ContextEntity,
+    DataContract,
+    ExecutionPolicy,
     KnowledgeLevel,
+    OutputContract,
     Perspective,
     SceneGoal,
+    SecurityPolicy,
     StyleGuide,
     TeachingStyle,
     ValidationType,
@@ -62,6 +66,9 @@ class BlueprintBuilder:
         self._version = "1.0"
         self._tags: list[str] = []
         self._metadata: dict[str, object] = {}
+        self._output_contract: OutputContract | None = None
+        self._execution_policy: ExecutionPolicy | None = None
+        self._security_policy: SecurityPolicy | None = None
 
     def with_description(self, description: str) -> Self:
         """
@@ -165,6 +172,7 @@ class BlueprintBuilder:
         voice: str = "",
         constraints: tuple[str, ...] = (),
         token_priority: int = 5,
+        data_contract: DataContract | None = None,
         **extra: Any,
     ) -> Self:
         """
@@ -180,6 +188,7 @@ class BlueprintBuilder:
             voice: ContextEntity voice.
             constraints: ContextEntity constraints.
             token_priority: Token budget priority (1-15).
+            data_contract: Optional data contract specification.
             **extra: Additional metadata.
 
         Returns:
@@ -197,6 +206,10 @@ class BlueprintBuilder:
             token_priority=token_priority,
             **extra,
         )
+
+        if data_contract:
+            role = role.model_copy(update={"data_contract": data_contract})
+
         self._entities.append(role)
         return self
 
@@ -212,6 +225,7 @@ class BlueprintBuilder:
         voice: str = "",
         constraints: tuple[str, ...] = (),
         token_priority: int = 5,
+        data_contract: DataContract | None = None,
         **extra: Any,
     ) -> Self:
         """
@@ -227,6 +241,7 @@ class BlueprintBuilder:
             voice: ContextEntity voice.
             constraints: ContextEntity constraints.
             token_priority: Token budget priority (1-15).
+            data_contract: Optional data contract specification.
             **extra: Additional metadata.
 
         Returns:
@@ -244,6 +259,10 @@ class BlueprintBuilder:
             token_priority=token_priority,
             **extra,
         )
+
+        if data_contract:
+            role = role.model_copy(update={"data_contract": data_contract})
+
         self._entities.append(role)
         return self
 
@@ -260,6 +279,7 @@ class BlueprintBuilder:
         voice: str = "",
         constraints: tuple[str, ...] = (),
         token_priority: int = 5,
+        data_contract: DataContract | None = None,
         **extra: Any,
     ) -> Self:
         """
@@ -276,6 +296,7 @@ class BlueprintBuilder:
             voice: ContextEntity voice.
             constraints: ContextEntity constraints.
             token_priority: Token budget priority (1-15).
+            data_contract: Optional data contract specification.
             **extra: Additional metadata.
 
         Returns:
@@ -294,6 +315,10 @@ class BlueprintBuilder:
             token_priority=token_priority,
             **extra,
         )
+
+        if data_contract:
+            role = role.model_copy(update={"data_contract": data_contract})
+
         self._entities.append(role)
         return self
 
@@ -309,6 +334,7 @@ class BlueprintBuilder:
         voice: str = "",
         constraints: tuple[str, ...] = (),
         token_priority: int = 5,
+        data_contract: DataContract | None = None,
         **extra: Any,
     ) -> Self:
         """
@@ -324,6 +350,7 @@ class BlueprintBuilder:
             voice: ContextEntity voice.
             constraints: ContextEntity constraints.
             token_priority: Token budget priority (1-15).
+            data_contract: Optional data contract specification.
             **extra: Additional metadata.
 
         Returns:
@@ -341,6 +368,10 @@ class BlueprintBuilder:
             token_priority=token_priority,
             **extra,
         )
+
+        if data_contract:
+            role = role.model_copy(update={"data_contract": data_contract})
+
         self._entities.append(role)
         return self
 
@@ -357,6 +388,7 @@ class BlueprintBuilder:
         voice: str = "",
         constraints: tuple[str, ...] = (),
         token_priority: int = 5,
+        data_contract: DataContract | None = None,
         **extra: Any,
     ) -> Self:
         """
@@ -373,6 +405,7 @@ class BlueprintBuilder:
             voice: ContextEntity voice.
             constraints: ContextEntity constraints.
             token_priority: Token budget priority (1-15).
+            data_contract: Optional data contract specification.
             **extra: Additional metadata.
 
         Returns:
@@ -391,6 +424,10 @@ class BlueprintBuilder:
             token_priority=token_priority,
             **extra,
         )
+
+        if data_contract:
+            role = role.model_copy(update={"data_contract": data_contract})
+
         self._entities.append(role)
         return self
 
@@ -407,6 +444,7 @@ class BlueprintBuilder:
         voice: str = "",
         constraints: tuple[str, ...] = (),
         token_priority: int = 5,
+        data_contract: DataContract | None = None,
         **extra: Any,
     ) -> Self:
         """
@@ -423,6 +461,7 @@ class BlueprintBuilder:
             voice: ContextEntity voice.
             constraints: ContextEntity constraints.
             token_priority: Token budget priority (1-15).
+            data_contract: Optional data contract specification.
             **extra: Additional metadata.
 
         Returns:
@@ -441,6 +480,10 @@ class BlueprintBuilder:
             token_priority=token_priority,
             **extra,
         )
+
+        if data_contract:
+            role = role.model_copy(update={"data_contract": data_contract})
+
         self._entities.append(role)
         return self
 
@@ -496,6 +539,117 @@ class BlueprintBuilder:
         self._metadata.update(kwargs)
         return self
 
+    def with_output_contract(
+        self,
+        format: str = "yaml",
+        required_sections: tuple[str, ...] = (),
+        must_include: tuple[str, ...] = (),
+        forbidden: tuple[str, ...] = (),
+        schema_definition: str = "",
+        **metadata: object,
+    ) -> Self:
+        """
+        Set output contract.
+
+        Args:
+            format: Output format (json, yaml, markdown, python, sql).
+            required_sections: Sections that must be present.
+            must_include: Specific requirements that must appear.
+            forbidden: What to avoid.
+            schema_definition: Optional schema (JSON Schema, etc.).
+            **metadata: Additional metadata.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._output_contract = OutputContract(
+            format=format,  # type: ignore
+            required_sections=required_sections,
+            must_include=must_include,
+            forbidden=forbidden,
+            schema_definition=schema_definition,
+            metadata=dict(metadata),
+        )
+        return self
+
+    def with_execution_policy(
+        self,
+        incremental_strategy: str = "full",
+        incremental_field: str = "",
+        checkpoint_location: str = "",
+        idempotency_key: str = "run_id",
+        max_retries: int = 3,
+        retry_on: tuple[str, ...] = ("rate_limit", "transient_network"),
+        fail_on: tuple[str, ...] = ("data_quality_fail", "schema_mismatch"),
+        exactly_once: bool = False,
+        **metadata: object,
+    ) -> Self:
+        """
+        Set execution policy.
+
+        Args:
+            incremental_strategy: Strategy for incremental processing.
+            incremental_field: Field for watermarking.
+            checkpoint_location: Where to store checkpoints.
+            idempotency_key: Field for idempotent operations.
+            max_retries: Maximum retry attempts.
+            retry_on: Conditions to retry on.
+            fail_on: Conditions to fail immediately on.
+            exactly_once: Use exactly-once semantics.
+            **metadata: Additional metadata.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._execution_policy = ExecutionPolicy(
+            incremental_strategy=incremental_strategy,  # type: ignore
+            incremental_field=incremental_field,
+            checkpoint_location=checkpoint_location,
+            idempotency_key=idempotency_key,
+            max_retries=max_retries,
+            retry_on=retry_on,
+            fail_on=fail_on,
+            exactly_once=exactly_once,
+            metadata=dict(metadata),
+        )
+        return self
+
+    def with_security_policy(
+        self,
+        pii_fields: tuple[str, ...] = (),
+        encryption: str = "none",
+        secret_rotation: bool = False,
+        secret_provider: str = "none",
+        secret_rotation_days: int = 90,
+        compliance_frameworks: tuple[str, ...] = (),
+        **metadata: object,
+    ) -> Self:
+        """
+        Set security policy.
+
+        Args:
+            pii_fields: List of PII field names.
+            encryption: Encryption requirements.
+            secret_rotation: Enable secret rotation.
+            secret_provider: Secret management provider.
+            secret_rotation_days: Days between rotations.
+            compliance_frameworks: Compliance requirements.
+            **metadata: Additional metadata.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._security_policy = SecurityPolicy(
+            pii_fields=pii_fields,
+            encryption=encryption,  # type: ignore
+            secret_rotation=secret_rotation,
+            secret_provider=secret_provider,  # type: ignore
+            secret_rotation_days=secret_rotation_days,
+            compliance_frameworks=compliance_frameworks,
+            metadata=dict(metadata),
+        )
+        return self
+
     def build(self) -> Blueprint:
         """
         Build the Blueprint instance.
@@ -545,4 +699,7 @@ class BlueprintBuilder:
             version=self._version,
             tags=tuple(self._tags),
             metadata=dict(self._metadata),
+            output_contract=self._output_contract,
+            execution_policy=self._execution_policy,
+            security_policy=self._security_policy,
         )

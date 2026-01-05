@@ -25,6 +25,139 @@ KnowledgeLevel = Literal["beginner", "intermediate", "advanced"]
 ValidationType = Literal["schema", "business_rules", "compliance", "quality"]
 
 
+class OutputContract(BaseModel):
+    """
+    Defines expected deliverables and output format.
+
+    Specifies format, required sections, and content requirements to prevent
+    model from responding with unstructured prose instead of requested output.
+    """
+
+    model_config = {"frozen": True}
+
+    format: Literal["json", "yaml", "markdown", "python", "sql"] = "yaml"
+    required_sections: tuple[str, ...] = ()
+    must_include: tuple[str, ...] = ()
+    forbidden: tuple[str, ...] = ()
+    schema_definition: str = ""  # Optional JSON Schema or YAML schema
+    metadata: JSON = Field(default_factory=dict)
+
+
+class ExecutionPolicy(BaseModel):
+    """
+    Defines execution semantics for idempotency and retry behavior.
+
+    Specifies checkpoint strategy, retry conditions, and failure handling
+    for production data pipelines.
+    """
+
+    model_config = {"frozen": True}
+
+    # Incremental processing strategy
+    incremental_strategy: Literal["full", "watermark", "checkpoint"] = "full"
+    incremental_field: str = ""  # e.g., "updated_at", "event_timestamp"
+    checkpoint_location: str = ""  # e.g., "s3://bucket/checkpoints"
+
+    # Idempotency
+    idempotency_key: str = "run_id"  # Field to ensure idempotent operations
+    deterministic_batching: bool = True  # Use consistent batch keys
+
+    # Retry semantics
+    max_retries: int = 3
+    retry_on: tuple[str, ...] = ("rate_limit", "transient_network", "timeout")
+    fail_on: tuple[str, ...] = ("data_quality_fail", "schema_mismatch")
+
+    # Execution mode
+    exactly_once: bool = False  # vs effectively-once (at-least-once + idempotency)
+
+    metadata: JSON = Field(default_factory=dict)
+
+
+class SecurityPolicy(BaseModel):
+    """
+    Defines security requirements for data handling.
+
+    Specifies PII handling, encryption requirements, and secret management
+    for compliance with data protection regulations.
+    """
+
+    model_config = {"frozen": True}
+
+    pii_fields: tuple[str, ...] = ()  # List of PII field names
+    encryption: Literal["at_rest", "in_transit", "at_rest_and_in_transit", "none"] = "none"
+
+    # Secret management
+    secret_rotation: bool = False
+    secret_provider: Literal["kms", "vault", "env", "none"] = "none"
+    secret_rotation_days: int = 90
+
+    # Compliance
+    compliance_frameworks: tuple[str, ...] = ()  # e.g., ("GDPR", "HIPAA", "SOC2")
+
+    metadata: JSON = Field(default_factory=dict)
+
+
+class SCD2Config(BaseModel):
+    """Configuration for Slowly Changing Dimension Type 2."""
+
+    model_config = {"frozen": True}
+
+    business_key: str  # Natural key field
+    effective_from: str = "valid_from_ts"
+    effective_to: str = "valid_to_ts"
+    is_current: str = "is_current"
+    record_hash: str = "attr_hash"  # For change detection
+
+
+class RateLimitConfig(BaseModel):
+    """Configuration for API rate limiting."""
+
+    model_config = {"frozen": True}
+
+    max_requests_per_minute: int = 100
+    max_requests_per_day: int = 10000
+    on_429_action: Literal["backoff_exponential", "backoff_linear", "fail"] = "backoff_exponential"
+    backoff_initial_delay_seconds: float = 1.0
+    backoff_max_delay_seconds: float = 300.0
+
+
+class DataContract(BaseModel):
+    """
+    Defines data schema, keys, and processing requirements for an entity.
+
+    Specifies table/object structure, identity strategies, and processing
+    patterns for data engineering use cases.
+    """
+
+    model_config = {"frozen": True}
+
+    # Schema definition
+    schema_type: Literal["table", "object", "file", "stream", "api"] = "table"
+    fields: tuple[str, ...] = ()  # Column/field names
+    primary_key: str = ""
+    partition_keys: tuple[str, ...] = ()
+
+    # Incremental processing
+    incremental_field: str = ""  # Watermark field (e.g., "updated_at")
+    incremental_mode: Literal["append", "upsert", "full_refresh"] = "append"
+
+    # Deduplication and identity
+    dedup_keys: tuple[str, ...] = ()  # For deduplication
+    match_features: tuple[str, ...] = ()  # For fuzzy matching
+
+    # SCD2 configuration (for dimension tables)
+    scd2_config: SCD2Config | None = None
+
+    # Rate limiting (for APIs)
+    rate_limit: RateLimitConfig | None = None
+
+    # Data quality
+    required_fields: tuple[str, ...] = ()
+    nullable_fields: tuple[str, ...] = ()
+
+    metadata: JSON = Field(default_factory=dict)
+
+
 class EntityType(str, Enum):
     """
     Entity type discriminator for blueprint context entities.
@@ -85,6 +218,9 @@ class ContextEntity(BaseModel):
     # Variant-specific config (immutable via Pydantic)
     metadata: JSON = Field(default_factory=dict)
 
+    # Data contract for data engineering use cases
+    data_contract: DataContract | None = None
+
     # Token budget integration
     token_priority: int = Field(default=5, description="Priority for token budget allocation (1-15)")
     compressible: bool = Field(default=True, description="Can role description be shortened if needed")
@@ -126,7 +262,7 @@ class ContextEntity(BaseModel):
         traits: tuple[str, ...] = (),
         voice: str = "",
         constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
+        token_priority: int = 4,
         **extra: Any,
     ) -> ContextEntity:
         """
@@ -177,7 +313,7 @@ class ContextEntity(BaseModel):
         traits: tuple[str, ...] = (),
         voice: str = "",
         constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
+        token_priority: int = 7,
         **extra: Any,
     ) -> ContextEntity:
         """
@@ -229,7 +365,7 @@ class ContextEntity(BaseModel):
         traits: tuple[str, ...] = (),
         voice: str = "",
         constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
+        token_priority: int = 7,
         **extra: Any,
     ) -> ContextEntity:
         """
@@ -388,7 +524,7 @@ class ContextEntity(BaseModel):
         traits: tuple[str, ...] = (),
         voice: str = "",
         constraints: tuple[str, ...] = (),
-        token_priority: int = 5,
+        token_priority: int = 9,
         **extra: Any,
     ) -> ContextEntity:
         """
@@ -460,6 +596,12 @@ class ContextEntity(BaseModel):
             if type_specific:
                 sections.append(type_specific)
 
+        # Add data contract section
+        if self.data_contract:
+            data_contract_section = self._format_data_contract()
+            if data_contract_section:
+                sections.append(data_contract_section)
+
         return "\n".join(sections)
 
     def _format_type_specific_metadata(self) -> str:
@@ -513,6 +655,45 @@ class ContextEntity(BaseModel):
             return "\n## Validation Config\n" + "\n".join(parts) if parts else ""
 
         return ""
+
+    def _format_data_contract(self) -> str:
+        """Format data contract for prompt."""
+        if not self.data_contract:
+            return ""
+
+        dc = self.data_contract
+        parts = ["\n## Data Contract"]
+
+        parts.append(f"Schema Type: {dc.schema_type}")
+
+        if dc.fields:
+            parts.append(f"Fields: {', '.join(dc.fields)}")
+
+        if dc.primary_key:
+            parts.append(f"Primary Key: {dc.primary_key}")
+
+        if dc.partition_keys:
+            parts.append(f"Partition Keys: {', '.join(dc.partition_keys)}")
+
+        if dc.incremental_field:
+            parts.append(f"Incremental Field: {dc.incremental_field} (mode: {dc.incremental_mode})")
+
+        if dc.dedup_keys:
+            parts.append(f"Deduplication Keys: {', '.join(dc.dedup_keys)}")
+
+        if dc.scd2_config:
+            scd2 = dc.scd2_config
+            parts.append(
+                f"SCD2: business_key={scd2.business_key}, "
+                f"valid_from={scd2.effective_from}, "
+                f"valid_to={scd2.effective_to}"
+            )
+
+        if dc.rate_limit:
+            rl = dc.rate_limit
+            parts.append(f"Rate Limit: {rl.max_requests_per_minute} req/min, on_429={rl.on_429_action}")
+
+        return "\n".join(parts)
 
 
 class SceneGoal(BaseModel):
@@ -588,6 +769,11 @@ class Blueprint(BaseModel):
     tags: tuple[str, ...] = ()
     metadata: JSON = Field(default_factory=dict)
 
+    # Production policies and contracts
+    output_contract: OutputContract | None = None
+    execution_policy: ExecutionPolicy | None = None
+    security_policy: SecurityPolicy | None = None
+
     def to_prompt(self) -> str:
         """
         Convert blueprint to a structured prompt string.
@@ -610,6 +796,24 @@ class Blueprint(BaseModel):
         # Instructions section (if non-empty)
         if self.instruction:
             sections.append(self._format_instructions_section())
+
+        # Output contract section
+        if self.output_contract:
+            output_section = self._format_output_contract_section()
+            if output_section:
+                sections.append(output_section)
+
+        # Execution policy section
+        if self.execution_policy:
+            exec_section = self._format_execution_policy_section()
+            if exec_section:
+                sections.append(exec_section)
+
+        # Security policy section
+        if self.security_policy:
+            sec_section = self._format_security_policy_section()
+            if sec_section:
+                sections.append(sec_section)
 
         return "\n\n".join(sections)
 
@@ -672,6 +876,91 @@ class Blueprint(BaseModel):
     def _format_instructions_section(self) -> str:
         """Format the instructions section of the prompt."""
         return f"## Instructions\n{self.instruction}"
+
+    def _format_output_contract_section(self) -> str:
+        """Format output contract section."""
+        if not self.output_contract:
+            return ""
+
+        oc = self.output_contract
+
+        # Skip if all defaults
+        if (
+            oc.format == "yaml"
+            and not oc.required_sections
+            and not oc.must_include
+            and not oc.forbidden
+            and not oc.schema_definition
+        ):
+            return ""
+
+        lines = ["## Output Contract", f"Format: {oc.format}"]
+
+        if oc.required_sections:
+            lines.append("Required Sections:")
+            for section in oc.required_sections:
+                lines.append(f"  - {section}")
+
+        if oc.must_include:
+            lines.append("Must Include:")
+            for item in oc.must_include:
+                lines.append(f"  - {item}")
+
+        if oc.forbidden:
+            lines.append("Forbidden:")
+            for item in oc.forbidden:
+                lines.append(f"  - {item}")
+
+        if oc.schema_definition:
+            lines.append(f"Schema:\n{oc.schema_definition}")
+
+        return "\n".join(lines)
+
+    def _format_execution_policy_section(self) -> str:
+        """Format execution policy section."""
+        if not self.execution_policy:
+            return ""
+
+        ep = self.execution_policy
+        lines = ["## Execution Policy"]
+
+        lines.append(f"Incremental Strategy: {ep.incremental_strategy}")
+        if ep.incremental_field:
+            lines.append(f"Incremental Field: {ep.incremental_field}")
+        if ep.checkpoint_location:
+            lines.append(f"Checkpoint Location: {ep.checkpoint_location}")
+
+        lines.append(f"Idempotency Key: {ep.idempotency_key}")
+        lines.append(f"Exactly-Once: {ep.exactly_once}")
+        lines.append(f"Max Retries: {ep.max_retries}")
+
+        if ep.retry_on:
+            lines.append(f"Retry On: {', '.join(ep.retry_on)}")
+        if ep.fail_on:
+            lines.append(f"Fail On: {', '.join(ep.fail_on)}")
+
+        return "\n".join(lines)
+
+    def _format_security_policy_section(self) -> str:
+        """Format security policy section."""
+        if not self.security_policy:
+            return ""
+
+        sp = self.security_policy
+        lines = ["## Security Policy"]
+
+        if sp.pii_fields:
+            lines.append(f"PII Fields: {', '.join(sp.pii_fields)}")
+
+        lines.append(f"Encryption: {sp.encryption}")
+
+        if sp.secret_rotation:
+            lines.append(f"Secret Rotation: {sp.secret_rotation_days} days via {sp.secret_provider}")
+
+        if sp.compliance_frameworks:
+            lines.append(f"Compliance: {', '.join(sp.compliance_frameworks)}")
+
+        return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
