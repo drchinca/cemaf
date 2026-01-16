@@ -1,12 +1,16 @@
 """
-cemaf.blueprint.schema - Semantic blueprint models for content generation.
+Core blueprint models for semantic prompt engineering.
 
-Based on Denis Rothman's Semantic Blueprint concept for structured context engineering.
+Based on Denis Rothman's Semantic Blueprint concept.
 A blueprint defines HOW to accomplish a task, separate from WHAT data to use.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
+from cemaf.blueprint.entities import ContextEntity
+from cemaf.blueprint.policies import ExecutionPolicy, OutputContract, SecurityPolicy
 from cemaf.core.types import JSON
 
 
@@ -45,18 +49,6 @@ class StyleGuide(BaseModel):
         )
 
 
-class Participant(BaseModel):
-    """A participant/role in a blueprint scene."""
-
-    model_config = {"frozen": True}
-
-    name: str
-    role: str
-    traits: tuple[str, ...] = ()
-    voice: str = ""  # Voice/tone description
-    constraints: tuple[str, ...] = ()
-
-
 class Blueprint(BaseModel):
     """
     Semantic blueprint for content generation.
@@ -75,13 +67,18 @@ class Blueprint(BaseModel):
     # Optional fields
     description: str = ""
     style_guide: StyleGuide = Field(default_factory=StyleGuide)
-    participants: tuple[Participant, ...] = ()
+    entities: tuple[ContextEntity, ...] = ()
     instruction: str = ""  # Detailed instructions for the task
 
     # Metadata
     version: str = "1.0"
     tags: tuple[str, ...] = ()
     metadata: JSON = Field(default_factory=dict)
+
+    # Production policies and contracts
+    output_contract: OutputContract | None = None
+    execution_policy: ExecutionPolicy | None = None
+    security_policy: SecurityPolicy | None = None
 
     def to_prompt(self) -> str:
         """
@@ -98,13 +95,31 @@ class Blueprint(BaseModel):
         if not self.style_guide.is_empty():
             sections.append(self._format_style_section())
 
-        # Participants section (if any)
-        if self.participants:
-            sections.append(self._format_participants_section())
+        # Entities section (OPTIONAL - many blueprints won't need this)
+        if self.entities:
+            sections.append(self._format_entities_section())
 
         # Instructions section (if non-empty)
         if self.instruction:
             sections.append(self._format_instructions_section())
+
+        # Output contract section
+        if self.output_contract:
+            output_section = self._format_output_contract_section()
+            if output_section:
+                sections.append(output_section)
+
+        # Execution policy section
+        if self.execution_policy:
+            exec_section = self._format_execution_policy_section()
+            if exec_section:
+                sections.append(exec_section)
+
+        # Security policy section
+        if self.security_policy:
+            sec_section = self._format_security_policy_section()
+            if sec_section:
+                sections.append(sec_section)
 
         return "\n\n".join(sections)
 
@@ -153,24 +168,14 @@ class Blueprint(BaseModel):
 
         return "\n".join(lines)
 
-    def _format_participants_section(self) -> str:
-        """Format the participants section of the prompt."""
-        lines = ["## Participants"]
+    def _format_entities_section(self) -> str:
+        """Format the entities section (OPTIONAL - omit if not needed for your use case)."""
+        if not self.entities:
+            return ""
 
-        for participant in self.participants:
-            lines.append(f"### {participant.name}")
-            lines.append(f"Role: {participant.role}")
-
-            if participant.traits:
-                lines.append(f"Traits: {', '.join(participant.traits)}")
-
-            if participant.voice:
-                lines.append(f"Voice: {participant.voice}")
-
-            if participant.constraints:
-                lines.append("Constraints:")
-                for constraint in participant.constraints:
-                    lines.append(f"  - {constraint}")
+        lines = ["## Context Entities"]
+        for entity in self.entities:
+            lines.append(entity.to_prompt())
 
         return "\n".join(lines)
 
@@ -178,11 +183,96 @@ class Blueprint(BaseModel):
         """Format the instructions section of the prompt."""
         return f"## Instructions\n{self.instruction}"
 
-    def to_dict(self) -> dict:
+    def _format_output_contract_section(self) -> str:
+        """Format output contract section."""
+        if not self.output_contract:
+            return ""
+
+        oc = self.output_contract
+
+        # Skip if all defaults
+        if (
+            oc.format == "yaml"
+            and not oc.required_sections
+            and not oc.must_include
+            and not oc.forbidden
+            and not oc.schema_definition
+        ):
+            return ""
+
+        lines = ["## Output Contract", f"Format: {oc.format}"]
+
+        if oc.required_sections:
+            lines.append("Required Sections:")
+            for section in oc.required_sections:
+                lines.append(f"  - {section}")
+
+        if oc.must_include:
+            lines.append("Must Include:")
+            for item in oc.must_include:
+                lines.append(f"  - {item}")
+
+        if oc.forbidden:
+            lines.append("Forbidden:")
+            for item in oc.forbidden:
+                lines.append(f"  - {item}")
+
+        if oc.schema_definition:
+            lines.append(f"Schema:\n{oc.schema_definition}")
+
+        return "\n".join(lines)
+
+    def _format_execution_policy_section(self) -> str:
+        """Format execution policy section."""
+        if not self.execution_policy:
+            return ""
+
+        ep = self.execution_policy
+        lines = ["## Execution Policy"]
+
+        lines.append(f"Incremental Strategy: {ep.incremental_strategy}")
+        if ep.incremental_field:
+            lines.append(f"Incremental Field: {ep.incremental_field}")
+        if ep.checkpoint_location:
+            lines.append(f"Checkpoint Location: {ep.checkpoint_location}")
+
+        lines.append(f"Idempotency Key: {ep.idempotency_key}")
+        lines.append(f"Exactly-Once: {ep.exactly_once}")
+        lines.append(f"Max Retries: {ep.max_retries}")
+
+        if ep.retry_on:
+            lines.append(f"Retry On: {', '.join(ep.retry_on)}")
+        if ep.fail_on:
+            lines.append(f"Fail On: {', '.join(ep.fail_on)}")
+
+        return "\n".join(lines)
+
+    def _format_security_policy_section(self) -> str:
+        """Format security policy section."""
+        if not self.security_policy:
+            return ""
+
+        sp = self.security_policy
+        lines = ["## Security Policy"]
+
+        if sp.pii_fields:
+            lines.append(f"PII Fields: {', '.join(sp.pii_fields)}")
+
+        lines.append(f"Encryption: {sp.encryption}")
+
+        if sp.secret_rotation:
+            lines.append(f"Secret Rotation: {sp.secret_rotation_days} days via {sp.secret_provider}")
+
+        if sp.compliance_frameworks:
+            lines.append(f"Compliance: {', '.join(sp.compliance_frameworks)}")
+
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return self.model_dump()
 
     @classmethod
-    def from_dict(cls, data: dict) -> Blueprint:
+    def from_dict(cls, data: dict[str, Any]) -> Blueprint:
         """Create blueprint from dictionary."""
         return cls.model_validate(data)

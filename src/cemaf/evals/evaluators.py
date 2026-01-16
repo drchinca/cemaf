@@ -312,7 +312,7 @@ class JSONSchemaEvaluator(BaseEvaluator):
         # For full JSON Schema validation, use jsonschema library
         schema_type = schema.get("type") if isinstance(schema, dict) else None
 
-        type_map = {
+        type_map: dict[str, type[object] | tuple[type[object], ...]] = {
             "object": dict,
             "array": list,
             "string": str,

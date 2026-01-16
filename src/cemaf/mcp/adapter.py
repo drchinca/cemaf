@@ -8,18 +8,18 @@ This module provides the main MCPAdapter class that:
 - Integrates with EventBus for observability
 - Integrates with RunLogger for recording
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports.
 """
-
-from __future__ import annotations
 
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from cemaf.blueprint.schema import Blueprint
 from cemaf.core.types import JSON
+from cemaf.events.protocols import EventBus
 from cemaf.mcp.protocols import (
     MCPError,
     MCPRequest,
@@ -34,6 +34,9 @@ from cemaf.mcp.types import (
     MCPToolDefinition,
     MCPToolResult,
 )
+from cemaf.memory.protocols import MemoryStore
+from cemaf.observability.run_logger import RunLogger
+from cemaf.tools.protocols import Tool
 
 # Type alias for method handlers
 MethodHandler = Callable[[JSON], Awaitable[JSON]]
@@ -47,7 +50,7 @@ class ToolBridge:
     """
 
     @staticmethod
-    def to_mcp(tool: Tool) -> MCPToolDefinition:  # noqa: F821
+    def to_mcp(tool: Tool) -> MCPToolDefinition:
         """
         Convert a CEMAF Tool to an MCP tool definition.
 
@@ -70,9 +73,9 @@ class ToolBridge:
 
     @staticmethod
     async def call(
-        tool: Tool,  # noqa: F821
+        tool: Tool,
         arguments: JSON,
-        run_logger: RunLogger | None = None,  # noqa: F821
+        run_logger: RunLogger | None = None,
         correlation_id: str = "",
     ) -> MCPToolResult:
         """
@@ -89,7 +92,9 @@ class ToolBridge:
         """
         try:
             if run_logger:
-                result = await tool.execute_with_recording(
+                # execute_with_recording exists on Tool base class but not protocol
+                # Use type ignore since we can't guarantee all Tool implementations have it
+                result = await tool.execute_with_recording(  # type: ignore[attr-defined]
                     run_logger=run_logger,
                     correlation_id=correlation_id,
                     **arguments,
@@ -97,9 +102,9 @@ class ToolBridge:
             else:
                 result = await tool.execute(**arguments)
 
-            if result.is_ok:
+            if result.success:
                 # Convert result value to text
-                value = result.value
+                value = result.data
                 if isinstance(value, str):
                     text = value
                 elif isinstance(value, (dict, list)):
@@ -147,7 +152,7 @@ class ResourceBridge:
         )
 
     @staticmethod
-    async def list_resources(store: MemoryStore) -> list[MCPResource]:  # noqa: F821
+    async def list_resources(store: MemoryStore) -> list[MCPResource]:
         """
         List all memory items as MCP resources.
 
@@ -180,7 +185,7 @@ class ResourceBridge:
 
     @staticmethod
     async def read_resource(
-        store: MemoryStore,  # noqa: F821
+        store: MemoryStore,
         uri: str,
     ) -> MCPResourceContents | None:
         """
@@ -234,12 +239,12 @@ class PromptBridge:
     """
 
     @staticmethod
-    def to_mcp(blueprint: Blueprint) -> MCPPrompt:  # noqa: F821
+    def to_mcp(blueprint: Blueprint) -> MCPPrompt:
         """
         Convert a CEMAF Blueprint to an MCP prompt.
 
         Args:
-            blueprint: Blueprint  # noqa: F821 to convert.
+            blueprint: Blueprint to convert.
 
         Returns:
             MCPPrompt definition.
@@ -271,14 +276,14 @@ class PromptBridge:
 
     @staticmethod
     def get_prompt_text(
-        blueprint: Blueprint,  # noqa: F821
+        blueprint: Blueprint,
         arguments: JSON,
     ) -> str:
         """
         Render blueprint as prompt text with arguments.
 
         Args:
-            blueprint: Blueprint  # noqa: F821 to render.
+            blueprint: Blueprint to render.
             arguments: Arguments to substitute.
 
         Returns:
@@ -319,8 +324,8 @@ class MCPAdapter:
     def __init__(
         self,
         transport: Transport,
-        event_bus: EventBus | None = None,  # noqa: F821
-        run_logger: RunLogger | None = None,  # noqa: F821
+        event_bus: EventBus | None = None,
+        run_logger: RunLogger | None = None,
     ) -> None:
         """
         Initialize the MCP adapter.
@@ -335,9 +340,9 @@ class MCPAdapter:
         self._run_logger = run_logger
 
         # Registries
-        self._tools: dict[str, Tool] = {}  # noqa: F821
-        self._blueprints: dict[str, Blueprint] = {}  # noqa: F821
-        self._memory_store: MemoryStore | None = None  # noqa: F821
+        self._tools: dict[str, Tool] = {}
+        self._blueprints: dict[str, Blueprint] = {}
+        self._memory_store: MemoryStore | None = None
 
         # Server state
         self._initialized = False
@@ -358,16 +363,16 @@ class MCPAdapter:
 
     # Registration methods
 
-    def register_tool(self, tool: Tool) -> None:  # noqa: F821
+    def register_tool(self, tool: Tool) -> None:
         """
         Register a CEMAF tool.
 
         Args:
-            tool: Tool  # noqa: F821 to register.
+            tool: Tool to register.
         """
         self._tools[tool.schema.name] = tool
 
-    def register_tools(self, tools: list[Tool]) -> None:  # noqa: F821
+    def register_tools(self, tools: list[Tool]) -> None:
         """
         Register multiple tools.
 
@@ -392,16 +397,16 @@ class MCPAdapter:
             return True
         return False
 
-    def register_blueprint(self, blueprint: Blueprint) -> None:  # noqa: F821
+    def register_blueprint(self, blueprint: Blueprint) -> None:
         """
         Register a blueprint as MCP prompt.
 
         Args:
-            blueprint: Blueprint  # noqa: F821 to register.
+            blueprint: Blueprint to register.
         """
         self._blueprints[blueprint.id] = blueprint
 
-    def register_blueprints(self, blueprints: list[Blueprint]) -> None:  # noqa: F821
+    def register_blueprints(self, blueprints: list[Blueprint]) -> None:
         """
         Register multiple blueprints.
 
@@ -426,7 +431,7 @@ class MCPAdapter:
             return True
         return False
 
-    def set_memory_store(self, store: MemoryStore) -> None:  # noqa: F821
+    def set_memory_store(self, store: MemoryStore) -> None:
         """
         Set memory store for resource access.
 

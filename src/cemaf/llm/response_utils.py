@@ -58,7 +58,7 @@ class ParseResult[T]:
     metadata: JSON = field(default_factory=dict)
 
     @classmethod
-    def ok(cls, data: T, raw_content: str = "", metadata: JSON | None = None) -> ParseResult[T]:
+    def ok(cls, data: T | None = None, raw_content: str = "", metadata: JSON | None = None) -> ParseResult[T]:
         """Create a successful parse result."""
         return cls(
             success=True,
@@ -278,7 +278,9 @@ class ResponseParser:
         """
         if extractor is None:
             result = cls.parse_json(text, strict=False)
-            return result.data if result.success and result.data is not None else default
+            if result.success and result.data is not None:
+                return result.data  # type: ignore[return-value]
+            return default
 
         try:
             return extractor(text)

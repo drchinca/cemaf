@@ -7,7 +7,18 @@ with validation on build.
 
 from typing import Self
 
-from cemaf.blueprint.schema import Blueprint, Participant, SceneGoal, StyleGuide
+from cemaf.blueprint.contracts import DataContract
+from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
+from cemaf.blueprint.entities import (
+    ContextEntity,
+)
+from cemaf.blueprint.policies import (
+    ExecutionPolicy,
+    OutputContract,
+    OutputFormat,
+    RequiredSections,
+    SecurityPolicy,
+)
 
 
 class BlueprintBuilder:
@@ -19,7 +30,7 @@ class BlueprintBuilder:
             BlueprintBuilder("bp-1", "Marketing Email")
             .with_goal("Generate compelling email copy")
             .with_style(tone="professional", format="html")
-            .add_participant("writer", "Email Copywriter", traits=["persuasive", "concise"])
+            .add_content_entity("writer", style="marketing", tone="persuasive")
             .with_instruction("Write a 3-paragraph email promoting the product")
             .with_tags("marketing", "email")
             .build()
@@ -42,11 +53,14 @@ class BlueprintBuilder:
         self._goal_constraints: list[str] = []
         self._goal_priority: int = 1
         self._style: dict[str, str | list[str]] = {}
-        self._participants: list[Participant] = []
+        self._entities: list[ContextEntity] = []
         self._instruction = ""
         self._version = "1.0"
         self._tags: list[str] = []
         self._metadata: dict[str, object] = {}
+        self._output_contract: OutputContract | None = None
+        self._execution_policy: ExecutionPolicy | None = None
+        self._security_policy: SecurityPolicy | None = None
 
     def with_description(self, description: str) -> Self:
         """
@@ -125,35 +139,31 @@ class BlueprintBuilder:
             self._style["examples"] = list(examples)
         return self
 
-    def add_participant(
+    def add_entity(
         self,
-        name: str,
-        role: str,
-        traits: list[str] | None = None,
-        voice: str = "",
-        constraints: list[str] | None = None,
+        entity: ContextEntity,
+        data_contract: DataContract | None = None,
     ) -> Self:
         """
-        Add a participant to the blueprint.
+        Add an entity to the blueprint with optional data contract.
 
         Args:
-            name: Unique identifier for the participant.
-            role: The role this participant plays.
-            traits: Personality traits or characteristics.
-            voice: Voice/style description.
-            constraints: Limitations for this participant.
+            entity: The ContextEntity instance to add.
+            data_contract: Optional data contract specification.
 
         Returns:
             Self for method chaining.
+
+        Example:
+            >>> builder.add_entity(
+            ...     ContextEntity.content(name="writer", style="narrative"),
+            ...     data_contract=DataContract(schema_type="table", fields=("id", "text"))
+            ... )
         """
-        participant = Participant(
-            name=name,
-            role=role,
-            traits=tuple(traits) if traits else (),
-            voice=voice,
-            constraints=tuple(constraints) if constraints else (),
-        )
-        self._participants.append(participant)
+        if data_contract:
+            entity = entity.model_copy(update={"data_contract": data_contract})
+
+        self._entities.append(entity)
         return self
 
     def with_instruction(self, instruction: str) -> Self:
@@ -208,6 +218,117 @@ class BlueprintBuilder:
         self._metadata.update(kwargs)
         return self
 
+    def with_output_contract(
+        self,
+        format: OutputFormat = "yaml",
+        required_sections: RequiredSections = (),
+        must_include: tuple[str, ...] = (),
+        forbidden: tuple[str, ...] = (),
+        schema_definition: str = "",
+        **metadata: object,
+    ) -> Self:
+        """
+        Set output contract.
+
+        Args:
+            format: Output format (json, yaml, markdown, python, sql).
+            required_sections: Sections that must be present.
+            must_include: Specific requirements that must appear.
+            forbidden: What to avoid.
+            schema_definition: Optional schema (JSON Schema, etc.).
+            **metadata: Additional metadata.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._output_contract = OutputContract(
+            format=format,
+            required_sections=required_sections,
+            must_include=must_include,
+            forbidden=forbidden,
+            schema_definition=schema_definition,
+            metadata=dict(metadata),
+        )
+        return self
+
+    def with_execution_policy(
+        self,
+        incremental_strategy: str = "full",
+        incremental_field: str = "",
+        checkpoint_location: str = "",
+        idempotency_key: str = "run_id",
+        max_retries: int = 3,
+        retry_on: tuple[str, ...] = ("rate_limit", "transient_network"),
+        fail_on: tuple[str, ...] = ("data_quality_fail", "schema_mismatch"),
+        exactly_once: bool = False,
+        **metadata: object,
+    ) -> Self:
+        """
+        Set execution policy.
+
+        Args:
+            incremental_strategy: Strategy for incremental processing.
+            incremental_field: Field for watermarking.
+            checkpoint_location: Where to store checkpoints.
+            idempotency_key: Field for idempotent operations.
+            max_retries: Maximum retry attempts.
+            retry_on: Conditions to retry on.
+            fail_on: Conditions to fail immediately on.
+            exactly_once: Use exactly-once semantics.
+            **metadata: Additional metadata.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._execution_policy = ExecutionPolicy(
+            incremental_strategy=incremental_strategy,  # type: ignore
+            incremental_field=incremental_field,
+            checkpoint_location=checkpoint_location,
+            idempotency_key=idempotency_key,
+            max_retries=max_retries,
+            retry_on=retry_on,
+            fail_on=fail_on,
+            exactly_once=exactly_once,
+            metadata=dict(metadata),
+        )
+        return self
+
+    def with_security_policy(
+        self,
+        pii_fields: tuple[str, ...] = (),
+        encryption: str = "none",
+        secret_rotation: bool = False,
+        secret_provider: str = "none",
+        secret_rotation_days: int = 90,
+        compliance_frameworks: tuple[str, ...] = (),
+        **metadata: object,
+    ) -> Self:
+        """
+        Set security policy.
+
+        Args:
+            pii_fields: List of PII field names.
+            encryption: Encryption requirements.
+            secret_rotation: Enable secret rotation.
+            secret_provider: Secret management provider.
+            secret_rotation_days: Days between rotations.
+            compliance_frameworks: Compliance requirements.
+            **metadata: Additional metadata.
+
+        Returns:
+            Self for method chaining.
+        """
+        self._security_policy = SecurityPolicy(
+            pii_fields=pii_fields,
+            encryption=encryption,  # type: ignore
+            secret_rotation=secret_rotation,
+            secret_provider=secret_provider,  # type: ignore
+            secret_rotation_days=secret_rotation_days,
+            compliance_frameworks=compliance_frameworks,
+            metadata=dict(metadata),
+        )
+        return self
+
     def build(self) -> Blueprint:
         """
         Build the Blueprint instance.
@@ -252,9 +373,12 @@ class BlueprintBuilder:
             description=self._description,
             scene_goal=scene_goal,
             style_guide=style_guide,
-            participants=tuple(self._participants),
+            entities=tuple(self._entities),
             instruction=self._instruction,
             version=self._version,
             tags=tuple(self._tags),
             metadata=dict(self._metadata),
+            output_contract=self._output_contract,
+            execution_policy=self._execution_policy,
+            security_policy=self._security_policy,
         )

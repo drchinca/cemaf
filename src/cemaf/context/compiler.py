@@ -23,7 +23,7 @@ from cemaf.context.algorithm import (
 )
 from cemaf.context.budget import TokenBudget
 from cemaf.context.source import ContextSource
-from cemaf.core.types import JSON
+from cemaf.core.types import JSON, TokenCount
 from cemaf.core.utils import utc_now
 
 
@@ -227,7 +227,7 @@ class PriorityContextCompiler:
                     type="artifact",
                     key=key,
                     content=content,
-                    token_count=tokens,
+                    token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
             )
@@ -240,7 +240,7 @@ class PriorityContextCompiler:
                     type="memory",
                     key=key,
                     content=content,
-                    token_count=tokens,
+                    token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
             )

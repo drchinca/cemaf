@@ -18,26 +18,28 @@ import os
 
 from cemaf.agents.protocols import AgentContext
 from cemaf.config.protocols import Settings
-from cemaf.context.context import Context
-from cemaf.core.types import AgentID
+from cemaf.core.types import JSON, AgentID
+from cemaf.core.utils import generate_id
 
 
 def create_agent_context(
     agent_id: AgentID,
-    context: Context | None = None,
-    max_iterations: int = 10,
-    max_skill_calls: int = 50,
-    timeout_seconds: float = 300.0,
+    run_id: str | None = None,
+    parent_agent_id: str | None = None,
+    depth: int = 0,
+    global_memory: JSON | None = None,
+    artifacts: JSON | None = None,
 ) -> AgentContext:
     """
     Factory for AgentContext with sensible defaults.
 
     Args:
         agent_id: Unique agent identifier
-        context: Base context (creates new if None)
-        max_iterations: Maximum agent iterations
-        max_skill_calls: Maximum skill calls per agent
-        timeout_seconds: Agent execution timeout
+        run_id: Run identifier (auto-generated if None)
+        parent_agent_id: Parent agent ID for hierarchical agents
+        depth: Nesting depth in agent hierarchy
+        global_memory: Shared memory across agents
+        artifacts: Shared artifacts across agents
 
     Returns:
         Configured AgentContext instance
@@ -47,40 +49,39 @@ def create_agent_context(
         from cemaf.core.types import AgentID
         agent_ctx = create_agent_context(AgentID("my_agent"))
 
-        # With custom limits
+        # With parent agent
         agent_ctx = create_agent_context(
-            AgentID("my_agent"),
-            max_iterations=20,
-            timeout_seconds=600.0
+            AgentID("child_agent"),
+            parent_agent_id="parent_agent",
+            depth=1
         )
     """
-    base_context = context or Context.empty()
-
     return AgentContext(
+        run_id=run_id or generate_id("run"),
         agent_id=agent_id,
-        context=base_context,
-        max_iterations=max_iterations,
-        max_skill_calls=max_skill_calls,
-        timeout_seconds=timeout_seconds,
+        parent_agent_id=parent_agent_id,
+        depth=depth,
+        global_memory=global_memory or {},
+        artifacts=artifacts or {},
     )
 
 
 def create_agent_context_from_config(
     agent_id: AgentID,
-    context: Context | None = None,
+    run_id: str | None = None,
     settings: Settings | None = None,
 ) -> AgentContext:
     """
     Create AgentContext from environment configuration.
 
     Reads from environment variables:
-    - CEMAF_AGENTS_MAX_ITERATIONS: Max iterations (default: 10)
-    - CEMAF_AGENTS_MAX_SKILL_CALLS: Max skill calls (default: 50)
-    - CEMAF_AGENTS_TIMEOUT_SECONDS: Timeout in seconds (default: 300.0)
+    - CEMAF_AGENT_PARENT_ID: Parent agent ID (optional)
+    - CEMAF_AGENT_DEPTH: Agent depth in hierarchy (default: 0)
 
     Args:
         agent_id: Unique agent identifier
-        context: Base context (creates new if None)
+        run_id: Run identifier (auto-generated if None)
+        settings: Settings provider (unused, kept for backward compatibility)
 
     Returns:
         Configured AgentContext instance
@@ -90,16 +91,14 @@ def create_agent_context_from_config(
         from cemaf.core.types import AgentID
         agent_ctx = create_agent_context_from_config(AgentID("my_agent"))
     """
-    max_iterations = int(os.getenv("CEMAF_AGENTS_MAX_ITERATIONS", "10"))
-    max_skill_calls = int(os.getenv("CEMAF_AGENTS_MAX_SKILL_CALLS", "50"))
-    timeout_seconds = float(os.getenv("CEMAF_AGENTS_TIMEOUT_SECONDS", "300.0"))
+    parent_agent_id = os.getenv("CEMAF_AGENT_PARENT_ID")
+    depth = int(os.getenv("CEMAF_AGENT_DEPTH", "0"))
 
     return create_agent_context(
         agent_id=agent_id,
-        context=context,
-        max_iterations=max_iterations,
-        max_skill_calls=max_skill_calls,
-        timeout_seconds=timeout_seconds,
+        run_id=run_id,
+        parent_agent_id=parent_agent_id,
+        depth=depth,
     )
 
 

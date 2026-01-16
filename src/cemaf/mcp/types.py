@@ -6,6 +6,7 @@ frozen dataclasses for immutability.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from cemaf.core.types import JSON
 
@@ -22,7 +23,7 @@ class MCPToolDefinition:
     description: str
     inputSchema: JSON = field(default_factory=dict)  # JSON Schema
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to MCP-compatible dictionary."""
         return {
             "name": self.name,
@@ -39,7 +40,7 @@ class MCPPromptArgument:
     description: str = ""
     required: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to MCP-compatible dictionary."""
         return {
             "name": self.name,
@@ -60,7 +61,7 @@ class MCPPrompt:
     description: str = ""
     arguments: tuple[MCPPromptArgument, ...] = ()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to MCP-compatible dictionary."""
         return {
             "name": self.name,
@@ -82,7 +83,7 @@ class MCPResource:
     description: str = ""
     mimeType: str = "application/json"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to MCP-compatible dictionary."""
         return {
             "uri": self.uri,
@@ -101,9 +102,9 @@ class MCPResourceContents:
     text: str | None = None
     blob: str | None = None  # Base64 encoded
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to MCP-compatible dictionary."""
-        result: dict = {"uri": self.uri, "mimeType": self.mimeType}
+        result: dict[str, Any] = {"uri": self.uri, "mimeType": self.mimeType}
         if self.text is not None:
             result["text"] = self.text
         if self.blob is not None:
@@ -115,7 +116,7 @@ class MCPResourceContents:
 class MCPToolResult:
     """Result from calling an MCP tool."""
 
-    content: tuple[dict, ...]  # Tuple of content blocks (immutable)
+    content: tuple[dict[str, Any], ...]  # Tuple of content blocks (immutable)
     isError: bool = False
 
     @classmethod
@@ -129,10 +130,10 @@ class MCPToolResult:
         return cls(content=({"type": "text", "text": message},), isError=True)
 
     @classmethod
-    def from_content_list(cls, content: list[dict], is_error: bool = False) -> MCPToolResult:
+    def from_content_list(cls, content: list[dict[str, Any]], is_error: bool = False) -> MCPToolResult:
         """Create a result from a list of content blocks."""
         return cls(content=tuple(content), isError=is_error)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to MCP-compatible dictionary."""
         return {"content": list(self.content), "isError": self.isError}

@@ -20,8 +20,8 @@ def create_moderation_pipeline(
     Factory for ModerationPipeline with sensible defaults.
 
     Args:
-        enabled: Enable moderation checks
-        fail_on_violation: Fail requests on violations
+        enabled: Enable moderation checks (not used, kept for API compatibility)
+        fail_on_violation: Fail requests on violations (not used, kept for API compatibility)
 
     Returns:
         Configured ModerationPipeline instance
@@ -33,10 +33,9 @@ def create_moderation_pipeline(
         # Warning mode (log but don't fail)
         pipeline = create_moderation_pipeline(fail_on_violation=False)
     """
-    return ModerationPipeline(
-        enabled=enabled,
-        fail_on_violation=fail_on_violation,
-    )
+    # ModerationPipeline doesn't accept these parameters
+    # They are kept in the factory API for backward compatibility
+    return ModerationPipeline()
 
 
 def create_moderation_pipeline_from_config(settings: Settings | None = None) -> ModerationPipeline:

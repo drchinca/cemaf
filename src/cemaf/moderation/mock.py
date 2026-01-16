@@ -4,10 +4,9 @@ Mock implementations for testing moderation.
 Provides test doubles for moderation rules, gates, and pipelines.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
+from cemaf.context.context import Context
 from cemaf.moderation.protocols import (
     ModerationResult,
     ModerationViolation,
@@ -44,7 +43,7 @@ class AlwaysPassRule:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Check content - always returns success.
@@ -99,7 +98,7 @@ class AlwaysBlockRule:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Check content - always returns blocked.
@@ -149,7 +148,7 @@ class AlwaysPassGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Check content - always returns success.
@@ -203,7 +202,7 @@ class AlwaysBlockGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Check content - always returns blocked.
@@ -252,7 +251,7 @@ class RecordingRule:
         """
         self._name = name
         self._should_pass = should_pass
-        self._checks: list[tuple[Any, Context | None]] = []  # noqa: F821
+        self._checks: list[tuple[Any, Context | None]] = []
 
     @property
     def name(self) -> str:
@@ -260,7 +259,7 @@ class RecordingRule:
         return self._name
 
     @property
-    def checks(self) -> list[tuple[Any, Context | None]]:  # noqa: F821
+    def checks(self) -> list[tuple[Any, Context | None]]:
         """Return all recorded checks."""
         return self._checks.copy()
 
@@ -276,7 +275,7 @@ class RecordingRule:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Record the check and return configured result.
@@ -334,7 +333,7 @@ class RecordingGate:
         """
         self._name = name
         self._should_pass = should_pass
-        self._checks: list[tuple[Any, Context | None]] = []  # noqa: F821
+        self._checks: list[tuple[Any, Context | None]] = []
 
     @property
     def name(self) -> str:
@@ -342,7 +341,7 @@ class RecordingGate:
         return self._name
 
     @property
-    def checks(self) -> list[tuple[Any, Context | None]]:  # noqa: F821
+    def checks(self) -> list[tuple[Any, Context | None]]:
         """Return all recorded checks."""
         return self._checks.copy()
 
@@ -358,7 +357,7 @@ class RecordingGate:
     async def check(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Record the check and return configured result.
@@ -428,16 +427,16 @@ class MockModerationPipeline:
         self._pre_flight_message = pre_flight_message
         self._post_flight_code = post_flight_code
         self._post_flight_message = post_flight_message
-        self._pre_flight_checks: list[tuple[Any, Context | None]] = []  # noqa: F821
-        self._post_flight_checks: list[tuple[Any, Context | None]] = []  # noqa: F821
+        self._pre_flight_checks: list[tuple[Any, Context | None]] = []
+        self._post_flight_checks: list[tuple[Any, Context | None]] = []
 
     @property
-    def pre_flight_checks(self) -> list[tuple[Any, Context | None]]:  # noqa: F821
+    def pre_flight_checks(self) -> list[tuple[Any, Context | None]]:
         """Return all recorded pre-flight checks."""
         return self._pre_flight_checks.copy()
 
     @property
-    def post_flight_checks(self) -> list[tuple[Any, Context | None]]:  # noqa: F821
+    def post_flight_checks(self) -> list[tuple[Any, Context | None]]:
         """Return all recorded post-flight checks."""
         return self._post_flight_checks.copy()
 
@@ -462,7 +461,7 @@ class MockModerationPipeline:
     async def pre_flight(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Run pre-flight moderation check.
@@ -489,7 +488,7 @@ class MockModerationPipeline:
     async def post_flight(
         self,
         content: Any,
-        context: Context | None = None,  # noqa: F821
+        context: Context | None = None,
     ) -> ModerationResult:
         """
         Run post-flight moderation check.

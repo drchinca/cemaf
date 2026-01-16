@@ -7,12 +7,10 @@ A Tool is:
 - Returns Result (never raises)
 - Can record calls for replay/debugging
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.moderation and cemaf.observability.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -22,6 +20,8 @@ from typing import Any, TypeVar
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
 from cemaf.core.utils import utc_now
+from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.observability.run_logger import RunLogger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -164,10 +164,18 @@ class Tool(ABC):
         duration_ms = (end_time - start_time).total_seconds() * 1000
 
         # Create and record the call
+        output_data: dict[str, Any]
+        if result.success and isinstance(result.data, dict):
+            output_data = result.data
+        elif result.success:
+            output_data = {"result": result.data}
+        else:
+            output_data = {}
+
         call = ToolCall(
             tool_id=str(self.id),
             input=kwargs,
-            output=result.data if result.success else None,
+            output=output_data,
             duration_ms=duration_ms,
             timestamp=start_time,
             correlation_id=correlation_id,

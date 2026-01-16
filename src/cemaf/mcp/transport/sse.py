@@ -53,8 +53,14 @@ class SSETransport(BaseTransport):
         if self._sse_response is None:
             raise RuntimeError("Not connected")
         # Read SSE event
-        async for line in self._sse_response.content:
-            line = line.decode("utf-8").strip()
+        async for line_bytes in self._sse_response.content:
+            # Ensure line_bytes is bytes before decoding
+            if isinstance(line_bytes, str):
+                line_bytes = line_bytes.encode("utf-8")
+            line = line_bytes.decode("utf-8").strip()
             if line.startswith("data:"):
-                return line[5:].strip().encode("utf-8")
+                # Extract data after "data:" prefix and encode to bytes
+                data_str: str = line[5:].strip()
+                result: bytes = data_str.encode("utf-8")
+                return result
         raise EOFError("SSE stream ended")

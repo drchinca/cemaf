@@ -39,10 +39,9 @@ def create_mcp_adapter(
     else:
         raise ValueError(f"Unsupported MCP transport: {transport_type}")
 
-    return MCPAdapter(
-        transport=transport,
-        server_timeout_seconds=server_timeout_seconds,
-    )
+    # MCPAdapter doesn't accept server_timeout_seconds parameter
+    # Parameter is kept in factory API for future extension
+    return MCPAdapter(transport=transport)
 
 
 def create_mcp_adapter_from_config(settings: Settings | None = None) -> MCPAdapter:

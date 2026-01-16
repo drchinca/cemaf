@@ -11,6 +11,8 @@ Tests:
 Uses fixtures from conftest.py for reusable test data.
 """
 
+from typing import Any
+
 import pytest
 
 from cemaf.context.context import Context  # New import
@@ -24,7 +26,7 @@ from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, Edg
 class TestNode:
     """Tests for Node."""
 
-    def test_tool_node_creation(self):
+    def test_tool_node_creation(self) -> None:
         """Node.tool creates a tool node."""
         node = Node.tool(
             id="fetch",
@@ -37,7 +39,7 @@ class TestNode:
         assert node.type == NodeType.TOOL
         assert node.ref_id == "http_request"
 
-    def test_skill_node_creation(self):
+    def test_skill_node_creation(self) -> None:
         """Node.skill creates a skill node."""
         node = Node.skill(
             id="analyze",
@@ -48,7 +50,7 @@ class TestNode:
         assert node.type == NodeType.SKILL
         assert node.ref_id == "data_analysis"
 
-    def test_agent_node_creation(self):
+    def test_agent_node_creation(self) -> None:
         """Node.agent creates an agent node."""
         node = Node.agent(
             id="writer",
@@ -60,7 +62,7 @@ class TestNode:
         assert node.type == NodeType.AGENT
         assert node.config["max_tokens"] == 1000
 
-    def test_router_node_creation(self):
+    def test_router_node_creation(self) -> None:
         """Node.router creates a router node."""
         node = Node.router(
             id="route",
@@ -71,7 +73,7 @@ class TestNode:
         assert node.type == NodeType.ROUTER
         assert node.routes["success"] == "next_node"
 
-    def test_parallel_node_creation(self):
+    def test_parallel_node_creation(self) -> None:
         """Node.parallel creates a parallel node."""
         node = Node.parallel(
             id="parallel",
@@ -82,7 +84,7 @@ class TestNode:
         assert node.type == NodeType.PARALLEL
         assert len(node.parallel_nodes) == 3
 
-    def test_conditional_node_creation_with_key(self):
+    def test_conditional_node_creation_with_key(self) -> None:
         """Node.conditional configures condition_key and routes."""
         node = Node.conditional(
             id="cond1",
@@ -94,10 +96,10 @@ class TestNode:
 
         assert node.type == NodeType.CONDITIONAL
         assert node.config["condition_key"] == "flag"
-        assert node.routes[True] == "yes"
+        assert node.routes[True] == "yes"  # type: ignore[index]  # Routes support both bool and str keys
         assert node.output_key == "cond_result"
 
-    def test_conditional_node_creation_with_rule(self):
+    def test_conditional_node_creation_with_rule(self) -> None:
         """Node.conditional accepts Condition objects."""
         rule = Condition(field="status", operator=ConditionOperator.EQUALS, value="ready")
         node = Node.conditional(
@@ -112,8 +114,8 @@ class TestNode:
 class TestCondition:
     """Tests for the serializable Condition class."""
 
-    @pytest.mark.parametrize(
-        "field, op, value, context_dict, expected",
+    @pytest.mark.parametrize(  # type: ignore[misc]
+        ("field", "op", "value", "context_dict", "expected"),
         [  # Changed 'context' to 'context_dict'
             # EQUALS
             ("count", ConditionOperator.EQUALS, 5, {"count": 5}, True),
@@ -148,7 +150,14 @@ class TestCondition:
             ("non_existent.field", ConditionOperator.EQUALS, 1, {}, False),
         ],
     )
-    def test_condition_evaluation(self, field, op, value, context_dict, expected):
+    def test_condition_evaluation(
+        self,
+        field: str,
+        op: ConditionOperator,
+        value: Any,
+        context_dict: dict[str, Any],
+        expected: bool,
+    ) -> None:
         """Condition evaluates correctly for all operators."""
         condition = Condition(field=field, operator=op, value=value)
         context = Context(data=context_dict)  # Pass Context object
@@ -158,7 +167,7 @@ class TestCondition:
 class TestEdge:
     """Tests for Edge."""
 
-    def test_edge_creation(self):
+    def test_edge_creation(self) -> None:
         """Edge can be created with source and target."""
         edge = Edge(
             source=NodeID("node1"),
@@ -169,7 +178,7 @@ class TestEdge:
         assert edge.target == "node2"
         assert edge.condition == EdgeCondition.ALWAYS
 
-    def test_edge_with_condition(self):
+    def test_edge_with_condition(self) -> None:
         """Edge can have legacy conditions."""
         edge = Edge(
             source=NodeID("node1"),
@@ -179,7 +188,7 @@ class TestEdge:
 
         assert edge.condition == EdgeCondition.ON_SUCCESS
 
-    def test_should_traverse_always(self):
+    def test_should_traverse_always(self) -> None:
         """ALWAYS condition always returns True."""
         edge = Edge(
             source=NodeID("a"),
@@ -189,7 +198,7 @@ class TestEdge:
 
         assert edge.should_traverse(Context()) is True  # Pass Context object
 
-    def test_should_traverse_json_rule(self):
+    def test_should_traverse_json_rule(self) -> None:
         """JSON_RULE condition uses the Condition object."""
         rule = Condition(field="proceed", operator=ConditionOperator.EQUALS, value=True)
         edge = Edge(
@@ -206,7 +215,7 @@ class TestEdge:
 class TestDAG:
     """Tests for DAG."""
 
-    def test_dag_creation(self):
+    def test_dag_creation(self) -> None:
         """DAG can be created with name."""
         dag = DAG(name="test_pipeline")
 
@@ -214,7 +223,7 @@ class TestDAG:
         assert len(dag.nodes) == 0
         assert len(dag.edges) == 0
 
-    def test_add_node(self):
+    def test_add_node(self) -> None:
         """Nodes can be added to DAG."""
         dag = DAG(name="test")
         node = Node.tool(id="t1", name="Tool 1", tool_id="tool_1")
@@ -224,7 +233,7 @@ class TestDAG:
         assert len(dag.nodes) == 1
         assert dag.entry_node == "t1"
 
-    def test_add_node_duplicate_raises(self):
+    def test_add_node_duplicate_raises(self) -> None:
         """Adding duplicate node raises error."""
         dag = DAG(name="test")
         node = Node.tool(id="t1", name="Tool 1", tool_id="tool_1")
@@ -233,7 +242,7 @@ class TestDAG:
         with pytest.raises(ValueError, match="already exists"):
             dag.add_node(node)
 
-    def test_add_edge(self):
+    def test_add_edge(self) -> None:
         """Edges can be added between nodes."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="t1", name="T1", tool_id="t1"))
@@ -243,7 +252,7 @@ class TestDAG:
 
         assert len(dag.edges) == 1
 
-    def test_add_edge_invalid_source_raises(self):
+    def test_add_edge_invalid_source_raises(self) -> None:
         """Adding edge with invalid source raises error."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="t1", name="T1", tool_id="t1"))
@@ -251,7 +260,7 @@ class TestDAG:
         with pytest.raises(ValueError, match="Source node"):
             dag.add_edge(Edge(source=NodeID("invalid"), target=NodeID("t1")))
 
-    def test_topological_sort_simple(self, simple_dag: DAG):
+    def test_topological_sort_simple(self, simple_dag: DAG) -> None:
         """Topological sort returns correct order."""
         order = simple_dag.topological_sort()
 
@@ -259,7 +268,7 @@ class TestDAG:
         assert order.index("a") < order.index("b")
         assert order.index("b") < order.index("c")
 
-    def test_cycle_detection(self):
+    def test_cycle_detection(self) -> None:
         """Topological sort detects cycles."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="a", name="A", tool_id="a"))
@@ -270,28 +279,28 @@ class TestDAG:
         with pytest.raises(ValueError, match="Cycle detected"):
             dag.topological_sort()
 
-    def test_validate_empty_dag_raises(self):
+    def test_validate_empty_dag_raises(self) -> None:
         """Validating empty DAG raises error."""
         dag = DAG(name="empty")
 
         with pytest.raises(ValueError, match="no nodes"):
-            dag.validate()
+            dag.validate_structure()
 
-    def test_validate_valid_dag(self):
+    def test_validate_valid_dag(self) -> None:
         """Valid DAG passes validation."""
         dag = DAG(name="valid")
         dag = dag.add_node(Node.tool(id="start", name="Start", tool_id="s"))
         dag = dag.add_node(Node.tool(id="end", name="End", tool_id="e"))
         dag = dag.add_edge(Edge(source=NodeID("start"), target=NodeID("end")))
 
-        assert dag.validate() is True
+        assert dag.validate_structure() is True
 
-    def test_to_dict_serialization(self):
+    def test_to_dict_serialization(self) -> None:
         """DAG can be serialized to dict."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="n1", name="Node 1", tool_id="t1"))
         rule = Condition(field="status", operator=ConditionOperator.EQUALS, value="done")
-        edge = Edge("n1", "n1", condition=EdgeCondition.JSON_RULE, condition_rule=rule)
+        edge = Edge(NodeID("n1"), NodeID("n1"), condition=EdgeCondition.JSON_RULE, condition_rule=rule)
         dag = dag.add_edge(edge)
 
         d = dag.to_dict()
@@ -311,7 +320,7 @@ class TestDAG:
 class TestDAGVisualization:
     """Tests for DAG Mermaid visualization."""
 
-    def test_to_mermaid_basic(self):
+    def test_to_mermaid_basic(self) -> None:
         """to_mermaid generates valid mermaid flowchart."""
         dag = DAG(name="test_pipeline")
         dag = dag.add_node(Node.tool(id="fetch", name="Fetch Data", tool_id="fetcher"))
@@ -327,7 +336,7 @@ class TestDAGVisualization:
         # Entry node styling
         assert "style fetch fill:#90EE90" in mermaid
 
-    def test_to_mermaid_all_node_types(self):
+    def test_to_mermaid_all_node_types(self) -> None:
         """to_mermaid renders all node types with correct shapes."""
         dag = DAG(name="all_types")
         dag = dag.add_node(Node.tool(id="tool", name="Tool", tool_id="t"))
@@ -345,7 +354,7 @@ class TestDAGVisualization:
         assert 'router{"🔀 Router"}' in mermaid
         assert 'parallel[["⏸ Parallel"]]' in mermaid
 
-    def test_to_mermaid_edge_conditions(self):
+    def test_to_mermaid_edge_conditions(self) -> None:
         """to_mermaid shows edge conditions."""
         dag = DAG(name="conditions")
         dag = dag.add_node(Node.tool(id="a", name="A", tool_id="a"))
@@ -372,7 +381,7 @@ class TestDAGVisualization:
         assert "a -->|✗ failure| c" in mermaid
         assert "b -->|status equals| d" in mermaid
 
-    def test_to_mermaid_direction(self):
+    def test_to_mermaid_direction(self) -> None:
         """to_mermaid respects direction parameter."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="a", name="A", tool_id="a"))
@@ -382,7 +391,7 @@ class TestDAGVisualization:
         assert "flowchart BT" in dag.to_mermaid("BT")
         assert "flowchart RL" in dag.to_mermaid("RL")
 
-    def test_to_mermaid_escapes_special_chars(self):
+    def test_to_mermaid_escapes_special_chars(self) -> None:
         """to_mermaid escapes characters that break mermaid syntax."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="n1", name='Node "with" [brackets]', tool_id="t"))
@@ -395,7 +404,7 @@ class TestDAGVisualization:
         # The label should be wrapped in outer quotes for mermaid
         assert "[\"🔧 Node 'with' (brackets)\"]" in mermaid
 
-    def test_print_mermaid(self, capsys):
+    def test_print_mermaid(self, capsys: pytest.CaptureFixture[str]) -> None:
         """print_mermaid outputs to stdout."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="a", name="A", tool_id="a"))
@@ -406,7 +415,7 @@ class TestDAGVisualization:
         assert "flowchart TD" in captured.out
         assert 'a["🔧 A"]' in captured.out
 
-    def test_save_mermaid_raw(self, tmp_path):
+    def test_save_mermaid_raw(self, tmp_path: Any) -> None:
         """save_mermaid saves raw mermaid to file."""
         dag = DAG(name="test")
         dag = dag.add_node(Node.tool(id="a", name="A", tool_id="a"))
@@ -418,7 +427,7 @@ class TestDAGVisualization:
         assert "flowchart TD" in content
         assert "```" not in content  # No markdown fence
 
-    def test_save_mermaid_markdown(self, tmp_path):
+    def test_save_mermaid_markdown(self, tmp_path: Any) -> None:
         """save_mermaid wraps in markdown fence for .md files."""
         dag = DAG(name="test_dag", description="A test DAG")
         dag = dag.add_node(Node.tool(id="a", name="A", tool_id="a"))

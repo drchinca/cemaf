@@ -4,23 +4,24 @@ Factory functions for orchestration components.
 Provides convenient ways to create executor instances
 with sensible defaults while maintaining dependency injection principles.
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports.
 """
 
-from __future__ import annotations
-
 import os
 
+from cemaf.events.protocols import EventBus
+from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig, NodeExecutor
 
 
 def create_dag_executor(
     node_executor: NodeExecutor,
     config: ExecutorConfig | None = None,
-    run_logger: RunLogger | None = None,  # noqa: F821
-    event_bus: EventBus | None = None,  # noqa: F821
-    moderation_pipeline: ModerationPipeline | None = None,  # noqa: F821
+    run_logger: RunLogger | None = None,
+    event_bus: EventBus | None = None,
+    moderation_pipeline: ModerationPipeline | None = None,
 ) -> DAGExecutor:
     """
     Factory for DAGExecutor with sensible defaults.
@@ -65,9 +66,9 @@ def create_dag_executor(
 
 def create_dag_executor_from_config(
     node_executor: NodeExecutor,
-    run_logger: RunLogger | None = None,  # noqa: F821
-    event_bus: EventBus | None = None,  # noqa: F821
-    moderation_pipeline: ModerationPipeline | None = None,  # noqa: F821
+    run_logger: RunLogger | None = None,
+    event_bus: EventBus | None = None,
+    moderation_pipeline: ModerationPipeline | None = None,
 ) -> DAGExecutor:
     """
     Create DAGExecutor from environment configuration.

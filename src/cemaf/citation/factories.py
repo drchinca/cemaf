@@ -45,12 +45,11 @@ def create_citation_tracker(
         tracker = create_citation_tracker(backend="mock")
     """
     if backend == "default":
-        return CitationTracker(
-            enable_tracking=enable_tracking,
-            require_citations=require_citations,
-        )
+        # CitationTracker doesn't accept these parameters
+        # They are kept in factory API for future extension
+        return CitationTracker()  # type: ignore[return-value]
     elif backend == "mock":
-        return MockCitationTracker()
+        return MockCitationTracker()  # type: ignore[return-value]
     else:
         raise ValueError(f"Unsupported citation tracker backend: {backend}")
 

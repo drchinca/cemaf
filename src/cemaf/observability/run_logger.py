@@ -7,11 +7,9 @@ This module provides:
 - RunLogger: Protocol for recording runs
 - InMemoryRunLogger: In-memory implementation
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -147,9 +145,9 @@ class RunRecord:
 
     run_id: str
     dag_name: str = ""
-    initial_context: Context | None = None  # noqa: F821
-    final_context: Context | None = None  # noqa: F821
-    patches: list[ContextPatch] = field(default_factory=list)  # noqa: F821
+    initial_context: Context | None = None  # type: ignore[name-defined]  # noqa: F821
+    final_context: Context | None = None  # type: ignore[name-defined]  # noqa: F821
+    patches: list[ContextPatch] = field(default_factory=list)  # type: ignore[name-defined]  # noqa: F821
     tool_calls: list[ToolCall] = field(default_factory=list)
     llm_calls: list[LLMCall] = field(default_factory=list)
     started_at: datetime = field(default_factory=utc_now)
@@ -232,7 +230,7 @@ class RunRecord:
             metadata=data.get("metadata", {}),
         )
 
-    def get_patch_log(self) -> PatchLog:  # noqa: F821
+    def get_patch_log(self) -> PatchLog:  # type: ignore[name-defined]  # noqa: F821
         """Get patches as a PatchLog."""
         from cemaf.context.patch import PatchLog
 
@@ -254,7 +252,7 @@ class RunLogger(Protocol):
         self,
         run_id: str,
         dag_name: str = "",
-        initial_context: Context | None = None,  # noqa: F821
+        initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """Start recording a new run."""
         ...
@@ -267,13 +265,13 @@ class RunLogger(Protocol):
         """Record an LLM call."""
         ...
 
-    def record_patch(self, patch: ContextPatch) -> None:  # noqa: F821
+    def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
         """Record a context patch."""
         ...
 
     def end_run(
         self,
-        final_context: Context | None = None,  # noqa: F821
+        final_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
         success: bool = True,
         error: str | None = None,
     ) -> RunRecord:
@@ -300,7 +298,7 @@ class InMemoryRunLogger:
         self,
         run_id: str,
         dag_name: str = "",
-        initial_context: Context | None = None,  # noqa: F821
+        initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """Start recording a new run."""
         self._current = RunRecord(
@@ -319,14 +317,14 @@ class InMemoryRunLogger:
         if self._current:
             self._current.llm_calls.append(call)
 
-    def record_patch(self, patch: ContextPatch) -> None:  # noqa: F821
+    def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
         """Record a context patch."""
         if self._current:
             self._current.patches.append(patch)
 
     def end_run(
         self,
-        final_context: Context | None = None,  # noqa: F821
+        final_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
         success: bool = True,
         error: str | None = None,
     ) -> RunRecord:
@@ -375,7 +373,7 @@ class NoOpRunLogger:
         self,
         run_id: str,
         dag_name: str = "",
-        initial_context: Context | None = None,  # noqa: F821
+        initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """No-op."""
         pass
@@ -388,13 +386,13 @@ class NoOpRunLogger:
         """No-op."""
         pass
 
-    def record_patch(self, patch: ContextPatch) -> None:  # noqa: F821
+    def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
         """No-op."""
         pass
 
     def end_run(
         self,
-        final_context: Context | None = None,  # noqa: F821
+        final_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
         success: bool = True,
         error: str | None = None,
     ) -> RunRecord:

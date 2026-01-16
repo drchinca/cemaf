@@ -5,19 +5,16 @@ Blueprints describe the structure and requirements for content generation scenes
 """
 
 from cemaf.blueprint.builder import BlueprintBuilder
+from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
+from cemaf.blueprint.entities import ContextEntity, EntityType
 from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
-from cemaf.blueprint.schema import (
-    Blueprint,
-    Participant,
-    SceneGoal,
-    StyleGuide,
-)
 
 __all__ = [
     # Schema models
     "Blueprint",
-    "Participant",
+    "ContextEntity",
+    "EntityType",
     "SceneGoal",
     "StyleGuide",
     # Builder

@@ -251,7 +251,7 @@ class BaseRegistry[T]:
             ...     dependencies={"client": client}
             ... )
         """
-        registry = cls(dependencies=dependencies, namespace=namespace)
+        registry = cls(dependencies=dependencies, namespace=namespace)  # type: ignore[call-arg]
 
         try:
             # Import the module
@@ -355,7 +355,7 @@ class BaseRegistry[T]:
                 raise ValueError(f"Missing required dependency: {param_name}")
 
         # Instantiate with injected dependencies
-        return item_class(**kwargs)  # type: ignore
+        return item_class(**kwargs)
 
     def _add_namespace_prefix(self, item_id: str) -> str:
         """
@@ -399,7 +399,7 @@ class BaseRegistry[T]:
         """
         # Try instantiating with no args to get ID
         try:
-            temp = item_class()  # type: ignore
+            temp = item_class()
             return str(getattr(temp, self._id_attribute))
         except Exception:
             pass

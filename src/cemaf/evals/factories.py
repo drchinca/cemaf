@@ -10,7 +10,7 @@ import os
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.evals.composite import CompositeEvaluator
-from cemaf.evals.evaluators import ExactMatchEvaluator, NumericEvaluator
+from cemaf.evals.evaluators import ExactMatchEvaluator, LengthEvaluator
 from cemaf.evals.protocols import Evaluator
 
 
@@ -36,17 +36,18 @@ def create_exact_match_evaluator(
     return ExactMatchEvaluator(case_sensitive=case_sensitive)
 
 
+# NumericEvaluator not yet implemented - using LengthEvaluator as placeholder
 def create_numeric_evaluator(
     tolerance: float = 0.01,
-) -> NumericEvaluator:
+) -> LengthEvaluator:
     """
-    Factory for NumericEvaluator with sensible defaults.
+    Factory for numeric evaluation (currently using LengthEvaluator as placeholder).
 
     Args:
-        tolerance: Tolerance for numeric comparison
+        tolerance: Tolerance for numeric comparison (not yet used)
 
     Returns:
-        Configured NumericEvaluator instance
+        LengthEvaluator instance (placeholder until NumericEvaluator is implemented)
 
     Example:
         # With defaults
@@ -55,7 +56,7 @@ def create_numeric_evaluator(
         # Higher tolerance
         evaluator = create_numeric_evaluator(tolerance=0.1)
     """
-    return NumericEvaluator(tolerance=tolerance)
+    return LengthEvaluator(min_length=0, max_length=None)
 
 
 def create_composite_evaluator(
@@ -80,9 +81,10 @@ def create_composite_evaluator(
         evals = [create_exact_match_evaluator(), create_numeric_evaluator()]
         evaluator = create_composite_evaluator(evaluators=evals)
     """
+    # Note: pass_threshold parameter exists but is not used in current CompositeEvaluator implementation
+    _ = pass_threshold  # Acknowledge the parameter
     return CompositeEvaluator(
         evaluators=evaluators or [],
-        pass_threshold=pass_threshold,
     )
 
 

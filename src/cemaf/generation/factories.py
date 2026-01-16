@@ -56,7 +56,9 @@ def create_image_generator(
         generator = create_image_generator(default_width=512, default_height=512)
     """
     if provider == "mock":
-        return MockImageGenerator(width=default_width, height=default_height)
+        # MockImageGenerator doesn't accept width/height parameters
+        # These are set per-generation via ImageSpec
+        return MockImageGenerator()
     else:
         raise ValueError(f"Unsupported image generator: {provider}")
 

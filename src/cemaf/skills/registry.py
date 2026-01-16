@@ -43,7 +43,7 @@ from cemaf.skills.protocols import Skill
 __all__ = ["SkillRegistry", "RegistryError"]
 
 
-class SkillRegistry(BaseRegistry[Skill]):
+class SkillRegistry(BaseRegistry[Skill[Any, Any]]):
     """
     Registry for skill management with auto-discovery and dependency injection.
 
@@ -82,7 +82,7 @@ class SkillRegistry(BaseRegistry[Skill]):
             namespace=namespace,
         )
 
-    def list_skills(self) -> list[Skill]:
+    def list_skills(self) -> list[Skill[Any, Any]]:
         """
         List all registered skills.
 

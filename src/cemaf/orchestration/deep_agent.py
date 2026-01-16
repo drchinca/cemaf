@@ -321,7 +321,6 @@ class DeepAgentOrchestrator:
             parent_agent_id=str(parent_id),
             depth=parent_context.depth + 1,
             global_memory=parent_context.global_memory,  # Read-only global
-            parent_memory=parent_context.agent_memory if not self._config.isolate_child_memory else {},
             artifacts=parent_context.artifacts,
         )
 
@@ -390,8 +389,12 @@ class DeepAgentOrchestrator:
             remaining_timeout = max(0.1, self._config.timeout_seconds - elapsed)
 
         try:
+            # Convert JSON dict to Context
+            from cemaf.context.context import Context
+
+            ctx = Context(data=context) if context else None
             result = await asyncio.wait_for(
-                self._dag_executor.run(dag, context),
+                self._dag_executor.run(dag, ctx),
                 timeout=remaining_timeout,
             )
             self._dag_executions.append(result)

@@ -7,12 +7,13 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-814_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
-[![Coverage](https://img.shields.io/badge/Coverage-100%25-success?style=flat-square)](.)
+[![Tests](https://img.shields.io/badge/Tests-1036_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Coverage](https://img.shields.io/badge/Coverage-77%25-yellow?style=flat-square)](.)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
 [![MyPy](https://img.shields.io/badge/Typed-MyPy-blue?style=flat-square)](http://mypy-lang.org/)
 [![Stars](https://img.shields.io/github/stars/drchinca/cemaf?style=flat-square&logo=github)](https://github.com/drchinca/cemaf)
 [![Issues](https://img.shields.io/github/issues/drchinca/cemaf?style=flat-square&logo=github)](https://github.com/drchinca/cemaf/issues)
+[![Open Startup](https://img.shields.io/badge/Open-Startup-00ADD8?style=flat-square)](OPEN.md)
 
 **Open source** context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
@@ -31,6 +32,7 @@
 - [Testing](#testing)
 - [Contributing](#contributing)
 - [Getting Help](#getting-help)
+- [Philosophy & Open Startup](#philosophy--open-startup)
 - [License](#license)
 
 ---
@@ -58,6 +60,8 @@ CEMAF is a protocol-first framework designed for **context engineering** in mult
 | **Cost** | Wasteful token usage | Smart context compilation |
 | **Reproducibility** | Can't replay/debug runs | Run recording + deterministic replay |
 | **Memory Leaks** | State bleeds between scopes | Strict memory boundaries with TTL |
+| **Content Safety** | Harmful outputs slip through | Pre/post-flight moderation gates + PII detection |
+| **Prompt Engineering** | Inconsistent LLM outputs | Semantic blueprints for structured content generation |
 
 ---
 
@@ -89,6 +93,8 @@ pip install -e ".[dev]"
 from cemaf.context import Context, ContextPatch
 from cemaf.observability import InMemoryRunLogger
 from cemaf.replay import Replayer
+from cemaf.blueprint import Blueprint, SceneGoal, StyleGuide
+from cemaf.moderation import ModerationPipeline, PreFlightGate, KeywordRule, PIIRule
 
 # Create context with provenance tracking
 ctx = Context()
@@ -105,6 +111,23 @@ record = logger.end_run(final_context=ctx)
 replayer = Replayer(record)
 result = await replayer.replay()
 assert result.final_context == record.final_context  # Deterministic!
+
+# Use semantic blueprints for structured content generation
+blueprint = Blueprint(
+    id="social-post",
+    name="Social Media Post",
+    scene_goal=SceneGoal(objective="Create engaging social media content"),
+    style_guide=StyleGuide(tone="casual", length_hint="concise")
+)
+prompt = blueprint.to_prompt()  # Convert to LLM-ready prompt
+
+# Add content safety with moderation guardrails
+moderation = ModerationPipeline(
+    pre_flight=PreFlightGate([KeywordRule(["spam", "scam"]), PIIRule()])
+)
+result = await moderation.check_input(user_message)
+if not result.allowed:
+    raise ValueError(f"Content blocked: {result.violations}")
 ```
 
 See the [Quick Start Guide](docs/quickstart.md) for more detailed examples.
@@ -168,6 +191,8 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **⚡ Cancellation**: Cooperative cancellation with timeouts
 - **🔧 Protocol-Based**: Plug into any framework
 - **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
+- **📋 Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
+- **🛡️ Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
 
 ---
 
@@ -186,6 +211,8 @@ Module References:
 - [Caching](docs/cache.md)
 - [Persistence](docs/persistence.md)
 - [Observability](docs/observability.md)
+- [Blueprint](docs/module_reference.md#blueprintconfig) - Semantic blueprints for content generation
+- [Moderation](docs/module_reference.md#validation--moderation) - Guardrails and content safety
 
 ---
 
@@ -287,6 +314,29 @@ We're here to help! Here are the best ways to get support:
 Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
 
 We're in **Alpha** and actively seeking feedback!
+
+---
+
+## Philosophy & Open Startup
+
+CEMAF operates as an **open startup** - we believe in radical transparency, community collaboration, and building in public.
+
+### Our Principles
+
+- **Community First:** We serve developers building AI agents
+- **Transparent:** All decisions, metrics, and roadmap are public
+- **Bias Toward Action:** Show > tell. Open PRs, not long debates
+- **Anyone Can Help:** Contribution > credentials
+- **Learn in Public:** We share wins AND mistakes
+
+### Resources
+
+- **[Philosophy Guide](docs/philosophy.md)** - Our 10 core principles and values
+- **[Open Metrics](OPEN.md)** - Transparent metrics, roadmap, and financials
+- **[Decision Log](docs/decisions/)** - All major decisions documented
+- **[Weekly Updates](https://github.com/drchinca/cemaf/discussions)** - Progress, learnings, and challenges
+
+**We're building CEMAF together. Your voice matters.**
 
 ---
 

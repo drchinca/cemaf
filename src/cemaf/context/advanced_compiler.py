@@ -11,9 +11,10 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import (
     AdvancedCompilerConfig,
     CompiledContext,
-    ContextSource,
     TokenEstimator,
 )
+from cemaf.context.source import ContextSource
+from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class AdvancedContextCompiler:
         Current default behavior - maintains backward compatibility.
         """
         # Calculate total tokens if we included everything
-        total_tokens = sum(s.token_count for s in sources)
+        total_tokens = sum(s.token_count or 0 for s in sources)
 
         # Create initial context with ALL sources
         initial_context = CompiledContext(
@@ -120,6 +121,8 @@ class AdvancedContextCompiler:
         Enables optimal selection strategies for performance-critical scenarios.
         """
         # Stage 1: Use algorithm to select sources
+        if self._algorithm is None:
+            raise RuntimeError("Algorithm is None in two-stage mode")
         selection_result = self._algorithm.select_sources(sources, budget)
 
         # Create initial context with selected sources
@@ -174,7 +177,7 @@ class AdvancedContextCompiler:
                     type="artifact",
                     key=key,
                     content=content,
-                    token_count=tokens,
+                    token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
             )
@@ -187,7 +190,7 @@ class AdvancedContextCompiler:
                     type="memory",
                     key=key,
                     content=content,
-                    token_count=tokens,
+                    token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
             )
@@ -214,16 +217,16 @@ class AdvancedContextCompiler:
             summarized_source = await self._summarize_source(source, context.budget)
 
             if summarized_source:
-                original_token_count = source.token_count
-                total_tokens = total_tokens - original_token_count + summarized_source.token_count
+                original_token_count = source.token_count or 0
+                total_tokens = total_tokens - original_token_count + (summarized_source.token_count or 0)
                 mutable_sources[i] = summarized_source
             else:
-                total_tokens -= source.token_count
+                total_tokens -= source.token_count or 0
                 mutable_sources[i] = None  # type: ignore
 
         final_sources = tuple(s for s in mutable_sources if s is not None)
 
-        total_tokens = sum(s.token_count for s in final_sources)
+        total_tokens = sum(s.token_count or 0 for s in final_sources)
 
         return CompiledContext(
             sources=final_sources,
@@ -252,11 +255,14 @@ class AdvancedContextCompiler:
             result = await self._llm_client.complete([Message.user(prompt)])
             if result.success and result.message:
                 summary_text = result.message.content
+                # Ensure summary_text is a string
+                content_str = summary_text if isinstance(summary_text, str) else str(summary_text)
+                tokens = self._estimator.estimate(content_str)
                 return ContextSource(
                     type=source.type,
                     key=f"summarized_{source.key}",
-                    content=summary_text,
-                    token_count=self._estimator.estimate(summary_text),
+                    content=content_str,
+                    token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=source.priority,
                     metadata={"original_key": source.key},
                 )

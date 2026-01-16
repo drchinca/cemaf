@@ -78,9 +78,9 @@ class InMemoryConfigSource:
         for part in parts[:-1]:
             if part not in current or not isinstance(current[part], dict):
                 current[part] = {}
-            current = current[part]  # type: ignore[assignment]
+            current = current[part]
 
-        current[parts[-1]] = value  # type: ignore[index]
+        current[parts[-1]] = value
 
         for queue in self._watchers:
             queue.put_nowait(dict(self._data))

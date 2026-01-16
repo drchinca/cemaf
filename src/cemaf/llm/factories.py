@@ -78,7 +78,7 @@ def create_llm_client_from_config(
 
     # BUILT-IN IMPLEMENTATIONS
     if provider == "mock":
-        return create_mock_llm_client()
+        return create_mock_llm_client()  # type: ignore[return-value]
 
     # ============================================================================
     # EXTEND HERE: Bring Your Own LLM Provider

@@ -6,7 +6,7 @@ Provides validation rules for Blueprint schemas and content quality.
 
 from typing import Any
 
-from cemaf.blueprint.schema import Blueprint, Participant, SceneGoal
+from cemaf.blueprint.core import Blueprint, SceneGoal
 from cemaf.core.types import JSON
 from cemaf.validation.protocols import (
     ValidationError,
@@ -158,7 +158,7 @@ class BlueprintContentRule:
         if isinstance(data, Blueprint):
             objective = data.scene_goal.objective
             instruction = data.instruction
-            participants = data.participants
+            entities = data.entities
             description = data.description
         elif isinstance(data, dict):
             scene_goal = data.get("scene_goal", {})
@@ -167,7 +167,7 @@ class BlueprintContentRule:
             else:
                 objective = scene_goal.get("objective", "") if isinstance(scene_goal, dict) else ""
             instruction = data.get("instruction", "")
-            participants = data.get("participants", ())
+            entities = data.get("entities", ())
             description = data.get("description", "")
         else:
             return ValidationResult.error(
@@ -207,41 +207,32 @@ class BlueprintContentRule:
                 )
             )
 
-        # Check participant roles
+        # Check entity names for duplicates
         seen_names: set[str] = set()
-        for i, participant in enumerate(participants):
-            if isinstance(participant, Participant):
-                p_name = participant.name
-                p_role = participant.role
-            elif isinstance(participant, dict):
-                p_name = participant.get("name", "")
-                p_role = participant.get("role", "")
+        for i, entity in enumerate(entities):
+            # Get entity name (handle both ContextEntity instances and dicts)
+            if hasattr(entity, "name"):
+                entity_name = entity.name
+            elif isinstance(entity, dict):
+                entity_name = entity.get("name", "")
             else:
                 continue
 
             # Check for duplicate names
-            if p_name in seen_names:
+            if entity_name in seen_names:
                 errors.append(
                     ValidationError(
-                        code="DUPLICATE_PARTICIPANT",
-                        message=f"Duplicate participant name: '{p_name}'",
-                        field=f"participants[{i}].name",
-                        value=p_name,
-                        suggestion="Use unique names for each participant",
+                        code="DUPLICATE_PARTICIPANT",  # Keep code for backward compat
+                        message=f"Duplicate entity name: '{entity_name}'",
+                        field=f"entities[{i}].name",
+                        value=entity_name,
+                        suggestion="Use unique names for each entity",
                     )
                 )
-            seen_names.add(p_name)
+            seen_names.add(entity_name)
 
-            # Check for empty role
-            if not p_role:
-                warnings.append(
-                    ValidationWarning(
-                        code="EMPTY_ROLE",
-                        message=f"Participant '{p_name}' has no role defined",
-                        field=f"participants[{i}].role",
-                        suggestion="Consider adding a role to clarify the participant's purpose",
-                    )
-                )
+            # NOTE: Empty role check removed - ContextEntity factory methods
+            # ensure valid entity_type, making empty role validation unnecessary
 
         # Warn if no description
         if not description:

@@ -41,10 +41,9 @@ def create_memory_store(
         store = create_memory_store(max_items=5000, default_ttl_seconds=7200.0)
     """
     if backend == "memory":
-        return InMemoryStore(
-            max_items=max_items,
-            default_ttl_seconds=default_ttl_seconds,
-        )
+        # Note: InMemoryStore doesn't support max_items/ttl limits yet
+        # These parameters are reserved for future implementation
+        return InMemoryStore()
     else:
         raise ValueError(f"Unsupported memory backend: {backend}")
 

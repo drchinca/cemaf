@@ -4,12 +4,10 @@ cemaf.context.context - Manages the flow and state of context within agentic wor
 This module introduces an immutable Context object that encapsulates the dynamic state
 and information available to agents and nodes during execution.
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.merge and cemaf.context.patch.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
@@ -80,8 +78,8 @@ class Context(BaseModel):
     def merge_branches(
         self,
         branches: list[Context],
-        strategy: MergeStrategy | None = None,  # noqa: F821
-    ) -> MergeResult:  # noqa: F821
+        strategy: MergeStrategy | None = None,  # type: ignore[name-defined]  # noqa: F821
+    ) -> MergeResult:  # type: ignore[name-defined]  # noqa: F821
         """
         Merge multiple branch contexts using a specified strategy.
 
@@ -176,7 +174,7 @@ class Context(BaseModel):
                 result[key] = value
         return result
 
-    def apply(self, patch: ContextPatch) -> Context:  # noqa: F821
+    def apply(self, patch: ContextPatch) -> Context:  # type: ignore[name-defined]  # noqa: F821
         """
         Apply a ContextPatch and return a new Context.
 
@@ -199,7 +197,7 @@ class Context(BaseModel):
         else:
             return self
 
-    def diff(self, other: Context) -> tuple[ContextPatch, ...]:  # noqa: F821
+    def diff(self, other: Context) -> tuple[ContextPatch, ...]:  # type: ignore[name-defined]  # noqa: F821
         """
         Generate patches to transform self into other.
 
@@ -210,7 +208,7 @@ class Context(BaseModel):
             Tuple of patches that, when applied to self, produce other
         """
 
-        patches: list[ContextPatch] = []  # noqa: F821
+        patches: list[ContextPatch] = []  # type: ignore[name-defined]  # noqa: F821
         self._diff_recursive("", self.data, other.data, patches)
         return tuple(patches)
 
@@ -219,7 +217,7 @@ class Context(BaseModel):
         prefix: str,
         old: Any,
         new: Any,
-        patches: list[ContextPatch],  # noqa: F821
+        patches: list[ContextPatch],  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """Recursively generate patches for differences."""
         from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
@@ -279,8 +277,8 @@ class Context(BaseModel):
                 # Existing key - recurse
                 self._diff_recursive(path, old[key], new[key], patches)
 
-    def copy(self) -> Context:
-        """Create a shallow copy of the context."""
+    def copy_context(self) -> Context:
+        """Create a deep copy of the context."""
         import copy
 
         return Context(data=copy.deepcopy(self.data))

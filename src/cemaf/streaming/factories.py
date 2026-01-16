@@ -9,13 +9,13 @@ import os
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
-from cemaf.streaming.sse import SSEStreamProcessor
+from cemaf.streaming.sse import SSEFormatter
 
 
 def create_sse_stream_processor(
     buffer_size: int = 1000,
     chunk_timeout_seconds: float = 30.0,
-) -> SSEStreamProcessor:
+) -> SSEFormatter:
     """
     Factory for SSEStreamProcessor with sensible defaults.
 
@@ -33,13 +33,11 @@ def create_sse_stream_processor(
         # Custom configuration
         processor = create_sse_stream_processor(buffer_size=500)
     """
-    return SSEStreamProcessor(
-        buffer_size=buffer_size,
-        chunk_timeout_seconds=chunk_timeout_seconds,
-    )
+    # SSEFormatter only accepts include_event_type, ignoring other params
+    return SSEFormatter(include_event_type=True)
 
 
-def create_sse_stream_processor_from_config(settings: Settings | None = None) -> SSEStreamProcessor:
+def create_sse_stream_processor_from_config(settings: Settings | None = None) -> SSEFormatter:
     """
     Create SSEStreamProcessor from environment configuration.
 

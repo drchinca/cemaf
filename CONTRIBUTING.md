@@ -6,17 +6,20 @@ Thank you for considering contributing to CEMAF (Context Engineering Multi-Agent
 
 1. Fork the repository
 2. Clone your fork:
+
    ```bash
    git clone https://github.com/YOUR_USERNAME/cemaf.git
    cd cemaf
    ```
 
 3. Install uv (if not already installed):
+
    ```bash
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
 4. Create virtual environment and install dependencies:
+
    ```bash
    uv venv
    uv sync
@@ -33,10 +36,12 @@ Thank you for considering contributing to CEMAF (Context Engineering Multi-Agent
 ### 1. Create a Branch
 
 ```bash
-git checkout -b feature/your-feature-name
+git checkout -b <gitusername>/your-feature-name
 # or
-git checkout -b fix/your-bug-fix
+git checkout -b <gitusername>/your-bug-fix
 ```
+
+**Note**: Branch names must always follow the format `<gitusername>/*` where `<gitusername>` is your GitHub username.
 
 ### 2. Make Your Changes
 
@@ -48,7 +53,7 @@ git checkout -b fix/your-bug-fix
 
 ### 3. Write Tests
 
-All new features must include tests. CEMAF has comprehensive test coverage with 51+ test files.
+All new features must include tests. CEMAF has comprehensive test coverage with 1000+ tests across 50+ test files.
 
 ```python
 import pytest
@@ -110,7 +115,7 @@ Follow conventional commits:
 ### 6. Push and Create PR
 
 ```bash
-git push origin feature/your-feature-name
+git push origin <gitusername>/your-feature-name
 ```
 
 Then create a Pull Request on GitHub.
@@ -128,9 +133,7 @@ Then create a Pull Request on GitHub.
 ### Example
 
 ```python
-from typing import Dict, List
-
-async def calculate_total(items: List[Dict[str, float]]) -> float:
+async def calculate_total(items: list[dict[str, float]]) -> float:
     """Calculate the total price of items.
 
     Args:
@@ -149,24 +152,6 @@ async def calculate_total(items: List[Dict[str, float]]) -> float:
 ```
 
 ## Testing Guidelines
-
-### Test Structure
-
-CEMAF uses pytest with extensive async support. All tests follow the Arrange-Act-Assert pattern:
-
-```python
-@pytest.mark.asyncio
-async def test_function_name_when_condition_then_expected_result():
-    """Test description."""
-    # Arrange
-    input_data = setup_test_data()
-
-    # Act
-    result = await function_under_test(input_data)
-
-    # Assert
-    assert result == expected_value
-```
 
 ### Test Coverage
 
@@ -293,6 +278,7 @@ CEMAF is a modular, protocol-based framework. Key principles:
 ## Questions?
 
 Feel free to open an issue for:
+
 - Bug reports
 - Feature requests
 - Questions about the codebase
@@ -300,4 +286,10 @@ Feel free to open an issue for:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing to CEMAF, you agree that your contributions will be licensed under the [MIT License](LICENSE). This means:
+
+- You retain copyright to your contributions
+- Your contributions will be made available under the same MIT License as the rest of the project
+- You grant the project maintainers and users the rights to use, modify, and distribute your contributions
+
+For full details, see the [LICENSE](LICENSE) file in the repository root.

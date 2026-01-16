@@ -7,7 +7,7 @@ All generators are Protocol-based for pluggability.
 
 from abc import ABC
 from enum import Enum
-from typing import Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -139,7 +139,7 @@ class MediaOutput(BaseModel):
         content_str: str | None = None,
         url: str | None = None,
         format: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> MediaOutput:
         """Create successful output."""
         return cls(
@@ -152,7 +152,7 @@ class MediaOutput(BaseModel):
         )
 
     @classmethod
-    def fail(cls, error: str, **kwargs) -> MediaOutput:
+    def fail(cls, error: str, **kwargs: Any) -> MediaOutput:
         """Create failed output."""
         return cls(success=False, error=error, **kwargs)
 
@@ -271,7 +271,7 @@ class AudioGenerator(Protocol):
         """Generate speech using cloned voice."""
         ...
 
-    def list_voices(self) -> list[dict]:
+    def list_voices(self) -> list[dict[str, Any]]:
         """List available voices."""
         ...
 

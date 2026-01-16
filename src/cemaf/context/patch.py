@@ -7,12 +7,10 @@ This module provides:
 - PatchSource: Who/what made the change (TOOL, AGENT, LLM, SYSTEM, USER)
 - PatchLog: An append-only log of patches for replay/debugging
 
-Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
+Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.context.
 Type imports happen at runtime within methods that need them.
 """
-
-from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -281,7 +279,7 @@ class PatchLog:
         """Extend with multiple patches and return a new PatchLog."""
         return PatchLog(patches=self.patches + tuple(patches))
 
-    def replay(self, initial: Context) -> Context:  # noqa: F821
+    def replay(self, initial: Context) -> Context:  # type: ignore[name-defined]  # noqa: F821
         """
         Replay all patches on an initial context.
 

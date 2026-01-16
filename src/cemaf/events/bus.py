@@ -25,13 +25,13 @@ class _BaseEventBus:
     def subscribe(self, event_type: str | EventType, handler: EventHandler | Handler) -> Callable[[], None]:
         """Subscribe to events. Returns unsubscribe function."""
         key = event_type.value if isinstance(event_type, EventType) else event_type
-        fn = handler.handle if hasattr(handler, "handle") else handler  # type: ignore
+        fn = handler.handle if hasattr(handler, "handle") else handler
         self._handlers[key].append(fn)
         return lambda: self._handlers[key].remove(fn) if fn in self._handlers[key] else None
 
     def subscribe_all(self, handler: EventHandler | Handler) -> Callable[[], None]:
         """Subscribe to all events. Returns unsubscribe function."""
-        fn = handler.handle if hasattr(handler, "handle") else handler  # type: ignore
+        fn = handler.handle if hasattr(handler, "handle") else handler
         self._global.append(fn)
         return lambda: self._global.remove(fn) if fn in self._global else None
 

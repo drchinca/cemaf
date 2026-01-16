@@ -51,9 +51,11 @@ class Condition:
         # Perform comparison
         op = self.operator
         if op == ConditionOperator.EQUALS:
-            return current_val == self.value
+            result: bool = current_val == self.value
+            return result
         if op == ConditionOperator.NOT_EQUALS:
-            return current_val != self.value
+            result = current_val != self.value
+            return result
         if op == ConditionOperator.GREATER_THAN:
             return (
                 current_val is not None and self.value is not None and current_val > self.value
@@ -259,7 +261,7 @@ class Node:
             description=description,
             config=base_config,
             output_key=output_key,
-            routes=node_routes,
+            routes=node_routes,  # type: ignore[arg-type]
         )
 
     @classmethod
@@ -301,7 +303,7 @@ class DAG(BaseModel):
         dag = dag.add_edge(Edge("analyze", "export"))
 
         # Validate
-        dag.validate()  # Raises if cycles or invalid
+        dag.validate_structure()  # Raises if cycles or invalid
     """
 
     model_config = {"frozen": True}
@@ -381,7 +383,7 @@ class DAG(BaseModel):
 
         return tuple(result)
 
-    def validate(self) -> bool:
+    def validate_structure(self) -> bool:
         """
         Validate the DAG structure.
 
