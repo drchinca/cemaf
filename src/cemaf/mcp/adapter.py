@@ -17,7 +17,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from cemaf.blueprint.schema import Blueprint
+from cemaf.blueprint.core import Blueprint
 from cemaf.core.types import JSON
 from cemaf.events.protocols import EventBus
 from cemaf.mcp.protocols import (

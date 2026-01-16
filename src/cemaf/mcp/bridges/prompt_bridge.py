@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from cemaf.blueprint.schema import Blueprint
+from cemaf.blueprint.core import Blueprint
 from cemaf.mcp.types import MCPPrompt, MCPPromptArgument
 
 
@@ -31,12 +31,12 @@ class PromptBridge:
                 )
             )
 
-        # Participants can be customized
-        if blueprint.participants:
+        # Entities can be customized
+        if blueprint.entities:
             arguments.append(
                 MCPPromptArgument(
-                    name="participants",
-                    description="Custom participant definitions",
+                    name="entities",
+                    description="Custom entity definitions",
                     required=False,
                 )
             )
