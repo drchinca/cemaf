@@ -10,6 +10,13 @@ A pluggable, modular framework for building AI agent systems with:
 
 Author: Hikuri Bado Chinca (@drchinca)
 Email: chincadr@gmail.com
+
+API Discovery:
+    Use Python's built-in introspection:
+    >>> import cemaf
+    >>> help(cemaf)           # Full documentation
+    >>> dir(cemaf)            # List public API
+    >>> cemaf.__all__         # Explicit exports
 """
 
 __version__ = "0.1.0"
