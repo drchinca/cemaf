@@ -5,6 +5,8 @@ Provides implementations for breaking large content into processable chunks
 that respect token budgets and enable recursive querying.
 """
 
+import re
+
 from cemaf.context.compiler import TokenEstimator
 from cemaf.core.types import TokenCount
 from cemaf.rlm.protocols import ContextChunk
@@ -147,8 +149,6 @@ class FixedSizeChunkingStrategy:
 
     def _split_sentences(self, text: str) -> list[str]:
         """Split text into sentences (simple implementation)."""
-        import re
-
         sentence_endings = re.compile(r"([.!?]+[\s\n]+)")
         parts = sentence_endings.split(text)
 

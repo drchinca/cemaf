@@ -263,8 +263,10 @@ class TestDivideAndConquerQueryEngine:
             budget=budget,
         )
 
-        assert result.success is True
-        assert "Error:" in result.answer
+        # LLM failures should now return failure, not success with error message
+        assert result.success is False
+        assert result.error is not None
+        assert "LLM error" in result.error
 
     @pytest.mark.asyncio
     async def test_token_usage_tracking(self, engine: DivideAndConquerQueryEngine) -> None:

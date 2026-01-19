@@ -81,18 +81,30 @@ class DivideAndConquerQueryEngine:
                 depth_reached=depth,
             )
 
-        artifacts = tuple((chunk.chunk_id, chunk.content) for chunk in chunks)
+        # Convert chunks to (key, content) pairs for compiler
+        chunk_data = tuple((chunk.chunk_id, chunk.content) for chunk in chunks)
         compiled = await self._compiler.compile(
-            artifacts=artifacts,
+            artifacts=chunk_data,
             memories=(),
             budget=budget,
         )
 
         if compiled.within_budget():
             result = await self._single_query(instruction, chunks, compiled)
+
+            # If LLM call failed, return failure (not success with error message)
+            if not result["found"]:
+                return RecursiveQueryResult.fail(
+                    error=result["answer"],
+                    depth_reached=depth,
+                    chunks_examined=len(chunks),
+                    llm_calls_made=1,
+                    metadata={"strategy": "single_query"},
+                )
+
             return RecursiveQueryResult.ok(
                 answer=result["answer"],
-                relevant_chunks=tuple(chunks) if result["found"] else (),
+                relevant_chunks=tuple(chunks),
                 depth_reached=depth,
                 chunks_examined=len(chunks),
                 llm_calls_made=1,
@@ -103,18 +115,32 @@ class DivideAndConquerQueryEngine:
                 },
             )
 
-        if depth >= max_depth:
-            result = await self._fallback_query(instruction, chunks, budget)
+        if depth >= max_depth or len(chunks) == 1:
+            # Fallback when max depth reached OR single chunk that doesn't fit
+            # Single chunk case prevents infinite recursion
+            result = await self._query_first_chunk_only(instruction, chunks, budget)
+            reason = "max_depth_reached" if depth >= max_depth else "single_large_chunk"
+
+            # If LLM call failed, return failure
+            if not result["found"]:
+                return RecursiveQueryResult.fail(
+                    error=result["answer"],
+                    depth_reached=depth,
+                    chunks_examined=1,
+                    llm_calls_made=1,
+                    metadata={"strategy": "fallback", "reason": reason},
+                )
+
             return RecursiveQueryResult.ok(
                 answer=result["answer"],
-                relevant_chunks=tuple(chunks[:1]) if result["found"] else (),
+                relevant_chunks=tuple(chunks[:1]),
                 depth_reached=depth,
                 chunks_examined=1,
                 llm_calls_made=1,
                 total_tokens_used=TokenCount(result["tokens_used"]),
                 metadata={
                     "strategy": "fallback",
-                    "reason": "max_depth_reached",
+                    "reason": reason,
                 },
             )
 
@@ -205,13 +231,21 @@ context, explicitly state that."""
             "tokens_used": int(result.total_tokens),
         }
 
-    async def _fallback_query(
+    async def _query_first_chunk_only(
         self,
         instruction: str,
         chunks: tuple[ContextChunk, ...],
         budget: TokenBudget,
     ) -> dict[str, Any]:
-        """Fallback query when max depth reached."""
+        """
+        Query only the first chunk when recursion limit reached.
+
+        This is a fallback strategy used when:
+        1. Max recursion depth is reached
+        2. Single large chunk that doesn't fit in budget
+
+        Only processes the first chunk to provide partial results.
+        """
         first_chunk = chunks[0]
         prompt = f"""{instruction}
 

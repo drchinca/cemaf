@@ -12,6 +12,9 @@ from cemaf.core.types import ToolID
 from cemaf.rlm.protocols import ChunkingStrategy, RecursiveQueryEngine
 from cemaf.tools.base import ToolResult, ToolSchema
 
+# Token budget constants
+DEFAULT_RESERVED_OUTPUT_TOKENS = 1000  # Reserve tokens for LLM response generation
+
 
 class RLMQueryTool:
     """
@@ -149,7 +152,7 @@ class RLMQueryTool:
 
             budget = TokenBudget(
                 max_tokens=max_tokens,
-                reserved_for_output=1000,
+                reserved_for_output=DEFAULT_RESERVED_OUTPUT_TOKENS,
             )
 
             result = await self._engine.query(
