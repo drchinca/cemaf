@@ -143,3 +143,53 @@ if result.success:
 else:
     error = result.error
 ```
+
+## Real-World Example: RLM Query Tool
+
+RLM (Recursive Language Models) is a CEMAF tool for querying large context:
+
+```python
+from cemaf.rlm import create_rlm_tool
+from cemaf.llm.anthropic import AnthropicLLMClient
+
+# Create LLM client
+llm = AnthropicLLMClient(api_key="...")
+
+# Create RLM tool
+rlm_tool = create_rlm_tool(
+    llm_client=llm,
+    chunk_size=500,
+    max_depth=3,
+    max_tokens=4000,
+)
+
+# Tool implements standard protocol
+assert rlm_tool.id == "rlm_query"
+assert rlm_tool.schema.name == "rlm_query"
+
+# Execute query on large content
+result = await rlm_tool.execute(
+    instruction="Find all mentions of CEMAF",
+    content=large_document,  # 100K+ tokens
+)
+
+# Always returns Result
+if result.success:
+    print(f"Answer: {result.data}")
+    print(f"Metadata: {result.metadata}")
+    # → depth_reached, chunks_examined, llm_calls_made, total_tokens_used
+else:
+    print(f"Error: {result.error}")
+
+# Use in ToolRegistry for LLM function calling
+from cemaf.tools.registry import ToolRegistry
+
+registry = ToolRegistry(namespace="analysis")
+registry.register_instance(rlm_tool)
+
+# Export for Claude/GPT
+anthropic_schemas = registry.to_anthropic_schemas()
+# → [{"name": "analysis.rlm_query", "description": "...", "input_schema": {...}}]
+```
+
+**See Also**: [RLM Documentation](./rlm.md)

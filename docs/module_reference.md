@@ -240,6 +240,106 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 ---
 
+## RLM - Recursive Language Models (`cemaf/rlm/`)
+
+### `protocols.py`
+
+- **Purpose**: Core RLM protocols for recursive context querying
+- **Key Classes**:
+  - `ContextChunk`: Immutable chunk of context (chunk_id, content, token_count, parent_id, depth, metadata)
+  - `RecursiveQueryResult`: Result with answer, relevant_chunks, error, execution metadata
+  - `ChunkingStrategy`: Protocol for breaking content into chunks
+  - `RecursiveQueryEngine`: Protocol for recursive query execution
+- **Features**:
+  - Chunks convert to `ContextSource` for compilation
+  - Hierarchical chunk organization (parent/child relationships)
+  - Full execution trace (depth, chunks examined, LLM calls, tokens used)
+
+### `chunking.py`
+
+- **Purpose**: Chunking strategies for breaking large content into processable chunks
+- **Key Class**: `FixedSizeChunkingStrategy`
+- **Features**:
+  - Token-based chunking with paragraph/sentence/word boundaries
+  - Configurable chunk size (default 500 tokens)
+  - Uses `TokenEstimator` for accurate sizing
+  - Creates flat chunk structure (depth=0)
+  - Future: hierarchical summarization support
+
+### `engine.py`
+
+- **Purpose**: Recursive query engine with divide-and-conquer strategy
+- **Key Class**: `DivideAndConquerQueryEngine`
+- **Algorithm**:
+  1. Base case: If chunks fit in budget → single LLM call
+  2. Recursive case: Split chunks, query each, aggregate results
+  3. Fallback: Max depth reached or single large chunk → query first chunk only
+- **Features**:
+  - Uses `PriorityContextCompiler` for budget enforcement
+  - Respects max_depth to prevent infinite recursion
+  - Aggregates results from recursive queries
+  - Detailed metadata (strategy, depth, tokens, LLM calls)
+
+### `tool.py`
+
+- **Purpose**: RLM as a CEMAF Tool for integration with Skills and Agents
+- **Key Class**: `RLMQueryTool`
+- **Features**:
+  - Implements standard `Tool` protocol
+  - Schema compatible with OpenAI/Anthropic function calling
+  - Parameters: instruction, content, max_depth, max_tokens, chunk_size
+  - Returns `ToolResult` with execution metadata
+  - Never raises exceptions (always returns Result)
+
+### `__init__.py`
+
+- **Purpose**: Public API and factory function
+- **Key Function**: `create_rlm_tool()`
+- **Features**:
+  - Creates configured RLMQueryTool with sensible defaults
+  - Dependency injection for LLM client and token estimator
+  - Customizable parameters (chunk_size, max_depth, max_tokens)
+  - Wires together: ChunkingStrategy + RecursiveQueryEngine + RLMQueryTool
+
+### Integration with CEMAF
+
+RLM integrates seamlessly with CEMAF's core systems:
+- **Context Compilation**: Uses `TokenBudget` and `ContextCompiler`
+- **Token Estimation**: Uses `TokenEstimator` for accurate chunk sizing
+- **LLM Integration**: Uses `LLMClient` protocol (supports any LLM backend)
+- **Tool System**: Implements `Tool` protocol (works with `ToolRegistry`)
+- **Skill/Agent Composition**: Injects into Skills via dependency injection
+- **Result Pattern**: Returns `Result[T]` consistently
+
+### Use Cases
+
+- Query large documents (100K+ tokens) that exceed LLM context window
+- Recursive analysis of large codebases
+- Summarization of extensive reports or datasets
+- Finding specific information in large knowledge bases
+- Divide-and-conquer processing of batch data
+
+### Example
+
+```python
+from cemaf.rlm import create_rlm_tool
+from cemaf.llm.anthropic import AnthropicLLMClient
+
+llm = AnthropicLLMClient(api_key="...")
+rlm_tool = create_rlm_tool(llm, chunk_size=500, max_depth=3)
+
+result = await rlm_tool.execute(
+    instruction="Find all mentions of CEMAF",
+    content=large_document,  # 100K tokens
+)
+
+print(f"Answer: {result.data}")
+print(f"Metadata: {result.metadata}")
+# → depth_reached, chunks_examined, llm_calls_made, total_tokens_used
+```
+
+---
+
 ## Observability (`cemaf/observability/`)
 
 ### `run_logger.py`
