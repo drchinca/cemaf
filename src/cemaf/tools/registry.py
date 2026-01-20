@@ -41,8 +41,7 @@ from typing import Any
 
 from cemaf.core.registry import BaseRegistry, RegistryError
 from cemaf.core.types import JSON
-from cemaf.tools.base import ToolSchema
-from cemaf.tools.protocols import Tool
+from cemaf.tools.base import Tool, ToolSchema
 
 __all__ = ["ToolRegistry", "RegistryError"]
 

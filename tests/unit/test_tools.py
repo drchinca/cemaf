@@ -14,7 +14,8 @@ Uses fixtures from conftest.py:
 
 import pytest
 
-from cemaf.tools.base import Tool, ToolResult, ToolSchema, tool_decorator
+from cemaf.tools.base import ToolResult, ToolSchema, tool_decorator
+from cemaf.tools.protocols import Tool
 
 
 class TestToolResult:

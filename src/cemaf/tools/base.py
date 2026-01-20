@@ -1,11 +1,12 @@
 """
-Tool base classes and protocols.
+Tool data structures and utilities.
 
-A Tool is:
-- An atomic function with a JSON schema
-- Stateless (no memory)
-- Returns Result (never raises)
-- Can record calls for replay/debugging
+This module provides:
+- ToolSchema: JSON Schema definition for tool parameters
+- ToolResult: Type alias for tool execution results
+- tool decorator: Convert functions to Tool protocol implementations
+
+For the Tool protocol interface, see cemaf.tools.protocols.Tool
 
 Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.moderation and cemaf.observability.
@@ -19,9 +20,6 @@ from typing import Any, TypeVar
 
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
-from cemaf.core.utils import utc_now
-from cemaf.moderation.pipeline import ModerationPipeline
-from cemaf.observability.run_logger import RunLogger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -71,6 +69,12 @@ class Tool(ABC):
     """
     Abstract base class for tools.
 
+    A Tool is an atomic, stateless function that:
+    - Has a unique identifier
+    - Has a JSON schema for parameter validation
+    - Executes a single, focused task
+    - Returns Result (never raises exceptions)
+
     Example:
         class CalculateTool(Tool):
             @property
@@ -82,7 +86,12 @@ class Tool(ABC):
                 return ToolSchema(
                     name="calculate",
                     description="Perform arithmetic calculation",
-                    parameters={"type": "object", "properties": {"expression": {"type": "string"}}},
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "expression": {"type": "string", "description": "Math expression"}
+                        }
+                    },
                     required=("expression",)
                 )
 
@@ -103,88 +112,13 @@ class Tool(ABC):
     @property
     @abstractmethod
     def schema(self) -> ToolSchema:
-        """Get the tool's schema."""
+        """JSON Schema definition for this tool's parameters."""
         ...
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:
-        """Execute the tool. Returns Result, never raises."""
+        """Execute the tool with keyword arguments."""
         ...
-
-    async def execute_with_recording(
-        self,
-        run_logger: RunLogger,  # noqa: F821
-        correlation_id: str = "",
-        moderation_pipeline: ModerationPipeline | None = None,  # noqa: F821
-        **kwargs: Any,
-    ) -> ToolResult:
-        """
-        Execute the tool and record the call to the run logger.
-
-        Args:
-            run_logger: Logger to record the call
-            correlation_id: Optional correlation ID for tracing
-            moderation_pipeline: Optional moderation pipeline for pre/post-flight checks
-            **kwargs: Arguments to pass to execute()
-
-        Returns:
-            ToolResult from execution
-        """
-        from cemaf.observability.run_logger import ToolCall
-
-        start_time = utc_now()
-
-        # Pre-flight moderation check
-        if moderation_pipeline is not None:
-            pre_result = await moderation_pipeline.check_input(kwargs)
-            if not pre_result.allowed:
-                # Return blocked result
-                violation_msg = (
-                    pre_result.violations[0].message if pre_result.violations else "Content blocked"
-                )
-                return Result.fail(f"Pre-flight moderation blocked: {violation_msg}")
-
-        # Execute the tool
-        result = await self.execute(**kwargs)
-
-        # Post-flight moderation check (only if execution succeeded)
-        if moderation_pipeline is not None and result.success:
-            post_result = await moderation_pipeline.check_output(result.data)
-            if not post_result.allowed:
-                # Return blocked result
-                violation_msg = (
-                    post_result.violations[0].message if post_result.violations else "Output blocked"
-                )
-                return Result.fail(f"Post-flight moderation blocked: {violation_msg}")
-            # Use redacted content if available
-            if post_result.redacted_content is not None:
-                result = Result.ok(post_result.redacted_content)
-
-        end_time = utc_now()
-        duration_ms = (end_time - start_time).total_seconds() * 1000
-
-        # Create and record the call
-        output_data: dict[str, Any]
-        if result.success and isinstance(result.data, dict):
-            output_data = result.data
-        elif result.success:
-            output_data = {"result": result.data}
-        else:
-            output_data = {}
-
-        call = ToolCall(
-            tool_id=str(self.id),
-            input=kwargs,
-            output=output_data,
-            duration_ms=duration_ms,
-            timestamp=start_time,
-            correlation_id=correlation_id,
-            success=result.success,
-            error=result.error if not result.success else None,
-        )
-        run_logger.record_tool_call(call)
-
-        return result
 
 
 def tool(
@@ -192,9 +126,11 @@ def tool(
     description: str,
     parameters: JSON | None = None,
     required: tuple[str, ...] = (),
-) -> Callable[[F], Tool]:
+) -> Callable[[F], Any]:
     """
-    Decorator to create a Tool from a function.
+    Decorator to create a Tool protocol implementation from a function.
+
+    The returned object implements the Tool protocol (cemaf.tools.protocols.Tool).
 
     Example:
         @tool(name="add", description="Add two numbers")
@@ -202,7 +138,7 @@ def tool(
             return Result.ok(a + b)
     """
 
-    def decorator(func: F) -> Tool:
+    def decorator(func: F) -> Any:
         _schema = ToolSchema(
             name=name,
             description=description,
@@ -210,7 +146,9 @@ def tool(
             required=required,
         )
 
-        class FunctionTool(Tool):
+        class FunctionTool:
+            """Tool protocol implementation wrapping a function."""
+
             @property
             def id(self) -> ToolID:
                 return ToolID(name)

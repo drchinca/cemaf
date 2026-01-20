@@ -83,11 +83,11 @@ def run_id() -> RunID:
 # TOOL FIXTURES
 # =============================================================================
 
-from cemaf.tools.base import Tool, ToolResult, ToolSchema
+from cemaf.tools.base import ToolResult, ToolSchema
 
 
-class MockTool(Tool):
-    """Configurable mock tool for testing."""
+class MockTool:
+    """Configurable mock tool for testing (implements Tool protocol)."""
 
     def __init__(
         self,

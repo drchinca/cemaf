@@ -33,13 +33,13 @@ from cemaf.mcp.types import (
     MCPToolDefinition,
     MCPToolResult,
 )
-from cemaf.tools.base import Tool, ToolSchema
+from cemaf.tools.base import ToolSchema
 
 # --- Mock Tool for Testing ---
 
 
-class EchoTool(Tool):
-    """Simple tool that echoes input for testing."""
+class EchoTool:
+    """Simple tool that echoes input for testing (implements Tool protocol)."""
 
     @property
     def id(self) -> ToolID:
@@ -64,8 +64,8 @@ class EchoTool(Tool):
         return Result.ok(f"Echo: {message}")
 
 
-class CalculatorTool(Tool):
-    """Simple calculator tool for testing."""
+class CalculatorTool:
+    """Simple calculator tool for testing (implements Tool protocol)."""
 
     @property
     def id(self) -> ToolID:

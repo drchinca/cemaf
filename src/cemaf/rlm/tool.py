@@ -10,18 +10,20 @@ from cemaf.context.budget import TokenBudget
 from cemaf.core.result import Result
 from cemaf.core.types import ToolID
 from cemaf.rlm.protocols import ChunkingStrategy, RecursiveQueryEngine
-from cemaf.tools.base import ToolResult, ToolSchema
+from cemaf.tools.base import Tool, ToolResult, ToolSchema
 
 # Token budget constants
 DEFAULT_RESERVED_OUTPUT_TOKENS = 1000  # Reserve tokens for LLM response generation
 
 
-class RLMQueryTool:
+class RLMQueryTool(Tool):
     """
     Tool for recursive context querying.
 
     Enables agents to query large context recursively instead of
     loading everything into LLM context window.
+
+    This class inherits from the Tool ABC (cemaf.tools.base.Tool).
 
     Example:
         rlm_tool = RLMQueryTool(query_engine, chunking_strategy)
@@ -114,32 +116,27 @@ class RLMQueryTool:
             required=("instruction", "content"),
         )
 
-    async def execute(
-        self,
-        instruction: str,
-        content: str,
-        max_depth: int | None = None,
-        max_tokens: int | None = None,
-        chunk_size: int | None = None,
-        **kwargs: Any,
-    ) -> ToolResult:
+    async def execute(self, **kwargs: Any) -> ToolResult:
         """
         Execute recursive query.
 
         Args:
-            instruction: Query instruction
-            content: Content to query
-            max_depth: Maximum recursion depth (default=tool's default)
-            max_tokens: Token budget (default=tool's default)
-            chunk_size: Chunk size (default=tool's default)
-            **kwargs: Additional arguments (ignored)
+            **kwargs: Keyword arguments containing:
+                - instruction (str): Query instruction
+                - content (str): Content to query
+                - max_depth (int, optional): Maximum recursion depth
+                - max_tokens (int, optional): Token budget
+                - chunk_size (int, optional): Chunk size
 
         Returns:
             ToolResult with answer and execution metadata
         """
-        max_depth = max_depth if max_depth is not None else self._default_max_depth
-        max_tokens = max_tokens if max_tokens is not None else self._default_max_tokens
-        chunk_size = chunk_size if chunk_size is not None else self._default_chunk_size
+        # Extract parameters from kwargs
+        instruction: str = kwargs["instruction"]
+        content: str = kwargs["content"]
+        max_depth: int = kwargs.get("max_depth", self._default_max_depth)
+        max_tokens: int = kwargs.get("max_tokens", self._default_max_tokens)
+        chunk_size: int = kwargs.get("chunk_size", self._default_chunk_size)
 
         try:
             chunks = self._chunking.chunk(content, max_chunk_tokens=chunk_size)

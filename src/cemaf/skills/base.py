@@ -1,10 +1,12 @@
 """
-Skill base classes.
+Skill data structures and utilities.
 
-A Skill is:
-- A composable capability that uses one or more Tools
-- Has access to context (read-only)
-- Returns Result with output data
+This module provides:
+- SkillOutput: Dataclass for skill results with tool call traces
+- SkillResult: Type alias for skill execution results
+- SkillContext: Read-only context provided to skills
+
+For the Skill protocol interface, see cemaf.skills.protocols.Skill
 
 ## Best Practices for Skills
 
@@ -14,7 +16,7 @@ When a skill retrieves data from external stores (vector DB, cache, memory),
 emit the results to context so downstream nodes can reuse them:
 
 ```python
-class RetrievalSkill(Skill):
+class RetrievalSkill:  # Implements Skill protocol
     async def execute(self, input: SearchInput, context: SkillContext) -> SkillResult:
         # Retrieve from vector store
         docs = await self.vector_store.search(input.query, top_k=5)
@@ -37,7 +39,7 @@ Combine resilience and caching decorators in this order (innermost first):
 from cemaf.resilience import retry, circuit_breaker
 from cemaf.cache import cache_result
 
-class RobustSkill(Skill):
+class RobustSkill:  # Implements Skill protocol
     # Order matters: cache → circuit breaker → retry → function
     @cache_result(ttl=600)
     @circuit_breaker(failure_threshold=5)
@@ -96,6 +98,13 @@ class Skill[InputT: BaseModel, OutputT](ABC):
     """
     Abstract base class for skills.
 
+    A Skill is a composable capability that:
+    - Has a unique identifier
+    - Has a clear purpose/description
+    - Composes one or more tools to accomplish tasks
+    - Accepts validated input (typically Pydantic models)
+    - Returns structured results with tool call traces
+
     Example:
         class DataFetchSkill(Skill[FetchInput, FetchOutput]):
             def __init__(self, http_tool: Tool, parser_tool: Tool):
@@ -107,21 +116,28 @@ class Skill[InputT: BaseModel, OutputT](ABC):
                 return SkillID("data_fetch")
 
             @property
+            def description(self) -> str:
+                return "Fetch and parse data from APIs"
+
+            @property
             def tools(self) -> tuple[Tool, ...]:
                 return (self._http, self._parser)
 
-            async def execute(self, input: FetchInput, ctx: SkillContext) -> SkillResult:
-                http_result = await self._http.execute(url=input.url)
-                if not http_result.success:
-                    return Result.fail(http_result.error or "HTTP failed")
+            async def execute(self, input: FetchInput, context: SkillContext) -> SkillResult:
+                # Fetch data using HTTP tool
+                fetch_result = await self._http.execute(url=input.url)
+                if not fetch_result.success:
+                    return Result.fail(fetch_result.error)
 
-                parse_result = await self._parser.execute(data=http_result.data)
+                # Parse data using parser tool
+                parse_result = await self._parser.execute(data=fetch_result.data)
                 if not parse_result.success:
-                    return Result.fail(parse_result.error or "Parse failed")
+                    return Result.fail(parse_result.error)
 
+                # Return with tool call trace
                 return Result.ok(SkillOutput(
                     data=FetchOutput(data=parse_result.data),
-                    tool_calls=(http_result, parse_result)
+                    tool_calls=(fetch_result, parse_result)
                 ))
     """
 
@@ -145,5 +161,5 @@ class Skill[InputT: BaseModel, OutputT](ABC):
 
     @abstractmethod
     async def execute(self, input: InputT, context: SkillContext) -> SkillResult:
-        """Execute the skill."""
+        """Execute the skill with validated input and context."""
         ...

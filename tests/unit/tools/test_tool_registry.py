@@ -13,12 +13,12 @@ import pytest
 
 from cemaf.core.result import Result
 from cemaf.core.types import ToolID
-from cemaf.tools.base import ToolResult, ToolSchema
+from cemaf.tools.base import Tool, ToolResult, ToolSchema
 from cemaf.tools.registry import RegistryError, ToolRegistry
 
 
 # Test tool implementations
-class SimpleTool:
+class SimpleTool(Tool):
     """Simple tool with no dependencies."""
 
     @property
@@ -41,7 +41,7 @@ class SimpleTool:
         return Result.ok(f"Simple: {value}")
 
 
-class ToolWithDependency:
+class ToolWithDependency(Tool):
     """Tool that requires a dependency."""
 
     def __init__(self, client: str) -> None:
@@ -67,7 +67,7 @@ class ToolWithDependency:
         return Result.ok(f"Client: {self.client}, Query: {query}")
 
 
-class ToolWithMultipleDeps:
+class ToolWithMultipleDeps(Tool):
     """Tool that requires multiple dependencies."""
 
     def __init__(self, client: str, database: str) -> None:
