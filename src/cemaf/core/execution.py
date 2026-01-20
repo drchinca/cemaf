@@ -14,6 +14,9 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from cemaf.core.utils import utc_now
+from cemaf.observability import get_logger
+
+logger = get_logger("core.execution")
 
 
 class CancelledException(Exception):
@@ -111,11 +114,18 @@ class CancellationToken:
         self._cancelled_at = utc_now()
 
         # Notify callbacks
+        logger.debug("Notifying %d cancellation callbacks", len(self._callbacks), reason=reason)
         for callback in self._callbacks:
             try:
                 callback()
-            except Exception:
-                pass  # Ignore callback errors
+            except Exception as e:
+                # Log but don't fail cancellation if callback fails
+                logger.warning(
+                    "Cancellation callback failed: %s",
+                    str(e),
+                    callback=callback.__name__ if hasattr(callback, "__name__") else str(callback),
+                    exc_info=True,
+                )
 
     def raise_if_cancelled(self) -> None:
         """

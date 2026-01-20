@@ -26,6 +26,10 @@ import inspect
 import pkgutil
 from typing import Any
 
+from cemaf.observability import get_logger
+
+logger = get_logger("core.registry")
+
 
 class RegistryError(Exception):
     """Raised when registry operations fail."""
@@ -275,8 +279,15 @@ class BaseRegistry[T]:
                 try:
                     submodule = importlib.import_module(modname)
                     discovered_count += registry._discover_from_module(submodule)
-                except Exception:
-                    # Skip modules that can't be imported
+                except Exception as e:
+                    # Log but skip modules that can't be imported
+                    logger.warning(
+                        "Failed to import module %s during auto-discovery: %s",
+                        modname,
+                        str(e),
+                        module_path=module_path,
+                        exc_info=True,
+                    )
                     continue
         else:
             # It's a single module
@@ -401,8 +412,14 @@ class BaseRegistry[T]:
         try:
             temp = item_class()
             return str(getattr(temp, self._id_attribute))
-        except Exception:
-            pass
+        except Exception as e:
+            # Expected - class may require constructor args
+            logger.debug(
+                "Could not instantiate %s to extract ID, using class name instead: %s",
+                item_class.__name__,
+                str(e),
+                item_type=self._item_type_name,
+            )
 
         # Fall back to class name
         return item_class.__name__
