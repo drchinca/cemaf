@@ -116,9 +116,15 @@ class Agent[GoalT, ResultT](Protocol):
         5. **Context Isolation**: Each agent has isolated AgentContext
 
     See Also:
-        - cemaf.agents.base.Agent (deprecated ABC, use this protocol instead)
+        - cemaf.agents.base.Agent - ABC base class (recommended for most implementations)
+        - This Protocol - For advanced structural typing without inheritance
         - cemaf.skills.protocols.Skill (skill protocol)
         - cemaf.orchestration.deep_agent.DeepAgent (hierarchical agent orchestration)
+
+    Usage Guide:
+        - Use ABC when you want helper methods and clear inheritance
+        - Use Protocol when you need duck typing or wrapping existing objects
+        - Function signatures should use Protocol for maximum flexibility
     """
 
     @property

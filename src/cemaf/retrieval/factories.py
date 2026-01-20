@@ -142,59 +142,16 @@ def create_vector_store_from_config(
     # ============================================================================
 
     # ============================================================================
-    # PLACEHOLDER: Common Vector Store Backends
+    # Extension Point: Add Custom Vector Store Backends
     # ============================================================================
-    # Uncomment and implement these as needed, or add your own:
+    # To add support for additional vector stores (Pinecone, Qdrant, Weaviate,
+    # Chroma, PGVector, FAISS, etc.), implement the VectorStore protocol and
+    # add an elif branch here for your backend.
     #
-    # elif backend == "pinecone":
-    #     # TODO: Implement PineconeVectorStore
-    #     # from cemaf.retrieval.pinecone_store import PineconeVectorStore
-    #     # api_key = os.getenv("PINECONE_API_KEY")
-    #     # environment = os.getenv("PINECONE_ENVIRONMENT", "us-east-1")
-    #     # index_name = os.getenv("PINECONE_INDEX_NAME", "cemaf-index")
-    #     # return PineconeVectorStore(api_key=api_key, environment=environment, index_name=index_name)
-    #     pass
-    #
-    # elif backend == "qdrant":
-    #     # TODO: Implement QdrantVectorStore
-    #     # from cemaf.retrieval.qdrant_store import QdrantVectorStore
-    #     # url = os.getenv("QDRANT_URL", "http://localhost:6333")
-    #     # api_key = os.getenv("QDRANT_API_KEY")
-    #     # collection_name = os.getenv("QDRANT_COLLECTION_NAME", "cemaf")
-    #     # return QdrantVectorStore(url=url, api_key=api_key, collection_name=collection_name)
-    #     pass
-    #
-    # elif backend == "weaviate":
-    #     # TODO: Implement WeaviateVectorStore
-    #     # from cemaf.retrieval.weaviate_store import WeaviateVectorStore
-    #     # url = os.getenv("WEAVIATE_URL", "http://localhost:8080")
-    #     # api_key = os.getenv("WEAVIATE_API_KEY")
-    #     # class_name = os.getenv("WEAVIATE_CLASS_NAME", "Document")
-    #     # return WeaviateVectorStore(url=url, api_key=api_key, class_name=class_name)
-    #     pass
-    #
-    # elif backend == "chroma":
-    #     # TODO: Implement ChromaVectorStore
-    #     # from cemaf.retrieval.chroma_store import ChromaVectorStore
-    #     # persist_directory = os.getenv("CHROMA_PERSIST_DIRECTORY", "./data/chroma")
-    #     # collection_name = os.getenv("CHROMA_COLLECTION_NAME", "cemaf")
-    #     # return ChromaVectorStore(persist_directory=persist_directory, collection_name=collection_name)
-    #     pass
-    #
-    # elif backend == "pgvector":
-    #     # TODO: Implement PGVectorStore
-    #     # from cemaf.retrieval.pgvector_store import PGVectorStore
-    #     # connection_string = os.getenv("PGVECTOR_CONNECTION_STRING")
-    #     # table_name = os.getenv("PGVECTOR_TABLE_NAME", "embeddings")
-    #     # return PGVectorStore(connection_string=connection_string, table_name=table_name)
-    #     pass
-    #
-    # elif backend == "faiss":
-    #     # TODO: Implement FAISSVectorStore
-    #     # from cemaf.retrieval.faiss_store import FAISSVectorStore
-    #     # index_path = os.getenv("FAISS_INDEX_PATH", "./data/faiss.index")
-    #     # return FAISSVectorStore(index_path=index_path, embedding_provider=embedding_provider)
-    #     pass
+    # Example:
+    #   elif backend == "custom":
+    #       from cemaf.retrieval.custom_store import CustomVectorStore
+    #       return CustomVectorStore(...)
     # ============================================================================
 
     raise ValueError(

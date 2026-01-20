@@ -188,7 +188,6 @@ class MemoryStore(ABC):
         """
         # Default implementation - subclasses may override for efficiency
         return 0
-        ...
 
 
 class InMemoryStore(MemoryStore):

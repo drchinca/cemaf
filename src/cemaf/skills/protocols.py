@@ -145,9 +145,15 @@ class Skill[InputT, OutputT](Protocol):
             ...         pass
 
     See Also:
-        - cemaf.skills.base.Skill (deprecated ABC, use this protocol instead)
+        - cemaf.skills.base.Skill - ABC base class (recommended for most implementations)
+        - This Protocol - For advanced structural typing without inheritance
         - cemaf.tools.protocols.Tool (tool protocol)
         - cemaf.agents.protocols.Agent (agent protocol)
+
+    Usage Guide:
+        - Use ABC when you want helper methods and clear inheritance
+        - Use Protocol when you need duck typing or wrapping existing objects
+        - Function signatures should use Protocol for maximum flexibility
     """
 
     @property

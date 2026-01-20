@@ -170,9 +170,15 @@ class Tool(Protocol):
             ... )
 
     See Also:
-        - cemaf.tools.base.Tool (deprecated ABC, use this protocol instead)
+        - cemaf.tools.base.Tool - ABC base class (recommended for most implementations)
+        - This Protocol - For advanced structural typing without inheritance
         - cemaf.tools.base.tool (decorator for creating tools from functions)
         - cemaf.skills.protocols.Skill (skill protocol that uses tools)
+
+    Usage Guide:
+        - Use ABC when you want helper methods and clear inheritance
+        - Use Protocol when you need duck typing or wrapping existing objects
+        - Function signatures should use Protocol for maximum flexibility
     """
 
     @property

@@ -139,9 +139,15 @@ class MemoryStore(Protocol):
         - TURN: Turn-scoped (cleared after each turn)
 
     See Also:
-        - cemaf.memory.base.MemoryStore (deprecated ABC, use this protocol instead)
+        - cemaf.memory.base.MemoryStore - ABC base class (recommended for most implementations)
+        - This Protocol - For advanced structural typing without inheritance
         - cemaf.memory.base.InMemoryStore (reference implementation)
         - cemaf.core.enums.MemoryScope (scope definitions)
+
+    Usage Guide:
+        - Use ABC when you want helper methods and clear inheritance
+        - Use Protocol when you need duck typing or wrapping existing objects
+        - Function signatures should use Protocol for maximum flexibility
     """
 
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
