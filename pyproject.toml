@@ -3,7 +3,7 @@ name = "cemaf"
 version = "0.1.0"
 description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
     { name = "Hikuri Bado Chinca", email = "chincadr@gmail.com" },
