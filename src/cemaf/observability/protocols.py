@@ -15,22 +15,22 @@ from cemaf.core.types import JSON
 
 @runtime_checkable
 class Logger(Protocol):
-    """Protocol for structured logging."""
+    """Protocol for structured logging with lazy evaluation support."""
 
-    def debug(self, message: str, **kwargs: Any) -> None:
-        """Log debug message."""
+    def debug(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log debug message with lazy evaluation using % formatting."""
         ...
 
-    def info(self, message: str, **kwargs: Any) -> None:
-        """Log info message."""
+    def info(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log info message with lazy evaluation using % formatting."""
         ...
 
-    def warning(self, message: str, **kwargs: Any) -> None:
-        """Log warning message."""
+    def warning(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log warning message with lazy evaluation using % formatting."""
         ...
 
-    def error(self, message: str, **kwargs: Any) -> None:
-        """Log error message."""
+    def error(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log error message with lazy evaluation using % formatting."""
         ...
 
     def with_context(self, **kwargs: Any) -> Logger:

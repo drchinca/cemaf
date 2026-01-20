@@ -13,7 +13,17 @@ from cemaf.observability.protocols import Span
 
 
 class SimpleLogger:
-    """Simple stdout logger with structured output."""
+    """
+    Simple stdout logger with lazy evaluation.
+
+    Uses Python's % formatting for lazy evaluation - arguments only
+    formatted if log level is enabled.
+
+    Example:
+        logger = SimpleLogger()
+        logger.debug("Processing %s items", len(items))  # Lazy evaluation
+        logger.info("Started run", run_id=run_id)  # Structured context
+    """
 
     def __init__(
         self,
@@ -31,32 +41,88 @@ class SimpleLogger:
 
         if not self._logger.handlers:
             handler = logging.StreamHandler(sys.stdout)
-            handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+            # Use standard format with time, level, name, message
+            formatter = logging.Formatter(
+                fmt="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            handler.setFormatter(formatter)
             self._logger.addHandler(handler)
 
-    def _format_kwargs(self, kwargs: dict[str, Any]) -> str:
-        """Format kwargs for logging."""
+    def _add_context(self, message: str, kwargs: dict[str, Any]) -> str:
+        """Add structured context to message (lazy evaluation)."""
         if not kwargs and not self._context:
-            return ""
+            return message
+
         all_context = {**self._context, **kwargs}
-        pairs = [f"{k}={v}" for k, v in all_context.items()]
-        return f" | {', '.join(pairs)}"
+        context_str = " | ".join("%s=%s" % (k, v) for k, v in all_context.items())
+        return "%s | %s" % (message, context_str)
 
-    def debug(self, message: str, **kwargs: Any) -> None:
-        """Log debug message."""
-        self._logger.debug(f"{message}{self._format_kwargs(kwargs)}")
+    def debug(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """
+        Log debug message with lazy evaluation.
 
-    def info(self, message: str, **kwargs: Any) -> None:
-        """Log info message."""
-        self._logger.info(f"{message}{self._format_kwargs(kwargs)}")
+        Args:
+            message: Message template (use %s, %d, etc. for placeholders)
+            *args: Values for message template
+            **kwargs: Structured context fields
 
-    def warning(self, message: str, **kwargs: Any) -> None:
-        """Log warning message."""
-        self._logger.warning(f"{message}{self._format_kwargs(kwargs)}")
+        Example:
+            logger.debug("Found %d items in cache", count, cache_key=key)
+        """
+        if self._logger.isEnabledFor(logging.DEBUG):
+            msg = self._add_context(message, kwargs)
+            self._logger.debug(msg, *args)
 
-    def error(self, message: str, **kwargs: Any) -> None:
-        """Log error message."""
-        self._logger.error(f"{message}{self._format_kwargs(kwargs)}")
+    def info(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """
+        Log info message with lazy evaluation.
+
+        Args:
+            message: Message template
+            *args: Values for message template
+            **kwargs: Structured context fields
+
+        Example:
+            logger.info("Started execution", run_id=run_id, node_count=len(nodes))
+        """
+        if self._logger.isEnabledFor(logging.INFO):
+            msg = self._add_context(message, kwargs)
+            self._logger.info(msg, *args)
+
+    def warning(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """
+        Log warning message with lazy evaluation.
+
+        Args:
+            message: Message template
+            *args: Values for message template
+            **kwargs: Structured context fields
+
+        Example:
+            logger.warning("Retry attempt %d failed", attempt, error=str(e))
+        """
+        if self._logger.isEnabledFor(logging.WARNING):
+            msg = self._add_context(message, kwargs)
+            self._logger.warning(msg, *args)
+
+    def error(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """
+        Log error message with lazy evaluation.
+
+        Args:
+            message: Message template
+            *args: Values for message template
+            **kwargs: Structured context fields
+
+        Example:
+            logger.error("Operation failed: %s", str(e), exc_info=True)
+        """
+        if self._logger.isEnabledFor(logging.ERROR):
+            msg = self._add_context(message, kwargs)
+            # Extract exc_info if provided in kwargs
+            exc_info = kwargs.pop("exc_info", False)
+            self._logger.error(msg, *args, exc_info=exc_info)
 
     def with_context(self, **kwargs: Any) -> SimpleLogger:
         """Return logger with additional context."""

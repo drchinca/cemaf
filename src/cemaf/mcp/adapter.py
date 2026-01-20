@@ -35,8 +35,11 @@ from cemaf.mcp.types import (
     MCPToolResult,
 )
 from cemaf.memory.protocols import MemoryStore
+from cemaf.observability import get_logger
 from cemaf.observability.run_logger import RunLogger
 from cemaf.tools.protocols import Tool
+
+logger = get_logger("mcp.adapter")
 
 # Type alias for method handlers
 MethodHandler = Callable[[JSON], Awaitable[JSON]]
@@ -177,8 +180,14 @@ class ResourceBridge:
                         description=f"Memory item in {scope.value} scope",
                     )
                     resources.append(resource)
-            except Exception:
-                # Skip scopes that fail
+            except Exception as e:
+                # Log but skip scopes that fail
+                logger.warning(
+                    "Failed to list resources for memory scope %s: %s",
+                    scope.value,
+                    str(e),
+                    exc_info=True,
+                )
                 continue
 
         return resources
@@ -478,8 +487,14 @@ class MCPAdapter:
                         )
                         try:
                             await self._transport.send(error_response)
-                        except Exception:
-                            # Transport error, exit loop
+                        except Exception as transport_err:
+                            # Log transport error and exit loop
+                            logger.error(
+                                "Failed to send error response, transport error: %s",
+                                str(transport_err),
+                                request_id=request.id,
+                                exc_info=True,
+                            )
                             break
         finally:
             await self._transport.disconnect()

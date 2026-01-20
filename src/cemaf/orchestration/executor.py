@@ -36,8 +36,11 @@ from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
 from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.observability import get_logger
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
+
+logger = get_logger("orchestration.executor")
 
 
 class ExecutorConfig(BaseModel):
@@ -375,7 +378,15 @@ class DAGExecutor:
             if edge.condition_rule:
                 try:
                     return edge.condition_rule.evaluate(context)
-                except Exception:
+                except Exception as e:
+                    # Log evaluation failure and return False as fallback
+                    logger.warning(
+                        "Edge condition evaluation failed: %s",
+                        str(e),
+                        edge_source=edge.source,
+                        edge_target=edge.target,
+                        exc_info=True,
+                    )
                     return False
             return False
 
@@ -496,7 +507,15 @@ class DAGExecutor:
         elif condition_rule:
             try:
                 condition_value = bool(condition_rule.evaluate(context))
-            except Exception:
+            except Exception as e:
+                # Log evaluation failure and default to False
+                logger.warning(
+                    "Condition rule evaluation failed in node %s: %s",
+                    node.id,
+                    str(e),
+                    node_type=node.type.value,
+                    exc_info=True,
+                )
                 condition_value = False
         else:
             condition_value = bool(context.get(condition_key))  # Updated to context.get

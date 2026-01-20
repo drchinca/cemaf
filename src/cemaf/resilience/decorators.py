@@ -21,8 +21,11 @@ from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any, TypeVar
 
+from cemaf.observability import get_logger
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
 from cemaf.resilience.retry import RetryConfig, RetryPolicy
+
+logger = get_logger("resilience.decorators")
 
 T = TypeVar("T")
 
@@ -157,7 +160,15 @@ def with_fallback[T](
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             try:
                 return await func(*args, **kwargs)
-            except Exception:
+            except Exception as e:
+                # Log fallback usage for debugging
+                logger.warning(
+                    "Function %s failed, returning fallback value: %s",
+                    func.__name__,
+                    str(e),
+                    fallback_value=fallback_value,
+                    exc_info=True,
+                )
                 return fallback_value
 
         return wrapper

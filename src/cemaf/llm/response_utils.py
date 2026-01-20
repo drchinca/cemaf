@@ -36,6 +36,9 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from cemaf.core.types import JSON
+from cemaf.observability import get_logger
+
+logger = get_logger("llm.response_utils")
 
 T = TypeVar("T")
 M = TypeVar("M", bound=BaseModel)
@@ -284,7 +287,14 @@ class ResponseParser:
 
         try:
             return extractor(text)
-        except Exception:
+        except Exception as e:
+            # Expected fallback behavior - log for debugging
+            logger.debug(
+                "Extraction failed, returning default: %s",
+                str(e),
+                text_preview=text[:100] if len(text) > 100 else text,
+                exc_info=True,
+            )
             return default
 
 
