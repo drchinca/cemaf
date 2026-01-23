@@ -22,6 +22,14 @@ Configuration:
     logger.info("Started processing", item_count=len(items))
 """
 
+from cemaf.observability.alerting_rules import (
+    RECOMMENDED_ALERTS,
+    AlertRule,
+    Severity,
+    export_prometheus_rules,
+    get_alert_by_name,
+    get_alerts_by_severity,
+)
 from cemaf.observability.config import (
     configure_logging,
     configure_metrics,
@@ -29,7 +37,9 @@ from cemaf.observability.config import (
     get_logger,
     get_metrics,
     get_tracer,
+    reset_observability,
 )
+from cemaf.observability.cost_tracking import ModelPricing, ModelPricingRegistry
 from cemaf.observability.health import (
     HealthCheck,
     HealthCheckResult,
@@ -37,6 +47,7 @@ from cemaf.observability.health import (
     HealthStatus,
     get_health_monitor,
 )
+from cemaf.observability.metrics_helper import MetricsHelper, record_timing
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
     InMemoryRunLogger,
@@ -46,7 +57,7 @@ from cemaf.observability.run_logger import (
     RunRecord,
     ToolCall,
 )
-from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger
+from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
 
 __all__ = [
     # Configuration
@@ -56,12 +67,14 @@ __all__ = [
     "get_logger",
     "get_tracer",
     "get_metrics",
+    "reset_observability",
     # Protocols
     "Logger",
     "Tracer",
     "MetricsCollector",
     # Simple implementations
     "SimpleLogger",
+    "SimpleMetrics",
     "NoOpTracer",
     "NoOpMetrics",
     # Health checks
@@ -77,4 +90,17 @@ __all__ = [
     "RunLogger",
     "InMemoryRunLogger",
     "NoOpRunLogger",
+    # Cost tracking
+    "ModelPricing",
+    "ModelPricingRegistry",
+    # Metrics helpers
+    "MetricsHelper",
+    "record_timing",
+    # Alerting rules
+    "AlertRule",
+    "Severity",
+    "RECOMMENDED_ALERTS",
+    "export_prometheus_rules",
+    "get_alert_by_name",
+    "get_alerts_by_severity",
 ]
