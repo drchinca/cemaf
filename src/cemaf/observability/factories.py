@@ -19,7 +19,7 @@ from cemaf.observability.run_logger import (
     NoOpRunLogger,
     RunLogger,
 )
-from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger
+from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
 
 
 def create_logger(
@@ -132,13 +132,22 @@ def create_metrics_collector(backend: str = "noop") -> MetricsCollector:
     Factory for MetricsCollector with sensible defaults.
 
     Args:
-        backend: Metrics backend (noop, prometheus, etc.)
+        backend: Metrics backend (noop, simple, prometheus, etc.)
 
     Returns:
         Configured MetricsCollector instance
+
+    Example:
+        # No-op (default)
+        metrics = create_metrics_collector()
+
+        # Simple metrics (logs to stdout)
+        metrics = create_metrics_collector("simple")
     """
     if backend == "noop":
         return NoOpMetrics()
+    elif backend == "simple":
+        return SimpleMetrics(prefix="cemaf")
     else:
         raise ValueError(f"Unsupported metrics backend: {backend}")
 
@@ -149,18 +158,44 @@ def create_metrics_collector_from_config(settings: Settings | None = None) -> Me
 
     Reads from environment variables:
     - CEMAF_OBSERVABILITY_METRICS_BACKEND: Backend (default: "noop")
+    - CEMAF_OBSERVABILITY_METRICS_PREFIX: Metric prefix (default: "cemaf")
 
     Returns:
         Configured MetricsCollector instance
+
+    Supported backends:
+        - noop: No-op metrics (default)
+        - simple: Simple metrics that log to stdout
+        - opentelemetry: OpenTelemetry backend (requires optional dependencies)
+
+    Environment examples:
+        # Use simple metrics
+        export CEMAF_OBSERVABILITY_METRICS_BACKEND=simple
+
+        # Use OpenTelemetry
+        export CEMAF_OBSERVABILITY_METRICS_BACKEND=opentelemetry
+        export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
     """
-    backend = os.getenv("CEMAF_OBSERVABILITY_METRICS_BACKEND", "noop")
+    backend = os.getenv("CEMAF_OBSERVABILITY_METRICS_BACKEND", "noop").lower()
+    prefix = os.getenv("CEMAF_OBSERVABILITY_METRICS_PREFIX", "cemaf")
 
     if backend == "noop":
         return create_metrics_collector(backend)
+    elif backend == "simple":
+        return SimpleMetrics(prefix=prefix)
 
     # ============================================================================
     # EXTEND HERE: Bring Your Own Metrics Collector
     # ============================================================================
+    # Example (OpenTelemetry):
+    #   elif backend == "opentelemetry":
+    #       from cemaf.observability.otel_metrics import OpenTelemetryMetrics
+    #       otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    #       return OpenTelemetryMetrics(
+    #           service_name=os.getenv("OTEL_SERVICE_NAME", "cemaf"),
+    #           otlp_endpoint=otlp_endpoint
+    #       )
+    #
     # Example (Prometheus):
     #   elif backend == "prometheus":
     #       from your_package import PrometheusMetrics
