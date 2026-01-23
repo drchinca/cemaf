@@ -16,6 +16,7 @@ from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger
 _logger: Logger | None = None
 _tracer: Tracer | None = None
 _metrics: MetricsCollector | None = None
+_log_level: int = logging.INFO
 
 
 def configure_logging(
@@ -41,7 +42,7 @@ def configure_logging(
         # Use custom logger
         configure_logging(logger=MyStructuredLogger())
     """
-    global _logger
+    global _logger, _log_level
 
     if logger is not None:
         _logger = logger
@@ -50,6 +51,7 @@ def configure_logging(
     # Determine log level from env or parameter
     log_level_str = (level or os.getenv("CEMAF_LOG_LEVEL") or "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
+    _log_level = log_level
 
     _logger = SimpleLogger(name=name, level=log_level)
 
@@ -95,7 +97,7 @@ def get_logger(name: str | None = None, **context: Any) -> Logger:
     Get logger instance with optional context.
 
     Args:
-        name: Logger name (appended to root name)
+        name: Logger name (module path like "orchestration.executor")
         **context: Additional context fields
 
     Returns:
@@ -105,21 +107,24 @@ def get_logger(name: str | None = None, **context: Any) -> Logger:
         logger = get_logger("dag.executor", run_id="123")
         logger.info("Starting execution")  # Includes run_id in output
     """
-    global _logger
+    global _logger, _log_level
 
     if _logger is None:
         configure_logging()
 
     assert _logger is not None  # For type checker
 
+    logger: Logger
     if name:
-        # Create child logger with hierarchical name
-        _logger = _logger.with_context(component=name)
+        # Create new logger with the provided module name
+        logger = SimpleLogger(name=name, level=_log_level)
+    else:
+        logger = _logger
 
     if context:
-        _logger = _logger.with_context(**context)
+        logger = logger.with_context(**context)
 
-    return _logger
+    return logger
 
 
 def get_tracer() -> Tracer:
@@ -170,7 +175,8 @@ def reset_observability() -> None:
 
     Warning: Only use in test teardown.
     """
-    global _logger, _tracer, _metrics
+    global _logger, _tracer, _metrics, _log_level
     _logger = None
     _tracer = None
     _metrics = None
+    _log_level = logging.INFO

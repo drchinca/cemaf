@@ -189,15 +189,13 @@ class DAGExecutor:
         Returns:
             ExecutionResult with all node results and final context
         """
-        # Validate DAG
-        dag.validate_structure()
-
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
         self._route_choices = {}
         self._correlation_id = str(run_id)
+        health_check_metadata: JSON = {}
 
         # Start logging if logger is configured
         if self._run_logger:
@@ -208,8 +206,9 @@ class DAGExecutor:
             )
 
         try:
+            # Validate DAG
+            dag.validate_structure()
             # Health check - fail-fast if critical dependencies unavailable
-            health_check_metadata: JSON = {}
             if self._health_registry and self._require_healthy:
                 health_result = await self._health_registry.check_all()
                 health_check_metadata = health_result.__dict__
