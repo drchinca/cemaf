@@ -6,6 +6,8 @@ Context Engineering Multi-Agent Framework
 
 - [Quick Start](quickstart.md) - Get running in 5 minutes
 - [Architecture](architecture.md) - System design overview
+- [Protocol Guide](protocol_guide.md) - Understanding protocol-based design
+- [Extension Patterns](extension_patterns.md) - How to extend CEMAF
 - [Module Reference](module_reference.md) - API reference
 
 ---
@@ -87,6 +89,9 @@ Connect CEMAF to external systems.
 | [streaming.md](streaming.md) | Streaming responses |
 | [generation.md](generation.md) | Content generation |
 | [validation.md](validation.md) | Input/output validation |
+| [protocol_guide.md](protocol_guide.md) | Understanding protocol-based design |
+| [extension_patterns.md](extension_patterns.md) | How to extend CEMAF |
+| [standalone_usage.md](standalone_usage.md) | Using modules independently |
 
 **Key Question**: "How do I connect to X?"
 
@@ -108,16 +113,25 @@ Configure CEMAF for your environment.
 
 ### 1. Protocol-First Design
 
-Every component is defined by a Protocol. Swap implementations freely.
+Every component is defined by a Protocol. **Modules work standalone**. Swap implementations freely.
 
 ```python
-# Your custom implementation works everywhere
-class MyTokenEstimator(TokenEstimator):
+# Your custom implementation works everywhere - no inheritance needed!
+class MyTokenEstimator:
     def estimate(self, text: str) -> int:
         return len(tiktoken.encode(text))
 
+# Structural typing - just implement the methods
 compiler = create_priority_compiler(token_estimator=MyTokenEstimator())
 ```
+
+**Key Points**:
+- Protocols define **what** must be provided, not **how**
+- Default implementations work out of the box
+- Replace any default with your own implementation
+- No registration needed - structural typing handles compatibility
+
+See [Protocol Guide](protocol_guide.md) for details.
 
 ### 2. Immutable State
 

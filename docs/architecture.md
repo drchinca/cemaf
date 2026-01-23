@@ -133,7 +133,33 @@ cemaf/
 ## Design Principles
 
 1. **Protocol-Based**: All components use Python `Protocol`s for maximum flexibility
-2. **Immutable Context**: State is managed through immutable `Context` objects
-3. **Result Pattern**: All operations return `Result[T]` for explicit error handling
-4. **Testability**: Comprehensive test suite with 426 tests and 55 fixtures
-5. **Modularity**: Each module is independent and can be used standalone
+   - Protocols define interfaces, not implementations
+   - Default implementations provided, but replaceable
+   - Structural typing - no inheritance required
+   - See [Protocol Guide](protocol_guide.md) for details
+
+2. **Standalone Modules**: Each module can be used independently
+   - No forced dependencies between modules
+   - Use only what you need
+   - Mix CEMAF modules with your own code freely
+
+3. **Immutable Context**: State is managed through immutable `Context` objects
+   - Every change creates a new Context
+   - Full provenance tracking via patches
+   - Enables deterministic replay
+
+4. **Result Pattern**: All operations return `Result[T]` for explicit error handling
+   - Never raises exceptions
+   - Explicit success/failure states
+   - Rich error metadata
+
+5. **Testability**: Comprehensive test suite with 426 tests and 55 fixtures
+   - Mock implementations for all protocols
+   - Dependency injection for testing
+   - Integration tests for real workflows
+
+6. **Extensibility**: Easy to extend and replace components
+   - Implement protocols to extend functionality
+   - Wrap existing implementations
+   - Create completely custom implementations
+   - See [Extension Patterns](extension_patterns.md) for examples

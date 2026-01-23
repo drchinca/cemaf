@@ -47,6 +47,9 @@ flowchart TB
 
 ### Getting Started
 - [Quick Start Guide](quickstart.md) - Installation and first steps
+- [Protocol Guide](protocol_guide.md) - Understanding CEMAF's protocol-based architecture
+- [Extension Patterns](extension_patterns.md) - How to extend CEMAF with your own implementations
+- [Standalone Usage](standalone_usage.md) - Using modules independently
 - [Architecture Overview](architecture.md) - System design and components
 - [Integration Guide](integration.md) - Mode A/B integration patterns
 
@@ -70,6 +73,10 @@ flowchart TB
 ### Supporting Modules
 - [LLM](llm.md) - LLM client protocols and adapters
 - [Retrieval](retrieval.md) - Vector stores and embeddings
+- [Citation](citation.md) - Source attribution tracking
+- [MCP](mcp.md) - Model Context Protocol integration
+- [Blueprint](blueprint.md) - Semantic blueprints for content generation
+- [Moderation](moderation.md) - Guardrails and content safety
 - [Streaming](streaming.md) - SSE and stream buffers
 - [Generation](generation.md) - Image, audio, video, UI, code generation
 - [Cache](cache.md) - Caching with TTL and eviction
