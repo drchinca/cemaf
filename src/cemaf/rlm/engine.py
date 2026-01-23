@@ -13,7 +13,10 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import LLMClient, Message
+from cemaf.observability import get_logger
 from cemaf.rlm.protocols import ContextChunk, RecursiveQueryResult
+
+logger = get_logger("rlm.engine")
 
 
 class DivideAndConquerQueryEngine:
@@ -76,6 +79,7 @@ class DivideAndConquerQueryEngine:
         max_depth = max_depth if max_depth is not None else self._max_depth
 
         if not chunks:
+            logger.warning("RLM query with no chunks", depth=depth, instruction_len=len(instruction))
             return RecursiveQueryResult.fail(
                 error="No chunks to query",
                 depth_reached=depth,
@@ -90,10 +94,23 @@ class DivideAndConquerQueryEngine:
         )
 
         if compiled.within_budget():
+            logger.debug(
+                "RLM single query (within budget)",
+                depth=depth,
+                num_chunks=len(chunks),
+                compiled_tokens=compiled.total_tokens,
+                budget_tokens=budget.max_tokens,
+            )
             result = await self._single_query(instruction, chunks, compiled)
 
             # If LLM call failed, return failure (not success with error message)
             if not result["found"]:
+                logger.warning(
+                    "RLM single query failed",
+                    depth=depth,
+                    num_chunks=len(chunks),
+                    error=result["answer"],
+                )
                 return RecursiveQueryResult.fail(
                     error=result["answer"],
                     depth_reached=depth,
@@ -102,6 +119,12 @@ class DivideAndConquerQueryEngine:
                     metadata={"strategy": "single_query"},
                 )
 
+            logger.info(
+                "RLM single query succeeded",
+                depth=depth,
+                num_chunks=len(chunks),
+                tokens_used=result["tokens_used"],
+            )
             return RecursiveQueryResult.ok(
                 answer=result["answer"],
                 relevant_chunks=tuple(chunks),
@@ -118,11 +141,25 @@ class DivideAndConquerQueryEngine:
         if depth >= max_depth or len(chunks) == 1:
             # Fallback when max depth reached OR single chunk that doesn't fit
             # Single chunk case prevents infinite recursion
-            result = await self._query_first_chunk_only(instruction, chunks, budget)
             reason = "max_depth_reached" if depth >= max_depth else "single_large_chunk"
+            logger.warning(
+                "RLM fallback strategy (incomplete coverage)",
+                depth=depth,
+                max_depth=max_depth,
+                num_chunks=len(chunks),
+                reason=reason,
+                coverage_warning="Only first chunk will be analyzed - other chunks skipped",
+            )
+            result = await self._query_first_chunk_only(instruction, chunks, budget)
 
             # If LLM call failed, return failure
             if not result["found"]:
+                logger.error(
+                    "RLM fallback query failed",
+                    depth=depth,
+                    reason=reason,
+                    error=result["answer"],
+                )
                 return RecursiveQueryResult.fail(
                     error=result["answer"],
                     depth_reached=depth,
@@ -131,6 +168,14 @@ class DivideAndConquerQueryEngine:
                     metadata={"strategy": "fallback", "reason": reason},
                 )
 
+            logger.info(
+                "RLM fallback query succeeded (incomplete)",
+                depth=depth,
+                reason=reason,
+                total_chunks=len(chunks),
+                chunks_analyzed=1,
+                coverage_percent=int((1 / len(chunks)) * 100) if chunks else 0,
+            )
             return RecursiveQueryResult.ok(
                 answer=result["answer"],
                 relevant_chunks=tuple(chunks[:1]),
@@ -147,6 +192,14 @@ class DivideAndConquerQueryEngine:
         mid = len(chunks) // 2
         left_chunks = chunks[:mid]
         right_chunks = chunks[mid:]
+
+        logger.debug(
+            "RLM dividing chunks",
+            depth=depth,
+            total_chunks=len(chunks),
+            left_chunks=len(left_chunks),
+            right_chunks=len(right_chunks),
+        )
 
         left_result = await self.query(
             instruction=instruction,
@@ -165,16 +218,54 @@ class DivideAndConquerQueryEngine:
         )
 
         if not left_result.success:
+            logger.warning(
+                "RLM left branch failed",
+                depth=depth,
+                left_chunks=len(left_chunks),
+                error=left_result.error,
+            )
             return left_result
 
         if not right_result.success:
+            logger.warning(
+                "RLM right branch failed",
+                depth=depth,
+                right_chunks=len(right_chunks),
+                error=right_result.error,
+            )
             return right_result
+
+        logger.debug(
+            "RLM aggregating results",
+            depth=depth,
+            left_depth=left_result.depth_reached,
+            right_depth=right_result.depth_reached,
+            left_llm_calls=left_result.llm_calls_made,
+            right_llm_calls=right_result.llm_calls_made,
+        )
 
         aggregated = await self._aggregate_results(
             instruction=instruction,
             left_result=left_result,
             right_result=right_result,
             budget=budget,
+        )
+
+        total_llm_calls = left_result.llm_calls_made + right_result.llm_calls_made + 1
+        total_tokens = (
+            int(left_result.total_tokens_used)
+            + int(right_result.total_tokens_used)
+            + aggregated["tokens_used"]
+        )
+
+        logger.info(
+            "RLM divide-and-conquer succeeded",
+            depth=depth,
+            total_chunks=len(chunks),
+            chunks_examined=left_result.chunks_examined + right_result.chunks_examined,
+            total_llm_calls=total_llm_calls,
+            total_tokens=total_tokens,
+            max_recursion_depth=max(left_result.depth_reached, right_result.depth_reached),
         )
 
         return RecursiveQueryResult.ok(
@@ -185,12 +276,8 @@ class DivideAndConquerQueryEngine:
             ),
             depth_reached=max(left_result.depth_reached, right_result.depth_reached),
             chunks_examined=(left_result.chunks_examined + right_result.chunks_examined),
-            llm_calls_made=(left_result.llm_calls_made + right_result.llm_calls_made + 1),
-            total_tokens_used=TokenCount(
-                int(left_result.total_tokens_used)
-                + int(right_result.total_tokens_used)
-                + aggregated["tokens_used"]
-            ),
+            llm_calls_made=total_llm_calls,
+            total_tokens_used=TokenCount(total_tokens),
             metadata={
                 "strategy": "divide_and_conquer",
                 "left_chunks": len(left_chunks),
