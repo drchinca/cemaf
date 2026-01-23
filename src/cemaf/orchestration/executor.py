@@ -36,11 +36,12 @@ from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
 from cemaf.moderation.pipeline import ModerationPipeline
-from cemaf.observability import get_logger
+from cemaf.observability import get_logger, get_metrics
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 
 logger = get_logger("orchestration.executor")
+metrics = get_metrics()
 
 
 class ExecutorConfig(BaseModel):
@@ -98,6 +99,7 @@ class ExecutionResult:
     final_context: Context = field(default_factory=Context)  # Updated to Context
     error: str | None = None
     started_at: datetime = field(default_factory=utc_now)
+    health_check_metadata: JSON = field(default_factory=dict)  # Health status at execution time
     completed_at: datetime | None = None
     metadata: JSON = field(default_factory=dict)
 
@@ -157,6 +159,8 @@ class DAGExecutor:
         event_bus: EventBus | None = None,
         moderation_pipeline: ModerationPipeline | None = None,
         merge_strategy: MergeStrategy | None = None,
+        health_registry: Any | None = None,
+        require_healthy: bool = True,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -166,6 +170,8 @@ class DAGExecutor:
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
         self._route_choices: dict[NodeID, set[NodeID]] = {}
         self._correlation_id: str = ""
+        self._health_registry = health_registry
+        self._require_healthy = require_healthy
 
     async def run(
         self,
@@ -184,15 +190,22 @@ class DAGExecutor:
         Returns:
             ExecutionResult with all node results and final context
         """
-        # Validate DAG
-        dag.validate_structure()
-
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
         self._route_choices = {}
         self._correlation_id = str(run_id)
+        health_check_metadata: JSON = {}
+
+        # Record DAG execution start
+        metrics.counter("cemaf.dag.executions.total", tags={"dag_name": dag.name})
+        logger.info(
+            "Starting DAG execution",
+            dag_name=dag.name,
+            run_id=str(run_id),
+            num_nodes=len(dag.nodes),
+        )
 
         # Start logging if logger is configured
         if self._run_logger:
@@ -203,6 +216,48 @@ class DAGExecutor:
             )
 
         try:
+            # Validate DAG
+            dag.validate_structure()
+            # Health check - fail-fast if critical dependencies unavailable
+            if self._health_registry and self._require_healthy:
+                health_result = await self._health_registry.check_all()
+                health_check_metadata = health_result.__dict__
+
+                from cemaf.observability.health import HealthStatus
+
+                if health_result.status == HealthStatus.UNHEALTHY:
+                    logger.error(
+                        "Execution blocked by health check failure",
+                        extra={
+                            "health_status": health_result.status,
+                            "health_message": health_result.message,
+                            "dag_name": dag.name,
+                            "run_id": str(run_id),
+                        },
+                    )
+                    # Record health check blocking metric
+                    metrics.counter(
+                        "cemaf.dag.executions.blocked_by_health",
+                        tags={"dag_name": dag.name},
+                    )
+                    # End run logging if started
+                    if self._run_logger:
+                        self._run_logger.end_run(
+                            final_context=context,
+                            success=False,
+                            error=f"Health check failed: {health_result.message}",
+                        )
+
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        error=f"Pre-execution health check failed: {health_result.message}",
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
+                    )
+
             # Get execution order
             order = dag.topological_sort()
 
@@ -264,8 +319,39 @@ class DAGExecutor:
                     node_results.append(result)
                     completed[node_id] = result
 
+                # Record per-node metrics
+                node_type_name = node.type.value if hasattr(node.type, "value") else str(node.type)
+                node_tags = {
+                    "node_id": str(node_id),
+                    "node_type": node_type_name,
+                    "dag_name": dag.name,
+                    "status": "success" if result.success else "failed",
+                }
+                metrics.counter("cemaf.node.executions.total", tags=node_tags)
+                metrics.histogram("cemaf.node.duration_ms", result.duration_ms, tags=node_tags)
+                if result.success:
+                    metrics.counter("cemaf.node.executions.success", tags=node_tags)
+                else:
+                    metrics.counter("cemaf.node.executions.failed", tags=node_tags)
+
                 # Stop on failure if retry_on_failure is False
                 if not result.success and not node.retry_on_failure and node.type != NodeType.CONDITIONAL:
+                    # Record DAG failure metrics
+                    completed_at = utc_now()
+                    duration_ms = (completed_at - started_at).total_seconds() * 1000
+                    error_type = type(result.error).__name__ if result.error else "Unknown"
+                    failure_tags = {"dag_name": dag.name, "error_type": error_type}
+                    metrics.counter("cemaf.dag.executions.failed", tags=failure_tags)
+                    metrics.histogram("cemaf.dag.duration_ms", duration_ms, tags=failure_tags)
+
+                    logger.error(
+                        "DAG execution failed at node",
+                        dag_name=dag.name,
+                        failed_node=str(node_id),
+                        error=result.error,
+                        duration_ms=duration_ms,
+                    )
+
                     # End run logging
                     if self._run_logger:
                         self._run_logger.end_run(
@@ -282,7 +368,8 @@ class DAGExecutor:
                         final_context=context,
                         error=result.error,
                         started_at=started_at,
-                        completed_at=utc_now(),
+                        completed_at=completed_at,
+                        health_check_metadata=health_check_metadata,
                     )
 
             # End run logging - success
@@ -292,6 +379,26 @@ class DAGExecutor:
                     success=True,
                 )
 
+            # Record DAG success metrics
+            completed_at = utc_now()
+            duration_ms = (completed_at - started_at).total_seconds() * 1000
+            success_tags = {"dag_name": dag.name, "status": "completed"}
+            metrics.counter("cemaf.dag.executions.completed", tags=success_tags)
+            metrics.histogram("cemaf.dag.duration_ms", duration_ms, tags=success_tags)
+            metrics.gauge(
+                "cemaf.dag.nodes.completed",
+                len(node_results),
+                tags={"dag_name": dag.name},
+            )
+
+            logger.info(
+                "DAG execution completed successfully",
+                dag_name=dag.name,
+                run_id=str(run_id),
+                num_nodes=len(node_results),
+                duration_ms=duration_ms,
+            )
+
             return ExecutionResult(
                 run_id=run_id,
                 dag_name=dag.name,
@@ -299,7 +406,8 @@ class DAGExecutor:
                 node_results=tuple(node_results),
                 final_context=context,
                 started_at=started_at,
-                completed_at=utc_now(),
+                completed_at=completed_at,
+                health_check_metadata=health_check_metadata,
             )
 
         except Exception as e:
@@ -311,6 +419,24 @@ class DAGExecutor:
                     error=str(e),
                 )
 
+            # Record DAG exception metrics
+            completed_at = utc_now()
+            duration_ms = (completed_at - started_at).total_seconds() * 1000
+            error_type = type(e).__name__
+            exception_tags = {"dag_name": dag.name, "error_type": error_type}
+            metrics.counter("cemaf.dag.executions.failed", tags=exception_tags)
+            metrics.histogram("cemaf.dag.duration_ms", duration_ms, tags=exception_tags)
+
+            logger.error(
+                "DAG execution failed with exception",
+                dag_name=dag.name,
+                run_id=str(run_id),
+                error=str(e),
+                error_type=error_type,
+                duration_ms=duration_ms,
+                exc_info=True,
+            )
+
             return ExecutionResult(
                 run_id=run_id,
                 dag_name=dag.name,
@@ -319,7 +445,8 @@ class DAGExecutor:
                 final_context=context,
                 error=str(e),
                 started_at=started_at,
-                completed_at=utc_now(),
+                completed_at=completed_at,
+                health_check_metadata=health_check_metadata,
             )
 
     def _should_execute_node(
