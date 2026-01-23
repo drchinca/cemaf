@@ -98,6 +98,7 @@ class ExecutionResult:
     final_context: Context = field(default_factory=Context)  # Updated to Context
     error: str | None = None
     started_at: datetime = field(default_factory=utc_now)
+    health_check_metadata: JSON = field(default_factory=dict)  # Health status at execution time
     completed_at: datetime | None = None
     metadata: JSON = field(default_factory=dict)
 
@@ -157,6 +158,8 @@ class DAGExecutor:
         event_bus: EventBus | None = None,
         moderation_pipeline: ModerationPipeline | None = None,
         merge_strategy: MergeStrategy | None = None,
+        health_registry: Any | None = None,
+        require_healthy: bool = True,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -166,6 +169,8 @@ class DAGExecutor:
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
         self._route_choices: dict[NodeID, set[NodeID]] = {}
         self._correlation_id: str = ""
+        self._health_registry = health_registry
+        self._require_healthy = require_healthy
 
     async def run(
         self,
@@ -203,6 +208,42 @@ class DAGExecutor:
             )
 
         try:
+            # Health check - fail-fast if critical dependencies unavailable
+            health_check_metadata: JSON = {}
+            if self._health_registry and self._require_healthy:
+                health_result = await self._health_registry.check_all()
+                health_check_metadata = health_result.__dict__
+
+                from cemaf.observability.health import HealthStatus
+
+                if health_result.status == HealthStatus.UNHEALTHY:
+                    logger.error(
+                        "Execution blocked by health check failure",
+                        extra={
+                            "health_status": health_result.status,
+                            "health_message": health_result.message,
+                            "dag_name": dag.name,
+                            "run_id": str(run_id),
+                        },
+                    )
+                    # End run logging if started
+                    if self._run_logger:
+                        self._run_logger.end_run(
+                            final_context=context,
+                            success=False,
+                            error=f"Health check failed: {health_result.message}",
+                        )
+
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        error=f"Pre-execution health check failed: {health_result.message}",
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
+                    )
+
             # Get execution order
             order = dag.topological_sort()
 
@@ -283,6 +324,7 @@ class DAGExecutor:
                         error=result.error,
                         started_at=started_at,
                         completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
                     )
 
             # End run logging - success
@@ -300,6 +342,7 @@ class DAGExecutor:
                 final_context=context,
                 started_at=started_at,
                 completed_at=utc_now(),
+                health_check_metadata=health_check_metadata,
             )
 
         except Exception as e:
@@ -320,6 +363,7 @@ class DAGExecutor:
                 error=str(e),
                 started_at=started_at,
                 completed_at=utc_now(),
+                health_check_metadata=health_check_metadata,
             )
 
     def _should_execute_node(
