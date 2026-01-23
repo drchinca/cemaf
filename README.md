@@ -49,6 +49,8 @@ CEMAF is a protocol-first framework designed for **context engineering** in mult
 
 **Philosophy**: Own the hard infrastructure problems while remaining framework-agnostic.
 
+**Design**: Protocol-based architecture where modules work standalone. Use our defaults or replace them with your own implementations. See [Protocol Guide](docs/protocol_guide.md) for details.
+
 ---
 
 ## The Hard Problems We Solve
@@ -189,7 +191,7 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **⏱️ TTL & Cleanup**: Memory items expire automatically
 - **🔒 Memory Boundaries**: Strict scoping prevents state leaks
 - **⚡ Cancellation**: Cooperative cancellation with timeouts
-- **🔧 Protocol-Based**: Plug into any framework
+- **🔧 Protocol-Based**: Plug into any framework - modules work standalone, extend with your own implementations
 - **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
 - **📋 Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
 - **🛡️ Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
@@ -200,19 +202,29 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 
 **[Full Documentation →](docs/README.md)**
 
-Core Guides:
-- [Architecture Overview](docs/architecture.md)
+### Getting Started
+- [Quick Start Guide](docs/quickstart.md) - Get running in 5 minutes
+- [Protocol Guide](docs/protocol_guide.md) - Understanding CEMAF's protocol-based architecture
+- [Extension Patterns](docs/extension_patterns.md) - How to extend CEMAF with your own implementations
+- [Standalone Usage](docs/standalone_usage.md) - Using modules independently
+
+### Core Guides
+- [Architecture Overview](docs/architecture.md) - System design and principles
 - [Context Management](docs/context.md) - Patches, provenance, budgeting
 - [Replay & Recording](docs/replay.md) - Deterministic replay
-- [Tools, Skills, Agents](docs/tools.md)
+- [Tools, Skills, Agents](docs/tools.md) - Execution layer
+- [Integration Guide](docs/integration.md) - Framework integration patterns
 
-Module References:
+### Module References
 - [LLM Integration](docs/llm.md)
 - [Caching](docs/cache.md)
 - [Persistence](docs/persistence.md)
 - [Observability](docs/observability.md)
-- [Blueprint](docs/module_reference.md#blueprintconfig) - Semantic blueprints for content generation
-- [Moderation](docs/module_reference.md#validation--moderation) - Guardrails and content safety
+- [Citation Tracking](docs/citation.md) - Source attribution
+- [MCP Integration](docs/mcp.md) - Model Context Protocol
+- [Blueprint](docs/blueprint.md) - Semantic blueprints for content generation
+- [Moderation](docs/moderation.md) - Guardrails and content safety
+- [Retrieval](docs/retrieval.md) - Vector stores and search
 
 ---
 

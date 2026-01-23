@@ -162,6 +162,88 @@ class NoOpTracer:
         return None
 
 
+class SimpleMetrics:
+    """
+    Simple metrics collector that logs to stdout for development/testing.
+
+    Records all metrics as log lines for easy inspection during development.
+    Useful for verifying metrics collection without external dependencies.
+
+    Example:
+        metrics = SimpleMetrics(prefix="cemaf")
+        metrics.counter("dag.executions.total", tags={"dag_name": "test"})
+        metrics.timing("dag.duration_ms", 123.45, tags={"dag_name": "test"})
+    """
+
+    def __init__(self, prefix: str = "cemaf") -> None:
+        """
+        Initialize SimpleMetrics.
+
+        Args:
+            prefix: Metric name prefix (default: "cemaf")
+        """
+        self._prefix = prefix
+        self._logger = logging.getLogger("cemaf.metrics")
+
+    def _format_tags(self, tags: JSON | None) -> str:
+        """Format tags as space-separated key=value pairs."""
+        if not tags:
+            return ""
+        return " ".join(f"{k}={v}" for k, v in tags.items())
+
+    def counter(self, name: str, value: int = 1, tags: JSON | None = None) -> None:
+        """
+        Record counter metric.
+
+        Args:
+            name: Metric name (without prefix)
+            value: Counter increment (default: 1)
+            tags: Metric tags/labels
+        """
+        tags_str = self._format_tags(tags)
+        full_name = f"{self._prefix}.{name}"
+        self._logger.info(f"COUNTER {full_name}={value} {tags_str}".rstrip())
+
+    def gauge(self, name: str, value: float, tags: JSON | None = None) -> None:
+        """
+        Record gauge metric (instantaneous value).
+
+        Args:
+            name: Metric name (without prefix)
+            value: Gauge value
+            tags: Metric tags/labels
+        """
+        tags_str = self._format_tags(tags)
+        full_name = f"{self._prefix}.{name}"
+        self._logger.info(f"GAUGE {full_name}={value} {tags_str}".rstrip())
+
+    def histogram(self, name: str, value: float, tags: JSON | None = None) -> None:
+        """
+        Record histogram metric (distribution).
+
+        Args:
+            name: Metric name (without prefix)
+            value: Histogram value
+            tags: Metric tags/labels
+        """
+        tags_str = self._format_tags(tags)
+        full_name = f"{self._prefix}.{name}"
+        self._logger.info(f"HISTOGRAM {full_name}={value} {tags_str}".rstrip())
+
+    def timing(self, name: str, value_ms: float, tags: JSON | None = None) -> None:
+        """
+        Record timing metric (duration in milliseconds).
+
+        Args:
+            name: Metric name (without prefix)
+            value_ms: Duration in milliseconds
+            tags: Metric tags/labels
+        """
+        tags_str = self._format_tags(tags)
+        full_name = f"{self._prefix}.{name}"
+        self._logger.info(f"TIMING {full_name}={value_ms}ms {tags_str}".rstrip())
+
+
 class NoOpMetrics:
     """No-operation metrics for testing/development."""
 
