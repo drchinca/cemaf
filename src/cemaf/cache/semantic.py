@@ -5,7 +5,6 @@ Semantic State Caching - Intelligence over exact-match hashing.
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
 
 from cemaf.context.context import Context
 from cemaf.retrieval.protocols import Document, EmbeddingProvider, VectorStore
@@ -106,10 +105,7 @@ class SemanticStateCache:
         self._cache_entries[cache_key] = (context, datetime.now())
 
         # Enforce size limit (LRU eviction)
-        if (
-            self.max_cache_size is not None
-            and len(self._cache_entries) > self.max_cache_size
-        ):
+        if self.max_cache_size is not None and len(self._cache_entries) > self.max_cache_size:
             # Find oldest entry
             oldest_key = min(
                 self._cache_entries.keys(),

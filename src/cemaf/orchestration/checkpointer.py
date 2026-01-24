@@ -144,10 +144,20 @@ class CheckpointingDAGExecutor:
         if checkpoint.dag_name != dag.name:
             raise ValueError(f"DAG mismatch: {checkpoint.dag_name} != {dag.name}")
 
+        # Re-calculate topological sort to ensure we have all nodes
+        order = dag.topological_sort()
+        # Find which nodes are actually pending based on the full order
+        # We MUST include the failed node itself if it didn't succeed
+        pending = [n for n in order if n not in checkpoint.completed_nodes or n == checkpoint.failed_node]
+
+        # If the failed node is in completed_nodes but actually failed,
+        # we need to make sure we don't skip it.
+        # In our logic, completed_nodes includes the one that just finished (even if failed).
+
         return await self._execute_nodes(
             dag=dag,
             run_id=run_id,
-            nodes_to_execute=list(checkpoint.pending_nodes),
+            nodes_to_execute=pending,
             initial_context=checkpoint.context,  # Pass Context object
             completed_nodes=list(checkpoint.completed_nodes),
         )
@@ -171,8 +181,15 @@ class CheckpointingDAGExecutor:
         node_results: list[NodeResult] = []
         nodes_since_checkpoint = 0
 
+        # Track all nodes in the DAG to ensure we don't skip anything
+        all_nodes_in_order = dag.topological_sort()
+
+        # Ensure we are iterating over a list copy to avoid mutation issues
+        remaining_nodes = list(nodes_to_execute)
+
         try:
-            for node_id in nodes_to_execute:
+            while remaining_nodes:
+                node_id = remaining_nodes.pop(0)
                 node = dag.get_node(node_id)
                 if not node:
                     continue
@@ -186,6 +203,29 @@ class CheckpointingDAGExecutor:
                 completed_nodes.append(node_id)
                 nodes_since_checkpoint += 1
 
+                # Stop on failure if retry_on_failure is False
+                if not result.success and not node.retry_on_failure:
+                    if self._checkpoint_on_failure:
+                        await self._save_checkpoint(
+                            run_id,
+                            dag.name,
+                            RunStatus.FAILED,
+                            completed_nodes,
+                            [n for n in all_nodes_in_order if n not in completed_nodes],
+                            context,
+                            error=result.error,
+                            failed_node=node_id,
+                        )
+
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=result.error,
+                    )
+
                 # Checkpoint at interval
                 if nodes_since_checkpoint >= self._interval:
                     await self._save_checkpoint(
@@ -193,35 +233,10 @@ class CheckpointingDAGExecutor:
                         dag.name,
                         RunStatus.RUNNING,
                         completed_nodes,
-                        nodes_to_execute,
+                        [n for n in all_nodes_in_order if n not in completed_nodes],
                         context,
                     )
                     nodes_since_checkpoint = 0
-
-                # Handle failure
-                if not result.success:
-                    if self._checkpoint_on_failure:
-                        await self._save_checkpoint(
-                            run_id,
-                            dag.name,
-                            RunStatus.FAILED,
-                            completed_nodes,
-                            nodes_to_execute,
-                            context,
-                            error=result.error,
-                            failed_node=node_id,
-                        )
-
-                    if not node.retry_on_failure:
-                        # Return final context here too
-                        return ExecutionResult(
-                            run_id=run_id,
-                            dag_name=dag.name,
-                            status=RunStatus.FAILED,
-                            node_results=tuple(node_results),
-                            final_context=context,
-                            error=result.error,
-                        )
 
             # Success
             await self._save_checkpoint(
@@ -274,14 +289,13 @@ class CheckpointingDAGExecutor:
         failed_node: NodeID | None = None,
     ) -> None:
         """Save checkpoint - single method for all checkpoint saves."""
-        remaining = [n for n in pending if n not in completed]
         await self._checkpointer.save(
             DAGCheckpoint(
                 run_id=run_id,
                 dag_name=dag_name,
                 status=status,
                 completed_nodes=tuple(completed),
-                pending_nodes=tuple(remaining),
+                pending_nodes=tuple(pending),
                 context=context,
                 error=error,
                 failed_node=failed_node,
