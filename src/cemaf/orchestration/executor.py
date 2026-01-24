@@ -161,6 +161,7 @@ class DAGExecutor:
         merge_strategy: MergeStrategy | None = None,
         health_registry: Any | None = None,
         require_healthy: bool = True,
+        auto_heal_manager: Any | None = None,  # Added AutoHealManager
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -172,6 +173,7 @@ class DAGExecutor:
         self._correlation_id: str = ""
         self._health_registry = health_registry
         self._require_healthy = require_healthy
+        self._auto_heal_manager = auto_heal_manager
 
     async def run(
         self,
@@ -670,12 +672,17 @@ class DAGExecutor:
         node: Node,
         context: Context,  # Updated to Context
     ) -> tuple[NodeResult, Context]:  # Returns new Context
-        """Execute a node with retry logic."""
+        """Execute a node with retry logic and autonomous healing."""
         # Handle max_retries=0 case - still try once
         max_attempts = max(1, node.max_retries) if node.retry_on_failure else 1
         last_error: str | None = None
         start_time = utc_now()
         current_context = context  # Keep track of context
+
+        # Track heal attempts for this specific node execution run
+        heal_attempts: set[str] = set()
+        heal_count = 0  # Hard limit on healing attempts
+        max_heal_attempts_per_node = 2  # Maximum healing attempts before giving up
 
         for attempt in range(max_attempts):
             try:
@@ -690,6 +697,79 @@ class DAGExecutor:
                     return result, current_context
 
                 last_error = result.error
+
+                # Attempt Auto-Heal if manager is available
+                if self._auto_heal_manager and not result.success:
+                    from cemaf.core.result import Result
+
+                    error_res: Result[None] = Result.fail(
+                        result.error or "Node failed", metadata=result.metadata
+                    )
+
+                    # Check heal attempt limit (safeguard against infinite healing loops)
+                    if heal_count >= max_heal_attempts_per_node:
+                        logger.warning(
+                            "Maximum healing attempts exceeded for node, giving up",
+                            node_id=str(node.id),
+                            max_heal_attempts=max_heal_attempts_per_node,
+                            heal_count=heal_count,
+                        )
+                        # Stop retrying after healing has been exhausted without progress
+                        # This prevents wasting resources on a problem healing can't solve
+                        break
+                    else:
+                        # Track history before heal
+                        history_before = current_context.get_timeline()
+                        context_hash_before = current_context.state_hash()
+                        heal_result = self._auto_heal_manager.heal(error_res, current_context)
+
+                        if heal_result.success:
+                            # Increment heal count ONCE healing is attempted (whether it helps or not)
+                            heal_count += 1
+
+                            # Prevent retrying same error state multiple times
+                            state_hash = context_hash_before
+                            heal_key = f"{state_hash}:{result.error}"
+
+                            if heal_key in heal_attempts:
+                                logger.warning(
+                                    "Auto-heal already attempted for this state, giving up to prevent loop",
+                                    node_id=str(node.id),
+                                    state_hash=state_hash,
+                                )
+                                # If we give up on healing, we MUST NOT 'continue'.
+                                # We let the loop proceed to the retry logic or exit.
+                            else:
+                                # Verify that healing actually changed the context state
+                                context_hash_after = heal_result.data.state_hash()
+
+                                if context_hash_after == context_hash_before:
+                                    # Healing succeeded but didn't change context - likely won't help
+                                    logger.warning(
+                                        "Healing succeeded but didn't change context state, not retrying",
+                                        node_id=str(node.id),
+                                        state_hash=context_hash_before,
+                                    )
+                                else:
+                                    # Healing succeeded AND changed context - proceed with retry
+                                    heal_attempts.add(heal_key)
+                                    logger.info(
+                                        "Autonomous recovery successful for node",
+                                        node_id=str(node.id),
+                                        attempt=attempt + 1,
+                                        heal_count=heal_count,
+                                    )
+                                    current_context = heal_result.data
+
+                                    # Record any new patches created during healing
+                                    if self._run_logger:
+                                        history_after = current_context.get_timeline()
+                                        new_patches = history_after[len(history_before) :]
+                                        for patch in new_patches:
+                                            self._run_logger.record_patch(patch)
+
+                                    # We healed! We can now retry the node with the healed context.
+                                    continue
 
                 # Don't retry if retry_on_failure is False
                 if not node.retry_on_failure:

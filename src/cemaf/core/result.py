@@ -52,6 +52,7 @@ class Result[T]:
     success: bool
     data: T | None = None
     error: str | None = None
+    hints: list[dict[str, Any]] = field(default_factory=list)
     metadata: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=_utc_now)
 
@@ -60,12 +61,14 @@ class Result[T]:
         cls,
         data: T,
         metadata: JSON | None = None,
+        hints: list[dict[str, Any]] | None = None,
     ) -> Result[T]:
         """Create a successful result."""
         return cls(
             success=True,
             data=data,
             metadata=metadata or {},
+            hints=hints or [],
         )
 
     @classmethod
@@ -73,18 +76,33 @@ class Result[T]:
         cls,
         error: str,
         metadata: JSON | None = None,
+        hints: list[dict[str, Any]] | None = None,
     ) -> Result[T]:
         """Create a failed result."""
         return cls(
             success=False,
             error=error,
             metadata=metadata or {},
+            hints=hints or [],
         )
 
     @classmethod
     def from_exception(cls, e: Exception) -> Result[T]:
         """Create a failed result from an exception."""
         return cls.fail(str(e), metadata={"exception_type": type(e).__name__})
+
+    def with_hint(self, action: str, reason: str, suggestion: str) -> Result[T]:
+        """Add a structured hint to the result."""
+        new_hint = {"action": action, "reason": reason, "suggestion": suggestion}
+        new_hints = self.hints + [new_hint]
+        return Result(
+            success=self.success,
+            data=self.data,
+            error=self.error,
+            hints=new_hints,
+            metadata=self.metadata,
+            created_at=self.created_at,
+        )
 
     def map(self, fn: Any) -> Result[Any]:
         """Transform the data if successful."""
