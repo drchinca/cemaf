@@ -8,9 +8,8 @@ Tests verify cache invalidation strategy:
 """
 
 import asyncio
+
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
 
 from cemaf.cache.semantic import SemanticStateCache
 from cemaf.context.context import Context
@@ -100,8 +99,7 @@ async def test_cache_lru_eviction():
 
     # Should only have 2 items (oldest was evicted)
     assert len(cache._cache_entries) == 2, (
-        f"Expected 2 cached items after LRU eviction, "
-        f"got {len(cache._cache_entries)}"
+        f"Expected 2 cached items after LRU eviction, got {len(cache._cache_entries)}"
     )
 
     # context1 should be evicted (oldest)
@@ -131,9 +129,7 @@ async def test_cache_preserves_context_fully():
 
     assert cached is not None, "Should retrieve cached context"
     assert cached.data == context1.data, "Data should match"
-    assert cached.patch_history == context1.patch_history, (
-        "Patch history should be preserved"
-    )
+    assert cached.patch_history == context1.patch_history, "Patch history should be preserved"
 
 
 @pytest.mark.asyncio
@@ -183,6 +179,5 @@ async def test_cache_max_size_none_means_unlimited():
         await cache.set(context)
 
     assert len(cache._cache_entries) == 10, (
-        f"Expected 10 cached items with unlimited size, "
-        f"got {len(cache._cache_entries)}"
+        f"Expected 10 cached items with unlimited size, got {len(cache._cache_entries)}"
     )

@@ -28,6 +28,52 @@ class Context(BaseModel):
     model_config = {"frozen": True}
 
     data: JSON = Field(default_factory=dict)
+    patch_history: tuple[Any, ...] = Field(default_factory=tuple)
+
+    def state_hash(self) -> str:
+        """
+        Compute a deterministic SHA256 hash of the context state.
+        Includes both data and patch history (provenance).
+        """
+        import hashlib
+        import json
+
+        # Sort keys for determinism
+        data_json = json.dumps(self.data, sort_keys=True)
+        # Include patch IDs in hash for provenance-aware caching
+        patch_ids = ",".join(p.id for p in self.patch_history)
+
+        state_str = f"{data_json}|{patch_ids}"
+        return hashlib.sha256(state_str.encode()).hexdigest()
+
+    def get_timeline(self) -> tuple[ContextPatch, ...]:  # type: ignore[name-defined]  # noqa: F821
+        """Return the full sequence of patches that created this context."""
+        return self.patch_history
+
+    def rollback_to(self, patch_id: str | None) -> Context:
+        """
+        Reconstruct the context state as it was after a specific patch was applied.
+        If patch_id is None, returns an empty context.
+        """
+        if patch_id is None:
+            return Context()
+
+        new_history: list[ContextPatch] = []  # type: ignore[name-defined]  # noqa: F821
+        found = False
+        for patch in self.patch_history:
+            new_history.append(patch)
+            if patch.id == patch_id:
+                found = True
+                break
+
+        if not found:
+            raise ValueError(f"Patch ID '{patch_id}' not found in history.")
+
+        # Reconstruct state from scratch to ensure correctness
+        ctx = Context()
+        for p in new_history:
+            ctx = ctx.apply(p)
+        return ctx
 
     def get(self, key: str, default: Any = None) -> Any:
         """Retrieve a value from the context using dot notation for nested access."""
@@ -61,7 +107,7 @@ class Context(BaseModel):
                     current_level[k] = {}  # Create dict if it doesn't exist or is not a dict
                 current_level = current_level[k]
 
-        return Context(data=new_data)
+        return Context(data=new_data, patch_history=self.patch_history)
 
     def merge(self, other: Context) -> Context:
         """
@@ -73,7 +119,9 @@ class Context(BaseModel):
         use merge_branches() with a MergeStrategy.
         """
         merged_data = {**self.data, **other.data}
-        return Context(data=merged_data)
+        # Note: merge() doesn't currently track combined history.
+        # This is a limitation of the shallow merge.
+        return Context(data=merged_data, patch_history=self.patch_history)
 
     def merge_branches(
         self,
@@ -127,7 +175,7 @@ class Context(BaseModel):
 
         if len(keys) == 1:
             new_data.pop(keys[0], None)
-            return Context(data=new_data)
+            return Context(data=new_data, patch_history=self.patch_history)
 
         # Navigate to parent of the key to delete
         current_level = new_data
@@ -140,7 +188,7 @@ class Context(BaseModel):
             current_level = current_level[k]
 
         current_level.pop(keys[-1], None)
-        return Context(data=new_data)
+        return Context(data=new_data, patch_history=self.patch_history)
 
     def append(self, key: str, value: Any) -> Context:
         """
@@ -186,16 +234,20 @@ class Context(BaseModel):
         """
         from cemaf.context.patch import PatchOperation
 
+        new_history = self.patch_history + (patch,)
+
         if patch.operation == PatchOperation.SET:
-            return self.set(patch.path, patch.value)
+            new_ctx = self.set(patch.path, patch.value)
         elif patch.operation == PatchOperation.DELETE:
-            return self.delete(patch.path)
+            new_ctx = self.delete(patch.path)
         elif patch.operation == PatchOperation.MERGE:
-            return self.deep_merge(patch.path, patch.value)
+            new_ctx = self.deep_merge(patch.path, patch.value)
         elif patch.operation == PatchOperation.APPEND:
-            return self.append(patch.path, patch.value)
+            new_ctx = self.append(patch.path, patch.value)
         else:
-            return self
+            new_ctx = self
+
+        return Context(data=new_ctx.data, patch_history=new_history)
 
     def diff(self, other: Context) -> tuple[ContextPatch, ...]:  # type: ignore[name-defined]  # noqa: F821
         """
@@ -281,4 +333,7 @@ class Context(BaseModel):
         """Create a deep copy of the context."""
         import copy
 
-        return Context(data=copy.deepcopy(self.data))
+        return Context(
+            data=copy.deepcopy(self.data),
+            patch_history=copy.deepcopy(self.patch_history),
+        )
