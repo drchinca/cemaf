@@ -84,6 +84,8 @@ class AutoHealManager:
             strategy = self.get_strategy(error_type)
             if strategy:
                 return strategy.recover(error_result, context)
+            # No strategy for this specific error type
+            return Result.fail(f"No recovery strategy for {error_type}")
 
         # Step 2: Try pattern matching on error message
         if error_result.error:
