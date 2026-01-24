@@ -145,6 +145,110 @@ if result.status == RunStatus.COMPLETED:
     print(result.final_context.get("summary"))
 ```
 
+## Auto-Healing & Recovery
+
+CEMAF automatically recovers from execution errors using configurable recovery strategies with intelligent loop prevention:
+
+```python
+from cemaf.orchestration.executor import DAGExecutor
+from cemaf.core.recovery import AutoHealManager, RecoveryStrategy
+from cemaf.core.result import Result
+
+# Define recovery strategies
+class SummarizeContextStrategy(RecoveryStrategy):
+    def recover(self, error_result: Result, context: Context) -> Result[Context]:
+        """Recover from token limit by summarizing context."""
+        summary = summarize(context.to_dict())
+        return Result.ok(context.set("summary", summary))
+
+# Setup auto-heal manager
+heal_manager = AutoHealManager()
+heal_manager.register("TokenLimitExceeded", SummarizeContextStrategy())
+heal_manager.register_pattern(r"timeout.*", TimeoutRecoveryStrategy())
+
+# Run with auto-healing
+executor = DAGExecutor(node_executor=my_executor, auto_heal_manager=heal_manager)
+result = await executor.run(dag, initial_context=context)
+```
+
+### Healing Safeguards
+
+Auto-healing includes safeguards to prevent infinite loops:
+
+1. **State Hash Verification** - Healing must change the context state to retry
+   - If healing succeeds but doesn't modify context, retry loop exits
+   - Prevents wasted resources on ineffective recoveries
+
+2. **Healing Attempt Limit** - Maximum 2 healing attempts per node
+   - After limit reached, node fails permanently
+   - Prevents exponential retry explosion
+
+3. **Fallback Chain** - Tries multiple recovery strategies in order
+   - Exact error type match
+   - Pattern matching on error message
+   - Default recovery strategy
+   - Graceful failure if no strategy works
+
+### Healing Flow
+
+```mermaid
+flowchart TD
+    ERR[Node Fails]
+    ERR --> HEAL{Healing<br/>Available?}
+
+    HEAL -->|No| FAIL[Fail Node]
+    HEAL -->|Yes| EXEC[Execute Recovery<br/>Strategy]
+
+    EXEC --> CHECK{State<br/>Changed?}
+    CHECK -->|No| WORN["Stop Retrying<br/>Recovery didn't help"]
+    CHECK -->|Yes| LIMIT{< 2<br/>Attempts?}
+
+    LIMIT -->|Yes| RETRY[Retry Node]
+    LIMIT -->|No| FAIL
+
+    WORN --> FAIL
+    RETRY --> RESULT{Node<br/>Succeeds?}
+    RESULT -->|Yes| NEXT[Continue DAG]
+    RESULT -->|No| HEAL
+```
+
+## Health Checks & Pre-execution Validation
+
+Register health checks to validate prerequisites before executing DAG nodes:
+
+```python
+from cemaf.orchestration.executor import DAGExecutor
+from cemaf.orchestration.health import HealthCheckService, HealthStatus
+
+class APIAvailabilityCheck(HealthCheckService):
+    async def check_health(self) -> HealthStatus:
+        """Check if external API is available."""
+        try:
+            response = await check_api_endpoint()
+            return HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY
+        except Exception as e:
+            return HealthStatus.UNHEALTHY
+
+# Register health check
+health_check = APIAvailabilityCheck()
+executor = DAGExecutor(
+    node_executor=my_executor,
+    health_check_service=health_check
+)
+
+# Health check blocks execution if unhealthy
+result = await executor.run(dag, initial_context=context)
+if result.metadata.get("health_check_failed"):
+    print("Pre-execution health check failed - DAG not executed")
+```
+
+### Health Check Behavior
+
+- **Before DAG execution**: Health checks run and block if unhealthy
+- **Prevents cascading failures**: Catches issues before wasting node execution
+- **Metadata recording**: Failure reason recorded in result metadata
+- **Allows graceful degradation**: Clients can implement fallback strategies
+
 ## Checkpointing
 
 Resume DAG execution from checkpoints:
