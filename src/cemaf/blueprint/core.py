@@ -268,6 +268,21 @@ class Blueprint(BaseModel):
 
         return "\n".join(lines)
 
+    def get_context_priorities(self) -> dict[str, int]:
+        """Get context entity priorities for token budget allocation.
+
+        Returns dict mapping entity names to their token_priority values.
+        If no entities defined, returns default priorities based on scene_goal.priority.
+        """
+        if self.entities:
+            return {entity.name: entity.token_priority for entity in self.entities}
+
+        # Default priorities when no entities defined
+        return {
+            "artifacts": self.scene_goal.priority,
+            "memories": max(1, self.scene_goal.priority - 1),
+        }
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return self.model_dump()

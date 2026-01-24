@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+from cemaf.context.patch import ContextPatch, PatchSource
 from cemaf.events.protocols import EventBus
 from cemaf.retrieval.protocols import SearchResult
 
@@ -115,6 +116,61 @@ class CitationTracker:
             },
         )
         return cited_fact
+
+    def create_cited_fact_patch(
+        self,
+        fact: str,
+        citations: list[Citation],
+        path: str = "facts",
+        confidence: float = 1.0,
+        verification_status: str = "unverified",
+        correlation_id: str | None = None,
+    ) -> tuple[CitedFact, ContextPatch]:
+        """Create a cited fact and corresponding context patch for provenance.
+
+        Returns both the CitedFact and a ContextPatch that can be applied to a Context
+        to store the fact with full citation information.
+
+        Args:
+            fact: The factual statement
+            citations: List of supporting citations
+            path: Base path in context for storing the fact (default: "facts")
+            confidence: Confidence score (0.0-1.0)
+            verification_status: Status of verification
+            correlation_id: Optional ID for tracing related patches
+
+        Returns:
+            Tuple of (CitedFact, ContextPatch)
+        """
+        cited_fact = self.create_cited_fact(
+            fact=fact,
+            citations=citations,
+            confidence=confidence,
+            verification_status=verification_status,
+        )
+
+        # Create patch value with all metadata
+        patch_value = {
+            "fact_id": cited_fact.id,
+            "fact": fact,
+            "citations": [citation.to_dict() for citation in citations],
+            "confidence": confidence,
+            "verification_status": verification_status,
+            "citation_count": len(citations),
+        }
+
+        # Create patch with fact_id in path
+        patch_path = f"{path}.{cited_fact.id}"
+        patch = ContextPatch.set(
+            path=patch_path,
+            value=patch_value,
+            source=PatchSource.TOOL,
+            source_id="citation_tracker",
+            reason="Tracked citation from retrieval",
+            correlation_id=correlation_id,
+        )
+
+        return cited_fact, patch
 
     def record_uncited_fact(self, fact: str) -> None:
         """
