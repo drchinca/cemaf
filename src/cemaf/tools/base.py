@@ -120,6 +120,64 @@ class Tool(ABC):
         """Execute the tool with keyword arguments."""
         ...
 
+    async def _check_moderation_input(
+        self,
+        text: str,
+    ) -> tuple[bool, str | None, list[str]]:
+        """Check input text with moderation pipeline if configured.
+
+        Returns tuple of (allowed, error_message, violations_list).
+        If no moderation pipeline is configured, always returns (True, None, []).
+        """
+        # Check if this tool has a moderation_pipeline property
+        if not hasattr(self, "moderation_pipeline"):
+            return (True, None, [])
+
+        moderation_pipeline = getattr(self, "moderation_pipeline", None)
+        if moderation_pipeline is None:
+            return (True, None, [])
+
+        # Check input with pre-flight gate
+        result = await moderation_pipeline.check_input(text)
+
+        if result.allowed:
+            return (True, None, [])
+
+        # Extract violation messages
+        violations = [v.message for v in result.violations]
+        error_message = violations[0] if violations else "Input blocked by moderation"
+
+        return (False, error_message, violations)
+
+    async def _check_moderation_output(
+        self,
+        text: str,
+    ) -> tuple[bool, str | None, list[str]]:
+        """Check output text with moderation pipeline if configured.
+
+        Returns tuple of (allowed, error_message, violations_list).
+        If no moderation pipeline is configured, always returns (True, None, []).
+        """
+        # Check if this tool has a moderation_pipeline property
+        if not hasattr(self, "moderation_pipeline"):
+            return (True, None, [])
+
+        moderation_pipeline = getattr(self, "moderation_pipeline", None)
+        if moderation_pipeline is None:
+            return (True, None, [])
+
+        # Check output with post-flight gate
+        result = await moderation_pipeline.check_output(text)
+
+        if result.allowed:
+            return (True, None, [])
+
+        # Extract violation messages
+        violations = [v.message for v in result.violations]
+        error_message = violations[0] if violations else "Output blocked by moderation"
+
+        return (False, error_message, violations)
+
 
 def tool(
     name: str,
