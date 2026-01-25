@@ -58,6 +58,11 @@ from cemaf.observability.run_logger import (
     ToolCall,
 )
 from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
+from cemaf.observability.token_telemetry import (
+    count_tokens,
+    extract_token_metadata,
+    merge_token_metadata,
+)
 
 __all__ = [
     # Configuration
@@ -93,6 +98,10 @@ __all__ = [
     # Cost tracking
     "ModelPricing",
     "ModelPricingRegistry",
+    # Token telemetry
+    "extract_token_metadata",
+    "count_tokens",
+    "merge_token_metadata",
     # Metrics helpers
     "MetricsHelper",
     "record_timing",

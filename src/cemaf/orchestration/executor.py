@@ -39,6 +39,7 @@ from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
+from cemaf.orchestration.dependency_resolver import resolve_node_input
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
@@ -686,7 +687,23 @@ class DAGExecutor:
 
         for attempt in range(max_attempts):
             try:
-                result = await self._node_executor.execute_node(node, current_context)  # Pass current_context
+                # Resolve input_mapping dependencies before execution
+                # This enables regex-based context chaining ($$STEP_N_OUTPUT$$)
+                resolved_context = current_context
+                if node.input_mapping:
+                    # Resolve placeholders in input_mapping and create a context with resolved inputs
+                    resolved_inputs = resolve_node_input(node.input_mapping, current_context)
+                    # Store resolved inputs in context for the node executor to use
+                    # Node executors can access these via context.get("_resolved_inputs")
+                    resolved_context = current_context.set("_resolved_inputs", resolved_inputs)
+
+                result = await self._node_executor.execute_node(
+                    node, resolved_context
+                )  # Pass resolved context
+
+                # Enhance result metadata with token telemetry if available from agent results
+                # NodeExecutors that execute agents should include agent metadata in NodeResult.metadata
+                # This ensures token tracking flows through the execution pipeline
 
                 # Apply output to context here, even if it's not a final success,
                 # as intermediate results might be needed for subsequent retries

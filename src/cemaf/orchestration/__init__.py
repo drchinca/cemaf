@@ -11,7 +11,9 @@ This module provides:
 
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.deep_agent import DeepAgentOrchestrator
+from cemaf.orchestration.dependency_resolver import resolve_dependencies, resolve_node_input
 from cemaf.orchestration.executor import DAGExecutor, ExecutionResult
+from cemaf.orchestration.planner import Planner
 
 __all__ = [
     "DAG",
@@ -21,4 +23,7 @@ __all__ = [
     "DAGExecutor",
     "ExecutionResult",
     "DeepAgentOrchestrator",
+    "Planner",
+    "resolve_dependencies",
+    "resolve_node_input",
 ]
