@@ -121,8 +121,8 @@ class AgentResult[ResultT]:
         object.__setattr__(self, "skill_results", tuple(self.skill_results))
 
     @classmethod
-    def ok(cls, output: ResultT, state: AgentState) -> AgentResult[ResultT]:
-        return cls(success=True, output=output, final_state=state)
+    def ok(cls, output: ResultT, state: AgentState, metadata: JSON | None = None) -> AgentResult[ResultT]:
+        return cls(success=True, output=output, final_state=state, metadata=metadata or {})
 
     @classmethod
     def fail(cls, error: str, state: AgentState | None = None) -> AgentResult[ResultT]:
