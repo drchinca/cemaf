@@ -5,7 +5,15 @@ from cemaf.core.constants import (
     DEFAULT_TIMEOUT_SECONDS,
     MAX_CONTEXT_TOKENS,
 )
-from cemaf.core.enums import AgentStatus, MemoryScope, NodeType, RunStatus
+from cemaf.core.domain import DomainContext
+from cemaf.core.enums import (
+    AgentStatus,
+    ExclusionReason,
+    MemoryScope,
+    NodeType,
+    RunStatus,
+    VerificationStatus,
+)
 from cemaf.core.execution import (
     CancellationToken,
     CancelledException,
@@ -15,25 +23,47 @@ from cemaf.core.execution import (
     with_execution_context,
     with_timeout,
 )
+from cemaf.core.provenance import ProvenanceChain, ProvenanceLink, SourceReference
 from cemaf.core.registry import BaseRegistry, RegistryError
 from cemaf.core.result import Result
 from cemaf.core.storage import InMemoryStorage, StorageEntry
-from cemaf.core.types import JSON, AgentID, NodeID, RunID, SkillID, ToolID
+from cemaf.core.types import (
+    JSON,
+    AgentID,
+    DomainID,
+    NodeID,
+    ProvenanceID,
+    RunID,
+    SkillID,
+    TenantID,
+    ToolID,
+)
 from cemaf.core.utils import generate_id, json_dumps, safe_json, truncate, utc_now
 
 __all__ = [
     # Types
     "JSON",
     "AgentID",
+    "DomainID",
     "NodeID",
+    "ProvenanceID",
     "RunID",
     "SkillID",
+    "TenantID",
     "ToolID",
     # Enums
     "AgentStatus",
+    "ExclusionReason",
     "MemoryScope",
     "NodeType",
     "RunStatus",
+    "VerificationStatus",
+    # Provenance
+    "ProvenanceChain",
+    "ProvenanceLink",
+    "SourceReference",
+    # Domain
+    "DomainContext",
     # Constants
     "DEFAULT_MAX_RETRIES",
     "DEFAULT_TIMEOUT_SECONDS",

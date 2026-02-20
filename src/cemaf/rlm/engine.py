@@ -7,6 +7,7 @@ Implements divide-and-conquer strategy for querying large context:
 3. Respect max_depth to prevent infinite recursion
 """
 
+import asyncio
 from typing import Any
 
 from cemaf.context.budget import TokenBudget
@@ -139,54 +140,21 @@ class DivideAndConquerQueryEngine:
             )
 
         if depth >= max_depth or len(chunks) == 1:
-            # Fallback when max depth reached OR single chunk that doesn't fit
-            # Single chunk case prevents infinite recursion
+            # Fallback: process budget-sized batches for partial coverage
             reason = "max_depth_reached" if depth >= max_depth else "single_large_chunk"
             logger.warning(
-                "RLM fallback strategy (incomplete coverage)",
+                "RLM partial coverage fallback",
                 depth=depth,
                 max_depth=max_depth,
                 num_chunks=len(chunks),
                 reason=reason,
-                coverage_warning="Only first chunk will be analyzed - other chunks skipped",
             )
-            result = await self._query_first_chunk_only(instruction, chunks, budget)
-
-            # If LLM call failed, return failure
-            if not result["found"]:
-                logger.error(
-                    "RLM fallback query failed",
-                    depth=depth,
-                    reason=reason,
-                    error=result["answer"],
-                )
-                return RecursiveQueryResult.fail(
-                    error=result["answer"],
-                    depth_reached=depth,
-                    chunks_examined=1,
-                    llm_calls_made=1,
-                    metadata={"strategy": "fallback", "reason": reason},
-                )
-
-            logger.info(
-                "RLM fallback query succeeded (incomplete)",
+            return await self._query_partial_coverage(
+                instruction=instruction,
+                chunks=chunks,
+                budget=budget,
                 depth=depth,
                 reason=reason,
-                total_chunks=len(chunks),
-                chunks_analyzed=1,
-                coverage_percent=int((1 / len(chunks)) * 100) if chunks else 0,
-            )
-            return RecursiveQueryResult.ok(
-                answer=result["answer"],
-                relevant_chunks=tuple(chunks[:1]),
-                depth_reached=depth,
-                chunks_examined=1,
-                llm_calls_made=1,
-                total_tokens_used=TokenCount(result["tokens_used"]),
-                metadata={
-                    "strategy": "fallback",
-                    "reason": reason,
-                },
             )
 
         mid = len(chunks) // 2
@@ -201,20 +169,22 @@ class DivideAndConquerQueryEngine:
             right_chunks=len(right_chunks),
         )
 
-        left_result = await self.query(
-            instruction=instruction,
-            chunks=left_chunks,
-            budget=budget,
-            max_depth=max_depth,
-            depth=depth + 1,
-        )
-
-        right_result = await self.query(
-            instruction=instruction,
-            chunks=right_chunks,
-            budget=budget,
-            max_depth=max_depth,
-            depth=depth + 1,
+        # Process left and right branches in parallel
+        left_result, right_result = await asyncio.gather(
+            self.query(
+                instruction=instruction,
+                chunks=left_chunks,
+                budget=budget,
+                max_depth=max_depth,
+                depth=depth + 1,
+            ),
+            self.query(
+                instruction=instruction,
+                chunks=right_chunks,
+                budget=budget,
+                max_depth=max_depth,
+                depth=depth + 1,
+            ),
         )
 
         if not left_result.success:
@@ -268,6 +238,9 @@ class DivideAndConquerQueryEngine:
             max_recursion_depth=max(left_result.depth_reached, right_result.depth_reached),
         )
 
+        total_examined = left_result.chunks_examined + right_result.chunks_examined
+        coverage = total_examined / len(chunks) if chunks else 0.0
+
         return RecursiveQueryResult.ok(
             answer=aggregated["answer"],
             relevant_chunks=(
@@ -275,13 +248,14 @@ class DivideAndConquerQueryEngine:
                 *right_result.relevant_chunks,
             ),
             depth_reached=max(left_result.depth_reached, right_result.depth_reached),
-            chunks_examined=(left_result.chunks_examined + right_result.chunks_examined),
+            chunks_examined=total_examined,
             llm_calls_made=total_llm_calls,
             total_tokens_used=TokenCount(total_tokens),
             metadata={
                 "strategy": "divide_and_conquer",
                 "left_chunks": len(left_chunks),
                 "right_chunks": len(right_chunks),
+                "coverage_ratio": coverage,
             },
         )
 
@@ -318,43 +292,141 @@ context, explicitly state that."""
             "tokens_used": int(result.total_tokens),
         }
 
-    async def _query_first_chunk_only(
+    async def _query_partial_coverage(
         self,
         instruction: str,
         chunks: tuple[ContextChunk, ...],
         budget: TokenBudget,
+        depth: int,
+        reason: str,
+    ) -> RecursiveQueryResult:
+        """Process budget-sized batches and aggregate for partial coverage."""
+        available = budget.available_tokens
+        batch: list[ContextChunk] = []
+        batch_tokens = 0
+        answers: list[str] = []
+        total_tokens_used = 0
+        llm_calls = 0
+        examined = 0
+
+        for chunk in chunks:
+            token_est = int(chunk.token_count) if chunk.token_count else len(chunk.content) // 4
+            if batch_tokens + token_est > available and batch:
+                # Process current batch
+                result = await self._single_query_from_chunks(instruction=instruction, chunks_list=batch)
+                llm_calls += 1
+                examined += len(batch)
+                total_tokens_used += result["tokens_used"]
+                if result["found"]:
+                    answers.append(result["answer"])
+                batch = []
+                batch_tokens = 0
+            batch.append(chunk)
+            batch_tokens += token_est
+
+        # Process remaining batch
+        if batch:
+            result = await self._single_query_from_chunks(instruction=instruction, chunks_list=batch)
+            llm_calls += 1
+            examined += len(batch)
+            total_tokens_used += result["tokens_used"]
+            if result["found"]:
+                answers.append(result["answer"])
+
+        coverage = examined / len(chunks) if chunks else 0.0
+
+        if not answers:
+            return RecursiveQueryResult.fail(
+                error="Partial coverage query produced no results",
+                depth_reached=depth,
+                chunks_examined=examined,
+                llm_calls_made=llm_calls,
+                metadata={"strategy": "partial_coverage", "reason": reason},
+            )
+
+        # Aggregate if multiple batches
+        if len(answers) == 1:
+            final_answer = answers[0]
+        else:
+            agg = await self._aggregate_answer_list(instruction=instruction, answers=answers, budget=budget)
+            llm_calls += 1
+            total_tokens_used += agg["tokens_used"]
+            final_answer = agg["answer"]
+
+        logger.info(
+            "RLM partial coverage succeeded",
+            depth=depth,
+            reason=reason,
+            total_chunks=len(chunks),
+            chunks_examined=examined,
+            coverage_ratio=coverage,
+            batches=len(answers),
+        )
+
+        return RecursiveQueryResult.ok(
+            answer=final_answer,
+            relevant_chunks=tuple(chunks[:examined]),
+            depth_reached=depth,
+            chunks_examined=examined,
+            llm_calls_made=llm_calls,
+            total_tokens_used=TokenCount(total_tokens_used),
+            metadata={
+                "strategy": "partial_coverage",
+                "reason": reason,
+                "coverage_ratio": coverage,
+            },
+        )
+
+    async def _single_query_from_chunks(
+        self,
+        instruction: str,
+        chunks_list: list[ContextChunk],
     ) -> dict[str, Any]:
-        """
-        Query only the first chunk when recursion limit reached.
-
-        This is a fallback strategy used when:
-        1. Max recursion depth is reached
-        2. Single large chunk that doesn't fit in budget
-
-        Only processes the first chunk to provide partial results.
-        """
-        first_chunk = chunks[0]
+        """Execute a single LLM query from a list of chunks."""
+        context_content = "\n\n---\n\n".join(f"[Chunk {c.chunk_id}]\n{c.content}" for c in chunks_list)
         prompt = f"""{instruction}
 
-Context (partial - showing first chunk only due to size constraints):
-[Chunk {first_chunk.chunk_id}]
-{first_chunk.content}
+Context:
+{context_content}
 
-Note: This is only a portion of the full context. Provide your best answer based on this excerpt."""
+Provide your answer based on the context above."""
 
         messages = [Message.user(prompt)]
         result = await self._llm.complete(messages)
 
         if not result.success:
-            return {
-                "answer": f"Error: {result.error}",
-                "found": False,
-                "tokens_used": 0,
-            }
+            return {"answer": f"Error: {result.error}", "found": False, "tokens_used": 0}
 
         return {
             "answer": result.content if isinstance(result.content, str) else str(result.content),
             "found": True,
+            "tokens_used": int(result.total_tokens),
+        }
+
+    async def _aggregate_answer_list(
+        self,
+        instruction: str,
+        answers: list[str],
+        budget: TokenBudget,
+    ) -> dict[str, Any]:
+        """Aggregate multiple partial answers into one."""
+        parts = "\n\n".join(f"Part {i + 1}:\n{a}" for i, a in enumerate(answers))
+        prompt = f"""{instruction}
+
+I have gathered information from {len(answers)} batches:
+
+{parts}
+
+Synthesize these into a single coherent response."""
+
+        messages = [Message.user(prompt)]
+        result = await self._llm.complete(messages)
+
+        if not result.success:
+            return {"answer": "; ".join(answers), "tokens_used": 0}
+
+        return {
+            "answer": result.content if isinstance(result.content, str) else str(result.content),
             "tokens_used": int(result.total_tokens),
         }
 

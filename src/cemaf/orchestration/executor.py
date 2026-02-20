@@ -37,8 +37,10 @@ from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
+from cemaf.orchestration.dependency_resolver import resolve_node_input
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
@@ -161,7 +163,8 @@ class DAGExecutor:
         merge_strategy: MergeStrategy | None = None,
         health_registry: Any | None = None,
         require_healthy: bool = True,
-        auto_heal_manager: Any | None = None,  # Added AutoHealManager
+        auto_heal_manager: Any | None = None,
+        budget_guard: BudgetGuard | None = None,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -174,6 +177,7 @@ class DAGExecutor:
         self._health_registry = health_registry
         self._require_healthy = require_healthy
         self._auto_heal_manager = auto_heal_manager
+        self._budget_guard = budget_guard
 
     async def run(
         self,
@@ -335,6 +339,39 @@ class DAGExecutor:
                     metrics.counter("cemaf.node.executions.success", tags=node_tags)
                 else:
                     metrics.counter("cemaf.node.executions.failed", tags=node_tags)
+
+                # Budget guard check after each node
+                if self._budget_guard and result.success:
+                    cost = result.metadata.get("cost_usd", 0.0) if result.metadata else 0.0
+                    tokens = result.metadata.get("tokens_used", 0) if result.metadata else 0
+                    self._budget_guard.record_usage(cost_usd=float(cost), tokens=int(tokens))
+                    if self._budget_guard.should_halt():
+                        completed_at = utc_now()
+                        duration_ms = (completed_at - started_at).total_seconds() * 1000
+                        halt_msg = "Budget exhausted - execution halted"
+                        logger.warning(
+                            halt_msg,
+                            dag_name=dag.name,
+                            budget_state=self._budget_guard.to_dict(),
+                        )
+                        if self._run_logger:
+                            self._run_logger.end_run(
+                                final_context=context,
+                                success=False,
+                                error=halt_msg,
+                            )
+                        return ExecutionResult(
+                            run_id=run_id,
+                            dag_name=dag.name,
+                            status=RunStatus.FAILED,
+                            node_results=tuple(node_results),
+                            final_context=context,
+                            error=halt_msg,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            health_check_metadata=health_check_metadata,
+                            metadata={"budget_guard": self._budget_guard.to_dict()},
+                        )
 
                 # Stop on failure if retry_on_failure is False
                 if not result.success and not node.retry_on_failure and node.type != NodeType.CONDITIONAL:
@@ -686,7 +723,23 @@ class DAGExecutor:
 
         for attempt in range(max_attempts):
             try:
-                result = await self._node_executor.execute_node(node, current_context)  # Pass current_context
+                # Resolve input_mapping dependencies before execution
+                # This enables regex-based context chaining ($$STEP_N_OUTPUT$$)
+                resolved_context = current_context
+                if node.input_mapping:
+                    # Resolve placeholders in input_mapping and create a context with resolved inputs
+                    resolved_inputs = resolve_node_input(node.input_mapping, current_context)
+                    # Store resolved inputs in context for the node executor to use
+                    # Node executors can access these via context.get("_resolved_inputs")
+                    resolved_context = current_context.set("_resolved_inputs", resolved_inputs)
+
+                result = await self._node_executor.execute_node(
+                    node, resolved_context
+                )  # Pass resolved context
+
+                # Enhance result metadata with token telemetry if available from agent results
+                # NodeExecutors that execute agents should include agent metadata in NodeResult.metadata
+                # This ensures token tracking flows through the execution pipeline
 
                 # Apply output to context here, even if it's not a final success,
                 # as intermediate results might be needed for subsequent retries

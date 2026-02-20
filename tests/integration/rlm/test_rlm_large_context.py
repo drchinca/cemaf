@@ -226,6 +226,6 @@ class TestRLMLargeContext:
         )
 
         assert result.success is True
-        # Should use fallback strategy (query first chunk only)
+        # Should use partial coverage or single query strategy
         assert "strategy" in result.metadata
-        assert result.metadata.get("strategy") in ["fallback", "single_query"]
+        assert result.metadata.get("strategy") in ["partial_coverage", "single_query"]

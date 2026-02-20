@@ -18,6 +18,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.source import ContextSource
+from cemaf.core.enums import ExclusionReason
 from cemaf.core.types import JSON
 
 
@@ -124,6 +125,7 @@ class GreedySelectionAlgorithm:
         available_tokens = budget.available_tokens
 
         excluded_keys: list[str] = []
+        excluded_details: list[dict[str, Any]] = []
 
         for source in sources:
             source_tokens = source.token_count or 0
@@ -132,6 +134,14 @@ class GreedySelectionAlgorithm:
                 total_tokens += source_tokens
             else:
                 excluded_keys.append(source.key)
+                excluded_details.append(
+                    {
+                        "source_id": source.key,
+                        "token_count": source_tokens,
+                        "priority": source.priority,
+                        "reason": ExclusionReason.BUDGET_EXCEEDED.value,
+                    }
+                )
 
         return SelectionResult(
             selected_sources=tuple(selected_sources),
@@ -140,6 +150,7 @@ class GreedySelectionAlgorithm:
                 "selection_method": "greedy",
                 "excluded_count": len(excluded_keys),
                 "excluded_keys": excluded_keys,
+                "excluded_details": excluded_details,
                 "sources_considered": len(sources),
                 "sources_included": len(selected_sources),
             },
@@ -230,6 +241,15 @@ class KnapsackSelectionAlgorithm:
         selected_sources = [sources[i] for i in selected_indices]
         excluded_indices = set(range(n)) - set(selected_indices)
         excluded_keys = [sources[i].key for i in excluded_indices]
+        excluded_details: list[dict[str, Any]] = [
+            {
+                "source_id": sources[i].key,
+                "token_count": sources[i].token_count or 0,
+                "priority": sources[i].priority,
+                "reason": ExclusionReason.LOW_PRIORITY.value,
+            }
+            for i in sorted(excluded_indices)
+        ]
 
         total_tokens = sum(s.token_count or 0 for s in selected_sources)
 
@@ -240,6 +260,7 @@ class KnapsackSelectionAlgorithm:
                 "selection_method": "knapsack",
                 "excluded_count": len(excluded_keys),
                 "excluded_keys": excluded_keys,
+                "excluded_details": excluded_details,
                 "sources_considered": len(sources),
                 "sources_included": len(selected_sources),
                 "max_priority_sum": dp[best_weight],

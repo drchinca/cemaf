@@ -40,6 +40,7 @@ from cemaf.observability.config import (
     reset_observability,
 )
 from cemaf.observability.cost_tracking import ModelPricing, ModelPricingRegistry
+from cemaf.observability.glass_box import GlassBoxReport, GlassBoxReporter
 from cemaf.observability.health import (
     HealthCheck,
     HealthCheckResult,
@@ -58,6 +59,11 @@ from cemaf.observability.run_logger import (
     ToolCall,
 )
 from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
+from cemaf.observability.token_telemetry import (
+    count_tokens,
+    extract_token_metadata,
+    merge_token_metadata,
+)
 
 __all__ = [
     # Configuration
@@ -93,9 +99,16 @@ __all__ = [
     # Cost tracking
     "ModelPricing",
     "ModelPricingRegistry",
+    # Token telemetry
+    "extract_token_metadata",
+    "count_tokens",
+    "merge_token_metadata",
     # Metrics helpers
     "MetricsHelper",
     "record_timing",
+    # Glass box
+    "GlassBoxReport",
+    "GlassBoxReporter",
     # Alerting rules
     "AlertRule",
     "Severity",

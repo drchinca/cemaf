@@ -146,6 +146,56 @@ class ResilienceSettings(BaseModel):
     rate_limit_max_wait_seconds: float = 30.0
 
 
+class ContextAgentsSettings(BaseModel):
+    """Settings for context engineering agents (Librarian, Researcher, Summarizer, Writer)."""
+
+    model_config = {"frozen": True}
+
+    # Librarian settings
+    librarian_namespace: str = Field(
+        default="blueprints",
+        description="Vector store namespace for blueprint storage",
+    )
+    librarian_top_k: int = Field(
+        default=1,
+        ge=1,
+        description="Number of blueprints to retrieve (default: 1 for best match)",
+    )
+
+    # Researcher settings
+    researcher_namespace: str = Field(
+        default="knowledge",
+        description="Vector store namespace for knowledge storage",
+    )
+    researcher_top_k: int = Field(
+        default=15,
+        ge=1,
+        description="High-fidelity retrieval: number of documents to retrieve (default: 15)",
+    )
+
+    # Planner settings
+    planner_model: str = Field(
+        default="gpt-4",
+        description="LLM model to use for autonomous planning",
+    )
+    planner_temperature: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=2.0,
+        description="Temperature for planner LLM (lower = more deterministic)",
+    )
+
+    # Token telemetry settings
+    token_telemetry_enabled: bool = Field(
+        default=True,
+        description="Enable token usage tracking for cost analysis",
+    )
+    default_token_model: str = Field(
+        default="gpt-4",
+        description="Default model for token counting when not specified",
+    )
+
+
 class AgentsSettings(BaseModel):
     """Settings for agent execution."""
 
@@ -348,6 +398,7 @@ class Settings(BaseModel):
     # Nested settings
     llm: LLMSettings = Field(default_factory=LLMSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    context_agents: ContextAgentsSettings = Field(default_factory=ContextAgentsSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)

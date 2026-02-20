@@ -53,11 +53,45 @@ CEMAF orchestration systems.
 See cemaf.agents.protocols.Agent for the protocol definition.
 """
 
+# Context Engineering Agents
+from cemaf.agents.context_agents import (
+    LibrarianAgent,
+    LibrarianGoal,
+    LibrarianResult,
+    ResearcherAgent,
+    ResearcherGoal,
+    ResearcherResult,
+    SummarizerAgent,
+    SummarizerGoal,
+    SummarizerResult,
+    WriterAgent,
+    WriterGoal,
+    WriterResult,
+)
 from cemaf.agents.protocols import Agent, AgentContext, AgentResult, AgentState
+from cemaf.agents.registry import AGENT_TOOLKIT, AgentRegistry, create_default_registry
 
 __all__ = [
+    # Core protocols
     "Agent",
     "AgentState",
     "AgentResult",
     "AgentContext",
+    # Context Engineering Agents
+    "LibrarianAgent",
+    "LibrarianGoal",
+    "LibrarianResult",
+    "ResearcherAgent",
+    "ResearcherGoal",
+    "ResearcherResult",
+    "SummarizerAgent",
+    "SummarizerGoal",
+    "SummarizerResult",
+    "WriterAgent",
+    "WriterGoal",
+    "WriterResult",
+    # Registry
+    "AgentRegistry",
+    "AGENT_TOOLKIT",
+    "create_default_registry",
 ]

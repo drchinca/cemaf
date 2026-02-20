@@ -134,6 +134,7 @@ class RecursiveQueryResult:
     chunks_examined: int = 0
     llm_calls_made: int = 0
     total_tokens_used: TokenCount = TokenCount(0)
+    coverage_ratio: float = 0.0
     metadata: JSON = field(default_factory=dict)
 
     @classmethod

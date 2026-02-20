@@ -70,3 +70,22 @@ class Priority(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class VerificationStatus(str, Enum):
+    """Verification state of a cited fact."""
+
+    UNVERIFIED = "unverified"
+    VERIFIED = "verified"
+    DISPUTED = "disputed"
+    RETRACTED = "retracted"
+
+
+class ExclusionReason(str, Enum):
+    """Reason a context source was excluded from compilation."""
+
+    BUDGET_EXCEEDED = "budget_exceeded"
+    LOW_PRIORITY = "low_priority"
+    STALE = "stale"
+    DUPLICATE = "duplicate"
+    FILTERED = "filtered"
