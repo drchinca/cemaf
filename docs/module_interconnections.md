@@ -40,6 +40,9 @@ flowchart TB
         LOGGER[RunLogger]
         HEALTH[Health]
         REPLAY[Replayer]
+        GUARD[BudgetGuard]
+        GLASS[GlassBoxReporter]
+        PROV[ProvenanceChain]
     end
 
     subgraph Infrastructure["Infrastructure"]
@@ -88,6 +91,11 @@ flowchart TB
     ORCH --> LOGGER
     TOOLS --> LOGGER
     AGENTS --> LOGGER
+    LOGGER --> PROV
+    PROV --> GLASS
+    GUARD --> GLASS
+    GUARD --> ORCH
+    CIT --> PROV
 ```
 
 ## Core Layer Interconnections
@@ -459,6 +467,94 @@ engine = DivideAndConquerQueryEngine(
 )
 ```
 
+## Glass Box Audit Interconnections
+
+### ProvenanceChain → RunRecord → GlassBoxReporter
+
+**Flow**: Every LLM call creates a ProvenanceLink; the chain feeds the Glass Box report
+
+```python
+from cemaf.core.provenance import ProvenanceLink, ProvenanceChain, SourceReference
+
+# Each LLM call produces a ProvenanceLink
+link = ProvenanceLink(
+    id="prov_001",
+    llm_call_id="call_abc",
+    node_id="step_0",
+    agent_id="researcher",
+    context_sources=(
+        SourceReference(source_id="doc_1", source_type="artifact", token_count=500, priority=10, included=True),
+        SourceReference(source_id="doc_2", source_type="artifact", token_count=300, priority=5, included=False, exclusion_reason=ExclusionReason.BUDGET_EXCEEDED),
+    ),
+    context_hash="abc123",
+    citation_ids=("cite_1",),
+    patch_ids=("patch_1",),
+    budget_utilization=0.85,
+    cost_usd=0.003,
+)
+
+# Chain accumulates links across a DAG run
+chain = ProvenanceChain(run_id="run_123", links=(link,))
+
+# GlassBoxReporter generates audit report from RunRecord
+reporter = GlassBoxReporter()
+report = reporter.generate(record=run_record)
+```
+
+**Integration Points**:
+- `ProvenanceLink` cross-references LLMCall, ContextSources, Citations, Patches
+- `RunRecord.provenance_chain` stores the full chain
+- `GlassBoxReporter.generate()` produces decision trace, token audit, cost breakdown
+
+### BudgetGuard → DAGExecutor
+
+**Flow**: BudgetGuard enforces cost/token limits during DAG execution
+
+```python
+from cemaf.observability.budget_guard import BudgetGuard
+
+guard = BudgetGuard(max_cost_usd=1.0, max_total_tokens=100_000)
+
+executor = DAGExecutor(
+    node_executor=my_executor,
+    budget_guard=guard,
+)
+
+# Executor checks guard after each node
+# If should_halt() returns True, execution stops
+result = await executor.run(dag, context)
+```
+
+**Integration Points**:
+- `BudgetGuard.check_budget()` returns alerts at INFO/WARNING/CRITICAL/HALT levels
+- `DAGExecutor` calls `should_halt()` after each node execution
+- Alerts recorded in RunRecord for post-hoc analysis
+
+### Citation → ProvenanceLink → GlassBoxReporter
+
+**Flow**: Citations carry provenance_link_id; GlassBoxReporter verifies coverage
+
+```python
+# Citation references its provenance
+citation = Citation(
+    id="cite_1",
+    source_id="doc_1",
+    provenance_link_id="prov_001",  # Links back to ProvenanceLink
+    agent_id="researcher",
+    node_id="step_0",
+)
+
+# GlassBoxReporter verifies every citation references a source the LLM saw
+coverage = reporter.verify_citation_coverage(record=run_record)
+# coverage.verified_citations: citations with matching included sources
+# coverage.unverified_ids: orphan citations (potential hallucinations)
+```
+
+**Integration Points**:
+- `Citation.provenance_link_id` links to the ProvenanceLink that produced it
+- `SourceReference.included` tracks whether a source was in the LLM context
+- `GlassBoxReporter.verify_citation_coverage()` catches orphan citations
+
 ## Missing or Weak Interconnections
 
 ### 1. RLM ↔ AdvancedContextCompiler
@@ -471,15 +567,9 @@ engine = DivideAndConquerQueryEngine(
 
 **Implementation**: Update `DivideAndConquerQueryEngine` to accept `AdvancedContextCompiler`
 
-### 2. Citation ↔ Context Patches
+### 2. ~~Citation ↔ Context Patches~~ ✓ RESOLVED in v0.2.0
 
-**Current**: Citation tracking exists but not integrated with context patches
-
-**Opportunity**: Citations could be tracked as context patches
-
-**Benefit**: Full provenance including source attribution
-
-**Implementation**: Integrate `CitationTracker` with `ContextPatch` system
+Citations now carry `provenance_link_id`, `agent_id`, `node_id`, and `context_path` fields. `GlassBoxReporter.verify_citation_coverage()` validates citations against context sources.
 
 ### 3. Blueprint ↔ Context Compiler
 

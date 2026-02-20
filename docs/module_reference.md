@@ -104,6 +104,26 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `AgentResult`: Result with state trace and skill results
 - **Features**: Agents orchestrate skills, maintain state, make decisions
 
+### `agents/registry.py`
+
+- **Purpose**: Dynamic, domain-scoped agent registry
+- **Key Classes**:
+  - `AgentRegistry(BaseRegistry[Agent])`: Dynamic agent registration and discovery
+- **Features**:
+  - `register_agent(agent_class, domain_id)` for domain-scoped registration
+  - `get_for_domain(domain_id)` for domain-scoped lookup
+  - `get_capabilities_description()` auto-generated from registered agents
+  - Factory `create_default_registry()` replaces singleton pattern
+
+### `agents/context_agents.py`
+
+- **Purpose**: Built-in context engineering agents
+- **Key Agents**:
+  - `LibrarianAgent`: Context retrieval and organization
+  - `ResearcherAgent`: Multi-source research and synthesis
+  - `SummarizerAgent`: Intelligent content compression
+  - `WriterAgent`: Context-aware content generation
+
 ---
 
 ## Orchestration (`cemaf/orchestration/`)
@@ -155,6 +175,32 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 - **Purpose**: Save/restore execution state for resumability
 - **Key Components**: Checkpoint protocol and implementations
+
+### `context_node_executor.py`
+
+- **Purpose**: Bridge between DAG nodes and agents via dynamic registry
+- **Key Classes**:
+  - `ContextNodeExecutor(NodeExecutor)`: Resolves node ref_id → agent via registry
+- **Features**:
+  - Builds GoalT from resolved inputs
+  - Threads DomainContext + provenance through AgentContext
+  - Records LLMCall/ContextPatch/Citation via RunLogger
+  - Builds ProvenanceLink per execution
+
+### `planner.py`
+
+- **Purpose**: Dynamic DAG planning with domain-aware capabilities
+- **Key Classes**:
+  - `DynamicPlanner`: Generates DAG plans from goals using LLM
+- **Features**:
+  - Accepts `domain_context: DomainContext` for domain-scoped planning
+  - Dynamic capabilities description from AgentRegistry
+  - Injects domain info into planning prompt
+
+### `dependency_resolver.py`
+
+- **Purpose**: Resolve node dependencies for parallel execution
+- **Key Components**: Topological sort, dependency graph analysis
 
 ### `factories.py`
 

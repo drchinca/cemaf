@@ -355,6 +355,58 @@ compiled = await compiler.compile(
 | Analysis requiring complete context | Mode 1 | `algorithm=None` |
 | Performance-critical generation | Mode 2 | `algorithm=GreedySelectionAlgorithm()` |
 
+## Exclusion Tracking
+
+When sources are excluded from compilation, the algorithm records structured exclusion metadata:
+
+```python
+from cemaf.core.enums import ExclusionReason
+
+# Selection algorithms track why sources were excluded
+# Greedy: BUDGET_EXCEEDED when token budget runs out
+# Knapsack: LOW_PRIORITY when optimizing value/weight ratio
+
+compiled = await compiler.compile(
+    artifacts=artifacts,
+    memories=memories,
+    budget=budget,
+    priorities=priorities,
+)
+
+# Exclusion metadata in compiled result
+for excluded in compiled.metadata.get("excluded_sources", []):
+    print(f"Source {excluded['source_id']} excluded: {excluded['reason']}")
+    # e.g., "Source doc_5 excluded: ExclusionReason.BUDGET_EXCEEDED"
+```
+
+### ExclusionReason Enum
+
+| Reason | When Used |
+|--------|-----------|
+| `BUDGET_EXCEEDED` | Token budget ran out before this source could be included |
+| `LOW_PRIORITY` | Knapsack algorithm excluded for better value/weight ratio |
+| `STALE` | Source data is outdated |
+| `DUPLICATE` | Duplicate content detected |
+| `FILTERED` | Filtered by domain rules or moderation |
+
+### Integration with ProvenanceChain
+
+Exclusion metadata feeds into `SourceReference` for full audit:
+
+```python
+from cemaf.core.provenance import SourceReference
+
+# Each source in a ProvenanceLink records inclusion/exclusion
+ref = SourceReference(
+    source_id="doc_5",
+    source_type="artifact",
+    token_count=2000,
+    priority=3,
+    included=False,
+    exclusion_reason=ExclusionReason.BUDGET_EXCEEDED,
+)
+```
+
 ## Token Estimation
 
 Estimate tokens for content:
