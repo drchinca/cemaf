@@ -37,6 +37,7 @@ class Planner:
         self,
         goal: str,
         dag_name: str | None = None,
+        domain_context: Any | None = None,
     ) -> DAG:
         """
         Generate a DAG from a high-level goal.
@@ -56,8 +57,21 @@ class Planner:
         # Get capabilities description from registry
         capabilities = self._agent_registry.get_capabilities_description()
 
+        # Build optional domain constraints block
+        domain_block = ""
+        if domain_context is not None:
+            domain_block = f"""
+DOMAIN CONSTRAINTS
+---
+Domain: {getattr(domain_context, "domain_id", "unknown")}
+Business Rules: {", ".join(getattr(domain_context, "business_rules", ())) or "none"}
+Citation Style: {getattr(domain_context, "required_citation_style", "inline")}
+---
+"""
+
         system_prompt = f"""You are the strategic core of the Context Engine. Analyze the
 user's high-level GOAL and create a step-by-step EXECUTION PLAN.
+{domain_block}
 
 AVAILABLE CAPABILITIES
 ---
