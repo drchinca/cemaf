@@ -1,6 +1,6 @@
 # CEMAF Module Reference Guide
 
-**Last Updated**: December 2024
+**Last Updated**: February 2026
 
 > **Note**: This is a technical reference guide providing a comprehensive module-by-module breakdown of the CEMAF framework. For learning-oriented documentation with tutorials and examples, see the [official documentation](./README.md).
 
@@ -11,7 +11,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 ### `types.py`
 
 - **Purpose**: Type-safe identifiers using `NewType`
-- **Exports**: `AgentID`, `ToolID`, `SkillID`, `NodeID`, `RunID`, `ProjectID`, `TokenCount`, `Confidence`, `JSON`
+- **Exports**: `AgentID`, `ToolID`, `SkillID`, `NodeID`, `RunID`, `ProjectID`, `TokenCount`, `Confidence`, `JSON`, `ProvenanceID`, `DomainID`, `TenantID`
 - **Key Feature**: Prevents mixing different ID types at compile time
 
 ### `enums.py`
@@ -24,6 +24,20 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `MemoryScope` (brand, project, audience_segment, platform, personae, session)
   - `ContextArtifactType` (brand_constitution, style_guide, symbol_canon, etc.)
   - `Priority` (low, medium, high, critical)
+  - `VerificationStatus` (unverified, verified, disputed, retracted)
+  - `ExclusionReason` (budget_exceeded, low_priority, stale, duplicate, filtered)
+
+### `provenance.py`
+
+- **Purpose**: Glass box audit trail for DAG runs
+- **Exports**: `SourceReference`, `ProvenanceLink`, `ProvenanceChain`
+- **Key Feature**: Cross-references every LLM call with its context sources, citations, patches, and costs
+
+### `domain.py`
+
+- **Purpose**: Domain-scoped business rules for multi-tenant deployments
+- **Exports**: `DomainContext`
+- **Key Feature**: Carries business rules, vocabulary constraints, citation style requirements through agent execution
 
 ### `result.py`
 
@@ -344,17 +358,45 @@ print(f"Metadata: {result.metadata}")
 
 ### `run_logger.py`
 
-- **Purpose**: Recording and replaying agent runs
+- **Purpose**: Recording and replaying agent runs with provenance tracking
 - **Key Classes**:
-  - `ToolCall`: Record of tool invocation (input, output, duration, timestamp, correlation_id)
-  - `LLMCall`: Record of LLM call (messages, response, tokens, latency)
-  - `RunRecord`: Complete run record (run_id, patches, tool_calls, llm_calls, final_context)
-  - `RunLogger`: Protocol for recording
+  - `ToolCall`: Record of tool invocation (input, output, duration, timestamp, correlation_id, node_id, agent_id)
+  - `LLMCall`: Record of LLM call (messages, response, tokens, latency, context_sources_used, context_hash, budget_utilization, cost_usd, provenance_link_id)
+  - `RunRecord`: Complete run record (run_id, patches, tool_calls, llm_calls, final_context, total_cost_usd, provenance_chain, selection_summaries)
+  - `RunLogger`: Protocol for recording (includes `record_provenance_link()`)
   - `InMemoryRunLogger`: In-memory implementation
 - **Features**:
   - Replay-friendly (deterministic)
-  - Full trace of execution
+  - Full trace of execution with provenance
   - Correlation IDs for tracing
+  - Cost tracking per LLM call
+
+### `budget_guard.py`
+
+- **Purpose**: Cost and token limit enforcement across DAG runs
+- **Key Classes**:
+  - `AlertLevel`: Enum (INFO, WARNING, CRITICAL, HALT)
+  - `BudgetAlert`: Immutable alert record (level, utilization, message)
+  - `BudgetGuard`: Configurable guard with `record_usage()`, `check_budget()`, `should_halt()`
+- **Features**:
+  - Configurable warning/critical/halt thresholds
+  - Tracks accumulated cost and tokens
+  - Integrated with DAGExecutor
+
+### `glass_box.py`
+
+- **Purpose**: Complete audit report generation from RunRecords
+- **Key Classes**:
+  - `CostBreakdown`: Per-model, per-node, per-agent cost breakdown
+  - `TokenAudit`: Per-source, per-node, per-agent token breakdown with exclusion reasons
+  - `DecisionStep`: What an LLM saw vs decided (sources seen/excluded, citations, output)
+  - `CitationCoverage`: Verification that citations reference sources the LLM actually saw
+  - `GlassBoxReport`: Complete audit trail (provenance, citations, tokens, costs, decisions, quality)
+  - `GlassBoxReporter`: Generates reports from RunRecords
+- **Features**:
+  - Decision trace: full transparency into each LLM call
+  - Citation coverage verification
+  - Serializable via `to_dict()`
 
 ### `protocols.py` & `simple.py`
 

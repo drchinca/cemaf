@@ -49,7 +49,7 @@ fact = CitedFact(
     fact="Large language models demonstrate emergent reasoning capabilities",
     citations=[citation1, citation2],
     confidence=0.9,
-    verification_status="verified",
+    verification_status=VerificationStatus.VERIFIED,
 )
 ```
 
@@ -67,6 +67,59 @@ registry.register_fact(fact)
 # Query citations
 all_citations = registry.get_all_citations()
 facts_by_status = registry.get_facts_by_status("verified")
+```
+
+## Provenance Cross-References
+
+Citations now carry provenance metadata linking them to the exact LLM call and context sources that produced them:
+
+```python
+from cemaf.citation import Citation
+from cemaf.core.enums import VerificationStatus
+
+citation = Citation(
+    id="cite_abc123",
+    source_id="doc_456",
+    source_type="document",
+    title="Research Paper",
+    quote="...",
+    confidence=0.95,
+    # Provenance fields
+    agent_id="librarian",
+    node_id="step_0",
+    provenance_link_id="prov_xyz",  # Links to ProvenanceLink
+    retrieved_at=datetime.now(UTC),
+    context_path="context.sources.doc_456",
+)
+```
+
+### Verification Status
+
+`CitedFact` uses the `VerificationStatus` enum for type-safe verification tracking:
+
+```python
+from cemaf.core.enums import VerificationStatus
+
+# VerificationStatus.UNVERIFIED  - Default, not yet checked
+# VerificationStatus.VERIFIED    - Confirmed against source
+# VerificationStatus.DISPUTED    - Conflicting evidence found
+# VerificationStatus.RETRACTED   - Source was retracted
+```
+
+### Glass Box Citation Coverage
+
+The `GlassBoxReporter` verifies that every citation refers to a source the LLM actually saw:
+
+```python
+from cemaf.observability.glass_box import GlassBoxReporter
+
+reporter = GlassBoxReporter()
+coverage = reporter.verify_citation_coverage(record=run_record)
+
+print(f"Verified: {coverage.verified_citations}/{coverage.total_citations}")
+print(f"Coverage ratio: {coverage.coverage_ratio:.0%}")
+if coverage.unverified_ids:
+    print(f"Warning: orphan citations {coverage.unverified_ids}")
 ```
 
 ## CitationTracker
