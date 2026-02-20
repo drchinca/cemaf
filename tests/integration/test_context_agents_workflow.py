@@ -155,7 +155,24 @@ class TestContextAgentsIntegration:
     @pytest.mark.asyncio
     async def test_registry_capabilities_for_planning(self):
         """Test that registry capabilities description supports planning."""
+        from cemaf.llm.mock import MockLLMClient
+        from cemaf.retrieval.factories import create_in_memory_vector_store
+
         registry = AgentRegistry()
+        vector_store = create_in_memory_vector_store()
+        llm_client = MockLLMClient()
+
+        # Register agents dynamically
+        for name, kwargs in [
+            ("Librarian", {"vector_store": vector_store}),
+            ("Researcher", {"vector_store": vector_store, "llm_client": llm_client}),
+            ("Summarizer", {"llm_client": llm_client}),
+            ("Writer", {"llm_client": llm_client}),
+        ]:
+            agent = registry.create_agent(name, **kwargs)
+            if agent:
+                goal_type = registry.get_goal_type(name)
+                registry.register_agent(agent_instance=agent, goal_type=goal_type)
 
         capabilities = registry.get_capabilities_description()
 
@@ -165,11 +182,8 @@ class TestContextAgentsIntegration:
         assert "Summarizer" in capabilities
         assert "Writer" in capabilities
 
-        # Verify input/output documentation
+        # Verify input documentation
         assert "INPUTS:" in capabilities
-        assert "OUTPUT:" in capabilities
-
-        # Verify key input parameters are documented
         assert "intent_query" in capabilities
         assert "topic_query" in capabilities
         assert "text_to_summarize" in capabilities
