@@ -5,6 +5,7 @@ from cemaf.core.constants import (
     DEFAULT_TIMEOUT_SECONDS,
     MAX_CONTEXT_TOKENS,
 )
+from cemaf.core.domain import DomainContext
 from cemaf.core.enums import (
     AgentStatus,
     ExclusionReason,
@@ -22,6 +23,7 @@ from cemaf.core.execution import (
     with_execution_context,
     with_timeout,
 )
+from cemaf.core.provenance import ProvenanceChain, ProvenanceLink, SourceReference
 from cemaf.core.registry import BaseRegistry, RegistryError
 from cemaf.core.result import Result
 from cemaf.core.storage import InMemoryStorage, StorageEntry
@@ -56,6 +58,12 @@ __all__ = [
     "NodeType",
     "RunStatus",
     "VerificationStatus",
+    # Provenance
+    "ProvenanceChain",
+    "ProvenanceLink",
+    "SourceReference",
+    # Domain
+    "DomainContext",
     # Constants
     "DEFAULT_MAX_RETRIES",
     "DEFAULT_TIMEOUT_SECONDS",
