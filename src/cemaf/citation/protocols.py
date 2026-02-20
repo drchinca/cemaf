@@ -68,49 +68,14 @@ class CitationTracker(Protocol):
         >>> assert isinstance(tracker, CitationTracker)
     """
 
-    async def add_citation(self, citation: Citation) -> None:
-        """
-        Add a citation to the tracker.
-
-        Args:
-            citation: Citation instance to track
-
-        Example:
-            >>> citation = Citation(
-            ...     source_id="doc-123",
-            ...     title="Example Paper",
-            ...     url="https://example.com/paper.pdf"
-            ... )
-            >>> await tracker.add_citation(citation)
-        """
+    def add_citation(self, citation: Citation) -> None:
+        """Add a citation to the tracker."""
         ...
 
-    async def add_cited_fact(self, fact: CitedFact) -> None:
-        """
-        Add a cited fact with its supporting citations.
-
-        Args:
-            fact: CitedFact instance with claim and citations
-
-        Example:
-            >>> fact = CitedFact(
-            ...     claim="The sky is blue",
-            ...     citations=[citation1, citation2]
-            ... )
-            >>> await tracker.add_cited_fact(fact)
-        """
+    def add_cited_fact(self, fact: CitedFact) -> None:
+        """Add a cited fact with its supporting citations."""
         ...
 
-    async def get_all_citations(self) -> list[Citation]:
-        """
-        Get all citations tracked in this run.
-
-        Returns:
-            List of all citations
-
-        Example:
-            >>> citations = await tracker.get_all_citations()
-            >>> for citation in citations:
-            ...     print(f"[{citation.source_id}] {citation.title}")
-        """
+    def get_all_citations(self) -> tuple[Citation, ...]:
+        """Get all citations tracked in this run."""
         ...

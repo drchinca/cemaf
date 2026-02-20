@@ -12,34 +12,36 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from cemaf.core.enums import VerificationStatus
 from cemaf.core.types import JSON
 from cemaf.retrieval.protocols import SearchResult
 
 
 @dataclass(frozen=True)
 class Citation:
-    """
-    A source citation with metadata.
-
-    Represents a single source that backs a factual claim.
-    """
+    """A source citation with provenance metadata."""
 
     id: str
-    source_id: str  # ID of source document/record
-    source_type: str  # "document", "url", "database", "api"
+    source_id: str
+    source_type: str
     title: str = ""
     url: str | None = None
     author: str | None = None
     date: datetime | None = None
     page: int | None = None
     section: str | None = None
-    quote: str = ""  # Exact quoted text
-    confidence: float = 1.0  # 0.0-1.0 confidence in citation
+    quote: str = ""
+    confidence: float = 1.0
     metadata: JSON = field(default_factory=dict)
+    retrieved_at: datetime | None = None
+    agent_id: str | None = None
+    node_id: str | None = None
+    context_path: str | None = None
+    provenance_link_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        result = {
             "id": self.id,
             "source_id": self.source_id,
             "source_type": self.source_type,
@@ -53,6 +55,17 @@ class Citation:
             "confidence": self.confidence,
             "metadata": self.metadata,
         }
+        if self.retrieved_at is not None:
+            result["retrieved_at"] = self.retrieved_at.isoformat()
+        if self.agent_id is not None:
+            result["agent_id"] = self.agent_id
+        if self.node_id is not None:
+            result["node_id"] = self.node_id
+        if self.context_path is not None:
+            result["context_path"] = self.context_path
+        if self.provenance_link_id is not None:
+            result["provenance_link_id"] = self.provenance_link_id
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Citation:
@@ -60,6 +73,10 @@ class Citation:
         date_value = data.get("date")
         if date_value is not None and isinstance(date_value, str):
             date_value = datetime.fromisoformat(date_value)
+
+        retrieved_at = data.get("retrieved_at")
+        if retrieved_at is not None and isinstance(retrieved_at, str):
+            retrieved_at = datetime.fromisoformat(retrieved_at)
 
         return cls(
             id=data["id"],
@@ -74,6 +91,11 @@ class Citation:
             quote=data.get("quote", ""),
             confidence=data.get("confidence", 1.0),
             metadata=data.get("metadata", {}),
+            retrieved_at=retrieved_at,
+            agent_id=data.get("agent_id"),
+            node_id=data.get("node_id"),
+            context_path=data.get("context_path"),
+            provenance_link_id=data.get("provenance_link_id"),
         )
 
     @classmethod
@@ -149,15 +171,13 @@ class Citation:
 
 @dataclass(frozen=True)
 class CitedFact:
-    """
-    A factual claim with supporting citations.
-    """
+    """A factual claim with supporting citations and verification status."""
 
     id: str
-    fact: str  # The factual statement
-    citations: tuple[Citation, ...]  # Supporting citations
-    confidence: float = 1.0  # Aggregated confidence
-    verification_status: str = "unverified"  # "verified", "unverified", "disputed"
+    fact: str
+    citations: tuple[Citation, ...]
+    confidence: float = 1.0
+    verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
 
     @property
     def is_cited(self) -> bool:
@@ -173,6 +193,28 @@ class CitedFact:
     def citation_count(self) -> int:
         """Number of citations."""
         return len(self.citations)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary."""
+        return {
+            "id": self.id,
+            "fact": self.fact,
+            "citations": [c.to_dict() for c in self.citations],
+            "confidence": self.confidence,
+            "verification_status": self.verification_status.value,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CitedFact:
+        """Deserialize from dictionary."""
+        status = data.get("verification_status", "unverified")
+        return cls(
+            id=data["id"],
+            fact=data["fact"],
+            citations=tuple(Citation.from_dict(c) for c in data.get("citations", [])),
+            confidence=data.get("confidence", 1.0),
+            verification_status=VerificationStatus(status),
+        )
 
 
 class CitationRegistry:

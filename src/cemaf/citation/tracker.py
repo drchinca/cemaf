@@ -11,6 +11,8 @@ from typing import Any
 
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
 from cemaf.context.patch import ContextPatch, PatchSource
+from cemaf.core.enums import VerificationStatus
+from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
 from cemaf.retrieval.protocols import SearchResult
 
@@ -86,26 +88,20 @@ class CitationTracker:
         fact: str,
         citations: list[Citation],
         confidence: float = 1.0,
-        verification_status: str = "unverified",
+        verification_status: VerificationStatus | str = VerificationStatus.UNVERIFIED,
     ) -> CitedFact:
-        """
-        Create a cited fact and register it.
-
-        Args:
-            fact: The factual statement
-            citations: List of supporting citations
-            confidence: Confidence score (0.0-1.0)
-            verification_status: Status of verification ("verified", "unverified", "disputed")
-
-        Returns:
-            Created CitedFact
-        """
+        """Create a cited fact and register it."""
+        status = (
+            VerificationStatus(verification_status)
+            if isinstance(verification_status, str)
+            else verification_status
+        )
         cited_fact = CitedFact(
             id=f"fact-{uuid.uuid4().hex[:8]}",
             fact=fact,
             citations=tuple(citations),
             confidence=confidence,
-            verification_status=verification_status,
+            verification_status=status,
         )
         self._registry.add_cited_fact(cited_fact)
         self._emit_event(
@@ -123,25 +119,13 @@ class CitationTracker:
         citations: list[Citation],
         path: str = "facts",
         confidence: float = 1.0,
-        verification_status: str = "unverified",
+        verification_status: VerificationStatus | str = VerificationStatus.UNVERIFIED,
         correlation_id: str | None = None,
+        agent_id: str | None = None,
+        node_id: str | None = None,
+        provenance_link_id: str | None = None,
     ) -> tuple[CitedFact, ContextPatch]:
-        """Create a cited fact and corresponding context patch for provenance.
-
-        Returns both the CitedFact and a ContextPatch that can be applied to a Context
-        to store the fact with full citation information.
-
-        Args:
-            fact: The factual statement
-            citations: List of supporting citations
-            path: Base path in context for storing the fact (default: "facts")
-            confidence: Confidence score (0.0-1.0)
-            verification_status: Status of verification
-            correlation_id: Optional ID for tracing related patches
-
-        Returns:
-            Tuple of (CitedFact, ContextPatch)
-        """
+        """Create a cited fact and corresponding context patch for provenance."""
         cited_fact = self.create_cited_fact(
             fact=fact,
             citations=citations,
@@ -149,28 +133,67 @@ class CitationTracker:
             verification_status=verification_status,
         )
 
-        # Create patch value with all metadata
-        patch_value = {
+        patch_value: dict[str, Any] = {
             "fact_id": cited_fact.id,
             "fact": fact,
             "citations": [citation.to_dict() for citation in citations],
             "confidence": confidence,
-            "verification_status": verification_status,
+            "verification_status": cited_fact.verification_status.value,
             "citation_count": len(citations),
         }
+        if agent_id is not None:
+            patch_value["agent_id"] = agent_id
+        if node_id is not None:
+            patch_value["node_id"] = node_id
+        if provenance_link_id is not None:
+            patch_value["provenance_link_id"] = provenance_link_id
 
-        # Create patch with fact_id in path
         patch_path = f"{path}.{cited_fact.id}"
         patch = ContextPatch.set(
             path=patch_path,
             value=patch_value,
             source=PatchSource.TOOL,
-            source_id="citation_tracker",
+            source_id=agent_id or "citation_tracker",
             reason="Tracked citation from retrieval",
             correlation_id=correlation_id,
         )
 
         return cited_fact, patch
+
+    def track_llm_output(
+        self,
+        llm_call_id: str,
+        output_text: str,
+        context_sources: list[dict[str, Any]],
+        agent_id: str | None = None,
+        node_id: str | None = None,
+        provenance_link_id: str | None = None,
+    ) -> list[Citation]:
+        """Attribute LLM output to context sources for automatic citation."""
+        created: list[Citation] = []
+        now = utc_now()
+        for source in context_sources:
+            source_id = source.get("source_id", "")
+            if not source_id:
+                continue
+            citation = Citation(
+                id=f"auto_{uuid.uuid4().hex[:8]}",
+                source_id=source_id,
+                source_type=source.get("source_type", "context"),
+                title=source.get("title", ""),
+                confidence=source.get("confidence", 0.5),
+                retrieved_at=now,
+                agent_id=agent_id,
+                node_id=node_id,
+                provenance_link_id=provenance_link_id,
+            )
+            self._registry.register(citation)
+            created.append(citation)
+        self._emit_event(
+            "citation.auto_attributed",
+            {"llm_call_id": llm_call_id, "count": len(created)},
+        )
+        return created
 
     def record_uncited_fact(self, fact: str) -> None:
         """
