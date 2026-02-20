@@ -40,6 +40,7 @@ from cemaf.observability.config import (
     reset_observability,
 )
 from cemaf.observability.cost_tracking import ModelPricing, ModelPricingRegistry
+from cemaf.observability.glass_box import GlassBoxReport, GlassBoxReporter
 from cemaf.observability.health import (
     HealthCheck,
     HealthCheckResult,
@@ -105,6 +106,9 @@ __all__ = [
     # Metrics helpers
     "MetricsHelper",
     "record_timing",
+    # Glass box
+    "GlassBoxReport",
+    "GlassBoxReporter",
     # Alerting rules
     "AlertRule",
     "Severity",
