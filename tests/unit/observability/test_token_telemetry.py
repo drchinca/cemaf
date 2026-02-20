@@ -76,7 +76,9 @@ class TestTokenTelemetry:
             agent_name="Writer",
         )
 
-        assert "tokens_saved" not in metadata
+        # Any agent with output < input now tracks compression
+        assert metadata["tokens_saved"] == 50
+        assert metadata["agent_name"] == "Writer"
 
     def test_cost_estimate_included(self):
         """Test that cost estimate is included when pricing available."""

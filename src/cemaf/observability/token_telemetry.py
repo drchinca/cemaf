@@ -59,11 +59,12 @@ def extract_token_metadata(
     metadata["tokens_out"] = tokens_out
     metadata["tokens_total"] = tokens_total
 
-    # Calculate tokens saved for Summarizer (context reduction)
-    if agent_name == "Summarizer" and tokens_in > 0:
+    # Calculate compression metrics for any agent that reduces context
+    if agent_name and tokens_in > 0 and tokens_out < tokens_in:
         tokens_saved = max(0, tokens_in - tokens_out)
         metadata["tokens_saved"] = tokens_saved
         metadata["compression_ratio"] = round(tokens_out / tokens_in, 3) if tokens_in > 0 else 0.0
+        metadata["agent_name"] = agent_name
 
     # Estimate cost if pricing available
     try:
@@ -100,27 +101,33 @@ def count_tokens(text: str, model: str = "gpt-4") -> int:
 
 
 def merge_token_metadata(metadata_list: list[JSON]) -> JSON:
-    """
-    Merge token metadata from multiple sources.
-
-    Useful for aggregating token usage across multiple LLM calls in a single node.
-
-    Args:
-        metadata_list: List of token metadata dictionaries
-
-    Returns:
-        Merged metadata with totals
-    """
+    """Merge token metadata from multiple sources with per-model breakdown."""
     total_in = sum(m.get("tokens_in", 0) for m in metadata_list)
     total_out = sum(m.get("tokens_out", 0) for m in metadata_list)
     total_saved = sum(m.get("tokens_saved", 0) for m in metadata_list)
     total_cost = sum(m.get("cost_estimate_usd", 0.0) for m in metadata_list)
+    total_excluded = sum(m.get("tokens_excluded", 0) for m in metadata_list)
 
-    return {
+    # Build per-model breakdown
+    per_model: dict[str, dict[str, int | float]] = {}
+    for m in metadata_list:
+        model = m.get("model", "unknown")
+        if model not in per_model:
+            per_model[model] = {"tokens_in": 0, "tokens_out": 0, "calls": 0, "cost_usd": 0.0}
+        per_model[model]["tokens_in"] += m.get("tokens_in", 0)
+        per_model[model]["tokens_out"] += m.get("tokens_out", 0)
+        per_model[model]["calls"] += 1
+        per_model[model]["cost_usd"] += m.get("cost_estimate_usd", 0.0)
+
+    result: JSON = {
         "tokens_in": total_in,
         "tokens_out": total_out,
         "tokens_total": total_in + total_out,
         "tokens_saved": total_saved,
+        "tokens_excluded": total_excluded,
         "cost_estimate_usd": round(total_cost, 6),
         "llm_calls": len(metadata_list),
     }
+    if per_model:
+        result["per_model"] = per_model
+    return result
