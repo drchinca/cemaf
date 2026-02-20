@@ -130,9 +130,9 @@ class AgentResult[ResultT]:
 
 
 class AgentContext(BaseModel):
-    """Isolated context for agent execution."""
+    """Isolated context for agent execution with optional domain scoping."""
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "arbitrary_types_allowed": True}
 
     run_id: str
     agent_id: str
@@ -140,6 +140,7 @@ class AgentContext(BaseModel):
     depth: int = 0
     global_memory: JSON = Field(default_factory=dict)
     artifacts: JSON = Field(default_factory=dict)
+    domain_context: Any | None = None  # DomainContext, typed as Any to avoid circular
 
 
 class Agent[GoalT: BaseModel, ResultT](ABC):

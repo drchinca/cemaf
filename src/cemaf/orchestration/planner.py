@@ -168,11 +168,14 @@ Output only valid JSON, no markdown formatting."""
             if not step_num or not agent_name:
                 raise ValueError(f"Invalid step: missing 'step' or 'agent' in {step_data}")
 
-            # Validate agent name
-            if agent_name not in self._agent_registry.list_agents():
-                raise ValueError(
-                    f"Unknown agent: {agent_name}. Available: {self._agent_registry.list_agents()}"
-                )
+            # Validate agent name: check registered instances or built-in classes
+            known = self._agent_registry.list_agents()
+            has_class = (
+                hasattr(self._agent_registry, "get_agent_class")
+                and self._agent_registry.get_agent_class(agent_name) is not None
+            )
+            if agent_name not in known and not has_class:
+                raise ValueError(f"Unknown agent: {agent_name}. Available: {known}")
 
             # Create node ID
             node_id = NodeID(f"step_{step_num}")

@@ -69,7 +69,7 @@ from cemaf.agents.context_agents import (
     WriterResult,
 )
 from cemaf.agents.protocols import Agent, AgentContext, AgentResult, AgentState
-from cemaf.agents.registry import AGENT_TOOLKIT, AgentRegistry
+from cemaf.agents.registry import AGENT_TOOLKIT, AgentRegistry, create_default_registry
 
 __all__ = [
     # Core protocols
@@ -93,4 +93,5 @@ __all__ = [
     # Registry
     "AgentRegistry",
     "AGENT_TOOLKIT",
+    "create_default_registry",
 ]

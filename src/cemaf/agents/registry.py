@@ -1,9 +1,4 @@
-"""
-Agent Registry - Central registry for context engineering agents.
-
-Provides a registry pattern for discovering and accessing agents,
-along with capability descriptions for autonomous planning.
-"""
+"""Agent Registry v2 - Dynamic, domain-scoped agent registration."""
 
 import logging
 from typing import Any
@@ -19,43 +14,105 @@ from cemaf.agents.context_agents import (
     WriterGoal,
 )
 from cemaf.agents.protocols import Agent
+from cemaf.core.registry import BaseRegistry
 from cemaf.llm.protocols import LLMClient
 from cemaf.retrieval.protocols import VectorStore
 
 logger = logging.getLogger(__name__)
 
+# Agent class to goal type mapping for built-in agents
+_BUILTIN_GOAL_TYPES: dict[str, type[Any]] = {
+    "Librarian": LibrarianGoal,
+    "Researcher": ResearcherGoal,
+    "Summarizer": SummarizerGoal,
+    "Writer": WriterGoal,
+}
 
-class AgentRegistry:
-    """
-    Registry for context engineering agents.
+_BUILTIN_AGENT_CLASSES: dict[str, type[Agent[Any, Any]]] = {
+    "Librarian": LibrarianAgent,
+    "Researcher": ResearcherAgent,
+    "Summarizer": SummarizerAgent,
+    "Writer": WriterAgent,
+}
 
-    Provides:
-    - Agent lookup by name
-    - Capability descriptions for planning
-    - Factory methods for creating agents with dependencies
-    """
 
-    def __init__(self) -> None:
-        self._agents: dict[str, type[Agent[Any, Any]]] = {
-            "Librarian": LibrarianAgent,
-            "Researcher": ResearcherAgent,
-            "Summarizer": SummarizerAgent,
-            "Writer": WriterAgent,
-        }
-        self._goal_types: dict[str, type[Any]] = {
-            "Librarian": LibrarianGoal,
-            "Researcher": ResearcherGoal,
-            "Summarizer": SummarizerGoal,
-            "Writer": WriterGoal,
-        }
+class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
+    """Dynamic, domain-scoped agent registry extending BaseRegistry."""
+
+    def __init__(
+        self,
+        *,
+        dependencies: dict[str, Any] | None = None,
+        namespace: str = "",
+    ) -> None:
+        super().__init__(
+            item_type_name="Agent",
+            id_attribute="id",
+            dependencies=dependencies or {},
+            namespace=namespace,
+        )
+        self._goal_types: dict[str, type[Any]] = {}
+        self._domain_agents: dict[str, set[str]] = {}
+
+    def _implements_protocol(self, obj: Any) -> bool:
+        """Check if object implements Agent protocol."""
+        if isinstance(obj, type):
+            return all(hasattr(obj, attr) for attr in ("id", "description", "skills", "run"))
+        return isinstance(obj, Agent)
+
+    def register_agent(
+        self,
+        agent_instance: Agent[Any, Any],
+        goal_type: type[Any] | None = None,
+        domain_id: str | None = None,
+    ) -> None:
+        """Register an agent instance with optional domain scoping."""
+        self.register_instance(item=agent_instance)
+        agent_key = str(agent_instance.id)
+        if goal_type is not None:
+            self._goal_types[agent_key] = goal_type
+        if domain_id is not None:
+            self._domain_agents.setdefault(domain_id, set()).add(agent_key)
 
     def get_agent_class(self, agent_name: str) -> type[Agent[Any, Any]] | None:
-        """Get agent class by name."""
-        return self._agents.get(agent_name)
+        """Get agent class by name from built-in agents."""
+        return _BUILTIN_AGENT_CLASSES.get(agent_name)
 
-    def get_goal_type(self, agent_name: str) -> type | None:
+    def get_goal_type(self, agent_name: str) -> type[Any] | None:
         """Get goal type for agent by name."""
-        return self._goal_types.get(agent_name)
+        return self._goal_types.get(agent_name) or _BUILTIN_GOAL_TYPES.get(agent_name)
+
+    def get_for_domain(self, domain_id: str) -> list[Agent[Any, Any]]:
+        """Get agents registered for a specific domain."""
+        agent_ids = self._domain_agents.get(domain_id, set())
+        return [agent for agent in self.list_items() if str(agent.id) in agent_ids]
+
+    def get_capabilities_description(self) -> str:
+        """Auto-generate capabilities description from registered agents."""
+        agents = self.list_items()
+        if not agents:
+            return "No agents registered."
+
+        lines = [
+            "Available Agents and their required inputs.",
+            "CRITICAL: You MUST use the exact input key names provided for each agent.",
+            "",
+        ]
+        for i, agent in enumerate(agents, start=1):
+            lines.append(f"{i}. AGENT: {agent.id}")
+            lines.append(f"   ROLE: {agent.description}")
+            goal_type = self.get_goal_type(str(agent.id))
+            if goal_type and hasattr(goal_type, "model_fields"):
+                lines.append("   INPUTS:")
+                for fname, finfo in goal_type.model_fields.items():
+                    annotation = (
+                        finfo.annotation.__name__
+                        if hasattr(finfo.annotation, "__name__")
+                        else str(finfo.annotation)
+                    )
+                    lines.append(f'     - "{fname}": ({annotation})')
+            lines.append("")
+        return "\n".join(lines)
 
     def create_agent(
         self,
@@ -67,23 +124,11 @@ class AgentRegistry:
         librarian_top_k: int = 1,
         researcher_top_k: int = 15,
     ) -> Agent[Any, Any] | None:
-        """
-        Create an agent instance with dependencies.
-
-        Args:
-            agent_name: Name of the agent to create
-            vector_store: Vector store for retrieval (required for Librarian/Researcher)
-            llm_client: LLM client for generation (required for Researcher/Summarizer/Writer)
-            namespace_context: Namespace for blueprint storage
-            namespace_knowledge: Namespace for knowledge storage
-
-        Returns:
-            Agent instance or None if agent not found
-        """
-        agent_class = self.get_agent_class(agent_name)
-        if not agent_class:
-            logger.error(f"Agent '{agent_name}' not found in registry.")
-            return None
+        """Create a built-in agent with dependencies."""
+        # Check already registered
+        existing = self.get(agent_name)
+        if existing is not None:
+            return existing
 
         try:
             if agent_name == "Librarian":
@@ -94,7 +139,6 @@ class AgentRegistry:
                     namespace_context=namespace_context,
                     top_k=librarian_top_k,
                 )
-
             elif agent_name == "Researcher":
                 if not vector_store or not llm_client:
                     raise ValueError("Researcher requires vector_store and llm_client")
@@ -104,67 +148,28 @@ class AgentRegistry:
                     namespace_knowledge=namespace_knowledge,
                     top_k=researcher_top_k,
                 )
-
             elif agent_name == "Summarizer":
                 if not llm_client:
                     raise ValueError("Summarizer requires llm_client")
                 return SummarizerAgent(llm_client=llm_client)
-
             elif agent_name == "Writer":
                 if not llm_client:
                     raise ValueError("Writer requires llm_client")
                 return WriterAgent(llm_client=llm_client)
-
             return None
-
         except Exception as e:
-            logger.error(f"Failed to create agent '{agent_name}': {e}", exc_info=True)
+            logger.error("Failed to create agent '%s': %s", agent_name, e, exc_info=True)
             return None
-
-    def get_capabilities_description(self) -> str:
-        """
-        Returns a structured description of the agents for the Planner LLM.
-
-        This description is used by autonomous planning agents to understand
-        what agents are available and what inputs they require.
-        """
-        return """
-Available Agents and their required inputs.
-CRITICAL: You MUST use the exact input key names provided for each agent.
-
-1. AGENT: Librarian
-   ROLE: Retrieves Semantic Blueprints (style/structure instructions).
-   INPUTS:
-     - "intent_query": (String) A descriptive phrase of the desired style.
-   OUTPUT: The blueprint structure (JSON string).
-
-2. AGENT: Researcher
-   ROLE: Retrieves and synthesizes factual information on a topic.
-   INPUTS:
-     - "topic_query": (String) The subject matter to research.
-   OUTPUT: Synthesized facts (String).
-
-3. AGENT: Summarizer
-   ROLE: Reduces text to concise summary for managing token counts.
-   INPUTS:
-     - "text_to_summarize": (String/Reference) The long text to summarize.
-     - "summary_objective": (String) Goal for summary (e.g., "Extract key specs").
-   OUTPUT: A dictionary containing the summary: {"summary": "..."}.
-
-4. AGENT: Writer
-   ROLE: Generates or rewrites content by applying a Blueprint to source material.
-   INPUTS:
-     - "blueprint": (String/Reference) The style instructions (usually from Librarian).
-     - "facts": (String/Reference) Factual information (usually from Researcher or Summarizer).
-     - "previous_content": (String/Reference) Existing text for rewriting.
-   OUTPUT: The final generated text (String).
-"""
 
     def list_agents(self) -> list[str]:
-        """List all registered agent names."""
-        return list(self._agents.keys())
+        """List all registered agent IDs."""
+        return [str(agent.id) for agent in self.list_items()]
+
+
+def create_default_registry() -> AgentRegistry:
+    """Factory to create a fresh default registry."""
+    return AgentRegistry()
 
 
 # Global registry instance
-AGENT_TOOLKIT = AgentRegistry()
-logger.info("Agent Registry initialized and fully upgraded.")
+AGENT_TOOLKIT = create_default_registry()
