@@ -266,3 +266,20 @@ def create_context_compiler_from_config(
         token_estimator=token_estimator,
         max_sources=int(os.getenv("CEMAF_CONTEXT_OPTIMAL_MAX_SOURCES", "20")),
     )
+
+
+def create_token_estimator(
+    model: str | None = None,
+    chars_per_token: float = 4.0,
+) -> TokenEstimator:
+    """Create the best available token estimator, preferring tiktoken when available."""
+    if model:
+        try:
+            from cemaf.llm.tiktoken_estimator import TiktokenEstimator
+
+            estimator = TiktokenEstimator(model=model)
+            if estimator.is_accurate:
+                return estimator
+        except (ImportError, Exception):
+            pass
+    return SimpleTokenEstimator(chars_per_token=chars_per_token)
