@@ -24,6 +24,7 @@ Usage:
 import importlib
 import inspect
 import pkgutil
+import types
 from typing import Any
 
 from cemaf.observability import get_logger
@@ -72,7 +73,7 @@ class BaseRegistry[T]:
         *,
         item_type_name: str,
         id_attribute: str = "id",
-        dependencies: dict[str, Any] | None = None,
+        dependencies: dict[str, object] | None = None,
         namespace: str = "",
     ) -> None:
         """
@@ -87,7 +88,7 @@ class BaseRegistry[T]:
         self._items: dict[str, T] = {}
         self._item_type_name = item_type_name
         self._id_attribute = id_attribute
-        self._dependencies = dependencies or {}
+        self._dependencies: dict[str, object] = dependencies or {}
         self._namespace = namespace
 
     def register(self, item_class: type[T]) -> None:
@@ -229,7 +230,7 @@ class BaseRegistry[T]:
         cls,
         module_path: str,
         *,
-        dependencies: dict[str, Any] | None = None,
+        dependencies: dict[str, object] | None = None,
         namespace: str = "",
     ) -> BaseRegistry[T]:
         """
@@ -301,7 +302,7 @@ class BaseRegistry[T]:
 
         return registry
 
-    def _discover_from_module(self, module: Any) -> int:
+    def _discover_from_module(self, module: types.ModuleType) -> int:
         """
         Discover items from a single module.
 
@@ -348,7 +349,7 @@ class BaseRegistry[T]:
         sig = inspect.signature(item_class.__init__)
 
         # Build kwargs from available dependencies
-        kwargs: dict[str, Any] = {}
+        kwargs: dict[str, object] = {}
         for param_name, param in sig.parameters.items():
             # Skip self, *args, **kwargs
             if param_name == "self":
@@ -382,7 +383,7 @@ class BaseRegistry[T]:
             return f"{self._namespace}.{item_id}"
         return item_id
 
-    def _get_item_id(self, item: T) -> Any:
+    def _get_item_id(self, item: T) -> str:
         """
         Extract ID from item instance.
 
@@ -394,7 +395,7 @@ class BaseRegistry[T]:
         Returns:
             Item ID (typically a string or ID type)
         """
-        return getattr(item, self._id_attribute)
+        return str(getattr(item, self._id_attribute))
 
     def _get_error_id(self, item_class: type[T]) -> str:
         """
