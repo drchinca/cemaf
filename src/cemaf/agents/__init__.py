@@ -54,6 +54,7 @@ See cemaf.agents.protocols.Agent for the protocol definition.
 """
 
 # Context Engineering Agents
+from cemaf.agents.base import DomainContext
 from cemaf.agents.context_agents import (
     LibrarianAgent,
     LibrarianGoal,
@@ -78,6 +79,7 @@ __all__ = [
     "AgentState",
     "AgentResult",
     "AgentContext",
+    "DomainContext",
     # Context Engineering Agents
     "LibrarianAgent",
     "LibrarianGoal",
