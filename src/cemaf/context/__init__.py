@@ -22,6 +22,7 @@ from cemaf.context.algorithm import (
 from cemaf.context.budget import BudgetAllocation, TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
+from cemaf.context.factories import create_token_estimator
 from cemaf.context.merge import (
     DEFAULT_MERGE_STRATEGY,
     DeepMergeStrategy,
@@ -78,4 +79,6 @@ __all__ = [
     "create_path_builder",
     # Source management (new in Phase 1)
     "ContextSource",
+    # Token estimation
+    "create_token_estimator",
 ]

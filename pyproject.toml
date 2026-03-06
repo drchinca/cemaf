@@ -1,6 +1,6 @@
 [project]
 name = "cemaf"
-version = "0.1.0"
+version = "0.2.0"
 description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
 readme = "README.md"
 requires-python = ">=3.11"

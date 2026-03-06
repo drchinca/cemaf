@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `InstrumentedLLMClient` for transparent LLM call recording into RunLogger (PR #23)
+- `ProviderRegistry[T]` generic extensible factory registry replacing if/elif chains (PR #24)
+- `CancellationToken` support in `DAGExecutor.run()` for cooperative cancellation (PR #25)
+- `NodeType.LOOP` and `Node.loop()` for iterative subgraph execution with exit conditions (PR #26)
+- `create_token_estimator()` smart factory preferring tiktoken when available (PR #27)
+- `compressible` flag in algorithm exclusion details for Greedy and Knapsack (PR #27)
+- `context_compiler_registry`, `llm_registry`, `vector_store_registry` — extensible backend registries
+
+### Changed
+- LLM, context compiler, and retrieval factories now use `ProviderRegistry` instead of if/elif chains
+- `ContextNodeExecutor` auto-wraps agents' LLM clients with `InstrumentedLLMClient`
+
 ## [0.2.0] - 2026-02-19
 
 **Glass Box Architecture Enhancement**
@@ -43,7 +56,7 @@ Scientific-grade audit trail, provenance tracking, and full token accountability
 - RLM engine uses parallel processing instead of sequential left/right queries
 - RLM fallback processes budget-sized batches instead of only the first chunk
 
-**Stats:** 1350 tests | 100% passing | 47 files changed | +5,796 lines
+**Stats:** 1464 tests | 100% passing | 47 files changed | +5,796 lines
 
 ## [0.1.0] - 2026-01-01
 

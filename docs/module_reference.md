@@ -20,7 +20,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Exports**:
   - `AgentStatus` (idle, running, waiting, completed, failed)
   - `RunStatus` (pending, running, completed, failed, cancelled)
-  - `NodeType` (tool, skill, agent, router, parallel, conditional)
+  - `NodeType` (tool, skill, agent, router, parallel, conditional, loop)
   - `MemoryScope` (brand, project, audience_segment, platform, personae, session)
   - `ContextArtifactType` (brand_constitution, style_guide, symbol_canon, etc.)
   - `Priority` (low, medium, high, critical)
@@ -63,10 +63,20 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Categories**: Execution, Agent, DeepAgent, Context/Token limits, Memory, Confidence thresholds, DAG execution
 - **Philosophy**: NO hardcoded values elsewhere in codebase
 
+### `provider_registry.py`
+
+- **Purpose**: Generic extensible factory registry replacing if/elif chains
+- **Exports**: `ProviderRegistry[T]`
+- **Key Methods**: `register(backend, factory)`, `create(backend, **kwargs)`, `has(backend)`, `list_backends()`
+- **Used By**: LLM factories (`llm_registry`), context factories (`context_compiler_registry`), retrieval factories (`vector_store_registry`)
+
 ### `execution.py` & `storage.py`
 
 - **Purpose**: Execution context and storage abstractions
-- **Status**: Core components for execution management
+- **Key Classes**:
+  - `CancellationToken`: Cooperative cancellation with parent-child hierarchy
+  - `ExecutionContext`: Context manager for timeout and cancellation
+  - `CancelledException`, `TimeoutException`: Execution exceptions
 
 ---
 
@@ -132,13 +142,15 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 - **Purpose**: Dynamic DAG (Directed Acyclic Graph) for workflow definition
 - **Key Classes**:
-  - `Node`: Workflow node (tool/skill/agent/router/parallel/conditional)
+  - `Node`: Workflow node (tool/skill/agent/router/parallel/conditional/loop)
   - `Edge`: Connection with conditions (ALWAYS, ON_SUCCESS, ON_FAILURE, JSON_RULE)
   - `Condition`: Serializable condition with operators (equals, contains, etc.)
   - `DAG`: Graph with nodes, edges, validation, cycle detection
+- **Factory Methods**: `Node.tool()`, `Node.skill()`, `Node.agent()`, `Node.router()`, `Node.parallel()`, `Node.conditional()`, `Node.loop()`
 - **Features**:
   - Dynamic construction at runtime
   - Composable (nests DAGs)
+  - Loop nodes for iterative subgraph execution (max_iterations, exit_condition)
   - Mermaid export
   - JSON serialization
 
@@ -153,6 +165,8 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - Topological sort for dependency resolution
   - Parallel execution for PARALLEL nodes
   - Conditional routing for ROUTER nodes
+  - Loop execution for LOOP nodes (iterative body subgraph with exit condition)
+  - Cooperative cancellation via `CancellationToken` parameter in `run()`
   - Context propagation
   - Checkpointing for resume
   - Context patch emission
@@ -296,6 +310,9 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `create_greedy_compiler()` - Explicit greedy algorithm selection
   - `create_knapsack_compiler()` - Explicit knapsack algorithm selection
   - `create_optimal_compiler()` - Explicit optimal algorithm selection
+  - `create_token_estimator(model)` - Smart factory preferring tiktoken when available
+  - `create_context_compiler_from_config()` - Environment-based compiler creation via `ProviderRegistry`
+- **Registry**: `context_compiler_registry` — extensible `ProviderRegistry[ContextCompiler]` with greedy/knapsack/optimal built-in
 - **Benefits**: Provides sensible defaults while maintaining dependency injection principles
 
 ---
@@ -517,9 +534,23 @@ print(f"Metadata: {result.metadata}")
   - Streaming support
   - Token counting
 
+### `instrumented.py`
+
+- **Purpose**: Transparent LLM call recording for glass box audit
+- **Key Classes**:
+  - `InstrumentedLLMClient`: Wraps any `LLMClient`, auto-records every `complete()`/`stream()` call into a `RunLogger`
+- **Features**:
+  - Records model, input/output tokens, duration, cost, node_id, agent_id per call
+  - Transparent — callers see a standard `LLMClient` interface
+  - Automatically applied by `ContextNodeExecutor` when `RunLogger` is present
+  - Records failures as well as successes
+
 ### `tiktoken_estimator.py`
 
 - **Purpose**: Precise token counting for OpenAI models using tiktoken
+- **Key Classes**:
+  - `TiktokenEstimator`: Model-specific tokenizer with `is_accurate` property
+- **Used By**: `create_token_estimator()` factory (preferred when available)
 
 ### `mock.py`
 

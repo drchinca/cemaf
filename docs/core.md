@@ -257,6 +257,30 @@ from cemaf.core.types import (
 )
 ```
 
+## Provider Registry
+
+Generic extensible factory registry — eliminates `if/elif` chains for backend selection:
+
+```python
+from cemaf.core.provider_registry import ProviderRegistry
+
+# Create a typed registry
+registry = ProviderRegistry[MyProtocol](name="my_backends")
+
+# Register backends
+registry.register(backend="fast", factory=lambda **kw: FastImpl(**kw))
+registry.register(backend="accurate", factory=lambda **kw: AccurateImpl(**kw))
+
+# Create instances
+impl = registry.create(backend="fast", timeout=30)
+
+# Inspect
+registry.list_backends()  # ["fast", "accurate"]
+registry.has(backend="fast")  # True
+```
+
+Used internally by LLM, context compiler, and retrieval factory systems. Users can register custom backends without modifying framework source.
+
 ## Enums
 
 Common enumerations:
@@ -265,7 +289,7 @@ Common enumerations:
 from cemaf.core.enums import (
     AgentStatus,        # Agent execution status
     MemoryScope,        # Memory persistence scope
-    NodeType,           # DAG node type
+    NodeType,           # DAG node type (tool, skill, agent, router, parallel, conditional, loop)
     RunStatus,          # Execution run status
     VerificationStatus, # UNVERIFIED, VERIFIED, DISPUTED, RETRACTED
     ExclusionReason,    # BUDGET_EXCEEDED, LOW_PRIORITY, STALE, DUPLICATE, FILTERED

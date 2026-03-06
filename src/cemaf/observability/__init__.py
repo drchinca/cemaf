@@ -30,6 +30,7 @@ from cemaf.observability.alerting_rules import (
     get_alert_by_name,
     get_alerts_by_severity,
 )
+from cemaf.observability.budget_guard import AlertLevel, BudgetAlert, BudgetGuard
 from cemaf.observability.config import (
     configure_logging,
     configure_metrics,
@@ -106,6 +107,10 @@ __all__ = [
     # Metrics helpers
     "MetricsHelper",
     "record_timing",
+    # Budget guard
+    "BudgetGuard",
+    "BudgetAlert",
+    "AlertLevel",
     # Glass box
     "GlassBoxReport",
     "GlassBoxReporter",
