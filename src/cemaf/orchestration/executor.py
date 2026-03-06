@@ -32,6 +32,7 @@ from cemaf.context.merge import (
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 from cemaf.core.constants import MAX_PARALLEL_NODES
 from cemaf.core.enums import NodeType, RunStatus
+from cemaf.core.execution import CancellationToken
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
@@ -184,6 +185,7 @@ class DAGExecutor:
         dag: DAG,
         initial_context: Context | None = None,
         run_id: RunID | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
         """
         Execute the DAG.
@@ -271,6 +273,28 @@ class DAGExecutor:
             completed: dict[NodeID, NodeResult] = {}
 
             for node_id in order:
+                # Check cancellation before each node
+                if cancellation_token and cancellation_token.is_cancelled:
+                    cancel_msg = f"Execution cancelled: {cancellation_token.reason}"
+                    logger.warning(cancel_msg, dag_name=dag.name, run_id=str(run_id))
+                    if self._run_logger:
+                        self._run_logger.end_run(
+                            final_context=context,
+                            success=False,
+                            error=cancel_msg,
+                        )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=cancel_msg,
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
+                    )
+
                 if node_id in completed:
                     continue
 
