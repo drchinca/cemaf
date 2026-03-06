@@ -32,6 +32,7 @@ from cemaf.context.merge import (
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 from cemaf.core.constants import MAX_PARALLEL_NODES
 from cemaf.core.enums import NodeType, RunStatus
+from cemaf.core.execution import CancellationToken
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
@@ -184,6 +185,7 @@ class DAGExecutor:
         dag: DAG,
         initial_context: Context | None = None,
         run_id: RunID | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
         """
         Execute the DAG.
@@ -271,6 +273,28 @@ class DAGExecutor:
             completed: dict[NodeID, NodeResult] = {}
 
             for node_id in order:
+                # Check cancellation before each node
+                if cancellation_token and cancellation_token.is_cancelled:
+                    cancel_msg = f"Execution cancelled: {cancellation_token.reason}"
+                    logger.warning(cancel_msg, dag_name=dag.name, run_id=str(run_id))
+                    if self._run_logger:
+                        self._run_logger.end_run(
+                            final_context=context,
+                            success=False,
+                            error=cancel_msg,
+                        )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=cancel_msg,
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
+                    )
+
                 if node_id in completed:
                     continue
 
@@ -317,6 +341,21 @@ class DAGExecutor:
                     context = new_context  # Update context
                     node_results.append(result)
                     completed[node_id] = result
+
+                elif node.type == NodeType.LOOP:
+                    result, loop_results, new_context = await self._execute_loop_node(
+                        dag,
+                        node,
+                        context,
+                    )
+                    context = new_context
+                    node_results.append(result)
+                    completed[node_id] = result
+                    for loop_result in loop_results:
+                        node_results.append(loop_result)
+                    # Mark body nodes as completed so topo sort skips them
+                    for body_id in (node.config or {}).get("body_node_ids", []):
+                        completed[NodeID(body_id)] = result
 
                 else:
                     # Standard execution (TOOL, SKILL, AGENT)
@@ -843,6 +882,59 @@ class DAGExecutor:
             duration_ms=(end_time - start_time).total_seconds() * 1000,
         )
         return final_result, current_context
+
+    async def _execute_loop_node(
+        self,
+        dag: DAG,
+        loop_node: Node,
+        context: Context,
+    ) -> tuple[NodeResult, list[NodeResult], Context]:
+        """Execute a LOOP node: iterate body nodes up to max_iterations."""
+        config = loop_node.config or {}
+        max_iterations: int = config.get("max_iterations", 10)
+        exit_condition: str = config.get("exit_condition", "")
+        body_node_ids: list[str] = config.get("body_node_ids", [])
+
+        all_body_results: list[NodeResult] = []
+        current_context = context
+
+        for iteration in range(max_iterations):
+            # Check exit condition (context key that evaluates truthy)
+            if exit_condition and current_context.get(exit_condition, default=None):
+                logger.info(
+                    "Loop exit condition met",
+                    loop_id=str(loop_node.id),
+                    iteration=iteration,
+                    condition=exit_condition,
+                )
+                break
+
+            # Execute each body node in sequence
+            for body_id in body_node_ids:
+                body_node = dag.get_node(NodeID(body_id))
+                if body_node is None:
+                    continue
+
+                result, new_context = await self._execute_with_retry(body_node, current_context)
+                current_context = new_context
+                all_body_results.append(result)
+
+                if not result.success:
+                    loop_result = NodeResult(
+                        node_id=loop_node.id,
+                        success=False,
+                        error=f"Loop body node '{body_id}' failed at iteration {iteration}",
+                        metadata={"iterations_completed": iteration},
+                    )
+                    return loop_result, all_body_results, current_context
+
+        loop_result = NodeResult(
+            node_id=loop_node.id,
+            success=True,
+            output=f"completed {min(iteration + 1, max_iterations)} iterations",
+            metadata={"iterations_completed": min(iteration + 1, max_iterations)},
+        )
+        return loop_result, all_body_results, current_context
 
     async def _execute_parallel_node(
         self,

@@ -42,6 +42,7 @@ from cemaf.context.compiler import (
     SimpleTokenEstimator,
     TokenEstimator,
 )
+from cemaf.core.provider_registry import ProviderRegistry
 
 
 @dataclass
@@ -232,43 +233,39 @@ def create_optimal_compiler(
     return PriorityContextCompiler(estimator, algorithm=OptimalSelectionAlgorithm(max_sources=max_sources))
 
 
+# Global context compiler registry — extend with your own algorithms
+context_compiler_registry: ProviderRegistry[ContextCompiler] = ProviderRegistry(name="context_compiler")
+
+context_compiler_registry.register(
+    backend="greedy",
+    factory=lambda **kw: create_greedy_compiler(token_estimator=kw.get("token_estimator")),
+)
+context_compiler_registry.register(
+    backend="knapsack",
+    factory=lambda **kw: create_knapsack_compiler(token_estimator=kw.get("token_estimator")),
+)
+context_compiler_registry.register(
+    backend="optimal",
+    factory=lambda **kw: create_optimal_compiler(
+        token_estimator=kw.get("token_estimator"),
+        max_sources=int(kw.get("max_sources", 20)),
+    ),
+)
+
+
 def create_context_compiler_from_config(
     algorithm_name: str | None = None,
     token_estimator: TokenEstimator | None = None,
 ) -> ContextCompiler:
-    """
-    Create context compiler from environment configuration.
-
-    Reads from environment variables:
-    - CEMAF_CONTEXT_SELECTION_ALGORITHM: Algorithm type (greedy, knapsack, optimal)
-
-    Args:
-        algorithm_name: Algorithm type (overrides env var)
-        token_estimator: Custom token estimator (optional)
-
-    Returns:
-        Configured ContextCompiler instance
-
-    Example:
-        # From environment
-        compiler = create_context_compiler_from_config()
-
-        # Explicit algorithm
-        compiler = create_context_compiler_from_config(algorithm_name="knapsack")
-    """
+    """Create context compiler from environment configuration."""
     algorithm = algorithm_name or os.getenv("CEMAF_CONTEXT_SELECTION_ALGORITHM", "greedy")
+    assert algorithm is not None  # always set by getenv default
 
-    if algorithm == "greedy":
-        return create_greedy_compiler(token_estimator=token_estimator)
-    elif algorithm == "knapsack":
-        return create_knapsack_compiler(token_estimator=token_estimator)
-    elif algorithm == "optimal":
-        max_sources = int(os.getenv("CEMAF_CONTEXT_OPTIMAL_MAX_SOURCES", "20"))
-        return create_optimal_compiler(token_estimator=token_estimator, max_sources=max_sources)
-    else:
-        raise ValueError(
-            f"Unsupported context selection algorithm: {algorithm}. Supported: greedy, knapsack, optimal"
-        )
+    return context_compiler_registry.create(
+        backend=algorithm,
+        token_estimator=token_estimator,
+        max_sources=int(os.getenv("CEMAF_CONTEXT_OPTIMAL_MAX_SOURCES", "20")),
+    )
 
 
 def create_token_estimator(
