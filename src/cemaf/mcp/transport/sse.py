@@ -1,8 +1,29 @@
 """HTTP SSE transport for MCP communication."""
 
-from typing import Any
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.mcp.transport.base import BaseTransport
+
+
+@runtime_checkable
+class SSEResponse(Protocol):
+    """Protocol for SSE response streams (e.g., aiohttp.ClientResponse)."""
+
+    @property
+    def content(self) -> AsyncIterator[bytes]: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class SSESession(Protocol):
+    """Protocol for HTTP sessions (e.g., aiohttp.ClientSession)."""
+
+    async def get(self, url: str, *, headers: dict[str, str]) -> SSEResponse: ...
+    def post(self, url: str, *, data: bytes, headers: dict[str, str]) -> Any: ...
+    async def close(self) -> None: ...
 
 
 class SSETransport(BaseTransport):
@@ -15,16 +36,17 @@ class SSETransport(BaseTransport):
     def __init__(self, base_url: str) -> None:
         super().__init__()
         self._base_url = base_url.rstrip("/")
-        self._session: Any = None  # aiohttp.ClientSession
-        self._sse_response: Any = None
+        self._session: SSESession | None = None
+        self._sse_response: SSEResponse | None = None
 
     async def _do_connect(self) -> None:
         try:
             import aiohttp
 
-            self._session = aiohttp.ClientSession()
+            session = aiohttp.ClientSession()
+            self._session = session
             # Establish SSE connection for receiving
-            self._sse_response = await self._session.get(
+            self._sse_response = await session.get(
                 f"{self._base_url}/sse",
                 headers={"Accept": "text/event-stream"},
             )
