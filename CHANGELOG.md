@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - LLM, context compiler, and retrieval factories now use `ProviderRegistry` instead of if/elif chains
 - `ContextNodeExecutor` auto-wraps agents' LLM clients with `InstrumentedLLMClient`
-- Test suite expanded from 1464 → 1557 covering persistence, cost tracking, rate limiter, resilience decorators, core/registry, and DAG executor (PRs #29, #30)
+- Test suite expanded from 1464 → 1557 total (1452 unit + 105 integration) covering persistence, cost tracking, rate limiter, resilience decorators, core/registry, and DAG executor (PRs #29, #30)
 - CI pipeline added: lint, type-check, security scan, tests with coverage on every push/PR (PR #31)
 
 ## [0.2.0] - 2026-02-19
