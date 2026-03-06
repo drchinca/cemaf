@@ -9,7 +9,14 @@ Provides:
 - Composite evaluators
 """
 
-from cemaf.evals.composite import CompositeEvaluator, EvalSuite
+from cemaf.evals.composite import (
+    AggregationStrategy,
+    CompositeEvalResult,
+    CompositeEvaluator,
+    EvalCase,
+    EvalSuite,
+    EvalSuiteResult,
+)
 from cemaf.evals.evaluators import (
     ContainsEvaluator,
     ExactMatchEvaluator,
@@ -17,8 +24,15 @@ from cemaf.evals.evaluators import (
     LengthEvaluator,
     RegexEvaluator,
 )
+from cemaf.evals.factories import (
+    create_composite_evaluator,
+    create_composite_evaluator_from_config,
+    create_exact_match_evaluator,
+    create_numeric_evaluator,
+)
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
 from cemaf.evals.protocols import (
+    BaseEvaluator,
     EvalConfig,
     EvalMetric,
     EvalResult,
@@ -29,6 +43,7 @@ from cemaf.evals.semantic import SemanticSimilarityEvaluator
 __all__ = [
     # Protocols
     "Evaluator",
+    "BaseEvaluator",
     "EvalResult",
     "EvalMetric",
     "EvalConfig",
@@ -44,5 +59,14 @@ __all__ = [
     "SemanticSimilarityEvaluator",
     # Composite
     "CompositeEvaluator",
+    "CompositeEvalResult",
+    "AggregationStrategy",
+    "EvalCase",
     "EvalSuite",
+    "EvalSuiteResult",
+    # Factories
+    "create_exact_match_evaluator",
+    "create_numeric_evaluator",
+    "create_composite_evaluator",
+    "create_composite_evaluator_from_config",
 ]

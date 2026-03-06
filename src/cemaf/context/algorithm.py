@@ -37,20 +37,17 @@ class SelectionResult:
     @property
     def excluded_count(self) -> int:
         """Number of sources that were excluded (if available in metadata)."""
-        value: Any = self.metadata.get("excluded_count", 0)
-        return int(value)
+        return int(self.metadata.get("excluded_count", 0))
 
     @property
     def excluded_keys(self) -> list[str]:
         """Keys of sources that were excluded (if available in metadata)."""
-        value: Any = self.metadata.get("excluded_keys", [])
-        return list(value)
+        return list(self.metadata.get("excluded_keys", []))
 
     @property
     def selection_method(self) -> str:
         """Algorithm method used (e.g., 'greedy', 'knapsack', 'optimal')."""
-        value: Any = self.metadata.get("selection_method", "unknown")
-        return str(value)
+        return str(self.metadata.get("selection_method", "unknown"))
 
 
 @runtime_checkable

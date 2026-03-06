@@ -63,7 +63,7 @@ class ToolRegistry(BaseRegistry[Tool]):
     def __init__(
         self,
         *,
-        dependencies: dict[str, Any] | None = None,
+        dependencies: dict[str, object] | None = None,
         namespace: str = "",
     ) -> None:
         """

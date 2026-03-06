@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from pydantic import BaseModel
+
 from cemaf.agents.context_agents import (
     LibrarianAgent,
     LibrarianGoal,
@@ -21,7 +23,7 @@ from cemaf.retrieval.protocols import VectorStore
 logger = logging.getLogger(__name__)
 
 # Agent class to goal type mapping for built-in agents
-_BUILTIN_GOAL_TYPES: dict[str, type[Any]] = {
+_BUILTIN_GOAL_TYPES: dict[str, type[BaseModel]] = {
     "Librarian": LibrarianGoal,
     "Researcher": ResearcherGoal,
     "Summarizer": SummarizerGoal,
@@ -42,7 +44,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
     def __init__(
         self,
         *,
-        dependencies: dict[str, Any] | None = None,
+        dependencies: dict[str, object] | None = None,
         namespace: str = "",
     ) -> None:
         super().__init__(
@@ -51,7 +53,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
             dependencies=dependencies or {},
             namespace=namespace,
         )
-        self._goal_types: dict[str, type[Any]] = {}
+        self._goal_types: dict[str, type[BaseModel]] = {}
         self._domain_agents: dict[str, set[str]] = {}
 
     def _implements_protocol(self, obj: Any) -> bool:
@@ -63,7 +65,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
     def register_agent(
         self,
         agent_instance: Agent[Any, Any],
-        goal_type: type[Any] | None = None,
+        goal_type: type[BaseModel] | None = None,
         domain_id: str | None = None,
     ) -> None:
         """Register an agent instance with optional domain scoping."""
@@ -78,7 +80,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         """Get agent class by name from built-in agents."""
         return _BUILTIN_AGENT_CLASSES.get(agent_name)
 
-    def get_goal_type(self, agent_name: str) -> type[Any] | None:
+    def get_goal_type(self, agent_name: str) -> type[BaseModel] | None:
         """Get goal type for agent by name."""
         return self._goal_types.get(agent_name) or _BUILTIN_GOAL_TYPES.get(agent_name)
 
@@ -105,11 +107,8 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
             if goal_type and hasattr(goal_type, "model_fields"):
                 lines.append("   INPUTS:")
                 for fname, finfo in goal_type.model_fields.items():
-                    annotation = (
-                        finfo.annotation.__name__
-                        if hasattr(finfo.annotation, "__name__")
-                        else str(finfo.annotation)
-                    )
+                    ann = finfo.annotation
+                    annotation = ann.__name__ if ann is not None and hasattr(ann, "__name__") else str(ann)
                     lines.append(f'     - "{fname}": ({annotation})')
             lines.append("")
         return "\n".join(lines)

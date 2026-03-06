@@ -13,23 +13,36 @@ All generators follow Protocol pattern for pluggability.
 """
 
 from cemaf.generation.protocols import (
+    AudioFormat,
     AudioGenerator,
     AudioSpec,
     CodeGenerator,
+    CodeLanguage,
     CodeSpec,
     DiagramGenerator,
     DiagramSpec,
+    DiagramType,
+    ImageFormat,
     ImageGenerator,
     ImageSpec,
     MediaOutput,
     MediaSpec,
+    UIComponentType,
     UIGenerator,
     UISpec,
+    VideoFormat,
     VideoGenerator,
     VideoSpec,
 )
 
 __all__ = [
+    # Enums
+    "ImageFormat",
+    "AudioFormat",
+    "VideoFormat",
+    "DiagramType",
+    "UIComponentType",
+    "CodeLanguage",
     # Specs
     "MediaSpec",
     "MediaOutput",
