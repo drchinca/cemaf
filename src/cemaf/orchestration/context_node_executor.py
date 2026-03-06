@@ -6,7 +6,7 @@ import logging
 from time import perf_counter
 from typing import Any
 
-from cemaf.agents.base import AgentContext
+from cemaf.agents.base import AgentContext, DomainContext
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
@@ -31,7 +31,7 @@ class ContextNodeExecutor:
         *,
         agent_registry: AgentRegistry,
         run_logger: RunLogger | None = None,
-        domain_context: Any | None = None,
+        domain_context: DomainContext | None = None,
         llm_client: LLMClient | None = None,
         vector_store: VectorStore | None = None,
     ) -> None:

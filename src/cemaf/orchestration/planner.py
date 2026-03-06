@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any
 
+from cemaf.agents.base import DomainContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.core.types import NodeID
 from cemaf.llm.protocols import LLMClient, LLMConfig, Message
@@ -40,7 +41,7 @@ class Planner:
         self,
         goal: str,
         dag_name: str | None = None,
-        domain_context: Any | None = None,
+        domain_context: DomainContext | None = None,
     ) -> DAG:
         """
         Generate a DAG from a high-level goal.

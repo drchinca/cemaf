@@ -75,7 +75,7 @@ See examples/retrieval_dag_example.py for a complete working example.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -85,6 +85,20 @@ from cemaf.skills.base import Skill, SkillResult
 
 GoalT = TypeVar("GoalT", bound=BaseModel)
 ResultT = TypeVar("ResultT")
+
+
+@runtime_checkable
+class DomainContext(Protocol):
+    """Protocol for domain-scoped execution context."""
+
+    @property
+    def domain_id(self) -> str: ...
+
+    @property
+    def business_rules(self) -> tuple[str, ...]: ...
+
+    @property
+    def required_citation_style(self) -> str: ...
 
 
 class AgentState(BaseModel):
@@ -140,7 +154,7 @@ class AgentContext(BaseModel):
     depth: int = 0
     global_memory: JSON = Field(default_factory=dict)
     artifacts: JSON = Field(default_factory=dict)
-    domain_context: Any | None = None  # DomainContext, typed as Any to avoid circular
+    domain_context: DomainContext | None = None
 
 
 class Agent[GoalT: BaseModel, ResultT](ABC):

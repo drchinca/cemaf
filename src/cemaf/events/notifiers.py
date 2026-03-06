@@ -6,10 +6,33 @@ Provides webhook, logging, and composite notifiers.
 
 import json
 import logging
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.events.protocols import Event, Notifier, NotifyResult
+
+
+@runtime_checkable
+class HttpResponse(Protocol):
+    """Protocol for HTTP responses (e.g., httpx.Response)."""
+
+    @property
+    def status_code(self) -> int: ...
+
+
+@runtime_checkable
+class HttpClient(Protocol):
+    """Protocol for async HTTP clients (e.g., httpx.AsyncClient)."""
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json: Mapping[str, Any],
+        headers: Mapping[str, str],
+        timeout: float,
+    ) -> HttpResponse: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +52,7 @@ class WebhookNotifier:
         headers: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
         name: str | None = None,
-        http_client: Any | None = None,  # Inject your HTTP client
+        http_client: HttpClient | None = None,
     ) -> None:
         """
         Initialize webhook notifier.
@@ -39,7 +62,7 @@ class WebhookNotifier:
             headers: Additional HTTP headers.
             timeout_seconds: Request timeout.
             name: Notifier name.
-            http_client: Optional HTTP client (e.g., httpx.AsyncClient).
+            http_client: Optional HTTP client implementing HttpClient protocol.
         """
         self._url = url
         self._headers = headers or {}

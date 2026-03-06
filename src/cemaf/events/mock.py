@@ -3,9 +3,8 @@ Mock implementations for testing events.
 """
 
 from collections.abc import Callable
-from typing import Any
 
-from cemaf.events.protocols import Event, EventType, NotifyResult
+from cemaf.events.protocols import Event, EventHandlerFn, EventType, NotifyResult
 
 
 class MockEventBus:
@@ -18,8 +17,8 @@ class MockEventBus:
     def __init__(self) -> None:
         """Initialize mock event bus."""
         self._published: list[Event] = []
-        self._handlers: dict[str, list[Callable[[Event], Any]]] = {}
-        self._global_handlers: list[Callable[[Event], Any]] = []
+        self._handlers: dict[str, list[EventHandlerFn]] = {}
+        self._global_handlers: list[EventHandlerFn] = []
 
     @property
     def published_events(self) -> list[Event]:
@@ -55,7 +54,7 @@ class MockEventBus:
     def subscribe(
         self,
         event_type: str | EventType,
-        handler: Callable[[Event], Any],
+        handler: EventHandlerFn,
     ) -> Callable[[], None]:
         """Subscribe to events."""
         type_str = event_type.value if isinstance(event_type, EventType) else event_type
@@ -72,7 +71,7 @@ class MockEventBus:
 
     def subscribe_all(
         self,
-        handler: Callable[[Event], Any],
+        handler: EventHandlerFn,
     ) -> Callable[[], None]:
         """Subscribe to all events."""
         self._global_handlers.append(handler)
@@ -85,7 +84,7 @@ class MockEventBus:
 
     async def _call_handler(
         self,
-        handler: Callable[[Event], Any],
+        handler: EventHandlerFn,
         event: Event,
     ) -> None:
         """Call handler."""

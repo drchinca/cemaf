@@ -4,10 +4,10 @@ Event protocols and base types.
 Defines the contracts for event buses, handlers, and notifiers.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -140,6 +140,10 @@ class Event(BaseModel):
         )
 
 
+# Type alias for event handler functions (sync or async)
+EventHandlerFn = Callable[[Event], None | Awaitable[None]]
+
+
 class NotifyResult(BaseModel):
     """Result of a notification attempt."""
 
@@ -214,7 +218,7 @@ class EventBus(Protocol):
     def subscribe(
         self,
         event_type: str | EventType,
-        handler: EventHandler | Callable[[Event], Any],
+        handler: EventHandler | EventHandlerFn,
     ) -> Callable[[], None]:
         """
         Subscribe to events of a specific type.
@@ -230,7 +234,7 @@ class EventBus(Protocol):
 
     def subscribe_all(
         self,
-        handler: EventHandler | Callable[[Event], Any],
+        handler: EventHandler | EventHandlerFn,
     ) -> Callable[[], None]:
         """
         Subscribe to all events.

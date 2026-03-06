@@ -7,12 +7,11 @@ Simple, focused pub/sub for CEMAF events.
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
 
-from cemaf.events.protocols import Event, EventHandler, EventType
+from cemaf.events.protocols import Event, EventHandler, EventHandlerFn, EventType
 
 # Type alias for handler functions
-Handler = Callable[[Event], Any]
+Handler = EventHandlerFn
 
 
 class _BaseEventBus:
