@@ -27,6 +27,7 @@ Usage:
 """
 
 from cemaf.llm.factories import create_llm_client_from_config, create_mock_llm_client
+from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import (
     CompletionResult,
@@ -58,6 +59,8 @@ __all__ = [
     "create_mock_llm_client",
     # Mock
     "MockLLMClient",
+    # Instrumented
+    "InstrumentedLLMClient",
     # Response utilities
     "ResponseParser",
     "ParseResult",
