@@ -11,7 +11,7 @@ from typing import Any
 from cemaf.context.context import Context
 from cemaf.events.protocols import EventBus
 from cemaf.moderation.gates import PostFlightGate, PreFlightGate
-from cemaf.moderation.protocols import ModerationResult
+from cemaf.moderation.protocols import ModerationContent, ModerationResult
 
 
 class ModerationPipeline:
@@ -84,7 +84,7 @@ class ModerationPipeline:
 
     async def check_input(
         self,
-        content: Any,
+        content: ModerationContent,
         context: Context | None = None,
     ) -> ModerationResult:
         """
@@ -162,7 +162,7 @@ class ModerationPipeline:
 
     async def check_output(
         self,
-        content: Any,
+        content: ModerationContent,
         context: Context | None = None,
     ) -> ModerationResult:
         """
@@ -241,7 +241,7 @@ class ModerationPipeline:
 
     async def wrap_execution(
         self,
-        content: Any,
+        content: ModerationContent,
         executor: Callable[..., Awaitable[Any]],
         context: Context | None = None,
         **executor_kwargs: Any,

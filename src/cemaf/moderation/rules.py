@@ -7,10 +7,10 @@ content length issues, and custom patterns.
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from cemaf.core.types import JSON
 from cemaf.moderation.protocols import (
+    ModerationContent,
     ModerationResult,
     ModerationSeverity,
     ModerationViolation,
@@ -99,7 +99,7 @@ class PIIRule:
 
     async def check(
         self,
-        content: Any,
+        content: ModerationContent,
         context: JSON | None = None,
     ) -> ModerationResult:
         """
@@ -206,7 +206,7 @@ class KeywordRule:
 
     async def check(
         self,
-        content: Any,
+        content: ModerationContent,
         context: JSON | None = None,
     ) -> ModerationResult:
         """
@@ -299,7 +299,7 @@ class LengthRule:
 
     async def check(
         self,
-        content: Any,
+        content: ModerationContent,
         context: JSON | None = None,
     ) -> ModerationResult:
         """
@@ -394,7 +394,7 @@ class PatternRule:
 
     async def check(
         self,
-        content: Any,
+        content: ModerationContent,
         context: JSON | None = None,
     ) -> ModerationResult:
         """

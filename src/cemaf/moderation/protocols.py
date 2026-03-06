@@ -9,6 +9,9 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
 
+# Type alias for content that can be moderated (text or dict with text fields)
+ModerationContent = str | dict[str, str]
+
 # Type alias for moderation severity levels
 ModerationSeverity = Literal["error", "warning", "info"]
 
@@ -52,7 +55,7 @@ class ModerationResult:
 
     allowed: bool
     violations: tuple[ModerationViolation, ...] = ()
-    redacted_content: Any | None = None
+    redacted_content: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -91,7 +94,7 @@ class ModerationResult:
     def with_warnings(
         cls,
         violations: tuple[ModerationViolation, ...],
-        redacted_content: Any | None = None,
+        redacted_content: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ModerationResult:
         """
@@ -132,7 +135,7 @@ class ModerationRule(Protocol):
 
     async def check(
         self,
-        content: Any,
+        content: ModerationContent,
         context: JSON | None = None,
     ) -> ModerationResult:
         """
@@ -165,7 +168,7 @@ class ModerationGate(Protocol):
 
     async def check(
         self,
-        content: Any,
+        content: ModerationContent,
         context: JSON | None = None,
     ) -> ModerationResult:
         """
