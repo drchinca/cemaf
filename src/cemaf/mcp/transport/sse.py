@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, Protocol, runtime_checkable
+from contextlib import AbstractAsyncContextManager
+from typing import Protocol, runtime_checkable
 
 from cemaf.mcp.transport.base import BaseTransport
 
@@ -14,6 +15,7 @@ class SSEResponse(Protocol):
 
     @property
     def content(self) -> AsyncIterator[bytes]: ...
+    def raise_for_status(self) -> None: ...
     def close(self) -> None: ...
 
 
@@ -22,7 +24,9 @@ class SSESession(Protocol):
     """Protocol for HTTP sessions (e.g., aiohttp.ClientSession)."""
 
     async def get(self, url: str, *, headers: dict[str, str]) -> SSEResponse: ...
-    def post(self, url: str, *, data: bytes, headers: dict[str, str]) -> Any: ...
+    def post(
+        self, url: str, *, data: bytes, headers: dict[str, str]
+    ) -> AbstractAsyncContextManager[SSEResponse]: ...
     async def close(self) -> None: ...
 
 

@@ -85,7 +85,7 @@ class EnvConfigSource:
         return
         yield {}  # noqa: E501 - unreachable code required for generator type
 
-    def _coerce_value(self, value: str) -> Any:
+    def _coerce_value(self, value: str) -> bool | int | float | str:
         """Coerce string value to appropriate type."""
         # Boolean
         if value.lower() in ("true", "yes", "1", "on"):

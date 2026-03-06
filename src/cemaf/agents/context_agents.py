@@ -118,7 +118,7 @@ class LibrarianAgent(Agent[LibrarianGoal, LibrarianResult]):
         return "Retrieves Semantic Blueprints (style/structure instructions) from vector store"
 
     @property
-    def skills(self) -> tuple[Any, ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(self, goal: LibrarianGoal, context: AgentContext) -> AgentResult[LibrarianResult]:
@@ -191,7 +191,7 @@ class ResearcherAgent(Agent[ResearcherGoal, ResearcherResult]):
         return f"Synthesizes factual information with high-fidelity retrieval (k={self._top_k})"
 
     @property
-    def skills(self) -> tuple[Any, ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(self, goal: ResearcherGoal, context: AgentContext) -> AgentResult[ResearcherResult]:
@@ -272,7 +272,7 @@ class SummarizerAgent(Agent[SummarizerGoal, SummarizerResult]):
         return "Reduces text to summary for token management."
 
     @property
-    def skills(self) -> tuple[Any, ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(self, goal: SummarizerGoal, context: AgentContext) -> AgentResult[SummarizerResult]:
@@ -338,10 +338,10 @@ class WriterAgent(Agent[WriterGoal, WriterResult]):
         return "Generates or rewrites content by applying a Blueprint to source material"
 
     @property
-    def skills(self) -> tuple[Any, ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
-    def _extract_text(self, val: Any) -> str:
+    def _extract_text(self, val: dict[str, str] | Blueprint | str | None) -> str:
         """Extract text from various input formats."""
         if isinstance(val, dict):
             return val.get("blueprint_json") or val.get("summary") or val.get("facts") or str(val)

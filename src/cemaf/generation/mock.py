@@ -14,6 +14,7 @@ from cemaf.generation.protocols import (
     MediaOutput,
     UISpec,
     VideoSpec,
+    VoiceInfo,
 )
 
 
@@ -97,7 +98,7 @@ class MockAudioGenerator:
             model="mock-tts-v1",
         )
 
-    def list_voices(self) -> list[dict[str, Any]]:
+    def list_voices(self) -> list[VoiceInfo]:
         """List mock voices."""
         return [
             {"id": "voice_1", "name": "Professional Female", "language": "en"},

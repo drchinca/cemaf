@@ -91,7 +91,7 @@ class SkillRegistry(BaseRegistry[Skill[Any, Any]]):
         """
         return self.list_items()
 
-    def _implements_protocol(self, obj: Any) -> bool:
+    def _implements_protocol(self, obj: object) -> bool:
         """
         Check if object implements Skill protocol.
 

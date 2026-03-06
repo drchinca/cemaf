@@ -16,7 +16,7 @@ Usage:
                 **kwargs
             )
 
-        def _implements_protocol(self, obj: Any) -> bool:
+        def _implements_protocol(self, obj: object) -> bool:
             # Tool-specific protocol checking
             return isinstance(obj, Tool)
 """
@@ -25,7 +25,6 @@ import importlib
 import inspect
 import pkgutil
 import types
-from typing import Any
 
 from cemaf.observability import get_logger
 
@@ -62,7 +61,7 @@ class BaseRegistry[T]:
         ...     def __init__(self, **kwargs):
         ...         super().__init__(item_type_name="Tool", **kwargs)
         ...
-        ...     def _implements_protocol(self, obj: Any) -> bool:
+        ...     def _implements_protocol(self, obj: object) -> bool:
         ...         if inspect.isclass(obj):
         ...             return all(hasattr(obj, attr) for attr in ['id', 'schema', 'execute'])
         ...         return isinstance(obj, Tool)
@@ -425,7 +424,7 @@ class BaseRegistry[T]:
         # Fall back to class name
         return item_class.__name__
 
-    def _implements_protocol(self, obj: Any) -> bool:
+    def _implements_protocol(self, obj: object) -> bool:
         """
         Check if object implements the required protocol.
 

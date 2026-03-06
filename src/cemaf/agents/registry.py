@@ -56,7 +56,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         self._goal_types: dict[str, type[BaseModel]] = {}
         self._domain_agents: dict[str, set[str]] = {}
 
-    def _implements_protocol(self, obj: Any) -> bool:
+    def _implements_protocol(self, obj: object) -> bool:
         """Check if object implements Agent protocol."""
         if isinstance(obj, type):
             return all(hasattr(obj, attr) for attr in ("id", "description", "skills", "run"))

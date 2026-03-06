@@ -126,7 +126,7 @@ class Job(BaseModel):
 
     id: str
     name: str
-    trigger: Any  # Trigger (can't use Protocol in Pydantic)
+    trigger: Trigger
     handler: Callable[[], Awaitable[Any]]
     enabled: bool = True
     max_retries: int = 3

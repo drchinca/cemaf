@@ -13,6 +13,8 @@ and avoid circular imports with cemaf.moderation and cemaf.observability.
 Type imports happen at runtime within methods that need them.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
