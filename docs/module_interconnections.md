@@ -47,9 +47,11 @@ flowchart TB
 
     subgraph Infrastructure["Infrastructure"]
         LLM[LLM Clients]
+        INST[InstrumentedLLMClient]
         CACHE[Cache]
         EVENTS[Events]
         RESIL[Resilience]
+        PREG[ProviderRegistry]
     end
 
     subgraph Specialized["Specialized"]
@@ -80,9 +82,13 @@ flowchart TB
     CIT --> PATCH
 
     %% Infrastructure dependencies
+    INST --> LLM
+    INST --> LOGGER
     CACHE --> LLM
     RESIL --> LLM
     EVENTS --> LOGGER
+    PREG --> COMP
+    PREG --> LLM
     MCP --> TOOLS
     MCP --> MEM
     MCP --> BLUEPRINT
@@ -554,6 +560,98 @@ coverage = reporter.verify_citation_coverage(record=run_record)
 - `Citation.provenance_link_id` links to the ProvenanceLink that produced it
 - `SourceReference.included` tracks whether a source was in the LLM context
 - `GlassBoxReporter.verify_citation_coverage()` catches orphan citations
+
+## Audit PR Interconnections (v0.2.1)
+
+### InstrumentedLLMClient → RunLogger
+
+**Flow**: Every LLM call transparently recorded into RunLogger via wrapper
+
+```python
+from cemaf.llm.instrumented import InstrumentedLLMClient
+
+# ContextNodeExecutor wraps agents' LLM clients automatically
+instrumented = InstrumentedLLMClient(
+    client=llm_client,
+    run_logger=run_logger,
+    node_id="step_0",
+    agent_id="researcher",
+)
+
+# Every complete()/stream() call is recorded as an LLMCall in RunRecord
+result = await instrumented.complete(messages=messages)
+```
+
+**Integration Points**:
+- `InstrumentedLLMClient` delegates to wrapped client, records timing/tokens/cost
+- `ContextNodeExecutor._instrument_client()` applies wrapping automatically
+- `RunLogger.record_llm_call()` stores the call in the active `RunRecord`
+
+### ProviderRegistry → Factory Systems
+
+**Flow**: Extensible backend selection for LLM, context compiler, and retrieval factories
+
+```python
+from cemaf.core.provider_registry import ProviderRegistry
+from cemaf.context.factories import context_compiler_registry
+
+# Register custom backend — no source modification needed
+context_compiler_registry.register(backend="custom", factory=my_factory)
+compiler = context_compiler_registry.create(backend="custom", token_estimator=est)
+```
+
+**Integration Points**:
+- `llm_registry` powers `create_llm_client_from_config()`
+- `context_compiler_registry` powers `create_context_compiler_from_config()`
+- `vector_store_registry` powers `create_vector_store_from_config()`
+
+### DAGExecutor → CancellationToken
+
+**Flow**: Cooperative cancellation checked before each node in DAG execution
+
+```python
+from cemaf.core.execution import CancellationToken
+
+token = CancellationToken()
+result = await executor.run(dag, initial_context=ctx, cancellation_token=token)
+
+# Token checked at start of each node iteration
+# If cancelled, returns failed ExecutionResult with cancellation reason
+```
+
+**Integration Points**:
+- `DAGExecutor.run()` accepts optional `cancellation_token`
+- Token checked in main loop before each node execution
+- Parent-child token hierarchy for nested cancellation
+
+### DAGExecutor → Loop Nodes
+
+**Flow**: Loop nodes iterate body subgraph within the DAG
+
+```python
+# Node.loop() defines iterative execution
+loop = Node.loop(
+    id="refine",
+    name="Refinement Loop",
+    body_node_ids=("draft", "review"),
+    max_iterations=5,
+    exit_condition="review_passed",
+)
+```
+
+**Integration Points**:
+- `DAGExecutor._execute_loop_node()` runs body nodes per iteration
+- Exit condition is a truthy context key check after each iteration
+- Body nodes marked as completed after loop to prevent double execution in topo sort
+
+### ContextSource.compressible → Algorithm Exclusion Details
+
+**Flow**: Compressible flag flows from source through algorithm to exclusion metadata
+
+**Integration Points**:
+- `GreedySelectionAlgorithm` and `KnapsackSelectionAlgorithm` include `compressible` in `excluded_details`
+- `AdvancedContextCompiler` can use this to decide summarize vs drop
+- `GlassBoxReporter` can audit which excluded sources were compressible
 
 ## Missing or Weak Interconnections
 

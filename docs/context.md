@@ -417,3 +417,49 @@ from cemaf.context.compiler import SimpleTokenEstimator
 estimator = SimpleTokenEstimator()
 tokens = estimator.estimate("Hello world")  # ~2 tokens
 ```
+
+### Smart Token Estimator Factory
+
+Use `create_token_estimator()` for the best available estimator — prefers tiktoken (accurate, model-specific) with automatic fallback to heuristic:
+
+```python
+from cemaf.context.factories import create_token_estimator
+
+# Accurate estimation for a known model (uses tiktoken if available)
+estimator = create_token_estimator(model="gpt-4")
+
+# Fallback to heuristic for unknown models
+estimator = create_token_estimator(model="custom-model")
+
+# Default heuristic (no model specified)
+estimator = create_token_estimator()
+```
+
+### Compressible Flag in Exclusion Details
+
+When sources are excluded from compilation, the algorithm tracks whether each excluded source is compressible — enabling downstream systems (e.g., `AdvancedContextCompiler`) to decide whether to summarize or drop:
+
+```python
+result = algorithm.select_sources(sources=sources, budget=budget)
+
+for detail in result.metadata.get("excluded_details", []):
+    if detail["compressible"]:
+        print(f"Source {detail['source_id']} can be summarized to fit budget")
+    else:
+        print(f"Source {detail['source_id']} must be dropped entirely")
+```
+
+## Context Compiler Registry
+
+Context compiler backends are extensible via `ProviderRegistry`:
+
+```python
+from cemaf.context.factories import context_compiler_registry, create_context_compiler_from_config
+
+# Built-in backends: greedy, knapsack, optimal
+compiler = create_context_compiler_from_config(algorithm_name="knapsack")
+
+# Register a custom backend
+context_compiler_registry.register(backend="custom", factory=my_compiler_factory)
+compiler = create_context_compiler_from_config(algorithm_name="custom")
+```

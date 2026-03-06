@@ -96,7 +96,34 @@ Node.router(id="r1", name="Router", routes={"success": "next", "failure": "retry
 
 # Parallel node
 Node.parallel(id="p1", name="Parallel", parallel_nodes=["t1", "t2"], output_key="results")
+
+# Conditional node (evaluates condition, routes by boolean result)
+Node.conditional(
+    id="c1",
+    name="Check Quality",
+    condition="quality_score",  # context key, callable, or Condition object
+    routes={True: "publish", False: "revise"},
+)
+
+# Loop node (iterates body nodes until exit condition or max iterations)
+Node.loop(
+    id="l1",
+    name="Refine Loop",
+    body_node_ids=("draft", "review"),
+    max_iterations=5,
+    exit_condition="review_passed",  # context key evaluated as truthy
+    output_key="refined_output",
+)
 ```
+
+### Loop Node Execution
+
+The `DAGExecutor` handles loop nodes by iterating the body subgraph:
+
+1. Each iteration executes body nodes in sequence
+2. After each iteration, checks the `exit_condition` context key
+3. Stops when exit condition is truthy or `max_iterations` reached
+4. Body node results are merged into context after the loop completes
 
 ## Edge Conditions
 
@@ -143,6 +170,22 @@ result = await executor.run(dag, initial_context=initial_context)
 
 if result.status == RunStatus.COMPLETED:
     print(result.final_context.get("summary"))
+```
+
+### Cooperative Cancellation
+
+Pass a `CancellationToken` to `run()` for cooperative cancellation:
+
+```python
+from cemaf.core.execution import CancellationToken
+
+token = CancellationToken()
+
+# In another coroutine or thread:
+# token.cancel(reason="User requested stop")
+
+result = await executor.run(dag, initial_context=context, cancellation_token=token)
+# Executor checks token before each node — if cancelled, returns failed result with reason
 ```
 
 ## Auto-Healing & Recovery

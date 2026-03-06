@@ -135,6 +135,26 @@ print(f"Total: ${costs.total_cost_usd}, By model: {costs.by_model}")
 report_dict = report.to_dict()
 ```
 
+## Instrumented LLM Recording
+
+The `InstrumentedLLMClient` (see [LLM docs](./llm.md#instrumented-llm-client)) is the primary mechanism for transparent LLM call recording. It wraps any `LLMClient` and auto-records every call into the `RunLogger`:
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Instrumented as InstrumentedLLMClient
+    participant LLM as LLMClient
+    participant Logger as RunLogger
+
+    Agent->>Instrumented: complete(messages)
+    Instrumented->>LLM: complete(messages)
+    LLM-->>Instrumented: CompletionResult
+    Instrumented->>Logger: record_llm_call(model, tokens, cost, duration)
+    Instrumented-->>Agent: CompletionResult
+```
+
+The `ContextNodeExecutor` automatically wraps agents' LLM clients when a `RunLogger` is present — every LLM call in a DAG run is recorded without manual wiring.
+
 ## Logger
 
 ```python

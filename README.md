@@ -7,7 +7,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-1350_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Tests](https://img.shields.io/badge/Tests-1464_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
 [![Coverage](https://img.shields.io/badge/Coverage-77%25-yellow?style=flat-square)](.)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
 [![MyPy](https://img.shields.io/badge/Typed-MyPy-blue?style=flat-square)](http://mypy-lang.org/)
@@ -190,8 +190,11 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **💾 Token Budgeting**: Stay within limits with smart compilation
 - **⏱️ TTL & Cleanup**: Memory items expire automatically
 - **🔒 Memory Boundaries**: Strict scoping prevents state leaks
-- **⚡ Cancellation**: Cooperative cancellation with timeouts
+- **⚡ Cancellation**: Cooperative cancellation with timeouts, integrated into DAGExecutor
 - **🔧 Protocol-Based**: Plug into any framework - modules work standalone, extend with your own implementations
+- **🔌 Extensible Registries**: ProviderRegistry pattern for pluggable LLM, compiler, and retrieval backends
+- **🔁 Loop Nodes**: Iterative subgraph execution with exit conditions and max iterations
+- **📡 Instrumented LLM**: Transparent LLM call recording for automatic glass box audit
 - **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
 - **📋 Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
 - **🛡️ Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
@@ -281,7 +284,7 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 1350 tests | 100% passing | TDD from day one
+**Project Stats**: 1464 tests | 100% passing | TDD from day one
 
 ---
 
