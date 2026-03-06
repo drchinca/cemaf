@@ -53,7 +53,7 @@ git checkout -b <gitusername>/your-bug-fix
 
 ### 3. Write Tests
 
-All new features must include tests. CEMAF has comprehensive test coverage with 1000+ tests across 50+ test files.
+All new features must include tests. CEMAF has comprehensive test coverage with 1557 tests across 70+ test files.
 
 ```python
 import pytest

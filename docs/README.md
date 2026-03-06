@@ -116,7 +116,7 @@ flowchart TB
 
 ## Project Stats
 
-- **1350 tests** | **100% passing** | **TDD from day one**
+- **1557 tests** | **100% passing** | **TDD from day one**
 - **Python 3.14+** | **Fully typed** | **Protocol-based design**
 - **Glass Box Audit** | **Provenance Tracking** | **Budget Enforcement**
 - **MIT License**

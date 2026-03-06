@@ -16,9 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `compressible` flag in algorithm exclusion details for Greedy and Knapsack (PR #27)
 - `context_compiler_registry`, `llm_registry`, `vector_store_registry` — extensible backend registries
 
+### Fixed
+- 30+ missing exports added to `__init__.py` across 7 packages: core, context, orchestration, llm, observability, agents, memory (PR #29)
+- Redundant `_utc_now` in `result.py` replaced with `core.utils.utc_now` (PR #29)
+
 ### Changed
 - LLM, context compiler, and retrieval factories now use `ProviderRegistry` instead of if/elif chains
 - `ContextNodeExecutor` auto-wraps agents' LLM clients with `InstrumentedLLMClient`
+- Test suite expanded from 1464 → 1557 covering persistence, cost tracking, rate limiter, resilience decorators, core/registry, and DAG executor (PRs #29, #30)
+- CI pipeline added: lint, type-check, security scan, tests with coverage on every push/PR (PR #31)
 
 ## [0.2.0] - 2026-02-19
 
