@@ -7,7 +7,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-1095_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Tests](https://img.shields.io/badge/Tests-1350_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
 [![Coverage](https://img.shields.io/badge/Coverage-77%25-yellow?style=flat-square)](.)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
 [![MyPy](https://img.shields.io/badge/Typed-MyPy-blue?style=flat-square)](http://mypy-lang.org/)
@@ -195,6 +195,10 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
 - **📋 Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
 - **🛡️ Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
+- **🔍 Glass Box Audit**: Full provenance chain linking every LLM call to its context sources, citations, and costs
+- **💰 Budget Guard**: Configurable cost and token limits with warning/critical/halt thresholds across DAG runs
+- **🤖 Context Agents**: Built-in Librarian, Researcher, Summarizer, Writer agents with dynamic registry
+- **♾️ Recursive LLM**: Parallel divide-and-conquer querying for 1M+ token contexts
 
 ---
 
@@ -277,7 +281,7 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 1095 tests | 100% passing | TDD from day one
+**Project Stats**: 1350 tests | 100% passing | TDD from day one
 
 ---
 

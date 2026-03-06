@@ -271,6 +271,48 @@ checkpoint = await checkpointer.load(run_id)
 result = await executor.resume(checkpoint)
 ```
 
+## Context Node Executor
+
+The `ContextNodeExecutor` bridges DAG nodes to agents via the dynamic registry, threading provenance and domain context through every execution:
+
+```python
+from cemaf.orchestration.context_node_executor import ContextNodeExecutor
+from cemaf.agents.registry import AgentRegistry
+
+registry = AgentRegistry()
+registry.register_agent(agent_instance=my_librarian)
+registry.register_agent(agent_instance=my_summarizer)
+
+executor = ContextNodeExecutor(
+    agent_registry=registry,
+    run_logger=InMemoryRunLogger(),
+    domain_context=my_domain_context,  # Optional domain rules
+)
+
+# Each node execution: resolves agent, builds goal, records ProvenanceLink
+result = await executor.execute_node(node=node, context=ctx)
+```
+
+## Budget-Guarded Execution
+
+Pass a `BudgetGuard` to `DAGExecutor` for automatic cost and token enforcement:
+
+```python
+from cemaf.orchestration.executor import DAGExecutor
+from cemaf.observability.budget_guard import BudgetGuard
+
+executor = DAGExecutor(
+    node_executor=my_executor,
+    budget_guard=BudgetGuard(max_cost_usd=2.0, max_total_tokens=200_000),
+    run_logger=InMemoryRunLogger(),
+)
+result = await executor.run(dag=dag)
+
+if not result.success and "Budget exhausted" in (result.error or ""):
+    print("Execution halted due to budget limits")
+    print(result.metadata["budget_guard"])  # Final budget state
+```
+
 ## Deep Agent Orchestration
 
 Hierarchical multi-agent execution with context isolation:

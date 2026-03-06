@@ -34,6 +34,14 @@ flowchart TB
         MEM --> SCOPE
     end
 
+    subgraph Glass Box
+        PROV[ProvenanceChain<br/>Audit Trail]
+        GUARD[BudgetGuard<br/>Cost Limits]
+        GLASS[GlassBoxReporter<br/>Audit Reports]
+        PROV --> GLASS
+        GUARD --> GLASS
+    end
+
     subgraph Infrastructure
         LLM[LLM Clients]
         OBS[Observability]
@@ -43,8 +51,10 @@ flowchart TB
     Orchestration --> Execution
     Execution --> Context Engineering
     Execution --> Memory
+    Execution --> Glass Box
     Context Engineering --> Infrastructure
     Memory --> Infrastructure
+    Glass Box --> Infrastructure
 ```
 
 ## Core Concepts
@@ -107,8 +117,8 @@ cemaf/
 │   ├── core/           # Types, enums, constants, Result, InMemoryStorage, utils
 │   ├── tools/          # Tool abstractions
 │   ├── skills/         # Skill abstractions
-│   ├── agents/         # Agent abstractions
-│   ├── orchestration/  # DAG, Executor, DeepAgent
+│   ├── agents/         # Agent abstractions, Registry, Context Agents
+│   ├── orchestration/  # DAG, Executor, DeepAgent, Planner, ContextNodeExecutor
 │   ├── context/        # TokenBudget, Compiler, Context, AdvancedContextCompiler
 │   ├── memory/         # MemoryStore protocols
 │   ├── persistence/    # Entities (Project, Run, Artifact)
@@ -118,7 +128,7 @@ cemaf/
 │   ├── generation/     # Image, Audio, Video, UI, Code generation
 │   ├── evals/          # Evaluators, LLM-as-judge
 │   ├── resilience/     # Retry, CircuitBreaker, RateLimiter
-│   ├── observability/  # Logger, Tracer, Metrics
+│   ├── observability/  # Logger, Tracer, Metrics, BudgetGuard, GlassBoxReporter
 │   ├── scheduler/      # Job scheduling, triggers
 │   ├── validation/   # Validation rules and pipelines
 │   ├── events/         # Event bus and notifiers
@@ -153,7 +163,7 @@ cemaf/
    - Explicit success/failure states
    - Rich error metadata
 
-5. **Testability**: Comprehensive test suite with 426 tests and 55 fixtures
+5. **Testability**: Comprehensive test suite with 1350 tests and 55 fixtures
    - Mock implementations for all protocols
    - Dependency injection for testing
    - Integration tests for real workflows

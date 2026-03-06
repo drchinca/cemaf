@@ -51,17 +51,19 @@ Run agents on resource-constrained, intermittently-connected devices.
 
 **Key Question**: "How do I run reliably on a Raspberry Pi with spotty WiFi?"
 
-### 4. Observability (The Debugger)
+### 4. Glass Box Audit (The Debugger)
 
-Understand what your agent did and why.
+Understand what your agent did, why, what it cost, and verify its citations.
 
 | Doc | Purpose |
 |-----|---------|
-| [observability.md](observability.md) | RunLogger, metrics, tracing |
+| [observability.md](observability.md) | RunLogger, BudgetGuard, GlassBoxReporter |
+| [core.md](core.md#provenance) | ProvenanceChain, ProvenanceLink, SourceReference |
 | [replay.md](replay.md) | Deterministic replay from RunRecords |
 | [evals.md](evals.md) | Agent evaluation framework |
+| [context_engineering_agents.md](context_engineering_agents.md) | Built-in Librarian, Researcher, Summarizer, Writer |
 
-**Key Question**: "Why did the agent do that?"
+**Key Question**: "Why did the agent do that, and can I prove it?"
 
 ### 5. Infrastructure (The Plumbing)
 

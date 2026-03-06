@@ -26,6 +26,12 @@ flowchart TB
         TOOLS[Tools<br/>Atomic Functions]
     end
 
+    subgraph "Glass Box Audit"
+        PROV[ProvenanceChain<br/>Audit Trail]
+        GUARD[BudgetGuard<br/>Cost Enforcement]
+        GLASS[GlassBoxReporter<br/>Full Reports]
+    end
+
     subgraph "Infrastructure"
         MEM[Memory<br/>Scoped + TTL]
         EVENTS[Events<br/>Pub/Sub]
@@ -40,7 +46,10 @@ flowchart TB
     DAG --> EXEC
     EXEC --> TOOLS
     EXEC --> LOGGER
+    EXEC --> GUARD
     TOOLS --> PATCH
+    LOGGER --> PROV
+    PROV --> GLASS
 ```
 
 ## Documentation Index
@@ -64,11 +73,15 @@ flowchart TB
 - [Agents](agents.md) - Autonomous entities with goals
 - [Orchestration](orchestration.md) - DAG, Executor, DeepAgent, Checkpointing
 
+### Glass Box Audit Trail
+- [Observability](observability.md) - Logger, Tracer, Metrics, RunLogger, BudgetGuard, GlassBoxReporter
+- [Core: Provenance](core.md#provenance) - ProvenanceChain, ProvenanceLink, SourceReference
+- [Context Agents](context_engineering_agents.md) - Librarian, Researcher, Summarizer, Writer
+
 ### Core Infrastructure
-- [Core](core.md) - Types, enums, Result pattern, execution context
+- [Core](core.md) - Types, enums, Result pattern, execution context, provenance
 - [Resilience](resilience.md) - Retry, CircuitBreaker, RateLimiter
 - [Events](events.md) - Event bus and notifiers
-- [Observability](observability.md) - Logger, Tracer, Metrics, RunLogger
 
 ### Supporting Modules
 - [LLM](llm.md) - LLM client protocols and adapters
@@ -96,9 +109,14 @@ flowchart TB
 | Set memory TTL | [Memory](memory.md#ttl) |
 | Add cancellation | [Execution Context](core.md#execution-context) |
 | Build a DAG | [Orchestration](orchestration.md#building-dags) |
+| Audit an LLM call | [Provenance](core.md#provenance) |
+| Enforce cost limits | [BudgetGuard](observability.md#budget-guard) |
+| Generate audit report | [GlassBoxReporter](observability.md#glass-box-reporter) |
+| Use context agents | [Context Agents](context_engineering_agents.md) |
 
 ## Project Stats
 
-- **814 tests** | **100% passing** | **TDD from day one**
+- **1350 tests** | **100% passing** | **TDD from day one**
 - **Python 3.14+** | **Fully typed** | **Protocol-based design**
+- **Glass Box Audit** | **Provenance Tracking** | **Budget Enforcement**
 - **MIT License**
