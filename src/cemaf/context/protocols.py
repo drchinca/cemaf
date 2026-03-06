@@ -17,13 +17,16 @@ Extension Point:
     No registration needed - structural typing ensures compatibility.
 """
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
+
+from cemaf.context.algorithm import SelectionResult
 
 # Re-export data classes (not changed)
 from cemaf.context.budget import BudgetAllocation, TokenBudget
 from cemaf.context.compiler import CompiledContext
 from cemaf.context.context import Context
 from cemaf.context.patch import ContextPatch, PatchLog
+from cemaf.context.source import ContextSource
 
 __all__ = [
     "ContextCompiler",
@@ -32,9 +35,11 @@ __all__ = [
     "TokenBudget",
     "BudgetAllocation",
     "Context",
+    "ContextSource",
     "CompiledContext",
     "ContextPatch",
     "PatchLog",
+    "SelectionResult",
 ]
 
 
@@ -68,7 +73,7 @@ class ContextCompiler(Protocol):
 
     async def compile(
         self,
-        sources: list[Any],
+        sources: list[ContextSource],
         budget: TokenBudget,
     ) -> CompiledContext:
         """
@@ -115,7 +120,7 @@ class ContextSelectionAlgorithm(Protocol):
         >>> assert isinstance(algo, ContextSelectionAlgorithm)
     """
 
-    def select(self, sources: list[Any], budget: int) -> Any:
+    def select(self, sources: list[ContextSource], budget: int) -> SelectionResult:
         """
         Select context sources that fit within budget.
 

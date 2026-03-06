@@ -11,8 +11,8 @@ import json
 import logging
 from typing import Any
 
-from cemaf.agents.base import DomainContext
 from cemaf.agents.registry import AgentRegistry
+from cemaf.core.domain import DomainContext
 from cemaf.core.types import NodeID
 from cemaf.llm.protocols import LLMClient, LLMConfig, Message
 from cemaf.orchestration.dag import DAG, Edge, Node, NodeType  # type: ignore[attr-defined]

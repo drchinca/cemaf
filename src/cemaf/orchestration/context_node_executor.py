@@ -6,10 +6,11 @@ import logging
 from time import perf_counter
 from typing import Any
 
-from cemaf.agents.base import AgentContext, DomainContext
+from cemaf.agents.base import AgentContext
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
+from cemaf.core.domain import DomainContext
 from cemaf.core.provenance import ProvenanceLink, SourceReference
 from cemaf.core.types import AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now

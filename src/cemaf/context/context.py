@@ -4,16 +4,19 @@ cemaf.context.context - Manages the flow and state of context within agentic wor
 This module introduces an immutable Context object that encapsulates the dynamic state
 and information available to agents and nodes during execution.
 
-Note: Uses PEP 563 () to defer annotation evaluation
+Note: Uses PEP 563 (from __future__ import annotations) to defer annotation evaluation
 and avoid circular imports with cemaf.context.merge and cemaf.context.patch.
 Type imports happen at runtime within methods that need them.
 """
+
+from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from cemaf.context.patch import ContextPatch
 from cemaf.core.types import JSON
 
 
@@ -28,7 +31,7 @@ class Context(BaseModel):
     model_config = {"frozen": True}
 
     data: JSON = Field(default_factory=dict)
-    patch_history: tuple[Any, ...] = Field(default_factory=tuple)
+    patch_history: tuple[ContextPatch, ...] = Field(default_factory=tuple)
 
     def state_hash(self) -> str:
         """
@@ -46,7 +49,7 @@ class Context(BaseModel):
         state_str = f"{data_json}|{patch_ids}"
         return hashlib.sha256(state_str.encode()).hexdigest()
 
-    def get_timeline(self) -> tuple[ContextPatch, ...]:  # type: ignore[name-defined]  # noqa: F821
+    def get_timeline(self) -> tuple[ContextPatch, ...]:
         """Return the full sequence of patches that created this context."""
         return self.patch_history
 
@@ -58,7 +61,7 @@ class Context(BaseModel):
         if patch_id is None:
             return Context()
 
-        new_history: list[ContextPatch] = []  # type: ignore[name-defined]  # noqa: F821
+        new_history: list[ContextPatch] = []
         found = False
         for patch in self.patch_history:
             new_history.append(patch)
@@ -222,7 +225,7 @@ class Context(BaseModel):
                 result[key] = value
         return result
 
-    def apply(self, patch: ContextPatch) -> Context:  # type: ignore[name-defined]  # noqa: F821
+    def apply(self, patch: ContextPatch) -> Context:
         """
         Apply a ContextPatch and return a new Context.
 
@@ -249,7 +252,7 @@ class Context(BaseModel):
 
         return Context(data=new_ctx.data, patch_history=new_history)
 
-    def diff(self, other: Context) -> tuple[ContextPatch, ...]:  # type: ignore[name-defined]  # noqa: F821
+    def diff(self, other: Context) -> tuple[ContextPatch, ...]:
         """
         Generate patches to transform self into other.
 
@@ -260,7 +263,7 @@ class Context(BaseModel):
             Tuple of patches that, when applied to self, produce other
         """
 
-        patches: list[ContextPatch] = []  # type: ignore[name-defined]  # noqa: F821
+        patches: list[ContextPatch] = []
         self._diff_recursive("", self.data, other.data, patches)
         return tuple(patches)
 
@@ -269,7 +272,7 @@ class Context(BaseModel):
         prefix: str,
         old: Any,
         new: Any,
-        patches: list[ContextPatch],  # type: ignore[name-defined]  # noqa: F821
+        patches: list[ContextPatch],
     ) -> None:
         """Recursively generate patches for differences."""
         from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource

@@ -13,12 +13,23 @@ Example:
         return Result.ok(ProcessedData(value=data.upper()))
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict, TypeVar
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
+
+U = TypeVar("U")
+
+
+class Hint(TypedDict):
+    """Structured hint for result feedback."""
+
+    action: str
+    reason: str
+    suggestion: str
 
 
 @dataclass(frozen=True)
@@ -46,7 +57,7 @@ class Result[T]:
     success: bool
     data: T | None = None
     error: str | None = None
-    hints: list[dict[str, Any]] = field(default_factory=list)
+    hints: list[Hint] = field(default_factory=list)
     metadata: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
 
@@ -55,7 +66,7 @@ class Result[T]:
         cls,
         data: T,
         metadata: JSON | None = None,
-        hints: list[dict[str, Any]] | None = None,
+        hints: list[Hint] | None = None,
     ) -> Result[T]:
         """Create a successful result."""
         return cls(
@@ -70,7 +81,7 @@ class Result[T]:
         cls,
         error: str,
         metadata: JSON | None = None,
-        hints: list[dict[str, Any]] | None = None,
+        hints: list[Hint] | None = None,
     ) -> Result[T]:
         """Create a failed result."""
         return cls(
@@ -87,7 +98,7 @@ class Result[T]:
 
     def with_hint(self, action: str, reason: str, suggestion: str) -> Result[T]:
         """Add a structured hint to the result."""
-        new_hint = {"action": action, "reason": reason, "suggestion": suggestion}
+        new_hint: Hint = {"action": action, "reason": reason, "suggestion": suggestion}
         new_hints = self.hints + [new_hint]
         return Result(
             success=self.success,
@@ -98,7 +109,7 @@ class Result[T]:
             created_at=self.created_at,
         )
 
-    def map(self, fn: Any) -> Result[Any]:
+    def map(self, fn: Callable[[T], U]) -> Result[U]:
         """Transform the data if successful."""
         if not self.success or self.data is None:
             return Result(success=False, error=self.error, metadata=self.metadata)
