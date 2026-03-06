@@ -13,9 +13,12 @@ from cemaf.context.context import Context
 from cemaf.core.provenance import ProvenanceLink, SourceReference
 from cemaf.core.types import AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
+from cemaf.llm.instrumented import InstrumentedLLMClient
+from cemaf.llm.protocols import LLMClient
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import Node
 from cemaf.orchestration.executor import NodeResult
+from cemaf.retrieval.protocols import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +32,15 @@ class ContextNodeExecutor:
         agent_registry: AgentRegistry,
         run_logger: RunLogger | None = None,
         domain_context: Any | None = None,
+        llm_client: LLMClient | None = None,
+        vector_store: VectorStore | None = None,
     ) -> None:
         """Initialize with registry and optional logger/domain context."""
         self._registry = agent_registry
         self._run_logger = run_logger
         self._domain_context = domain_context
+        self._llm_client = llm_client
+        self._vector_store = vector_store
 
     async def execute_node(
         self,
@@ -54,7 +61,17 @@ class ContextNodeExecutor:
         # Resolve agent from registry (registered first, then built-in)
         agent: Agent[Any, Any] | None = self._registry.get(agent_name)
         if agent is None:
-            agent = self._registry.create_agent(agent_name)
+            instrumented_client = self._instrument_client(
+                node_id=str(node.id),
+                agent_id=agent_name,
+            )
+            # InstrumentedLLMClient satisfies LLMClient protocol structurally
+            effective_client: LLMClient | None = instrumented_client or self._llm_client  # type: ignore[assignment]
+            agent = self._registry.create_agent(
+                agent_name,
+                llm_client=effective_client,
+                vector_store=self._vector_store,
+            )
         if agent is None:
             return NodeResult(
                 node_id=node.id,
@@ -164,6 +181,22 @@ class ContextNodeExecutor:
         except (TypeError, ValueError):
             serialized = str(inputs)
         return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+
+    def _instrument_client(
+        self,
+        *,
+        node_id: str,
+        agent_id: str,
+    ) -> InstrumentedLLMClient | None:
+        """Wrap the LLM client with instrumentation if RunLogger is active."""
+        if self._llm_client is None or self._run_logger is None:
+            return None
+        return InstrumentedLLMClient(
+            client=self._llm_client,
+            run_logger=self._run_logger,
+            node_id=node_id,
+            agent_id=agent_id,
+        )
 
     def _extract_source_refs(self, *, inputs: Any) -> tuple[SourceReference, ...]:
         """Extract source references from resolved inputs for provenance."""
