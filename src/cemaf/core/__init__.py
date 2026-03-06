@@ -8,9 +8,11 @@ from cemaf.core.constants import (
 from cemaf.core.domain import DomainContext
 from cemaf.core.enums import (
     AgentStatus,
+    ContextArtifactType,
     ExclusionReason,
     MemoryScope,
     NodeType,
+    Priority,
     RunStatus,
     VerificationStatus,
 )
@@ -31,12 +33,15 @@ from cemaf.core.storage import InMemoryStorage, StorageEntry
 from cemaf.core.types import (
     JSON,
     AgentID,
+    Confidence,
     DomainID,
     NodeID,
+    ProjectID,
     ProvenanceID,
     RunID,
     SkillID,
     TenantID,
+    TokenCount,
     ToolID,
 )
 from cemaf.core.utils import generate_id, json_dumps, safe_json, truncate, utc_now
@@ -45,18 +50,23 @@ __all__ = [
     # Types
     "JSON",
     "AgentID",
+    "Confidence",
     "DomainID",
     "NodeID",
+    "ProjectID",
     "ProvenanceID",
     "RunID",
     "SkillID",
     "TenantID",
+    "TokenCount",
     "ToolID",
     # Enums
     "AgentStatus",
+    "ContextArtifactType",
     "ExclusionReason",
     "MemoryScope",
     "NodeType",
+    "Priority",
     "RunStatus",
     "VerificationStatus",
     # Provenance

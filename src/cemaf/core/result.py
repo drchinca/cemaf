@@ -14,17 +14,11 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from cemaf.core.types import JSON
-
-
-def _utc_now() -> datetime:
-    """Local utc_now to avoid circular import."""
-    from datetime import datetime
-
-    return datetime.now(UTC)
+from cemaf.core.utils import utc_now
 
 
 @dataclass(frozen=True)
@@ -54,7 +48,7 @@ class Result[T]:
     error: str | None = None
     hints: list[dict[str, Any]] = field(default_factory=list)
     metadata: JSON = field(default_factory=dict)
-    created_at: datetime = field(default_factory=_utc_now)
+    created_at: datetime = field(default_factory=utc_now)
 
     @classmethod
     def ok(
