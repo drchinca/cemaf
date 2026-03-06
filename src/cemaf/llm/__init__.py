@@ -40,6 +40,7 @@ from cemaf.llm.protocols import (
     ToolDefinition,
 )
 from cemaf.llm.response_utils import ParseResult, ResponseParser, StreamingJSONParser
+from cemaf.llm.tiktoken_estimator import TiktokenEstimator
 
 __all__ = [
     # Protocols
@@ -65,4 +66,6 @@ __all__ = [
     "ResponseParser",
     "ParseResult",
     "StreamingJSONParser",
+    # Token estimation
+    "TiktokenEstimator",
 ]

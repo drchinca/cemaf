@@ -41,6 +41,16 @@ from cemaf.observability.config import (
     reset_observability,
 )
 from cemaf.observability.cost_tracking import ModelPricing, ModelPricingRegistry
+from cemaf.observability.factories import (
+    create_logger,
+    create_logger_from_config,
+    create_metrics_collector,
+    create_metrics_collector_from_config,
+    create_run_logger,
+    create_run_logger_from_config,
+    create_tracer,
+    create_tracer_from_config,
+)
 from cemaf.observability.glass_box import GlassBoxReport, GlassBoxReporter
 from cemaf.observability.health import (
     HealthCheck,
@@ -121,4 +131,13 @@ __all__ = [
     "export_prometheus_rules",
     "get_alert_by_name",
     "get_alerts_by_severity",
+    # Factories
+    "create_logger",
+    "create_logger_from_config",
+    "create_metrics_collector",
+    "create_metrics_collector_from_config",
+    "create_run_logger",
+    "create_run_logger_from_config",
+    "create_tracer",
+    "create_tracer_from_config",
 ]
