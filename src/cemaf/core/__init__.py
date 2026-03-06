@@ -24,6 +24,7 @@ from cemaf.core.execution import (
     with_timeout,
 )
 from cemaf.core.provenance import ProvenanceChain, ProvenanceLink, SourceReference
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.core.registry import BaseRegistry, RegistryError
 from cemaf.core.result import Result
 from cemaf.core.storage import InMemoryStorage, StorageEntry
@@ -70,6 +71,7 @@ __all__ = [
     "MAX_CONTEXT_TOKENS",
     # Registry
     "BaseRegistry",
+    "ProviderRegistry",
     "RegistryError",
     # Result
     "Result",
