@@ -140,6 +140,7 @@ class GreedySelectionAlgorithm:
                         "token_count": source_tokens,
                         "priority": source.priority,
                         "reason": ExclusionReason.BUDGET_EXCEEDED.value,
+                        "compressible": source.compressible,
                     }
                 )
 
@@ -247,6 +248,7 @@ class KnapsackSelectionAlgorithm:
                 "token_count": sources[i].token_count or 0,
                 "priority": sources[i].priority,
                 "reason": ExclusionReason.LOW_PRIORITY.value,
+                "compressible": sources[i].compressible,
             }
             for i in sorted(excluded_indices)
         ]
