@@ -73,32 +73,21 @@ class AnalysisAgent(Agent):
 See examples/retrieval_dag_example.py for a complete working example.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from cemaf.core.domain import DomainContext
 from cemaf.core.enums import AgentStatus
 from cemaf.core.types import JSON, AgentID
 from cemaf.skills.base import Skill, SkillResult
 
 GoalT = TypeVar("GoalT", bound=BaseModel)
 ResultT = TypeVar("ResultT")
-
-
-@runtime_checkable
-class DomainContext(Protocol):
-    """Protocol for domain-scoped execution context."""
-
-    @property
-    def domain_id(self) -> str: ...
-
-    @property
-    def business_rules(self) -> tuple[str, ...]: ...
-
-    @property
-    def required_citation_style(self) -> str: ...
 
 
 class AgentState(BaseModel):

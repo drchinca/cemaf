@@ -54,7 +54,6 @@ See cemaf.agents.protocols.Agent for the protocol definition.
 """
 
 # Context Engineering Agents
-from cemaf.agents.base import DomainContext
 from cemaf.agents.context_agents import (
     LibrarianAgent,
     LibrarianGoal,
@@ -72,6 +71,7 @@ from cemaf.agents.context_agents import (
 from cemaf.agents.factories import create_agent_context, create_agent_context_from_config
 from cemaf.agents.protocols import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AGENT_TOOLKIT, AgentRegistry, create_default_registry
+from cemaf.core.domain import DomainContext
 
 __all__ = [
     # Core protocols
