@@ -36,6 +36,7 @@ class NodeType(str, Enum):
     ROUTER = "router"
     PARALLEL = "parallel"
     CONDITIONAL = "conditional"
+    LOOP = "loop"
 
 
 class MemoryScope(str, Enum):

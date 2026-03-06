@@ -265,6 +265,31 @@ class Node:
         )
 
     @classmethod
+    def loop(
+        cls,
+        id: str,
+        name: str,
+        body_node_ids: tuple[str, ...],
+        max_iterations: int = 10,
+        exit_condition: str = "",
+        description: str = "",
+        output_key: str = "",
+    ) -> Node:
+        """Create a loop node that iterates body nodes until exit condition or max iterations."""
+        return cls(
+            id=NodeID(id),
+            type=NodeType.LOOP,
+            name=name,
+            description=description,
+            config={
+                "max_iterations": max_iterations,
+                "exit_condition": exit_condition,
+                "body_node_ids": list(body_node_ids),
+            },
+            output_key=output_key,
+        )
+
+    @classmethod
     def parallel(
         cls,
         id: str,
