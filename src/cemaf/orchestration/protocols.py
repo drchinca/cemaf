@@ -19,6 +19,8 @@ Extension Point:
 
 from typing import Any, Protocol, runtime_checkable
 
+from cemaf.context.context import Context
+
 # Re-export data classes (not changed)
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import ExecutionResult
@@ -68,7 +70,7 @@ class DAGExecutor(Protocol):
         >>> assert isinstance(executor, DAGExecutor)
     """
 
-    async def execute(self, dag: DAG, context: Any) -> ExecutionResult:
+    async def execute(self, dag: DAG, context: Context | None) -> ExecutionResult:
         """
         Execute a DAG with the given context.
 

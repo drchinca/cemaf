@@ -25,9 +25,9 @@ Example:
         pass
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Any
 
 from cemaf.core.types import JSON
 from cemaf.observability.protocols import MetricsCollector
@@ -38,7 +38,7 @@ def record_timing(
     metrics: MetricsCollector,
     name: str,
     tags: JSON | None = None,
-) -> Any:
+) -> Generator[None]:
     """
     Context manager for automatic timing metrics.
 

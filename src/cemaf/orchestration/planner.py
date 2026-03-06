@@ -5,10 +5,13 @@ The Planner uses an LLM to analyze a goal and generate a step-by-step execution 
 as a CEMAF DAG structure. This enables autonomous workflow orchestration.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from typing import Any
 
+from cemaf.agents.registry import AgentRegistry
 from cemaf.core.types import NodeID
 from cemaf.llm.protocols import LLMClient, LLMConfig, Message
 from cemaf.orchestration.dag import DAG, Edge, Node, NodeType  # type: ignore[attr-defined]
@@ -26,7 +29,7 @@ class Planner:
     def __init__(
         self,
         llm_client: LLMClient,
-        agent_registry: Any,  # AgentRegistry from cemaf.agents.registry
+        agent_registry: AgentRegistry,
         config: LLMConfig | None = None,
     ):
         self._llm_client = llm_client
