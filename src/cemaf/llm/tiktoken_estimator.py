@@ -9,7 +9,14 @@ Tiktoken import happens at runtime to avoid hard dependency.
 """
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class TokenEncoding(Protocol):
+    """Protocol for token encoders (e.g., tiktoken.Encoding)."""
+
+    def encode(self, text: str) -> list[int]: ...
 
 
 class TiktokenEstimator:
@@ -44,7 +51,7 @@ class TiktokenEstimator:
     ) -> None:
         self._model = model
         self._fallback_ratio = fallback_chars_per_token
-        self._encoding: Any = None  # tiktoken.Encoding when available
+        self._encoding: TokenEncoding | None = None
         self._tiktoken_available = False
 
         # Try to initialize tiktoken
