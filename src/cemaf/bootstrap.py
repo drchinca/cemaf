@@ -30,9 +30,9 @@ def create_executor(
 
     # Wire online eval pipeline and quality police subscriptions
     if svc.event_bus and cfg.enable_events:
-        if svc.online_eval_pipeline and hasattr(svc.online_eval_pipeline, "subscribe"):
+        if svc.online_eval_pipeline:
             svc.online_eval_pipeline.subscribe()
-        if svc.quality_police and hasattr(svc.quality_police, "subscribe"):
+        if svc.quality_police:
             svc.quality_police.subscribe(event_bus=svc.event_bus)
 
     return DAGExecutor(

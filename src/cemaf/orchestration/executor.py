@@ -35,6 +35,7 @@ from cemaf.core.execution import CancellationToken
 from cemaf.core.recovery import AutoHealManager
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
+from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
@@ -184,7 +185,7 @@ class DAGExecutor:
         budget_guard: BudgetGuard | None = None,
         session_manager: SessionManager | None = None,
         node_timeout_seconds: float = 300.0,
-        quality_police: object | None = None,
+        quality_police: QualityPolice | None = None,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -485,19 +486,13 @@ class DAGExecutor:
                         )
 
                 # Quality police check after each node
-                if (
-                    self._quality_police
-                    and hasattr(self._quality_police, "should_halt")
-                    and self._quality_police.should_halt()
-                ):
+                if self._quality_police and self._quality_police.should_halt():
                     completed_at = utc_now()
                     halt_msg = "Quality degradation - execution halted"
                     logger.warning(
                         halt_msg,
                         dag_name=dag.name,
-                        quality_state=self._quality_police.to_dict()
-                        if hasattr(self._quality_police, "to_dict")
-                        else {},
+                        quality_state=self._quality_police.to_dict(),
                     )
                     if self._run_logger:
                         self._run_logger.end_run(
@@ -522,7 +517,7 @@ class DAGExecutor:
                     # Record DAG failure metrics
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
-                    error_type = type(result.error).__name__ if result.error else "Unknown"
+                    error_type = result.metadata.get("error_type", "Unknown") if result.error else "None"
                     failure_tags = {"dag_name": dag.name, "error_type": error_type}
                     metrics.counter("cemaf.dag.executions.failed", tags=failure_tags)
                     metrics.histogram("cemaf.dag.duration_ms", duration_ms, tags=failure_tags)

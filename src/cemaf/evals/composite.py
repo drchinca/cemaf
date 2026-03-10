@@ -101,19 +101,7 @@ class AggregationStrategy:
 
 
 class CompositeEvaluator:
-    """
-    Combines multiple evaluators into one.
-
-    Runs all evaluators and aggregates results.
-
-    Usage:
-        composite = CompositeEvaluator([
-            ExactMatchEvaluator(),
-            LengthEvaluator(min_length=10),
-            JSONSchemaEvaluator(schema=my_schema),
-        ])
-        result = await composite.evaluate(output, expected)
-    """
+    """Combines multiple evaluators into one, aggregating results."""
 
     def __init__(
         self,
@@ -139,7 +127,7 @@ class CompositeEvaluator:
         results: list[EvalResult] = []
 
         for evaluator in self._evaluators:
-            result = await evaluator.evaluate(output, expected, context)
+            result = await evaluator.evaluate(output=output, expected=expected, context=context)
             results.append(result)
 
             # Fail fast if configured
@@ -174,7 +162,7 @@ class CompositeEvaluator:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EvalCase:
     """A single evaluation test case."""
 
@@ -211,23 +199,7 @@ class EvalSuiteResult:
 
 
 class EvalSuite:
-    """
-    Named collection of evaluators and test cases.
-
-    Useful for regression testing and benchmarking.
-
-    Usage:
-        suite = EvalSuite(
-            name="quality_checks",
-            evaluators=[ExactMatchEvaluator(), LengthEvaluator()],
-        )
-        suite.add_case(EvalCase(
-            name="greeting",
-            output="Hello!",
-            expected="Hello!",
-        ))
-        results = await suite.run()
-    """
+    """Named collection of evaluators and test cases for regression testing."""
 
     def __init__(
         self,
@@ -252,15 +224,7 @@ class EvalSuite:
         self._cases.extend(cases)
 
     async def run(self, filter_tags: list[str] | None = None) -> EvalSuiteResult:
-        """
-        Run all test cases.
-
-        Args:
-            filter_tags: Only run cases with these tags
-
-        Returns:
-            EvalSuiteResult with all results
-        """
+        """Run all test cases, optionally filtered by tags."""
         start_time = utc_now()
 
         # Filter cases by tags
@@ -274,9 +238,9 @@ class EvalSuite:
 
         for case in cases:
             result = await self._composite.evaluate(
-                case.output,
-                case.expected,
-                case.context,
+                output=case.output,
+                expected=case.expected,
+                context=case.context,
             )
             case_results.append((case.name, result))
 

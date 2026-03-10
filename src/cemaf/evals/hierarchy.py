@@ -33,7 +33,6 @@ class HierarchicalJudgeConfig:
     """Configuration for the hierarchical judge."""
 
     tier1_pass_threshold: float = 0.5
-    tier2_pass_threshold: float = 0.5
     tier3_ambiguity_range: tuple[float, float] = (0.4, 0.7)
     tier3_sample_rate: float = 0.0
 

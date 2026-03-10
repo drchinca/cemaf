@@ -9,7 +9,7 @@ from cemaf.core.enums import AgentStatus
 from cemaf.core.types import AgentID
 from cemaf.evals.composite import CompositeEvaluator
 from cemaf.evals.police import QualityPolice
-from cemaf.evals.tools import _resolve_evaluators
+from cemaf.evals.tools import resolve_evaluators
 from cemaf.skills.base import Skill
 
 
@@ -68,7 +68,7 @@ class QualityGuardAgent(Agent[QualityGuardGoal, QualityGuardResult]):
         state = AgentState(status=AgentStatus.RUNNING, iteration=1)
 
         try:
-            evaluators = _resolve_evaluators(names=list(goal.evaluator_names))
+            evaluators = resolve_evaluators(names=list(goal.evaluator_names))
             composite = CompositeEvaluator(evaluators=evaluators)
             eval_result = await composite.evaluate(
                 output=goal.output,

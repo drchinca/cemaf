@@ -29,16 +29,6 @@ class NodeHandlerContext:
     correlation_id: str
 
 
-# Import NodeResult here to avoid circular dependency at module level.
-# NodeResult is defined in executor.py which imports from this module.
-# We use a lazy import pattern.
-def _get_node_result_class() -> type:
-    """Lazy import of NodeResult to break circular dependency."""
-    from cemaf.orchestration.executor import NodeResult
-
-    return NodeResult
-
-
 def execute_router_node(
     node: Node,
     context: Context,
