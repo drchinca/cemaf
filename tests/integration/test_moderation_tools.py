@@ -109,17 +109,15 @@ class TestModerationTools:
 
     @pytest.mark.asyncio
     async def test_tool_blocks_forbidden_keyword_in_output(self, tool_with_moderation: ModerationAwareTool):
-        """Test that tool blocks output with forbidden keywords."""
-        # Input is clean, but output contains forbidden word
-        # Note: This test depends on the tool's output generation
-        # For this test, we'll use input that would generate forbidden output
+        """Test that post-flight gate blocks output containing forbidden keyword."""
+        # Input "generate forbidden" passes pre-flight (only blocks "spam", "blocked")
+        # Output becomes "Processed: generate forbidden" which contains "forbidden"
+        # The PostFlightGate KeywordRule catches "forbidden" in output
         result = await tool_with_moderation.execute(input="generate forbidden")
 
-        # The tool should check output and block it
-        # Since our test tool just prepends "Processed: ", we need to adjust
-        # Let's test with input that would create problematic output
-        if not result.success and "forbidden" in result.error.lower():
-            assert "violations" in result.metadata
+        assert not result.success
+        assert "forbidden" in result.error.lower()
+        assert "violations" in result.metadata
 
     @pytest.mark.asyncio
     async def test_tool_without_moderation_allows_anything(

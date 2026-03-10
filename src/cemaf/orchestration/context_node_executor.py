@@ -107,7 +107,8 @@ class ContextNodeExecutor:
 
         # Populate global_memory from memory system if available
         run_id = str(context.get("_run_id", default=""))
-        global_memory = await self._recall_global_memory(agent_name=agent_name)
+        goal_text = str(resolved_inputs) if resolved_inputs else agent_name
+        global_memory = await self._recall_global_memory(agent_name=agent_name, goal_text=goal_text)
 
         # Compile context if compiler is available
         artifacts: dict[str, Any] = {}
@@ -256,13 +257,14 @@ class ContextNodeExecutor:
             )
         return tuple(refs)
 
-    async def _recall_global_memory(self, *, agent_name: str) -> dict[str, Any]:
+    async def _recall_global_memory(self, *, agent_name: str, goal_text: str) -> dict[str, Any]:
         """Load relevant memories for the agent from the memory system."""
         if self._memory_manager is None:
             return {}
         try:
+            query_text = goal_text if goal_text else agent_name
             results = await self._memory_manager.recall(
-                query=MemoryQuery(text=agent_name, limit=10),
+                query=MemoryQuery(text=query_text, limit=10),
             )
             return {r.item.key: r.item.value for r in results}
         except Exception:

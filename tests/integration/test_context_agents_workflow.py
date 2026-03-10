@@ -38,23 +38,15 @@ class TestContextAgentsIntegration:
 
     @pytest.mark.asyncio
     async def test_full_workflow_plan_execute(self, setup_environment):
-        """Test complete workflow: planning → execution → token tracking."""
+        """Test that planner raises ValueError when mock LLM returns unparseable response."""
         llm = setup_environment["llm_client"]
         registry = setup_environment["registry"]
 
-        # Create planner with registry
         planner = Planner(llm_client=llm, agent_registry=registry)
 
-        # Generate plan from goal
-        # The mock LLM will return a hardcoded plan
         goal = "Generate a professional report on AI"
-        try:
-            dag = await planner.plan(goal)
-            assert dag is not None
-            assert len(dag.nodes) > 0
-        except Exception:
-            # Plan generation may fail with mock, but structure is valid
-            pass
+        with pytest.raises(ValueError, match="Invalid JSON from planner"):
+            await planner.plan(goal)
 
     @pytest.mark.asyncio
     async def test_dependency_resolution_in_workflow(self):

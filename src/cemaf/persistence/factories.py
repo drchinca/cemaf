@@ -1,13 +1,8 @@
 """
-Factory functions for persistence store components.
+Extension point factories for persistence backends.
 
-Provides convenient ways to create persistence stores with sensible defaults
-while maintaining dependency injection principles.
-
-Extension Point:
-    This module is designed for extension. The create_X_store_from_config()
-    functions include clear "EXTEND HERE" sections where you can add
-    your own store implementations (PostgreSQL, MongoDB, DynamoDB, etc.).
+These factories provide the wiring points for concrete storage implementations.
+Currently raises ValueError with guidance — implement your backend and register it here.
 """
 
 import os

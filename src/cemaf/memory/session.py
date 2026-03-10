@@ -155,7 +155,14 @@ class DefaultSessionManager:
         confidence: float = 1.0,
     ) -> MemoryItem:
         """Store to SESSION scope and record episodic event."""
-        state = self._require_state(session_id=session_id)
+        state = self._sessions.get(session_id)
+        if state is None:
+            return await self._manager.remember(
+                scope=MemoryScope.SESSION,
+                key=key,
+                value=value,
+                confidence=confidence,
+            )
         if state.phase != SessionPhase.ACTIVE:
             raise ValueError(f"Cannot ingest in phase {state.phase.value}, must be active")
 
@@ -220,9 +227,11 @@ class DefaultSessionManager:
 
     async def dispose(self, session_id: str) -> int:
         """Close episode, clean up SESSION items, transition to DISPOSED."""
-        state = self._require_state(session_id=session_id)
+        state = self._sessions.get(session_id)
+        if state is None:
+            return 0
         if state.phase == SessionPhase.DISPOSED:
-            raise ValueError(f"Session {session_id} already disposed")
+            return 0
 
         # Close episode
         if state.episode_id:

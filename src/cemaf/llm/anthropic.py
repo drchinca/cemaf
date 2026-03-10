@@ -1,5 +1,6 @@
 """Anthropic Claude adapter for LLMClient protocol."""
 
+import json
 import time
 from collections.abc import AsyncIterator
 
@@ -111,19 +112,47 @@ class AnthropicLLMClient:
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
 
-        accumulated = ""
         async with self._client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                accumulated += text
-                yield StreamChunk(
-                    content=text,
-                    accumulated_content=accumulated,
-                )
+            accumulated_text = ""
+            tool_calls: list[ToolCall] = []
+            current_tool_json = ""
+            current_tool_id = ""
+            current_tool_name = ""
+
+            async for event in stream:
+                if event.type == "content_block_delta":
+                    if hasattr(event.delta, "text"):
+                        accumulated_text += event.delta.text
+                        yield StreamChunk(
+                            content=event.delta.text,
+                            accumulated_content=accumulated_text,
+                        )
+                    elif hasattr(event.delta, "partial_json"):
+                        current_tool_json += event.delta.partial_json
+                elif event.type == "content_block_start":
+                    if hasattr(event.content_block, "id"):
+                        current_tool_id = event.content_block.id
+                        current_tool_name = event.content_block.name
+                        current_tool_json = ""
+                elif event.type == "content_block_stop" and current_tool_id:
+                    try:
+                        args = json.loads(current_tool_json) if current_tool_json else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    tool_calls.append(
+                        ToolCall(
+                            id=current_tool_id,
+                            name=current_tool_name,
+                            arguments=args,
+                        )
+                    )
+                    current_tool_id = ""
 
             final_message = await stream.get_final_message()
             yield StreamChunk(
                 content="",
-                accumulated_content=accumulated,
+                accumulated_content=accumulated_text,
+                tool_calls=tuple(tool_calls),
                 is_final=True,
                 finish_reason=final_message.stop_reason or "end_turn",
                 prompt_tokens=TokenCount(final_message.usage.input_tokens),
@@ -142,8 +171,6 @@ class AnthropicLLMClient:
             if isinstance(msg.content, str):
                 total += self.count_tokens(text=msg.content)
             else:
-                import json
-
                 total += self.count_tokens(text=json.dumps(msg.content))
         return TokenCount(total)
 
@@ -151,15 +178,42 @@ class AnthropicLLMClient:
 def _convert_messages(
     *,
     messages: list[Message],
-) -> tuple[str | None, list[dict[str, str]]]:
+) -> tuple[str | None, list[dict[str, object]]]:
     """Extract system message and convert CEMAF messages to Anthropic format."""
     system_msg: str | None = None
-    api_messages: list[dict[str, str]] = []
+    api_messages: list[dict[str, object]] = []
 
     for msg in messages:
         if msg.role == MessageRole.SYSTEM:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             system_msg = content
+        elif msg.role == MessageRole.TOOL:
+            api_messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": msg.tool_call_id,
+                            "content": msg.content if isinstance(msg.content, str) else str(msg.content),
+                        }
+                    ],
+                }
+            )
+        elif msg.role == MessageRole.ASSISTANT and msg.tool_calls:
+            content_blocks: list[dict[str, object]] = []
+            if msg.content:
+                content_blocks.append({"type": "text", "text": str(msg.content)})
+            for tc in msg.tool_calls:
+                content_blocks.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "input": tc.arguments,
+                    }
+                )
+            api_messages.append({"role": "assistant", "content": content_blocks})
         else:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             api_messages.append({"role": msg.role.value, "content": content})

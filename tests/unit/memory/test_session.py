@@ -174,10 +174,11 @@ class TestFullLifecycle:
 
 class TestPhaseEnforcement:
     @pytest.mark.asyncio
-    async def test_ingest_before_bootstrap_raises(self) -> None:
+    async def test_ingest_before_bootstrap_stores_without_session(self) -> None:
         sm = _make_session_manager()
-        with pytest.raises(KeyError, match="Session not found"):
-            await sm.ingest(session_id="nonexistent", key="k", value={"v": 1})
+        item = await sm.ingest(session_id="nonexistent", key="k", value={"v": 1})
+        assert item.key == "k"
+        assert item.value == {"v": 1}
 
     @pytest.mark.asyncio
     async def test_ingest_after_dispose_raises(self) -> None:
@@ -188,12 +189,12 @@ class TestPhaseEnforcement:
             await sm.ingest(session_id="sess-1", key="k", value={"v": 1})
 
     @pytest.mark.asyncio
-    async def test_dispose_twice_raises(self) -> None:
+    async def test_dispose_twice_returns_zero(self) -> None:
         sm = _make_session_manager()
         await sm.bootstrap(session_id="sess-1")
         await sm.dispose(session_id="sess-1")
-        with pytest.raises(ValueError, match="already disposed"):
-            await sm.dispose(session_id="sess-1")
+        result = await sm.dispose(session_id="sess-1")
+        assert result == 0
 
     @pytest.mark.asyncio
     async def test_compact_before_bootstrap_raises(self) -> None:

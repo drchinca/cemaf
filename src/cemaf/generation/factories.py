@@ -1,13 +1,9 @@
 """
-Factory functions for generation components.
+Extension point factories for generation backends.
 
-Provides convenient ways to create media generators (image, audio, video, code, etc.)
-with sensible defaults while maintaining dependency injection principles.
-
-Extension Point:
-    This module is designed for extension. The create_X_generator_from_config()
-    functions include clear "EXTEND HERE" sections where you can add
-    your own generator implementations (DALL-E, Stable Diffusion, ElevenLabs, etc.).
+These factories provide the wiring points for concrete generator implementations.
+Mock generators are included for testing — implement your backend and register it here
+to connect to real generation services (DALL-E, Stable Diffusion, ElevenLabs, etc.).
 """
 
 import os
