@@ -26,6 +26,7 @@ Usage:
     result = ResponseParser.parse_json(llm_response)
 """
 
+from cemaf.llm.anthropic import AnthropicLLMClient
 from cemaf.llm.factories import create_llm_client_from_config, create_mock_llm_client
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.mock import MockLLMClient
@@ -60,6 +61,8 @@ __all__ = [
     "create_mock_llm_client",
     # Mock
     "MockLLMClient",
+    # Anthropic
+    "AnthropicLLMClient",
     # Instrumented
     "InstrumentedLLMClient",
     # Response utilities
