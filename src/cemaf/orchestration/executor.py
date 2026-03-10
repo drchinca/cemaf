@@ -184,6 +184,7 @@ class DAGExecutor:
         budget_guard: BudgetGuard | None = None,
         session_manager: SessionManager | None = None,
         node_timeout_seconds: float = 300.0,
+        quality_police: object | None = None,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -191,6 +192,7 @@ class DAGExecutor:
         self._run_logger = run_logger
         self._event_bus = event_bus
         self._moderation_pipeline = moderation_pipeline
+        self._quality_police = quality_police
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
         self._route_choices: dict[NodeID, set[NodeID]] = {}
         self._correlation_id: str = ""
@@ -480,6 +482,39 @@ class DAGExecutor:
                             health_check_metadata=health_check_metadata,
                             metadata={"budget_guard": self._budget_guard.to_dict()},
                         )
+
+                # Quality police check after each node
+                if (
+                    self._quality_police
+                    and hasattr(self._quality_police, "should_halt")
+                    and self._quality_police.should_halt()
+                ):
+                    completed_at = utc_now()
+                    halt_msg = "Quality degradation - execution halted"
+                    logger.warning(
+                        halt_msg,
+                        dag_name=dag.name,
+                        quality_state=self._quality_police.to_dict()
+                        if hasattr(self._quality_police, "to_dict")
+                        else {},
+                    )
+                    if self._run_logger:
+                        self._run_logger.end_run(
+                            final_context=context,
+                            success=False,
+                            error=halt_msg,
+                        )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=halt_msg,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        health_check_metadata=health_check_metadata,
+                    )
 
                 # Stop on failure if retry_on_failure is False
                 if not result.success and not node.retry_on_failure and node.type != NodeType.CONDITIONAL:

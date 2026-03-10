@@ -28,6 +28,13 @@ def create_executor(
         token_budget=svc.token_budget,
     )
 
+    # Wire online eval pipeline and quality police subscriptions
+    if svc.event_bus and cfg.enable_events:
+        if svc.online_eval_pipeline and hasattr(svc.online_eval_pipeline, "subscribe"):
+            svc.online_eval_pipeline.subscribe()
+        if svc.quality_police and hasattr(svc.quality_police, "subscribe"):
+            svc.quality_police.subscribe(event_bus=svc.event_bus)
+
     return DAGExecutor(
         node_executor=node_executor,
         max_parallel=cfg.max_parallel,
@@ -39,4 +46,5 @@ def create_executor(
         budget_guard=svc.budget_guard,
         session_manager=svc.session_manager,
         node_timeout_seconds=cfg.node_timeout_seconds,
+        quality_police=svc.quality_police,
     )

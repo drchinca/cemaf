@@ -27,6 +27,10 @@ class RuntimeServices:
     health_monitor: HealthMonitor | None = None
     budget_guard: BudgetGuard | None = None
 
+    # Quality
+    online_eval_pipeline: object | None = None  # OnlineEvalPipeline (lazy to avoid circular)
+    quality_police: object | None = None  # QualityPolice (lazy to avoid circular)
+
     # Memory
     memory_manager: MemoryManager | None = None
     session_manager: SessionManager | None = None
