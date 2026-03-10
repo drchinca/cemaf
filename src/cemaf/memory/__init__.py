@@ -66,6 +66,10 @@ from cemaf.memory.compaction import (
     MemoryCompactor,
     SimpleMemoryCompactor,
 )
+from cemaf.memory.context_provider import (
+    DefaultMemoryContextProvider,
+    MemoryContextProvider,
+)
 from cemaf.memory.episodic import (
     Episode,
     EpisodicEvent,
@@ -124,6 +128,9 @@ __all__ = [
     # Manager
     "DefaultMemoryManager",
     "MemoryManager",
+    # Context bridge
+    "DefaultMemoryContextProvider",
+    "MemoryContextProvider",
     # Compaction
     "CompactedMemory",
     "CompactionLevel",
