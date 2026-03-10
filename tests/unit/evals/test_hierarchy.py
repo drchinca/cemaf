@@ -1,55 +1,11 @@
 """Tests for hierarchical multi-tier evaluator."""
 
-from typing import Any
-
 import pytest
 
-from cemaf.core.types import JSON
 from cemaf.evals.evaluators import ContainsEvaluator, LengthEvaluator
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig
-from cemaf.evals.protocols import BaseEvaluator, EvalConfig, EvalMetric, EvalResult, Evaluator
-
-
-class FakeEvaluator(BaseEvaluator):
-    """Evaluator returning a preconfigured score."""
-
-    def __init__(
-        self,
-        *,
-        score: float,
-        passed: bool | None = None,
-        reason: str = "fake",
-        confidence: float = 1.0,
-        threshold: float = 0.5,
-    ) -> None:
-        super().__init__(
-            config=EvalConfig(pass_threshold=threshold),
-            name="FakeEvaluator",
-        )
-        self._score = score
-        self._passed = passed
-        self._reason = reason
-        self._confidence = confidence
-
-    @property
-    def metric(self) -> EvalMetric:
-        return EvalMetric.CUSTOM
-
-    async def evaluate(
-        self,
-        output: Any,
-        expected: Any | None = None,
-        context: JSON | None = None,
-    ) -> EvalResult:
-        """Return preconfigured result."""
-        passed = self._passed if self._passed is not None else (self._score >= self._config.pass_threshold)
-        return EvalResult(
-            metric=EvalMetric.CUSTOM,
-            score=self._score,
-            passed=passed,
-            reason=self._reason,
-            confidence=self._confidence,
-        )
+from cemaf.evals.protocols import EvalMetric, Evaluator
+from tests.unit.evals.conftest import FakeEvaluator
 
 
 class TestProtocol:

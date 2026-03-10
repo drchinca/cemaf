@@ -4,71 +4,13 @@ from typing import Any
 
 import pytest
 
-from cemaf.core.types import JSON
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.evals.police import AlertLevel, QualityPolice, QualityPoliceConfig
 from cemaf.evals.protocols import EvalMetric, EvalResult
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-class FakeEvaluator:
-    """Evaluator returning configurable scores."""
-
-    def __init__(
-        self,
-        score: float,
-        passed: bool | None = None,
-        metric: EvalMetric = EvalMetric.CUSTOM,
-    ) -> None:
-        self._score = score
-        self._passed = passed if passed is not None else score >= 0.5
-        self._metric = metric
-
-    @property
-    def metric(self) -> EvalMetric:
-        return self._metric
-
-    @property
-    def name(self) -> str:
-        return "FakeEvaluator"
-
-    async def evaluate(
-        self,
-        output: Any,
-        expected: Any | None = None,
-        context: JSON | None = None,
-    ) -> EvalResult:
-        return EvalResult(
-            metric=self._metric,
-            score=self._score,
-            passed=self._passed,
-        )
-
-
-class FailingEvaluator:
-    """Evaluator that always raises an exception."""
-
-    @property
-    def metric(self) -> EvalMetric:
-        return EvalMetric.CUSTOM
-
-    @property
-    def name(self) -> str:
-        return "FailingEvaluator"
-
-    async def evaluate(
-        self,
-        output: Any,
-        expected: Any | None = None,
-        context: JSON | None = None,
-    ) -> EvalResult:
-        raise RuntimeError("evaluator exploded")
+from tests.unit.evals.conftest import FailingEvaluator, FakeEvaluator
 
 
 def _task_completed_event(
@@ -154,7 +96,7 @@ class TestOnlineErrorHandling:
 
         binding = NodeEvalBinding(
             node_pattern="node-a",
-            evaluators=(FailingEvaluator(),),
+            evaluators=(FailingEvaluator(error_message="evaluator exploded"),),
             mode=EvalMode.OBSERVE,
         )
         pipeline = OnlineEvalPipeline(
@@ -482,14 +424,11 @@ class TestPoliceMultipleAnomalies:
         assert alert1.level == AlertLevel.CRITICAL
         assert "Anomaly" in alert1.message
 
-        # Mean is now lowered, but 0.1 still below mean by > 0.3
-        mean_before_second = police.rolling_mean
+        # Mean is now lowered (~0.767), but 0.1 still below mean by > 0.3
         alert2 = police.record_score(score=0.1)
 
-        # If the drop is still > 0.3 below mean, anomaly fires again
-        if mean_before_second - 0.1 > config.anomaly_drop:
-            assert alert2 is not None
-            assert "Anomaly" in alert2.message
+        assert alert2 is not None
+        assert "Anomaly" in alert2.message
 
         assert len(police.alerts) >= 2
 
