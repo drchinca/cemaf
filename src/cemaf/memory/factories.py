@@ -15,11 +15,13 @@ import os
 from cemaf.config.protocols import Settings
 from cemaf.events.protocols import EventBus
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.compaction import SimpleMemoryCompactor
 from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.protocols import MemoryStore
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore
+from cemaf.memory.session import DefaultSessionManager
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
 
@@ -157,4 +159,19 @@ def create_memory_manager(
         semantic_store=semantic_store,
         episodic_store=episodic_store,
         event_bus=event_bus,
+    )
+
+
+def create_session_manager(
+    *,
+    memory_manager: DefaultMemoryManager | None = None,
+) -> DefaultSessionManager:
+    """Create a DefaultSessionManager with default compactor."""
+    manager = memory_manager or create_memory_manager()
+    scorer = TemporalDecayScorer()
+    compactor = SimpleMemoryCompactor(scorer=scorer)
+
+    return DefaultSessionManager(
+        memory_manager=manager,
+        compactor=compactor,
     )

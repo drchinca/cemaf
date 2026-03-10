@@ -60,6 +60,12 @@ See cemaf.memory.protocols.MemoryStore for the protocol definition.
 
 # Built-in implementation
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.compaction import (
+    CompactedMemory,
+    CompactionLevel,
+    MemoryCompactor,
+    SimpleMemoryCompactor,
+)
 from cemaf.memory.episodic import (
     Episode,
     EpisodicEvent,
@@ -70,6 +76,7 @@ from cemaf.memory.factories import (
     create_memory_manager,
     create_memory_store,
     create_memory_store_from_config,
+    create_session_manager,
 )
 from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
@@ -85,6 +92,12 @@ from cemaf.memory.semantic import (
     MemoryQuery,
     MemorySearchResult,
     SemanticMemoryStore,
+)
+from cemaf.memory.session import (
+    DefaultSessionManager,
+    SessionManager,
+    SessionPhase,
+    SessionState,
 )
 
 __all__ = [
@@ -111,8 +124,19 @@ __all__ = [
     # Manager
     "DefaultMemoryManager",
     "MemoryManager",
+    # Compaction
+    "CompactedMemory",
+    "CompactionLevel",
+    "MemoryCompactor",
+    "SimpleMemoryCompactor",
+    # Session lifecycle
+    "DefaultSessionManager",
+    "SessionManager",
+    "SessionPhase",
+    "SessionState",
     # Factories
     "create_memory_manager",
     "create_memory_store",
     "create_memory_store_from_config",
+    "create_session_manager",
 ]
