@@ -68,12 +68,25 @@ from cemaf.memory.episodic import (
 )
 from cemaf.memory.factories import create_memory_store, create_memory_store_from_config
 from cemaf.memory.protocols import MemoryItem, MemoryStore
+from cemaf.memory.scoring import (
+    DecayFunction,
+    MemoryScorer,
+    ScoredMemoryItem,
+    ScoringWeights,
+    TemporalDecayScorer,
+)
 
 __all__ = [
     # Core
     "MemoryItem",
     "MemoryStore",
     "InMemoryStore",
+    # Scoring
+    "DecayFunction",
+    "MemoryScorer",
+    "ScoredMemoryItem",
+    "ScoringWeights",
+    "TemporalDecayScorer",
     # Episodic
     "Episode",
     "EpisodicEvent",
