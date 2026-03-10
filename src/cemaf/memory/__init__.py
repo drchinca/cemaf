@@ -62,11 +62,25 @@ See cemaf.memory.protocols.MemoryStore for the protocol definition.
 from cemaf.memory.base import InMemoryStore
 from cemaf.memory.factories import create_memory_store, create_memory_store_from_config
 from cemaf.memory.protocols import MemoryItem, MemoryStore
+from cemaf.memory.scoring import (
+    DecayFunction,
+    MemoryScorer,
+    ScoredMemoryItem,
+    ScoringWeights,
+    TemporalDecayScorer,
+)
 
 __all__ = [
+    # Core
     "MemoryItem",
     "MemoryStore",
     "InMemoryStore",
+    # Scoring
+    "DecayFunction",
+    "MemoryScorer",
+    "ScoredMemoryItem",
+    "ScoringWeights",
+    "TemporalDecayScorer",
     # Factories
     "create_memory_store",
     "create_memory_store_from_config",
