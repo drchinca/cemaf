@@ -66,7 +66,12 @@ from cemaf.memory.episodic import (
     EpisodicStore,
     InMemoryEpisodicStore,
 )
-from cemaf.memory.factories import create_memory_store, create_memory_store_from_config
+from cemaf.memory.factories import (
+    create_memory_manager,
+    create_memory_store,
+    create_memory_store_from_config,
+)
+from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
 from cemaf.memory.scoring import (
     DecayFunction,
@@ -103,7 +108,11 @@ __all__ = [
     "MemoryQuery",
     "MemorySearchResult",
     "SemanticMemoryStore",
+    # Manager
+    "DefaultMemoryManager",
+    "MemoryManager",
     # Factories
+    "create_memory_manager",
     "create_memory_store",
     "create_memory_store_from_config",
 ]

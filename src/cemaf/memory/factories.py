@@ -13,8 +13,14 @@ Extension Point:
 import os
 
 from cemaf.config.protocols import Settings
+from cemaf.events.protocols import EventBus
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.episodic import InMemoryEpisodicStore
+from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.protocols import MemoryStore
+from cemaf.memory.scoring import TemporalDecayScorer
+from cemaf.memory.semantic import DefaultSemanticMemoryStore
+from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
 
 def create_memory_store(
@@ -126,4 +132,29 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
         f"Supported: memory. "
         f"To add your own, extend create_memory_store_from_config() "
         f"in cemaf/memory/factories.py"
+    )
+
+
+def create_memory_manager(
+    *,
+    memory_store: MemoryStore | None = None,
+    event_bus: EventBus | None = None,
+) -> DefaultMemoryManager:
+    """Create a fully wired DefaultMemoryManager."""
+    store = memory_store or InMemoryStore()
+    embedding_provider = MockEmbeddingProvider()
+    scorer = TemporalDecayScorer()
+
+    semantic_store = DefaultSemanticMemoryStore(
+        memory_store=store,
+        vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
+        embedding_provider=embedding_provider,
+        scorer=scorer,
+    )
+    episodic_store = InMemoryEpisodicStore()
+
+    return DefaultMemoryManager(
+        semantic_store=semantic_store,
+        episodic_store=episodic_store,
+        event_bus=event_bus,
     )
