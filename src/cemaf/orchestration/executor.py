@@ -26,7 +26,6 @@ from pydantic import BaseModel, Field
 from cemaf.context.context import Context
 from cemaf.context.merge import (
     DEFAULT_MERGE_STRATEGY,
-    MergeConflictError,
     MergeStrategy,
 )
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
@@ -45,6 +44,16 @@ from cemaf.observability.health import HealthMonitor
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.dependency_resolver import resolve_node_input
+from cemaf.orchestration.node_handlers import (
+    NodeHandlerContext,
+    execute_conditional_node,
+    execute_loop_node,
+    execute_parallel_node,
+    execute_router_node,
+)
+from cemaf.orchestration.node_handlers import (
+    run_parallel_nodes as _run_parallel_nodes,
+)
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
@@ -308,6 +317,17 @@ class DAGExecutor:
             # Track completed nodes for edge conditions
             completed: dict[NodeID, NodeResult] = {}
 
+            # Build handler context for node-type dispatchers
+            handler_ctx = NodeHandlerContext(
+                route_choices=self._route_choices,
+                apply_output=self._apply_node_output,
+                execute_with_retry=self._execute_with_retry,
+                merge_strategy=self._merge_strategy,
+                max_parallel=self._max_parallel,
+                run_logger=self._run_logger,
+                correlation_id=self._correlation_id,
+            )
+
             for node_id in order:
                 # Check cancellation before each node
                 if cancellation_token and cancellation_token.is_cancelled:
@@ -351,12 +371,13 @@ class DAGExecutor:
                         group_result,
                         parallel_results,
                         new_context,
-                    ) = await self._execute_parallel_node(  # Added new_context
+                    ) = await execute_parallel_node(
                         dag,
                         node,
                         context,
+                        handler_ctx=handler_ctx,
                     )
-                    context = new_context  # Update context
+                    context = new_context
                     node_results.append(group_result)
                     completed[node_id] = group_result
 
@@ -367,22 +388,23 @@ class DAGExecutor:
                     result = group_result
 
                 elif node.type == NodeType.ROUTER:
-                    result, new_context = self._execute_router_node(node, context)  # Added new_context
-                    context = new_context  # Update context
+                    result, new_context = execute_router_node(node, context, handler_ctx=handler_ctx)
+                    context = new_context
                     node_results.append(result)
                     completed[node_id] = result
 
                 elif node.type == NodeType.CONDITIONAL:
-                    result, new_context = self._execute_conditional_node(node, context)  # Added new_context
-                    context = new_context  # Update context
+                    result, new_context = execute_conditional_node(node, context, handler_ctx=handler_ctx)
+                    context = new_context
                     node_results.append(result)
                     completed[node_id] = result
 
                 elif node.type == NodeType.LOOP:
-                    result, loop_results, new_context = await self._execute_loop_node(
+                    result, loop_results, new_context = await execute_loop_node(
                         dag,
                         node,
                         context,
+                        handler_ctx=handler_ctx,
                     )
                     context = new_context
                     node_results.append(result)
@@ -722,114 +744,7 @@ class DAGExecutor:
         else:
             return PatchSource.SYSTEM
 
-    def _execute_router_node(
-        self, node: Node, context: Context
-    ) -> tuple[NodeResult, Context]:  # Updated signature
-        """Execute a ROUTER node and select allowed downstream targets."""
-        route_fn = None
-        route_key = "route"
-        default_route = None
-
-        if isinstance(node.config, dict):
-            route_fn = node.config.get("route_fn")
-            route_key = node.config.get("route_key", route_key)
-            default_route = node.config.get("default_route")
-
-        if callable(route_fn):
-            selected = route_fn(context.data)  # Still uses context.data for callable
-        else:
-            selected = context.get(route_key)  # Updated to context.get
-
-        if isinstance(selected, (list, tuple, set)):
-            selections = list(selected)
-        elif selected is None:
-            selections = []
-        else:
-            selections = [selected]
-
-        targets: list[NodeID] = []
-        for selection in selections:
-            target = node.routes.get(selection, selection)
-            if target:
-                targets.append(NodeID(str(target)))
-
-        if not targets:
-            fallback = default_route
-            if fallback is None and "default" in node.routes:
-                fallback = "default"
-            if fallback is not None:
-                fallback_target = node.routes.get(fallback, fallback)
-                if fallback_target:
-                    targets.append(NodeID(str(fallback_target)))
-
-        self._route_choices[node.id] = set(targets)
-
-        if targets:
-            result = NodeResult(
-                node_id=node.id,
-                success=True,
-                output=tuple(str(t) for t in targets),
-            )
-            new_context = self._apply_node_output(node, result, context)
-            return (result, new_context)
-
-        result = NodeResult(
-            node_id=node.id,
-            success=False,
-            error="No route selected",
-            output=(),
-        )
-        new_context = self._apply_node_output(node, result, context)
-        return (result, new_context)
-
-    def _execute_conditional_node(
-        self, node: Node, context: Context
-    ) -> tuple[NodeResult, Context]:  # Updated signature
-        """Execute a CONDITIONAL node, evaluate condition, and set routing choices."""
-        condition_fn = None
-        condition_key = "condition"
-        condition_rule = None
-
-        if isinstance(node.config, dict):
-            condition_fn = node.config.get("condition_fn")
-            condition_key = node.config.get("condition_key", condition_key)
-            condition_rule = node.config.get("condition_rule")
-
-        if callable(condition_fn):
-            condition_value = bool(condition_fn(context.data))  # Still uses context.data for callable
-        elif condition_rule:
-            try:
-                condition_value = bool(condition_rule.evaluate(context))
-            except Exception as e:
-                # Log evaluation failure and default to False
-                logger.warning(
-                    "Condition rule evaluation failed in node %s: %s",
-                    node.id,
-                    str(e),
-                    node_type=node.type.value,
-                    exc_info=True,
-                )
-                condition_value = False
-        else:
-            condition_value = bool(context.get(condition_key))  # Updated to context.get
-
-        # Determine allowed routes if provided on the node
-        allowed_targets: set[NodeID] | None = None
-        if node.routes:
-            # Try boolean key first, then string key (supports both route types)
-            # Type ignore: node.routes is JSON (dict[str, Any]) but we support bool keys too
-            chosen = node.routes.get(condition_value, node.routes.get(str(condition_value), None))  # type: ignore[call-overload]
-            allowed_targets = {NodeID(str(chosen))} if chosen is not None else set()
-            self._route_choices[node.id] = allowed_targets
-
-        result = NodeResult(
-            node_id=node.id,
-            success=condition_value,
-            output=condition_value,
-            error=None if condition_value else "Condition evaluated to False",
-        )
-        new_context = self._apply_node_output(node, result, context)
-        return (result, new_context)
+    # Node-type handlers delegated to cemaf.orchestration.node_handlers
 
     async def _execute_with_retry(
         self,
@@ -979,215 +894,23 @@ class DAGExecutor:
         )
         return final_result, current_context
 
-    async def _execute_loop_node(
-        self,
-        dag: DAG,
-        loop_node: Node,
-        context: Context,
-    ) -> tuple[NodeResult, list[NodeResult], Context]:
-        """Execute a LOOP node: iterate body nodes up to max_iterations."""
-        config = loop_node.config or {}
-        max_iterations: int = config.get("max_iterations", 10)
-        exit_condition: str = config.get("exit_condition", "")
-        body_node_ids: list[str] = config.get("body_node_ids", [])
-
-        all_body_results: list[NodeResult] = []
-        current_context = context
-
-        for iteration in range(max_iterations):
-            # Check exit condition (context key that evaluates truthy)
-            if exit_condition and current_context.get(exit_condition, default=None):
-                logger.info(
-                    "Loop exit condition met",
-                    loop_id=str(loop_node.id),
-                    iteration=iteration,
-                    condition=exit_condition,
-                )
-                break
-
-            # Execute each body node in sequence
-            for body_id in body_node_ids:
-                body_node = dag.get_node(NodeID(body_id))
-                if body_node is None:
-                    continue
-
-                result, new_context = await self._execute_with_retry(body_node, current_context)
-                current_context = new_context
-                all_body_results.append(result)
-
-                if not result.success:
-                    loop_result = NodeResult(
-                        node_id=loop_node.id,
-                        success=False,
-                        error=f"Loop body node '{body_id}' failed at iteration {iteration}",
-                        metadata={"iterations_completed": iteration},
-                    )
-                    return loop_result, all_body_results, current_context
-
-        loop_result = NodeResult(
-            node_id=loop_node.id,
-            success=True,
-            output=f"completed {min(iteration + 1, max_iterations)} iterations",
-            metadata={"iterations_completed": min(iteration + 1, max_iterations)},
-        )
-        return loop_result, all_body_results, current_context
-
-    async def _execute_parallel_node(
-        self,
-        dag: DAG,
-        node: Node,
-        context: Context,  # Updated to Context
-    ) -> tuple[NodeResult, tuple[NodeResult, ...], Context]:  # Returns new Context
-        """Execute a PARALLEL node's sub-nodes concurrently."""
-        if not node.parallel_nodes:
-            return (
-                NodeResult(
-                    node_id=node.id,
-                    success=False,
-                    error="Parallel node has no child nodes",
-                ),
-                (),
-                context,  # Return original context
-            )
-
-        sub_nodes: list[Node] = []
-        missing: list[str] = []
-        for sub_id in node.parallel_nodes:
-            sub_node = dag.get_node(sub_id)
-            if sub_node:
-                sub_nodes.append(sub_node)
-            else:
-                missing.append(str(sub_id))
-
-        if missing:
-            return (
-                NodeResult(
-                    node_id=node.id,
-                    success=False,
-                    error=f"Parallel node missing child nodes: {', '.join(missing)}",
-                ),
-                (),
-                context,  # Return original context
-            )
-
-        results, new_context = await self.run_parallel_nodes(
-            tuple(sub_nodes), context
-        )  # Capture new_context from parallel execution
-
-        failures = [r for r in results if not r.success]
-        outputs: dict[str, Any] = {str(r.node_id): r.output for r in results if r.output is not None}
-
-        error = None
-        if failures:
-            error = "; ".join(f"{r.node_id}: {r.error or 'failed'}" for r in failures)
-
-        # Create result for the parallel node itself
-        parallel_result = NodeResult(
-            node_id=node.id,
-            success=len(failures) == 0,
-            output=outputs,
-            error=error,
-        )
-
-        # Apply parallel node's own output_key if set, using _apply_node_output to emit patches
-        final_context = self._apply_node_output(node, parallel_result, new_context)
-
-        return (
-            parallel_result,
-            tuple(results),
-            final_context,  # Return final context
-        )
-
     async def run_parallel_nodes(
         self,
         nodes: tuple[Node, ...],
-        context: Context,  # Updated to Context
-    ) -> tuple[tuple[NodeResult, ...], Context]:  # Returns new Context
-        """
-        Execute multiple nodes in parallel (standalone utility).
-
-        Uses the configured merge strategy to combine branch contexts.
-        The merge strategy determines how conflicts are handled when
-        multiple branches write to the same context keys.
-        """
-        semaphore = asyncio.Semaphore(self._max_parallel)
-
-        # Each parallel execution will get a *copy* of the current context
-        # and return its modified context. These will then be merged.
-
-        async def execute_with_semaphore(node: Node) -> tuple[NodeResult, Context]:
-            async with semaphore:
-                # Pass a clone of the context to each parallel branch to ensure isolation
-                result, branch_context = await self._execute_with_retry(node, context.copy_context())
-                # For parallel nodes, we should apply output of each child node to its branch_context
-                # This is already handled inside _execute_with_retry for TOOL/SKILL/AGENT
-                # so we just return the result and the branch_context
-                return result, branch_context
-
-        tasks = [execute_with_semaphore(node) for node in nodes]
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        final_results: list[NodeResult] = []
-        all_branch_contexts: list[Context] = []
-
-        for i, res_tuple in enumerate(raw_results):
-            if isinstance(res_tuple, BaseException):
-                final_results.append(
-                    NodeResult(
-                        node_id=nodes[i].id,
-                        success=False,
-                        error=str(res_tuple),
-                    )
-                )
-                all_branch_contexts.append(context.copy_context())  # Failed branch, no changes
-            else:
-                result, branch_context = res_tuple
-                final_results.append(result)
-                all_branch_contexts.append(branch_context)
-
-        # Merge contexts from all parallel branches using configured strategy
-        try:
-            merge_result = self._merge_strategy.merge(context, all_branch_contexts)
-
-            # Log conflicts for observability (even when merge succeeds)
-            if merge_result.conflicts and self._run_logger:
-                for conflict in merge_result.conflicts:
-                    # Record conflict as a system patch for debugging
-                    conflict_patch = ContextPatch(
-                        path=f"_merge_conflicts.{conflict.key}",
-                        operation=PatchOperation.SET,
-                        value={
-                            "key": conflict.key,
-                            "values": [str(v) for v in conflict.values],
-                            "branches": conflict.branch_indices,
-                            "resolution": "last_write_wins",
-                        },
-                        source=PatchSource.SYSTEM,
-                        source_id="parallel_merge",
-                        reason=f"Merge conflict detected for key '{conflict.key}'",
-                        correlation_id=self._correlation_id,
-                    )
-                    self._run_logger.record_patch(conflict_patch)
-
-            merged_context = merge_result.context
-
-        except MergeConflictError as e:
-            # Strategy raised on conflict - propagate error
-            # Create a partial result with the error
-            error_msg = f"Parallel merge failed: {e}"
-            # Return base context on merge failure
-            merged_context = context
-            # Update all results to reflect merge failure
-            final_results = [
-                NodeResult(
-                    node_id=r.node_id,
-                    success=False,
-                    output=r.output,
-                    error=error_msg if not r.error else f"{r.error}; {error_msg}",
-                    duration_ms=r.duration_ms,
-                    metadata={**r.metadata, "_merge_conflict": True},
-                )
-                for r in final_results
-            ]
-
-        return tuple(final_results), merged_context
+        context: Context,
+    ) -> tuple[tuple[NodeResult, ...], Context]:
+        """Execute multiple nodes in parallel with context merging."""
+        handler_ctx = NodeHandlerContext(
+            route_choices=self._route_choices,
+            apply_output=self._apply_node_output,
+            execute_with_retry=self._execute_with_retry,
+            merge_strategy=self._merge_strategy,
+            max_parallel=self._max_parallel,
+            run_logger=self._run_logger,
+            correlation_id=self._correlation_id,
+        )
+        return await _run_parallel_nodes(
+            nodes=nodes,
+            context=context,
+            handler_ctx=handler_ctx,
+        )
