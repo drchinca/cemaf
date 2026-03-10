@@ -9,6 +9,7 @@ Provides:
 - Composite evaluators
 """
 
+from cemaf.evals.agents import QualityGuardAgent, QualityGuardGoal, QualityGuardResult
 from cemaf.evals.composite import (
     AggregationStrategy,
     CompositeEvalResult,
@@ -42,6 +43,7 @@ from cemaf.evals.protocols import (
     Evaluator,
 )
 from cemaf.evals.semantic import SemanticSimilarityEvaluator
+from cemaf.evals.tools import CheckQualityTool, RecordScoreTool, RunEvalTool
 
 __all__ = [
     # Protocols
@@ -85,4 +87,12 @@ __all__ = [
     "create_numeric_evaluator",
     "create_composite_evaluator",
     "create_composite_evaluator_from_config",
+    # Eval tools (dogfooding)
+    "RunEvalTool",
+    "CheckQualityTool",
+    "RecordScoreTool",
+    # Quality guard agent
+    "QualityGuardAgent",
+    "QualityGuardGoal",
+    "QualityGuardResult",
 ]
