@@ -27,8 +27,8 @@ class SessionPhase(str, Enum):
 
 # Valid phase transitions
 _VALID_TRANSITIONS: dict[SessionPhase, tuple[SessionPhase, ...]] = {
-    SessionPhase.CREATED: (SessionPhase.BOOTSTRAPPED,),
-    SessionPhase.BOOTSTRAPPED: (SessionPhase.ACTIVE,),
+    SessionPhase.CREATED: (SessionPhase.BOOTSTRAPPED, SessionPhase.DISPOSED),
+    SessionPhase.BOOTSTRAPPED: (SessionPhase.ACTIVE, SessionPhase.DISPOSED),
     SessionPhase.ACTIVE: (SessionPhase.COMPACTING, SessionPhase.DISPOSED),
     SessionPhase.COMPACTING: (SessionPhase.ACTIVE, SessionPhase.DISPOSED),
     SessionPhase.DISPOSED: (),
@@ -44,6 +44,16 @@ class SessionState:
     episode_id: str | None = None
     started_at: datetime = field(default_factory=utc_now)
     memory_count: int = 0
+
+    def with_memory_count(self, count: int) -> SessionState:
+        """Return a new state with updated memory count (same phase)."""
+        return SessionState(
+            session_id=self.session_id,
+            phase=self.phase,
+            episode_id=self.episode_id,
+            started_at=self.started_at,
+            memory_count=count,
+        )
 
     def _transition(self, target: SessionPhase, **kwargs: object) -> SessionState:
         """Create a new state with validated phase transition."""
@@ -170,13 +180,9 @@ class DefaultSessionManager:
                 event=event,
             )
 
-        # Update memory count
-        self._sessions[session_id] = SessionState(
-            session_id=state.session_id,
-            phase=state.phase,
-            episode_id=state.episode_id,
-            started_at=state.started_at,
-            memory_count=state.memory_count + 1,
+        # Update memory count (same-phase update, not a transition)
+        self._sessions[session_id] = state.with_memory_count(
+            count=state.memory_count + 1,
         )
 
         return item
@@ -226,13 +232,11 @@ class DefaultSessionManager:
         removed = await self._manager.cleanup()
 
         # Transition to DISPOSED
-        self._sessions[session_id] = SessionState(
-            session_id=session_id,
-            phase=SessionPhase.DISPOSED,
-            episode_id=state.episode_id,
-            started_at=state.started_at,
-            memory_count=0,
-        )
+        state = state._transition(SessionPhase.DISPOSED, memory_count=0)
+        self._sessions[session_id] = state
+
+        # Lazy cleanup: purge other disposed sessions to prevent unbounded growth
+        self._cleanup_disposed(keep_session_id=session_id)
 
         return removed
 
@@ -246,3 +250,13 @@ class DefaultSessionManager:
         if state is None:
             raise KeyError(f"Session not found: {session_id}")
         return state
+
+    def _cleanup_disposed(self, *, keep_session_id: str) -> None:
+        """Remove disposed sessions from tracking, except the one just disposed."""
+        disposed = [
+            sid
+            for sid, s in self._sessions.items()
+            if s.phase == SessionPhase.DISPOSED and sid != keep_session_id
+        ]
+        for sid in disposed:
+            del self._sessions[sid]

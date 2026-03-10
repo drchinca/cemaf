@@ -124,7 +124,8 @@ class DefaultSemanticMemoryStore:
         query: MemoryQuery,
     ) -> tuple[MemorySearchResult, ...]:
         """Vector similarity search with temporal decay re-ranking."""
-        assert query.text is not None
+        if query.text is None:
+            raise ValueError("Semantic search requires query.text to be set")
 
         search_filter = self._build_filter(query=query)
         # Fetch extra candidates for re-ranking after filtering
@@ -136,8 +137,12 @@ class DefaultSemanticMemoryStore:
 
         results: list[MemorySearchResult] = []
         for vr in vector_results:
+            try:
+                scope = MemoryScope(vr.document.metadata.get("scope", "session"))
+            except ValueError:
+                continue
             item = await self._memory_store.get(
-                scope=MemoryScope(vr.document.metadata.get("scope", "session")),
+                scope=scope,
                 key=vr.document.metadata.get("key", vr.document.id),
             )
             if item is None:

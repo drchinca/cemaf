@@ -66,7 +66,7 @@ class TestSessionState:
     def test_invalid_transition_raises(self) -> None:
         state = SessionState(session_id="s1", phase=SessionPhase.CREATED)
         with pytest.raises(ValueError, match="Invalid transition"):
-            state._transition(SessionPhase.DISPOSED)
+            state._transition(SessionPhase.ACTIVE)
 
     def test_disposed_cannot_transition(self) -> None:
         state = SessionState(session_id="s1", phase=SessionPhase.DISPOSED)

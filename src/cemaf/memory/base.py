@@ -69,7 +69,7 @@ class MemoryItem:
             scope=self.scope,
             key=self.key,
             value=value,
-            confidence=confidence or self.confidence,
+            confidence=confidence if confidence is not None else self.confidence,
             created_at=self.created_at,
             updated_at=utc_now(),
             ttl=self.ttl,
