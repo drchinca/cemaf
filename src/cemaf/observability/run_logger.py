@@ -93,6 +93,7 @@ class LLMCall:
     budget_utilization: float = 0.0
     cost_usd: float = 0.0
     provenance_link_id: str | None = None
+    error: str | None = None
 
     # Auto-generated
     id: str = field(default_factory=lambda: generate_id("llm"))
