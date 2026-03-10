@@ -348,10 +348,10 @@ class OptimalSelectionAlgorithm:
                         total_tokens += source_tokens
                         total_priority += source.priority
                     else:
-                        # This subset doesn't fit, skip it
-                        break
-            else:
-                # All selected items fit
+                        # Item doesn't fit, skip it but keep checking others
+                        continue
+
+                # Check if this subset is better than current best
                 if total_priority > best_priority:
                     best_priority = total_priority
                     best_selection = selected

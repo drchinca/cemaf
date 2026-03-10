@@ -22,6 +22,7 @@ from typing import Any, TypeVar
 
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
+from cemaf.llm.protocols import ToolDefinition
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -65,6 +66,15 @@ class ToolSchema:
             "description": self.description,
             "input_schema": {**self.parameters, "required": list(self.required)},
         }
+
+    def to_definition(self) -> ToolDefinition:
+        """Convert to LLM ToolDefinition."""
+        return ToolDefinition(
+            name=self.name,
+            description=self.description,
+            parameters=self.parameters,
+            required=self.required,
+        )
 
 
 class Tool(ABC):

@@ -211,13 +211,17 @@ class TestEventBusIntegration:
     @pytest.mark.asyncio
     async def test_no_event_bus_is_fine(self) -> None:
         manager, _ = _make_manager(with_event_bus=False)
-        # Should not raise
-        await manager.remember(
+        # Should not raise, and should still store memory correctly
+        item = await manager.remember(
             scope=MemoryScope.BRAND,
             key="test",
             value={"data": "test"},
         )
-        await manager.cleanup()
+        assert item.key == "test"
+        assert item.value == {"data": "test"}
+
+        removed = await manager.cleanup()
+        assert removed >= 0
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 """Tests for BudgetGuard."""
 
+import pytest
+
 from cemaf.observability.budget_guard import AlertLevel, BudgetAlert, BudgetGuard
 
 
@@ -22,11 +24,8 @@ class TestBudgetAlert:
             utilization=0.5,
             message="info",
         )
-        try:
+        with pytest.raises(AttributeError):
             alert.level = AlertLevel.HALT  # type: ignore[misc]
-            raise AssertionError("Should not allow mutation")
-        except AttributeError:
-            pass
 
 
 class TestBudgetGuard:

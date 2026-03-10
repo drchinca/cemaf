@@ -274,13 +274,14 @@ class TestChunkAdapter:
         text = "First sentence. Second sentence. Third sentence."
         sources = await adapter.adapt_many(text, budget)
 
-        # Chunks should not break mid-sentence
-        for source in sources:
-            # Each chunk should end at sentence boundary or be the last chunk
-            content = source.content.strip()
-            if content and not content.endswith("."):
-                # It's either mid-text or the last partial
-                pass
+        assert len(sources) >= 1
+        # Reassemble all chunks and verify no content is lost
+        all_content = " ".join(s.content.strip() for s in sources)
+        assert "First sentence." in all_content
+        assert "Third sentence." in all_content
+        # Each chunk should end at a sentence boundary (period) or be the last chunk
+        for source in sources[:-1]:
+            assert source.content.strip().endswith((".", "!", "?"))
 
 
 class TestFactories:

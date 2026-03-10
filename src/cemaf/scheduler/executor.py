@@ -6,8 +6,8 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 
+from cemaf.core.utils import utc_now
 from cemaf.scheduler.protocols import Job, JobResult, JobStatus
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ class AsyncJobExecutor:
         """Main scheduler loop."""
         while self._running:
             try:
-                now = datetime.now()
+                now = utc_now()
 
                 for job in list(self._jobs.values()):
                     if not job.enabled:
@@ -144,7 +144,7 @@ class AsyncJobExecutor:
 
     async def _execute_job(self, job: Job) -> JobResult:
         """Execute a single job with timeout and retries."""
-        started_at = datetime.now()
+        started_at = utc_now()
         last_error: str | None = None
 
         for attempt in range(max(1, job.max_retries)):

@@ -4,6 +4,7 @@ Mock implementations for testing scheduler.
 
 from datetime import datetime
 
+from cemaf.core.utils import utc_now
 from cemaf.scheduler.protocols import Job, JobResult
 
 
@@ -121,7 +122,7 @@ class MockScheduler:
         if not job:
             raise KeyError(f"Job not found: {job_id}")
 
-        started_at = datetime.now()
+        started_at = utc_now()
         self._executions.append((job_id, started_at))
 
         try:

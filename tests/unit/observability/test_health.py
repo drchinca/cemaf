@@ -166,6 +166,8 @@ class TestHealthMonitor:
         """Test unregistering a check that doesn't exist."""
         monitor = HealthMonitor()
         monitor.unregister_check("nonexistent")  # Should not raise
+        assert len(monitor.list_checks()) == 0
+        assert "nonexistent" not in monitor.list_checks()
 
     @pytest.mark.asyncio
     async def test_check_all_empty(self):

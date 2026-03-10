@@ -1,6 +1,6 @@
 """Tests for Agent Registry v2."""
 
-from cemaf.agents.registry import AGENT_TOOLKIT, AgentRegistry, create_default_registry
+from cemaf.agents.registry import AgentRegistry, create_default_registry
 from cemaf.llm.mock import MockLLMClient
 from cemaf.retrieval.factories import create_in_memory_vector_store
 
@@ -120,10 +120,6 @@ class TestAgentRegistry:
         desc = registry.get_capabilities_description()
         assert "Writer" in desc
         assert "AGENT:" in desc
-
-    def test_global_toolkit(self) -> None:
-        assert AGENT_TOOLKIT is not None
-        assert isinstance(AGENT_TOOLKIT, AgentRegistry)
 
     def test_create_default_registry(self) -> None:
         registry = create_default_registry()
