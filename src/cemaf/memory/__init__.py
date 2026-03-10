@@ -60,6 +60,12 @@ See cemaf.memory.protocols.MemoryStore for the protocol definition.
 
 # Built-in implementation
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.compaction import (
+    CompactedMemory,
+    CompactionLevel,
+    MemoryCompactor,
+    SimpleMemoryCompactor,
+)
 from cemaf.memory.episodic import (
     Episode,
     EpisodicEvent,
@@ -103,6 +109,11 @@ __all__ = [
     "MemoryQuery",
     "MemorySearchResult",
     "SemanticMemoryStore",
+    # Compaction
+    "CompactedMemory",
+    "CompactionLevel",
+    "MemoryCompactor",
+    "SimpleMemoryCompactor",
     # Factories
     "create_memory_store",
     "create_memory_store_from_config",
