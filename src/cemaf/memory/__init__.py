@@ -60,13 +60,25 @@ See cemaf.memory.protocols.MemoryStore for the protocol definition.
 
 # Built-in implementation
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.episodic import (
+    Episode,
+    EpisodicEvent,
+    EpisodicStore,
+    InMemoryEpisodicStore,
+)
 from cemaf.memory.factories import create_memory_store, create_memory_store_from_config
 from cemaf.memory.protocols import MemoryItem, MemoryStore
 
 __all__ = [
+    # Core
     "MemoryItem",
     "MemoryStore",
     "InMemoryStore",
+    # Episodic
+    "Episode",
+    "EpisodicEvent",
+    "EpisodicStore",
+    "InMemoryEpisodicStore",
     # Factories
     "create_memory_store",
     "create_memory_store_from_config",
