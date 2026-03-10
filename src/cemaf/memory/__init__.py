@@ -75,6 +75,12 @@ from cemaf.memory.scoring import (
     ScoringWeights,
     TemporalDecayScorer,
 )
+from cemaf.memory.semantic import (
+    DefaultSemanticMemoryStore,
+    MemoryQuery,
+    MemorySearchResult,
+    SemanticMemoryStore,
+)
 
 __all__ = [
     # Core
@@ -92,6 +98,11 @@ __all__ = [
     "EpisodicEvent",
     "EpisodicStore",
     "InMemoryEpisodicStore",
+    # Semantic bridge
+    "DefaultSemanticMemoryStore",
+    "MemoryQuery",
+    "MemorySearchResult",
+    "SemanticMemoryStore",
     # Factories
     "create_memory_store",
     "create_memory_store_from_config",
