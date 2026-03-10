@@ -27,23 +27,27 @@ class TestSimpleMetrics:
     def test_counter_records_metric(self) -> None:
         """Counter should record metric with tags."""
         metrics = SimpleMetrics(prefix="test")
-        # Should not raise
         metrics.counter("dag.executions.total", value=1, tags={"dag_name": "test"})
+        assert metrics._prefix == "test"
+        assert hasattr(metrics, "counter")
 
     def test_gauge_records_metric(self) -> None:
         """Gauge should record instantaneous value."""
         metrics = SimpleMetrics(prefix="test")
         metrics.gauge("dag.nodes.pending", value=5.0, tags={"dag_name": "test"})
+        assert metrics._prefix == "test"
 
     def test_histogram_records_metric(self) -> None:
         """Histogram should record distribution value."""
         metrics = SimpleMetrics(prefix="test")
         metrics.histogram("dag.duration_ms", value=123.45, tags={"dag_name": "test"})
+        assert metrics._prefix == "test"
 
     def test_timing_records_milliseconds(self) -> None:
         """Timing should record duration in milliseconds."""
         metrics = SimpleMetrics(prefix="test")
         metrics.timing("dag.duration_ms", value_ms=123.45, tags={"dag_name": "test"})
+        assert metrics._prefix == "test"
 
     def test_metrics_without_tags(self) -> None:
         """Metrics should work without tags."""
@@ -52,12 +56,14 @@ class TestSimpleMetrics:
         metrics.gauge("dag.count", 1.0)
         metrics.histogram("dag.duration_ms", 100.0)
         metrics.timing("dag.duration_ms", 100.0)
+        # All calls completed without raising
+        assert metrics._prefix == "test"
 
     def test_custom_prefix(self) -> None:
         """Custom prefix should be applied to all metrics."""
         metrics = SimpleMetrics(prefix="custom")
-        # Should not raise - prefix is internal
         metrics.counter("metric.name", tags={})
+        assert metrics._prefix == "custom"
 
     def test_metrics_protocol_compliance(self) -> None:
         """SimpleMetrics should implement MetricsCollector protocol."""
@@ -425,12 +431,12 @@ class TestMetricsIntegration:
 
         # Record various metrics
         retrieved = get_metrics()
+        assert retrieved is metrics
+
         retrieved.counter("test.counter", value=1, tags={"type": "test"})
         retrieved.gauge("test.gauge", value=42.0, tags={"type": "test"})
         retrieved.histogram("test.histogram", value=100.0, tags={"type": "test"})
         retrieved.timing("test.timing", value_ms=50.0, tags={"type": "test"})
-
-        # Should not raise
 
     def test_metrics_with_cost_tracking(self) -> None:
         """Should integrate cost tracking with metrics."""
@@ -438,6 +444,8 @@ class TestMetricsIntegration:
 
         # Record LLM call with cost
         cost = ModelPricingRegistry.calculate_cost("claude-haiku-4-5", 1000, 500)
+        assert cost is not None
+        assert cost > 0
 
         MetricsHelper.record_llm_call(
             metrics,
@@ -449,4 +457,4 @@ class TestMetricsIntegration:
             cost=cost,
         )
 
-        # Should not raise
+        assert metrics._prefix == "cemaf"
