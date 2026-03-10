@@ -76,6 +76,7 @@ from cemaf.memory.factories import (
     create_memory_manager,
     create_memory_store,
     create_memory_store_from_config,
+    create_session_manager,
 )
 from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
@@ -91,6 +92,12 @@ from cemaf.memory.semantic import (
     MemoryQuery,
     MemorySearchResult,
     SemanticMemoryStore,
+)
+from cemaf.memory.session import (
+    DefaultSessionManager,
+    SessionManager,
+    SessionPhase,
+    SessionState,
 )
 
 __all__ = [
@@ -122,8 +129,14 @@ __all__ = [
     "CompactionLevel",
     "MemoryCompactor",
     "SimpleMemoryCompactor",
+    # Session lifecycle
+    "DefaultSessionManager",
+    "SessionManager",
+    "SessionPhase",
+    "SessionState",
     # Factories
     "create_memory_manager",
     "create_memory_store",
     "create_memory_store_from_config",
+    "create_session_manager",
 ]
