@@ -37,6 +37,7 @@ from cemaf.core.recovery import AutoHealManager
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
+from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
 from cemaf.observability.budget_guard import BudgetGuard
@@ -168,6 +169,7 @@ class DAGExecutor:
         require_healthy: bool = True,
         auto_heal_manager: AutoHealManager | None = None,
         budget_guard: BudgetGuard | None = None,
+        session_manager: SessionManager | None = None,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
@@ -181,6 +183,7 @@ class DAGExecutor:
         self._require_healthy = require_healthy
         self._auto_heal_manager = auto_heal_manager
         self._budget_guard = budget_guard
+        self._session_manager = session_manager
 
     async def run(
         self,
@@ -224,6 +227,13 @@ class DAGExecutor:
                 dag_name=dag.name,
                 initial_context=context,
             )
+
+        # Bootstrap memory session
+        if self._session_manager:
+            try:
+                await self._session_manager.bootstrap(session_id=str(run_id))
+            except Exception as e:
+                logger.warning("Memory session bootstrap failed: %s", e)
 
         try:
             # Validate DAG
@@ -528,6 +538,14 @@ class DAGExecutor:
                 completed_at=completed_at,
                 health_check_metadata=health_check_metadata,
             )
+
+        finally:
+            # Dispose memory session regardless of outcome
+            if self._session_manager:
+                try:
+                    await self._session_manager.dispose(session_id=str(run_id))
+                except Exception as e:
+                    logger.warning("Memory session dispose failed: %s", e)
 
     def _should_execute_node(
         self,

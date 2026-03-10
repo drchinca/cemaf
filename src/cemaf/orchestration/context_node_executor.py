@@ -18,6 +18,9 @@ from cemaf.core.types import AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.protocols import LLMClient
+from cemaf.memory.manager import MemoryManager
+from cemaf.memory.semantic import MemoryQuery
+from cemaf.memory.session import SessionManager
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import Node
 from cemaf.orchestration.executor import NodeResult
@@ -37,6 +40,8 @@ class ContextNodeExecutor:
         domain_context: DomainContext | None = None,
         llm_client: LLMClient | None = None,
         vector_store: VectorStore | None = None,
+        memory_manager: MemoryManager | None = None,
+        session_manager: SessionManager | None = None,
     ) -> None:
         """Initialize with registry and optional logger/domain context."""
         self._registry = agent_registry
@@ -44,6 +49,8 @@ class ContextNodeExecutor:
         self._domain_context = domain_context
         self._llm_client = llm_client
         self._vector_store = vector_store
+        self._memory_manager = memory_manager
+        self._session_manager = session_manager
 
     async def execute_node(
         self,
@@ -92,11 +99,16 @@ class ContextNodeExecutor:
                 error=f"Failed to build goal for agent '{agent_name}'",
             )
 
+        # Populate global_memory from memory system if available
+        run_id = str(context.get("_run_id", default=""))
+        global_memory = await self._recall_global_memory(agent_name=agent_name)
+
         # Build agent context
         agent_context = AgentContext(
-            run_id=str(context.get("_run_id", default="")),
+            run_id=run_id,
             agent_id=agent_name,
             domain_context=self._domain_context,
+            global_memory=global_memory,
         )
 
         # Compute context hash for provenance
@@ -122,6 +134,14 @@ class ContextNodeExecutor:
 
             if result.success:
                 output = self._extract_output(result=result)
+
+                # Ingest successful result into session memory
+                await self._ingest_result(
+                    agent_name=agent_name,
+                    output=output,
+                    run_id=run_id,
+                )
+
                 return NodeResult(
                     node_id=node.id,
                     success=True,
@@ -217,3 +237,35 @@ class ContextNodeExecutor:
                 )
             )
         return tuple(refs)
+
+    async def _recall_global_memory(self, *, agent_name: str) -> dict[str, Any]:
+        """Load relevant memories for the agent from the memory system."""
+        if self._memory_manager is None:
+            return {}
+        try:
+            results = await self._memory_manager.recall(
+                query=MemoryQuery(text=agent_name, limit=10),
+            )
+            return {r.item.key: r.item.value for r in results}
+        except Exception:
+            logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)
+            return {}
+
+    async def _ingest_result(
+        self,
+        *,
+        agent_name: str,
+        output: str | None,
+        run_id: str,
+    ) -> None:
+        """Store agent result in session memory."""
+        if self._session_manager is None or not output:
+            return
+        try:
+            await self._session_manager.ingest(
+                session_id=run_id,
+                key=f"{agent_name}_output",
+                value={"output": output, "agent": agent_name},
+            )
+        except Exception:
+            logger.warning("Failed to ingest result for '%s'", agent_name, exc_info=True)
