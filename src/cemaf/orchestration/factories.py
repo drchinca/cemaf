@@ -64,6 +64,7 @@ def create_dag_executor(
         event_bus=event_bus if cfg.enable_events else None,
         moderation_pipeline=moderation_pipeline if cfg.enable_moderation else None,
         session_manager=session_manager,
+        node_timeout_seconds=cfg.node_timeout_seconds,
     )
 
 

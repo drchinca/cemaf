@@ -80,6 +80,10 @@ class ExecutorConfig(BaseModel):
         description="Strategy for merging parallel branch contexts: "
         "'last_write_wins', 'raise_on_conflict', 'deep_merge'",
     )
+    node_timeout_seconds: float = Field(
+        default=300.0,
+        description="Per-node execution timeout in seconds",
+    )
 
 
 @dataclass(frozen=True)
@@ -170,9 +174,11 @@ class DAGExecutor:
         auto_heal_manager: AutoHealManager | None = None,
         budget_guard: BudgetGuard | None = None,
         session_manager: SessionManager | None = None,
+        node_timeout_seconds: float = 300.0,
     ) -> None:
         self._node_executor = node_executor
         self._max_parallel = max_parallel
+        self._node_timeout = node_timeout_seconds
         self._run_logger = run_logger
         self._event_bus = event_bus
         self._moderation_pipeline = moderation_pipeline
@@ -792,9 +798,17 @@ class DAGExecutor:
                     # Node executors can access these via context.get("_resolved_inputs")
                     resolved_context = current_context.set("_resolved_inputs", resolved_inputs)
 
-                result = await self._node_executor.execute_node(
-                    node, resolved_context
-                )  # Pass resolved context
+                try:
+                    result = await asyncio.wait_for(
+                        self._node_executor.execute_node(node, resolved_context),
+                        timeout=self._node_timeout,
+                    )
+                except TimeoutError:
+                    result = NodeResult(
+                        node_id=node.id,
+                        success=False,
+                        error=f"Node timed out after {self._node_timeout}s",
+                    )
 
                 # Enhance result metadata with token telemetry if available from agent results
                 # NodeExecutors that execute agents should include agent metadata in NodeResult.metadata
