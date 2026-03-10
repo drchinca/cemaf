@@ -9,13 +9,14 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from cemaf.context.compiler import TokenEstimator
 from cemaf.ingestion.adapters import (
     ChunkAdapter,
     JSONAdapter,
     TableAdapter,
     TextAdapter,
 )
-from cemaf.ingestion.protocols import ContextAdapter
+from cemaf.ingestion.protocols import CompressionStrategy, ContextAdapter
 
 
 @dataclass
@@ -39,8 +40,8 @@ class AdapterConfig:
 class AdapterOverrides:
     """Override specific adapter dependencies for testing."""
 
-    token_estimator: Any | None = None
-    compression_strategy: Any | None = None
+    token_estimator: TokenEstimator | None = None
+    compression_strategy: CompressionStrategy | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

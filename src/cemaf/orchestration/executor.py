@@ -33,12 +33,14 @@ from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 from cemaf.core.constants import MAX_PARALLEL_NODES
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.execution import CancellationToken
+from cemaf.core.recovery import AutoHealManager
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import EventBus
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
 from cemaf.observability.budget_guard import BudgetGuard
+from cemaf.observability.health import HealthMonitor
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.dependency_resolver import resolve_node_input
@@ -162,9 +164,9 @@ class DAGExecutor:
         event_bus: EventBus | None = None,
         moderation_pipeline: ModerationPipeline | None = None,
         merge_strategy: MergeStrategy | None = None,
-        health_registry: Any | None = None,
+        health_registry: HealthMonitor | None = None,
         require_healthy: bool = True,
-        auto_heal_manager: Any | None = None,
+        auto_heal_manager: AutoHealManager | None = None,
         budget_guard: BudgetGuard | None = None,
     ) -> None:
         self._node_executor = node_executor
@@ -831,7 +833,7 @@ class DAGExecutor:
                                 )
                                 # If we give up on healing, we MUST NOT 'continue'.
                                 # We let the loop proceed to the retry logic or exit.
-                            else:
+                            elif heal_result.data is not None:
                                 # Verify that healing actually changed the context state
                                 context_hash_after = heal_result.data.state_hash()
 

@@ -6,7 +6,9 @@ import logging
 from time import perf_counter
 from typing import Any
 
-from cemaf.agents.base import AgentContext
+from pydantic import BaseModel
+
+from cemaf.agents.base import AgentContext, AgentResult
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
@@ -150,7 +152,7 @@ class ContextNodeExecutor:
                 metadata={"agent_id": agent_name},
             )
 
-    def _build_goal(self, *, agent_name: str, inputs: Any) -> Any:
+    def _build_goal(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> BaseModel | None:
         """Build a goal model from resolved inputs."""
         goal_type = self._registry.get_goal_type(agent_name=agent_name)
         if goal_type is None:
@@ -165,7 +167,7 @@ class ContextNodeExecutor:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
 
-    def _extract_output(self, *, result: Any) -> Any:
+    def _extract_output(self, *, result: AgentResult[Any]) -> str | None:
         """Extract serializable output from agent result."""
         output = result.output
         if output is None:
@@ -175,7 +177,7 @@ class ContextNodeExecutor:
             return json.dumps(dumped)
         return str(output)
 
-    def _compute_context_hash(self, *, inputs: Any) -> str:
+    def _compute_context_hash(self, *, inputs: dict[str, Any] | Any) -> str:
         """Compute deterministic hash of context inputs."""
         try:
             serialized = json.dumps(inputs, sort_keys=True, default=str)
@@ -199,7 +201,7 @@ class ContextNodeExecutor:
             agent_id=agent_id,
         )
 
-    def _extract_source_refs(self, *, inputs: Any) -> tuple[SourceReference, ...]:
+    def _extract_source_refs(self, *, inputs: dict[str, Any] | Any) -> tuple[SourceReference, ...]:
         """Extract source references from resolved inputs for provenance."""
         if not isinstance(inputs, dict):
             return ()

@@ -37,7 +37,6 @@ Usage:
 """
 
 import inspect
-from typing import Any
 
 from cemaf.core.registry import BaseRegistry, RegistryError
 from cemaf.core.types import JSON
@@ -133,7 +132,7 @@ class ToolRegistry(BaseRegistry[Tool]):
         """
         return [schema.to_anthropic_format() for schema in self.to_schemas()]
 
-    def _implements_protocol(self, obj: Any) -> bool:
+    def _implements_protocol(self, obj: object) -> bool:
         """
         Check if object implements Tool protocol.
 

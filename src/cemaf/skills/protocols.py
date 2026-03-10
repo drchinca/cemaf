@@ -41,7 +41,7 @@ Example:
     >>> assert isinstance(MyCustomSkill(), Skill)
 """
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from cemaf.core.types import SkillID
 
@@ -187,7 +187,7 @@ class Skill[InputT, OutputT](Protocol):
         ...
 
     @property
-    def tools(self) -> tuple[Any, ...]:
+    def tools(self) -> tuple[()]:
         """
         Tools used by this skill.
 

@@ -26,6 +26,8 @@ Example:
     compiler = create_context_compiler_from_config()
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,12 +39,14 @@ from cemaf.context.algorithm import (
     OptimalSelectionAlgorithm,
 )
 from cemaf.context.compiler import (
+    AdvancedCompilerConfig,
     ContextCompiler,
     PriorityContextCompiler,
     SimpleTokenEstimator,
     TokenEstimator,
 )
 from cemaf.core.provider_registry import ProviderRegistry
+from cemaf.llm.protocols import LLMClient
 
 
 @dataclass
@@ -65,7 +69,7 @@ class FactoryOverrides:
 
     token_estimator: TokenEstimator | None = None
     algorithm: ContextSelectionAlgorithm | None = None
-    llm_client: Any | None = None
+    llm_client: LLMClient | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -129,9 +133,9 @@ def create_priority_compiler(
 
 
 def create_advanced_compiler(
-    llm_client: Any,  # LLMClient type (avoid circular import)
+    llm_client: LLMClient,
     token_estimator: TokenEstimator | None = None,
-    config: Any = None,  # AdvancedCompilerConfig type (avoid circular import)
+    config: AdvancedCompilerConfig | None = None,
     algorithm: ContextSelectionAlgorithm | None = None,
 ) -> ContextCompiler:
     """

@@ -19,6 +19,7 @@ Extension Point:
 
 from typing import Any, Protocol, runtime_checkable
 
+from cemaf.agents.protocols import Agent
 from cemaf.context.context import Context
 
 # Re-export data classes (not changed)
@@ -123,7 +124,7 @@ class DeepAgentOrchestrator(Protocol):
         >>> assert isinstance(orchestrator, DeepAgentOrchestrator)
     """
 
-    async def orchestrate(self, parent_agent: Any, child_agents: list[Any]) -> Any:
+    async def orchestrate(self, parent_agent: Agent[Any, Any], child_agents: list[Agent[Any, Any]]) -> Any:
         """
         Orchestrate parent and child agents hierarchically.
 

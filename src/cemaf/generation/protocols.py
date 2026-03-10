@@ -7,11 +7,20 @@ All generators are Protocol-based for pluggability.
 
 from abc import ABC
 from enum import Enum
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import JSON
+
+
+class VoiceInfo(TypedDict):
+    """Metadata for an available voice."""
+
+    id: str
+    name: str
+    language: str
+
 
 # =============================================================================
 # OUTPUT FORMATS
@@ -271,7 +280,7 @@ class AudioGenerator(Protocol):
         """Generate speech using cloned voice."""
         ...
 
-    def list_voices(self) -> list[dict[str, Any]]:
+    def list_voices(self) -> list[VoiceInfo]:
         """List available voices."""
         ...
 
