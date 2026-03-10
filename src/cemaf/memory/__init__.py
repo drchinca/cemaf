@@ -66,6 +66,12 @@ from cemaf.memory.compaction import (
     MemoryCompactor,
     SimpleMemoryCompactor,
 )
+from cemaf.memory.episodic import (
+    Episode,
+    EpisodicEvent,
+    EpisodicStore,
+    InMemoryEpisodicStore,
+)
 from cemaf.memory.factories import create_memory_store, create_memory_store_from_config
 from cemaf.memory.protocols import MemoryItem, MemoryStore
 from cemaf.memory.scoring import (
@@ -74,6 +80,12 @@ from cemaf.memory.scoring import (
     ScoredMemoryItem,
     ScoringWeights,
     TemporalDecayScorer,
+)
+from cemaf.memory.semantic import (
+    DefaultSemanticMemoryStore,
+    MemoryQuery,
+    MemorySearchResult,
+    SemanticMemoryStore,
 )
 
 __all__ = [
@@ -87,6 +99,16 @@ __all__ = [
     "ScoredMemoryItem",
     "ScoringWeights",
     "TemporalDecayScorer",
+    # Episodic
+    "Episode",
+    "EpisodicEvent",
+    "EpisodicStore",
+    "InMemoryEpisodicStore",
+    # Semantic bridge
+    "DefaultSemanticMemoryStore",
+    "MemoryQuery",
+    "MemorySearchResult",
+    "SemanticMemoryStore",
     # Compaction
     "CompactedMemory",
     "CompactionLevel",
