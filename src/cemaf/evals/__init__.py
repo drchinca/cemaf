@@ -29,7 +29,6 @@ from cemaf.evals.factories import (
     create_composite_evaluator,
     create_composite_evaluator_from_config,
     create_exact_match_evaluator,
-    create_numeric_evaluator,
 )
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig, TierResult
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
@@ -42,8 +41,14 @@ from cemaf.evals.protocols import (
     EvalResult,
     Evaluator,
 )
-from cemaf.evals.semantic import SemanticSimilarityEvaluator
-from cemaf.evals.tools import CheckQualityTool, RecordScoreTool, RunEvalTool
+from cemaf.evals.semantic import MultiReferenceSemanticEvaluator, SemanticSimilarityEvaluator
+from cemaf.evals.tools import (
+    BUILTIN_EVALUATORS,
+    CheckQualityTool,
+    RecordScoreTool,
+    RunEvalTool,
+    resolve_evaluators,
+)
 
 __all__ = [
     # Protocols
@@ -62,6 +67,7 @@ __all__ = [
     "LLMJudgeEvaluator",
     "JudgeCriteria",
     "SemanticSimilarityEvaluator",
+    "MultiReferenceSemanticEvaluator",
     # Composite
     "CompositeEvaluator",
     "CompositeEvalResult",
@@ -84,13 +90,14 @@ __all__ = [
     "AlertLevel",
     # Factories
     "create_exact_match_evaluator",
-    "create_numeric_evaluator",
     "create_composite_evaluator",
     "create_composite_evaluator_from_config",
     # Eval tools (dogfooding)
     "RunEvalTool",
     "CheckQualityTool",
     "RecordScoreTool",
+    "resolve_evaluators",
+    "BUILTIN_EVALUATORS",
     # Quality guard agent
     "QualityGuardAgent",
     "QualityGuardGoal",

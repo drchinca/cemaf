@@ -78,11 +78,21 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
 
     def get_agent_class(self, agent_name: str) -> type[Agent[Any, Any]] | None:
         """Get agent class by name from built-in agents."""
-        return _BUILTIN_AGENT_CLASSES.get(agent_name)
+        result = _BUILTIN_AGENT_CLASSES.get(agent_name)
+        if result is None and agent_name == "QualityGuard":
+            from cemaf.evals.agents import QualityGuardAgent
+
+            return QualityGuardAgent  # type: ignore[return-value]
+        return result
 
     def get_goal_type(self, agent_name: str) -> type[BaseModel] | None:
         """Get goal type for agent by name."""
-        return self._goal_types.get(agent_name) or _BUILTIN_GOAL_TYPES.get(agent_name)
+        result = self._goal_types.get(agent_name) or _BUILTIN_GOAL_TYPES.get(agent_name)
+        if result is None and agent_name == "QualityGuard":
+            from cemaf.evals.agents import QualityGuardGoal
+
+            return QualityGuardGoal
+        return result
 
     def get_for_domain(self, domain_id: str) -> list[Agent[Any, Any]]:
         """Get agents registered for a specific domain."""
@@ -155,6 +165,12 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
                 if not llm_client:
                     raise ValueError("Writer requires llm_client")
                 return WriterAgent(llm_client=llm_client)
+            elif agent_name == "QualityGuard":
+                # QualityGuard requires no external deps - uses internal eval system
+                from cemaf.evals.agents import QualityGuardAgent
+                from cemaf.evals.police import QualityPolice
+
+                return QualityGuardAgent(quality_police=QualityPolice())  # type: ignore[return-value]
             return None
         except Exception as e:
             logger.error("Failed to create agent '%s': %s", agent_name, e, exc_info=True)

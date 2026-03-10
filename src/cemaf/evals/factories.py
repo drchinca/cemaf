@@ -10,77 +10,22 @@ import os
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.evals.composite import CompositeEvaluator
-from cemaf.evals.evaluators import ExactMatchEvaluator, LengthEvaluator
+from cemaf.evals.evaluators import ExactMatchEvaluator
 from cemaf.evals.protocols import EvalConfig, Evaluator
 
 
 def create_exact_match_evaluator(
     case_sensitive: bool = False,
 ) -> ExactMatchEvaluator:
-    """
-    Factory for ExactMatchEvaluator with sensible defaults.
-
-    Args:
-        case_sensitive: Enable case-sensitive matching
-
-    Returns:
-        Configured ExactMatchEvaluator instance
-
-    Example:
-        # Case-insensitive (default)
-        evaluator = create_exact_match_evaluator()
-
-        # Case-sensitive
-        evaluator = create_exact_match_evaluator(case_sensitive=True)
-    """
+    """Create an ExactMatchEvaluator with common defaults."""
     return ExactMatchEvaluator(case_sensitive=case_sensitive)
-
-
-# NumericEvaluator not yet implemented - using LengthEvaluator as placeholder
-def create_numeric_evaluator(
-    tolerance: float = 0.01,
-) -> LengthEvaluator:
-    """
-    Factory for numeric evaluation (currently using LengthEvaluator as placeholder).
-
-    Args:
-        tolerance: Tolerance for numeric comparison (not yet used)
-
-    Returns:
-        LengthEvaluator instance (placeholder until NumericEvaluator is implemented)
-
-    Example:
-        # With defaults
-        evaluator = create_numeric_evaluator()
-
-        # Higher tolerance
-        evaluator = create_numeric_evaluator(tolerance=0.1)
-    """
-    return LengthEvaluator(min_length=0, max_length=None)
 
 
 def create_composite_evaluator(
     evaluators: list[Evaluator] | None = None,
     pass_threshold: float = 0.5,
 ) -> CompositeEvaluator:
-    """
-    Factory for CompositeEvaluator with sensible defaults.
-
-    Args:
-        evaluators: List of evaluators to compose
-        pass_threshold: Minimum score to pass
-
-    Returns:
-        Configured CompositeEvaluator instance
-
-    Example:
-        # With defaults
-        evaluator = create_composite_evaluator()
-
-        # With evaluators
-        evals = [create_exact_match_evaluator(), create_numeric_evaluator()]
-        evaluator = create_composite_evaluator(evaluators=evals)
-    """
+    """Create a CompositeEvaluator from a list of evaluators."""
     return CompositeEvaluator(
         evaluators=evaluators or [],
         config=EvalConfig(pass_threshold=pass_threshold),
@@ -91,25 +36,7 @@ def create_composite_evaluator_from_config(
     evaluators: list[Evaluator] | None = None,
     settings: Settings | None = None,
 ) -> CompositeEvaluator:
-    """
-    Create CompositeEvaluator from environment configuration.
-
-    Reads from environment variables:
-    - CEMAF_EVALS_PASS_THRESHOLD: Pass threshold (default: 0.5)
-
-    Args:
-        evaluators: List of evaluators (overrides defaults)
-
-    Returns:
-        Configured CompositeEvaluator instance
-
-    Example:
-        # From environment
-        evaluator = create_composite_evaluator_from_config()
-
-        # With custom evaluators
-        evaluator = create_composite_evaluator_from_config(evaluators=[my_eval])
-    """
+    """Create a CompositeEvaluator from environment configuration."""
     cfg = settings or load_settings_from_env_sync()  # noqa: F841
 
     pass_threshold = float(os.getenv("CEMAF_EVALS_PASS_THRESHOLD", "0.5"))

@@ -6,6 +6,8 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
 from cemaf.core.recovery import AutoHealManager
+from cemaf.evals.online import OnlineEvalPipeline
+from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
@@ -28,8 +30,8 @@ class RuntimeServices:
     budget_guard: BudgetGuard | None = None
 
     # Quality
-    online_eval_pipeline: object | None = None  # OnlineEvalPipeline (lazy to avoid circular)
-    quality_police: object | None = None  # QualityPolice (lazy to avoid circular)
+    online_eval_pipeline: OnlineEvalPipeline | None = None
+    quality_police: QualityPolice | None = None
 
     # Memory
     memory_manager: MemoryManager | None = None

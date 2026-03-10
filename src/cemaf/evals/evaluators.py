@@ -18,11 +18,7 @@ from cemaf.evals.protocols import (
 
 
 class ExactMatchEvaluator(BaseEvaluator):
-    """
-    Evaluates exact string match.
-
-    Case sensitivity and whitespace handling configurable.
-    """
+    """Evaluates exact string match with configurable case/whitespace handling."""
 
     def __init__(
         self,
@@ -70,11 +66,7 @@ class ExactMatchEvaluator(BaseEvaluator):
 
 
 class ContainsEvaluator(BaseEvaluator):
-    """
-    Evaluates if output contains expected substring(s).
-
-    Can check for multiple substrings with AND/OR logic.
-    """
+    """Evaluates if output contains expected substring(s) with AND/OR logic."""
 
     def __init__(
         self,
@@ -137,9 +129,7 @@ class ContainsEvaluator(BaseEvaluator):
 
 
 class RegexEvaluator(BaseEvaluator):
-    """
-    Evaluates output against regex pattern(s).
-    """
+    """Evaluates output against regex pattern(s)."""
 
     def __init__(
         self,
@@ -201,9 +191,7 @@ class RegexEvaluator(BaseEvaluator):
 
 
 class LengthEvaluator(BaseEvaluator):
-    """
-    Evaluates output length (characters or words).
-    """
+    """Evaluates output length in characters or words against min/max bounds."""
 
     def __init__(
         self,
@@ -261,9 +249,7 @@ class LengthEvaluator(BaseEvaluator):
 
 
 class JSONSchemaEvaluator(BaseEvaluator):
-    """
-    Evaluates if output is valid JSON matching a schema.
-    """
+    """Evaluates if output is valid JSON, optionally matching a schema."""
 
     def __init__(
         self,

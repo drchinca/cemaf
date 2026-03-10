@@ -239,7 +239,3 @@ def tool(
         return FunctionTool()
 
     return decorator
-
-
-# Backwards compatibility alias
-tool_decorator = tool

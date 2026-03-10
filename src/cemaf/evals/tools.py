@@ -15,7 +15,7 @@ from cemaf.evals.police import QualityPolice
 from cemaf.evals.protocols import Evaluator
 from cemaf.tools.base import Tool, ToolResult, ToolSchema
 
-_BUILTIN_EVALUATORS: dict[str, type[Evaluator]] = {
+BUILTIN_EVALUATORS: dict[str, type[Evaluator]] = {
     "length": LengthEvaluator,
     "exact_match": ExactMatchEvaluator,
     "contains": ContainsEvaluator,
@@ -23,13 +23,13 @@ _BUILTIN_EVALUATORS: dict[str, type[Evaluator]] = {
 }
 
 
-def _resolve_evaluators(names: list[str]) -> list[Evaluator]:
+def resolve_evaluators(names: list[str]) -> list[Evaluator]:
     """Instantiate evaluators by name from the built-in registry."""
     evaluators: list[Evaluator] = []
     for name in names:
-        cls = _BUILTIN_EVALUATORS.get(name)
+        cls = BUILTIN_EVALUATORS.get(name)
         if cls is None:
-            raise ValueError(f"Unknown evaluator: {name!r}. Available: {sorted(_BUILTIN_EVALUATORS)}")
+            raise ValueError(f"Unknown evaluator: {name!r}. Available: {sorted(BUILTIN_EVALUATORS)}")
         evaluators.append(cls())
     return evaluators
 
@@ -68,7 +68,7 @@ class RunEvalTool(Tool):
             expected: str | None = kwargs.get("expected")
             evaluator_names: list[str] = kwargs.get("evaluator_names", ["length", "json_valid"])
 
-            evaluators = _resolve_evaluators(names=evaluator_names)
+            evaluators = resolve_evaluators(names=evaluator_names)
             composite = CompositeEvaluator(evaluators=evaluators)
             result = await composite.evaluate(output=output, expected=expected)
             return Result.ok(data=result.to_dict())
