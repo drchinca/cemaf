@@ -86,6 +86,12 @@ class EventType(str, Enum):
     MCP_RESOURCE_READ = "mcp.resource.read"
     MCP_PROMPT_GET = "mcp.prompt.get"
 
+    # Evaluation events
+    EVAL_STARTED = "eval.started"
+    EVAL_COMPLETED = "eval.completed"
+    EVAL_FAILED = "eval.failed"
+    QUALITY_ALERT = "quality.alert"
+
     # Blueprint events
     BLUEPRINT_VALIDATED = "blueprint.validated"
     BLUEPRINT_VALIDATION_FAILED = "blueprint.validation.failed"

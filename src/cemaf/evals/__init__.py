@@ -30,7 +30,10 @@ from cemaf.evals.factories import (
     create_exact_match_evaluator,
     create_numeric_evaluator,
 )
+from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig, TierResult
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
+from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
+from cemaf.evals.police import AlertLevel, QualityAlert, QualityPolice, QualityPoliceConfig
 from cemaf.evals.protocols import (
     BaseEvaluator,
     EvalConfig,
@@ -64,6 +67,19 @@ __all__ = [
     "EvalCase",
     "EvalSuite",
     "EvalSuiteResult",
+    # Hierarchical
+    "HierarchicalJudge",
+    "HierarchicalJudgeConfig",
+    "TierResult",
+    # Online eval
+    "OnlineEvalPipeline",
+    "NodeEvalBinding",
+    "EvalMode",
+    # Quality police
+    "QualityPolice",
+    "QualityPoliceConfig",
+    "QualityAlert",
+    "AlertLevel",
     # Factories
     "create_exact_match_evaluator",
     "create_numeric_evaluator",
