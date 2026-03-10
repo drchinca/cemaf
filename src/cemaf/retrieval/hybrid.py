@@ -112,6 +112,7 @@ class HybridRetriever:
             List of SearchResults ordered by relevance
         """
         k = k or self._config.final_k
+        self._documents.clear()
 
         # Vector search
         vector_results = await self._vector_store.search_by_text(

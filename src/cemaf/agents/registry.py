@@ -168,7 +168,3 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
 def create_default_registry() -> AgentRegistry:
     """Factory to create a fresh default registry."""
     return AgentRegistry()
-
-
-# Global registry instance
-AGENT_TOOLKIT = create_default_registry()

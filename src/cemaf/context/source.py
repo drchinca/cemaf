@@ -26,9 +26,10 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
 from cemaf.core.types import JSON, TokenCount
+from cemaf.core.utils import utc_now
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,7 @@ class ContextSource:
     content: str
     token_count: TokenCount | None = None  # Optional, can be computed later
     priority: int = 0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(default_factory=lambda: utc_now())
     source_type: str = "unknown"
     source_id: str = ""
     compressible: bool = True
@@ -101,7 +102,7 @@ class ContextSource:
         object.__setattr__(self, "content", content)
         object.__setattr__(self, "token_count", token_count)
         object.__setattr__(self, "priority", priority)
-        object.__setattr__(self, "timestamp", timestamp or datetime.now(UTC))
+        object.__setattr__(self, "timestamp", timestamp or utc_now())
         object.__setattr__(self, "source_type", source_type)
         object.__setattr__(self, "source_id", source_id)
         object.__setattr__(self, "compressible", compressible)
@@ -135,7 +136,7 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             source_type="tool_output",
             source_id=tool_name,
             compressible=compressible,
@@ -171,7 +172,7 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=timestamp or datetime.now(UTC),
+            timestamp=timestamp or utc_now(),
             source_type="document",
             source_id=document_id,
             compressible=compressible,
@@ -207,7 +208,7 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=timestamp or datetime.now(UTC),
+            timestamp=timestamp or utc_now(),
             source_type="memory",
             source_id=memory_key,
             compressible=compressible,
@@ -243,7 +244,7 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             source_type="system",
             source_id="system_prompt",
             compressible=compressible,
@@ -305,7 +306,7 @@ class ContextSource:
         Returns:
             Age in seconds
         """
-        ref = reference_time or datetime.now(UTC)
+        ref = reference_time or utc_now()
         return (ref - self.timestamp).total_seconds()
 
     def __lt__(self, other: ContextSource) -> bool:

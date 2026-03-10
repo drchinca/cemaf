@@ -17,6 +17,7 @@ Usage:
 
 import asyncio
 import builtins
+import copy
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any, TypeVar
@@ -169,7 +170,7 @@ def with_fallback[T](
                     fallback_value=fallback_value,
                     exc_info=True,
                 )
-                return fallback_value
+                return copy.deepcopy(fallback_value)
 
         return wrapper
 

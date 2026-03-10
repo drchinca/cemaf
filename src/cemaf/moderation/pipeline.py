@@ -5,6 +5,7 @@ Provides a complete moderation solution with event integration
 for observability and convenient methods for input/output checking.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -61,6 +62,7 @@ class ModerationPipeline:
         self._post_flight = post_flight
         self._event_bus = event_bus
         self._name = name
+        self._pending_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def name(self) -> str:
@@ -377,7 +379,6 @@ class ModerationPipeline:
         if self._event_bus is None:
             return
 
-        # Import Event here to avoid circular imports
         from cemaf.events.protocols import Event
 
         event = Event.create(
@@ -386,12 +387,10 @@ class ModerationPipeline:
             source=self._name,
         )
 
-        # Use asyncio to schedule the publish without blocking
-        import asyncio
-
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._event_bus.publish(event))
+            task = loop.create_task(self._event_bus.publish(event))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
         except RuntimeError:
-            # No running loop - skip event emission
             pass

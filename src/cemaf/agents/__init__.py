@@ -70,7 +70,7 @@ from cemaf.agents.context_agents import (
 )
 from cemaf.agents.factories import create_agent_context, create_agent_context_from_config
 from cemaf.agents.protocols import Agent, AgentContext, AgentResult, AgentState
-from cemaf.agents.registry import AGENT_TOOLKIT, AgentRegistry, create_default_registry
+from cemaf.agents.registry import AgentRegistry, create_default_registry
 from cemaf.core.domain import DomainContext
 
 __all__ = [
@@ -95,7 +95,6 @@ __all__ = [
     "WriterResult",
     # Registry
     "AgentRegistry",
-    "AGENT_TOOLKIT",
     "create_default_registry",
     # Factories
     "create_agent_context",

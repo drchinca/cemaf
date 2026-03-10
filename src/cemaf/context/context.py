@@ -11,6 +11,7 @@ Type imports happen at runtime within methods that need them.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from typing import Any
 
@@ -94,7 +95,7 @@ class Context(BaseModel):
         Supports dot notation for nested keys.
         """
         keys = key.split(".")
-        new_data = dict(self.data)  # Start with a copy
+        new_data = copy.deepcopy(self.data)
 
         current_level = new_data
         for i, k in enumerate(keys):
@@ -174,7 +175,7 @@ class Context(BaseModel):
         Supports dot notation for nested keys.
         """
         keys = key.split(".")
-        new_data = dict(self.data)
+        new_data = copy.deepcopy(self.data)
 
         if len(keys) == 1:
             new_data.pop(keys[0], None)

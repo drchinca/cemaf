@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from cemaf.core.utils import utc_now
 from cemaf.scheduler.executor import AsyncJobExecutor
 from cemaf.scheduler.mock import MockScheduler, MockTrigger
 from cemaf.scheduler.protocols import (
@@ -29,7 +30,7 @@ class TestJobResult:
 
     def test_success_factory(self) -> None:
         """Test success factory method."""
-        started = datetime.now()
+        started = utc_now()
         result = JobResult.success(
             job_id="job1",
             started_at=started,
@@ -43,7 +44,7 @@ class TestJobResult:
 
     def test_failure_factory(self) -> None:
         """Test failure factory method."""
-        started = datetime.now()
+        started = utc_now()
         result = JobResult.failure(
             job_id="job1",
             started_at=started,
@@ -55,7 +56,7 @@ class TestJobResult:
 
     def test_duration_calculated(self) -> None:
         """Test duration is calculated."""
-        started = datetime.now() - timedelta(seconds=1)
+        started = utc_now() - timedelta(seconds=1)
         result = JobResult.success(job_id="job1", started_at=started)
 
         assert result.duration_ms >= 1000

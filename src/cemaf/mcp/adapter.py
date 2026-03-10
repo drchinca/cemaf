@@ -13,26 +13,18 @@ and avoid circular imports.
 """
 
 import asyncio
-import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from cemaf.blueprint.core import Blueprint
 from cemaf.core.types import JSON
 from cemaf.events.protocols import EventBus
+from cemaf.mcp.bridges import PromptBridge, ResourceBridge, ToolBridge
 from cemaf.mcp.protocols import (
     MCPError,
     MCPRequest,
     MCPResponse,
     Transport,
-)
-from cemaf.mcp.types import (
-    MCPPrompt,
-    MCPPromptArgument,
-    MCPResource,
-    MCPResourceContents,
-    MCPToolDefinition,
-    MCPToolResult,
 )
 from cemaf.memory.protocols import MemoryStore
 from cemaf.observability import get_logger
@@ -43,270 +35,6 @@ logger = get_logger("mcp.adapter")
 
 # Type alias for method handlers
 MethodHandler = Callable[[JSON], Awaitable[JSON]]
-
-
-class ToolBridge:
-    """
-    Bridge between CEMAF Tool and MCP tool definitions.
-
-    Handles conversion and execution of tools.
-    """
-
-    @staticmethod
-    def to_mcp(tool: Tool) -> MCPToolDefinition:
-        """
-        Convert a CEMAF Tool to an MCP tool definition.
-
-        Args:
-            tool: CEMAF tool to convert.
-
-        Returns:
-            MCPToolDefinition compatible with MCP protocol.
-        """
-        schema = tool.schema
-        return MCPToolDefinition(
-            name=schema.name,
-            description=schema.description,
-            inputSchema={
-                "type": "object",
-                "properties": schema.parameters.get("properties", {}),
-                "required": list(schema.required),
-            },
-        )
-
-    @staticmethod
-    async def call(
-        tool: Tool,
-        arguments: JSON,
-        run_logger: RunLogger | None = None,
-        correlation_id: str = "",
-    ) -> MCPToolResult:
-        """
-        Execute a CEMAF tool and return MCP-formatted result.
-
-        Args:
-            tool: CEMAF tool to execute.
-            arguments: Arguments to pass to the tool.
-            run_logger: Optional run logger for recording.
-            correlation_id: Optional correlation ID for tracing.
-
-        Returns:
-            MCPToolResult with execution result or error.
-        """
-        try:
-            if run_logger:
-                # execute_with_recording exists on Tool base class but not protocol
-                # Use type ignore since we can't guarantee all Tool implementations have it
-                result = await tool.execute_with_recording(  # type: ignore[attr-defined]
-                    run_logger=run_logger,
-                    correlation_id=correlation_id,
-                    **arguments,
-                )
-            else:
-                result = await tool.execute(**arguments)
-
-            if result.success:
-                # Convert result value to text
-                value = result.data
-                if isinstance(value, str):
-                    text = value
-                elif isinstance(value, (dict, list)):
-                    text = json.dumps(value, indent=2)
-                else:
-                    text = str(value)
-                return MCPToolResult.text(text, is_error=False)
-            else:
-                return MCPToolResult.error(result.error or "Tool execution failed")
-
-        except Exception as e:
-            return MCPToolResult.error(str(e))
-
-
-class ResourceBridge:
-    """
-    Bridge between CEMAF MemoryStore and MCP resources.
-
-    Handles resource listing and content retrieval.
-    """
-
-    @staticmethod
-    def memory_item_to_resource(
-        scope: str,
-        key: str,
-        description: str = "",
-    ) -> MCPResource:
-        """
-        Convert memory item metadata to MCP resource.
-
-        Args:
-            scope: Memory scope.
-            key: Memory key.
-            description: Optional description.
-
-        Returns:
-            MCPResource definition.
-        """
-        uri = f"memory://{scope}/{key}"
-        return MCPResource(
-            uri=uri,
-            name=f"{scope}:{key}",
-            description=description,
-            mimeType="application/json",
-        )
-
-    @staticmethod
-    async def list_resources(store: MemoryStore) -> list[MCPResource]:
-        """
-        List all memory items as MCP resources.
-
-        Args:
-            store: Memory store to query.
-
-        Returns:
-            List of MCPResource definitions.
-        """
-        from cemaf.core.enums import MemoryScope
-
-        resources: list[MCPResource] = []
-
-        # Iterate through all known scopes
-        for scope in MemoryScope:
-            try:
-                items = await store.list_by_scope(scope)
-                for item in items:
-                    resource = ResourceBridge.memory_item_to_resource(
-                        scope=scope.value,
-                        key=item.key,
-                        description=f"Memory item in {scope.value} scope",
-                    )
-                    resources.append(resource)
-            except Exception as e:
-                # Log but skip scopes that fail
-                logger.warning(
-                    "Failed to list resources for memory scope %s: %s",
-                    scope.value,
-                    str(e),
-                    exc_info=True,
-                )
-                continue
-
-        return resources
-
-    @staticmethod
-    async def read_resource(
-        store: MemoryStore,
-        uri: str,
-    ) -> MCPResourceContents | None:
-        """
-        Read a memory item by URI.
-
-        Args:
-            store: Memory store to query.
-            uri: Resource URI (memory://scope/key).
-
-        Returns:
-            MCPResourceContents or None if not found.
-        """
-        from cemaf.core.enums import MemoryScope
-
-        # Parse URI: memory://scope/key
-        if not uri.startswith("memory://"):
-            return None
-
-        path = uri[len("memory://") :]
-        parts = path.split("/", 1)
-        if len(parts) != 2:
-            return None
-
-        scope_str, key = parts
-
-        # Find matching scope
-        try:
-            scope = MemoryScope(scope_str)
-        except ValueError:
-            return None
-
-        # Fetch item
-        item = await store.get(scope, key)
-        if item is None:
-            return None
-
-        # Serialize value
-        text = json.dumps(item.value, indent=2)
-        return MCPResourceContents(
-            uri=uri,
-            mimeType="application/json",
-            text=text,
-        )
-
-
-class PromptBridge:
-    """
-    Bridge between CEMAF Blueprint and MCP prompts.
-
-    Handles prompt listing and template rendering.
-    """
-
-    @staticmethod
-    def to_mcp(blueprint: Blueprint) -> MCPPrompt:
-        """
-        Convert a CEMAF Blueprint to an MCP prompt.
-
-        Args:
-            blueprint: Blueprint to convert.
-
-        Returns:
-            MCPPrompt definition.
-        """
-        # Extract arguments from blueprint metadata or instruction placeholders
-        arguments: list[MCPPromptArgument] = []
-
-        # Check for template variables in instruction
-        instruction = blueprint.instruction
-        if instruction:
-            # Simple placeholder detection: {variable_name}
-            import re
-
-            placeholders = re.findall(r"\{(\w+)\}", instruction)
-            for name in set(placeholders):
-                arguments.append(
-                    MCPPromptArgument(
-                        name=name,
-                        description=f"Value for {{{name}}}",
-                        required=True,
-                    )
-                )
-
-        return MCPPrompt(
-            name=blueprint.id,
-            description=blueprint.description or blueprint.name,
-            arguments=tuple(arguments),
-        )
-
-    @staticmethod
-    def get_prompt_text(
-        blueprint: Blueprint,
-        arguments: JSON,
-    ) -> str:
-        """
-        Render blueprint as prompt text with arguments.
-
-        Args:
-            blueprint: Blueprint to render.
-            arguments: Arguments to substitute.
-
-        Returns:
-            Rendered prompt text.
-        """
-        # Start with the blueprint's to_prompt output
-        text = blueprint.to_prompt()
-
-        # Substitute any provided arguments
-        for key, value in arguments.items():
-            placeholder = "{" + key + "}"
-            text = text.replace(placeholder, str(value))
-
-        return text
 
 
 class MCPAdapter:
@@ -352,6 +80,7 @@ class MCPAdapter:
         self._tools: dict[str, Tool] = {}
         self._blueprints: dict[str, Blueprint] = {}
         self._memory_store: MemoryStore | None = None
+        self._pending_tasks: set[asyncio.Task[None]] = set()
 
         # Server state
         self._initialized = False
@@ -750,9 +479,10 @@ class MCPAdapter:
 
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._event_bus.publish(event))
+            task = loop.create_task(self._event_bus.publish(event))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
         except RuntimeError:
-            # No running loop - skip event emission
             pass
 
     # Introspection

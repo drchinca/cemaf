@@ -175,6 +175,16 @@ async def execute_loop_node(
     all_body_results: list[NodeResult] = []
     current_context = context
 
+    if not body_node_ids:
+        loop_result = NodeResult(
+            node_id=node.id,
+            success=True,
+            output="completed 0 iterations (no body nodes)",
+            metadata={"iterations_completed": 0},
+        )
+        return loop_result, all_body_results, current_context
+
+    iteration = 0
     for iteration in range(max_iterations):
         # Check exit condition (context key that evaluates truthy)
         if exit_condition and current_context.get(exit_condition, default=None):

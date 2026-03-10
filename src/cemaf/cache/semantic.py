@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from cemaf.context.context import Context
+from cemaf.core.utils import utc_now
 from cemaf.retrieval.protocols import Document, EmbeddingProvider, VectorStore
 
 
@@ -67,7 +68,7 @@ class SemanticStateCache:
 
             # Check if expired
             if self.cache_ttl is not None:
-                age = datetime.now() - created_at
+                age = utc_now() - created_at
                 if age > timedelta(seconds=self.cache_ttl):
                     # Expired - remove and return None
                     del self._cache_entries[cache_key]
@@ -102,7 +103,7 @@ class SemanticStateCache:
         cache_key = self._make_cache_key(state_str)
 
         # Store in local cache (preserves full Context with patch history)
-        self._cache_entries[cache_key] = (context, datetime.now())
+        self._cache_entries[cache_key] = (context, utc_now())
 
         # Enforce size limit (LRU eviction)
         if self.max_cache_size is not None and len(self._cache_entries) > self.max_cache_size:
