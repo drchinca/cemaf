@@ -11,6 +11,7 @@ from cemaf.llm.anthropic import AnthropicLLMClient, _convert_messages
 from cemaf.llm.protocols import (
     Message,
     StreamChunk,
+    ToolCall,
     ToolDefinition,
 )
 
@@ -103,6 +104,58 @@ class TestMessageConversion:
         assert api_msgs[0]["role"] == "user"
         assert api_msgs[1]["role"] == "assistant"
         assert api_msgs[2]["role"] == "user"
+
+    def test_tool_result_message_converted_to_user_role(self) -> None:
+        """Tool result messages become user messages with tool_result content blocks."""
+        messages = [
+            Message.tool_result(
+                tool_call_id="call_123",
+                content="The result is 42",
+                name="calculator",
+            ),
+        ]
+        _, api_msgs = _convert_messages(messages=messages)
+        assert len(api_msgs) == 1
+        assert api_msgs[0]["role"] == "user"
+        content = api_msgs[0]["content"]
+        assert isinstance(content, list)
+        assert len(content) == 1
+        assert content[0]["type"] == "tool_result"
+        assert content[0]["tool_use_id"] == "call_123"
+        assert content[0]["content"] == "The result is 42"
+
+    def test_assistant_message_with_tool_calls(self) -> None:
+        """Assistant messages with tool_calls include tool_use content blocks."""
+        tc = ToolCall(id="call_456", name="search", arguments={"q": "cats"})
+        messages = [
+            Message.assistant("Let me search.", (tc,)),
+        ]
+        _, api_msgs = _convert_messages(messages=messages)
+        assert len(api_msgs) == 1
+        assert api_msgs[0]["role"] == "assistant"
+        content = api_msgs[0]["content"]
+        assert isinstance(content, list)
+        assert len(content) == 2
+        assert content[0] == {"type": "text", "text": "Let me search."}
+        assert content[1] == {
+            "type": "tool_use",
+            "id": "call_456",
+            "name": "search",
+            "input": {"q": "cats"},
+        }
+
+    def test_assistant_tool_calls_no_text(self) -> None:
+        """Assistant with tool_calls but empty content omits text block."""
+        tc = ToolCall(id="call_789", name="lookup", arguments={})
+        messages = [
+            Message.assistant("", (tc,)),
+        ]
+        _, api_msgs = _convert_messages(messages=messages)
+        content = api_msgs[0]["content"]
+        assert isinstance(content, list)
+        # Empty string is falsy, so no text block
+        assert len(content) == 1
+        assert content[0]["type"] == "tool_use"
 
 
 class TestComplete:
@@ -203,7 +256,7 @@ class TestComplete:
 
 class TestStream:
     @pytest.mark.asyncio
-    async def test_stream_yields_chunks(self) -> None:
+    async def test_stream_yields_text_chunks(self) -> None:
         """Verify streaming produces StreamChunk objects with accumulated content."""
         with patch.dict("sys.modules", {"anthropic": MagicMock()}):
             client = AnthropicLLMClient(api_key="test-key")
@@ -214,15 +267,21 @@ class TestStream:
             output_tokens=2,
         )
 
-        # Build async iterator for text_stream
-        async def _text_stream() -> AsyncIterator[str]:
-            yield "Hello"
-            yield " world"
+        # Build event stream matching Anthropic's event types
+        async def _event_stream() -> AsyncIterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                type="content_block_delta",
+                delta=SimpleNamespace(text="Hello"),
+            )
+            yield SimpleNamespace(
+                type="content_block_delta",
+                delta=SimpleNamespace(text=" world"),
+            )
 
         stream_cm = AsyncMock()
         stream_cm.__aenter__ = AsyncMock(return_value=stream_cm)
         stream_cm.__aexit__ = AsyncMock(return_value=False)
-        stream_cm.text_stream = _text_stream()
+        stream_cm.__aiter__ = lambda self: _event_stream()
         stream_cm.get_final_message = AsyncMock(return_value=final_message)
 
         client._client.messages.stream = MagicMock(return_value=stream_cm)
@@ -239,6 +298,51 @@ class TestStream:
         assert chunks[1].accumulated_content == "Hello world"
         assert chunks[2].is_final is True
         assert chunks[2].finish_reason == "end_turn"
+
+    @pytest.mark.asyncio
+    async def test_stream_yields_tool_calls(self) -> None:
+        """Verify streaming captures tool_use events as ToolCalls."""
+        with patch.dict("sys.modules", {"anthropic": MagicMock()}):
+            client = AnthropicLLMClient(api_key="test-key")
+
+        final_message = _make_response(
+            content_blocks=[
+                _make_tool_block(id="tool_1", name="search", input={"q": "cats"}),
+            ],
+            input_tokens=10,
+            output_tokens=15,
+            stop_reason="tool_use",
+        )
+
+        async def _event_stream() -> AsyncIterator[SimpleNamespace]:
+            yield SimpleNamespace(
+                type="content_block_start",
+                content_block=SimpleNamespace(id="tool_1", name="search"),
+            )
+            yield SimpleNamespace(
+                type="content_block_delta",
+                delta=SimpleNamespace(partial_json='{"q": "cats"}'),
+            )
+            yield SimpleNamespace(type="content_block_stop")
+
+        stream_cm = AsyncMock()
+        stream_cm.__aenter__ = AsyncMock(return_value=stream_cm)
+        stream_cm.__aexit__ = AsyncMock(return_value=False)
+        stream_cm.__aiter__ = lambda self: _event_stream()
+        stream_cm.get_final_message = AsyncMock(return_value=final_message)
+
+        client._client.messages.stream = MagicMock(return_value=stream_cm)
+
+        chunks: list[StreamChunk] = []
+        async for chunk in client.stream(messages=[Message.user("Search cats")]):
+            chunks.append(chunk)
+
+        # Only the final chunk (no text deltas)
+        assert len(chunks) == 1
+        assert chunks[0].is_final is True
+        assert len(chunks[0].tool_calls) == 1
+        assert chunks[0].tool_calls[0].name == "search"
+        assert chunks[0].tool_calls[0].arguments == {"q": "cats"}
 
 
 class TestTokenCounting:
