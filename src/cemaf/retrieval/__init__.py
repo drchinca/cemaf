@@ -21,6 +21,7 @@ Usage:
     store = InMemoryVectorStore(embedding_provider)
 """
 
+from cemaf.retrieval.embedding_providers import HashEmbeddingProvider
 from cemaf.retrieval.factories import (
     create_in_memory_vector_store,
     create_vector_store_from_config,
@@ -45,6 +46,7 @@ __all__ = [
     "HybridRetriever",
     "RetrievalConfig",
     "InMemoryVectorStore",
+    "HashEmbeddingProvider",
     # Factories
     "create_in_memory_vector_store",
     "create_vector_store_from_config",
