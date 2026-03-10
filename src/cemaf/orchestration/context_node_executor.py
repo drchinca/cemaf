@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
+from cemaf.context.budget import TokenBudget
+from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
 from cemaf.core.domain import DomainContext
 from cemaf.core.provenance import ProvenanceLink, SourceReference
@@ -42,8 +44,10 @@ class ContextNodeExecutor:
         vector_store: VectorStore | None = None,
         memory_manager: MemoryManager | None = None,
         session_manager: SessionManager | None = None,
+        context_compiler: ContextCompiler | None = None,
+        token_budget: TokenBudget | None = None,
     ) -> None:
-        """Initialize with registry and optional logger/domain context."""
+        """Initialize with registry and optional compiler/budget for context compilation."""
         self._registry = agent_registry
         self._run_logger = run_logger
         self._domain_context = domain_context
@@ -51,6 +55,8 @@ class ContextNodeExecutor:
         self._vector_store = vector_store
         self._memory_manager = memory_manager
         self._session_manager = session_manager
+        self._context_compiler = context_compiler
+        self._token_budget = token_budget
 
     async def execute_node(
         self,
@@ -103,12 +109,24 @@ class ContextNodeExecutor:
         run_id = str(context.get("_run_id", default=""))
         global_memory = await self._recall_global_memory(agent_name=agent_name)
 
+        # Compile context if compiler is available
+        artifacts: dict[str, Any] = {}
+        if self._context_compiler and self._token_budget:
+            compiled = await self._compile_context(
+                agent_name=agent_name,
+                inputs=resolved_inputs,
+                memories=global_memory,
+            )
+            if compiled:
+                artifacts = {"compiled_context": compiled.to_messages()}
+
         # Build agent context
         agent_context = AgentContext(
             run_id=run_id,
             agent_id=agent_name,
             domain_context=self._domain_context,
             global_memory=global_memory,
+            artifacts=artifacts,
         )
 
         # Compute context hash for provenance
@@ -250,6 +268,39 @@ class ContextNodeExecutor:
         except Exception:
             logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)
             return {}
+
+    async def _compile_context(
+        self,
+        *,
+        agent_name: str,
+        inputs: dict[str, Any] | Any,
+        memories: dict[str, Any],
+    ) -> CompiledContext | None:
+        """Compile resolved inputs and memories into budgeted context."""
+        if self._context_compiler is None or self._token_budget is None:
+            return None
+        try:
+            artifact_pairs: list[tuple[str, str]] = []
+            if isinstance(inputs, dict):
+                for key, value in inputs.items():
+                    artifact_pairs.append((key, str(value)))
+
+            memory_pairs: list[tuple[str, str]] = []
+            for key, value in memories.items():
+                memory_pairs.append((f"memory:{key}", str(value)))
+
+            return await self._context_compiler.compile(
+                artifacts=tuple(artifact_pairs),
+                memories=tuple(memory_pairs),
+                budget=self._token_budget,
+            )
+        except Exception:
+            logger.warning(
+                "Context compilation failed for '%s'",
+                agent_name,
+                exc_info=True,
+            )
+            return None
 
     async def _ingest_result(
         self,
