@@ -58,7 +58,8 @@ class SemanticSimilarityEvaluator(BaseEvaluator):
         similarity_threshold: float = 0.8,
         config: EvalConfig | None = None,
     ) -> None:
-        super().__init__(config, name="SemanticSimilarity")
+        effective_config = config or EvalConfig(pass_threshold=similarity_threshold)
+        super().__init__(effective_config, name="SemanticSimilarity")
         self._embedder = embedding_provider
         self._threshold = similarity_threshold
 
@@ -117,7 +118,8 @@ class MultiReferenceSemanticEvaluator(BaseEvaluator):
         similarity_threshold: float = 0.8,
         config: EvalConfig | None = None,
     ) -> None:
-        super().__init__(config, name="MultiReferenceSemanticSimilarity")
+        effective_config = config or EvalConfig(pass_threshold=similarity_threshold)
+        super().__init__(effective_config, name="MultiReferenceSemanticSimilarity")
         self._embedder = embedding_provider
         self._threshold = similarity_threshold
 

@@ -167,7 +167,12 @@ class QualityPolice:
                 source="quality_police",
             )
             task = loop.create_task(self._event_bus.publish(event=event))
-            task.add_done_callback(lambda t: t.result() if not t.cancelled() and not t.exception() else None)
+
+            def _on_alert_done(t: asyncio.Task[None]) -> None:
+                if not t.cancelled() and t.exception():
+                    logger.error("Failed to publish quality alert: %s", t.exception())
+
+            task.add_done_callback(_on_alert_done)
         except RuntimeError:
             pass  # no event loop running
 

@@ -447,6 +447,7 @@ class DAGExecutor:
                         "success": result.success,
                         "duration_ms": result.duration_ms,
                         "error": result.error,
+                        "output": result.output,
                     },
                 )
 
