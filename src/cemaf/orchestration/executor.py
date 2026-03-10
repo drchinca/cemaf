@@ -36,7 +36,7 @@ from cemaf.core.execution import CancellationToken
 from cemaf.core.recovery import AutoHealManager
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
-from cemaf.events.protocols import EventBus
+from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
@@ -191,6 +191,18 @@ class DAGExecutor:
         self._budget_guard = budget_guard
         self._session_manager = session_manager
 
+    async def _emit_event(self, event_type: EventType, payload: JSON) -> None:
+        """Emit event if bus is configured."""
+        if self._event_bus is None:
+            return
+        event = Event.create(
+            type=event_type,
+            payload=payload,
+            source="dag_executor",
+            correlation_id=self._correlation_id,
+        )
+        await self._event_bus.publish(event=event)
+
     async def run(
         self,
         dag: DAG,
@@ -233,6 +245,12 @@ class DAGExecutor:
                 dag_name=dag.name,
                 initial_context=context,
             )
+
+        # Emit DAG started event
+        await self._emit_event(
+            event_type=EventType.DAG_STARTED,
+            payload={"dag_name": dag.name, "run_id": str(run_id)},
+        )
 
         # Bootstrap memory session
         if self._session_manager:
@@ -397,6 +415,17 @@ class DAGExecutor:
                 else:
                     metrics.counter("cemaf.node.executions.failed", tags=node_tags)
 
+                # Emit node completion event
+                await self._emit_event(
+                    event_type=EventType.TASK_COMPLETED if result.success else EventType.TASK_FAILED,
+                    payload={
+                        "node_id": str(node_id),
+                        "success": result.success,
+                        "duration_ms": result.duration_ms,
+                        "error": result.error,
+                    },
+                )
+
                 # Budget guard check after each node
                 if self._budget_guard and result.success:
                     cost = result.metadata.get("cost_usd", 0.0) if result.metadata else 0.0
@@ -456,6 +485,17 @@ class DAGExecutor:
                             error=result.error,
                         )
 
+                    # Emit DAG failed event
+                    await self._emit_event(
+                        event_type=EventType.TASK_FAILED,
+                        payload={
+                            "dag_name": dag.name,
+                            "run_id": str(run_id),
+                            "failed_node": str(node_id),
+                            "error": result.error,
+                        },
+                    )
+
                     return ExecutionResult(
                         run_id=run_id,
                         dag_name=dag.name,
@@ -495,6 +535,17 @@ class DAGExecutor:
                 duration_ms=duration_ms,
             )
 
+            # Emit DAG completed event
+            await self._emit_event(
+                event_type=EventType.DAG_COMPLETED,
+                payload={
+                    "dag_name": dag.name,
+                    "run_id": str(run_id),
+                    "num_nodes": len(node_results),
+                    "duration_ms": duration_ms,
+                },
+            )
+
             return ExecutionResult(
                 run_id=run_id,
                 dag_name=dag.name,
@@ -531,6 +582,17 @@ class DAGExecutor:
                 error_type=error_type,
                 duration_ms=duration_ms,
                 exc_info=True,
+            )
+
+            # Emit DAG failed event (exception path)
+            await self._emit_event(
+                event_type=EventType.SYSTEM_ERROR,
+                payload={
+                    "dag_name": dag.name,
+                    "run_id": str(run_id),
+                    "error": str(e),
+                    "error_type": error_type,
+                },
             )
 
             return ExecutionResult(
