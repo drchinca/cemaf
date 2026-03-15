@@ -27,9 +27,18 @@ Usage:
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 from cemaf.core.types import JSON, TokenCount
 from cemaf.core.utils import utc_now
+
+
+class ContextType(str, Enum):
+    """Classification of context sources by behavioral semantics."""
+
+    RESOURCE = "resource"
+    MEMORY = "memory"
+    SKILL = "skill"
 
 
 @dataclass(frozen=True)
@@ -65,6 +74,7 @@ class ContextSource:
     compressible: bool = True
     min_tokens: int = 0
     metadata: JSON = field(default_factory=dict)
+    context_type: ContextType | None = None
 
     # Legacy field aliases for backward compatibility
     @property
@@ -91,6 +101,7 @@ class ContextSource:
         # Legacy parameters for backward compatibility
         type: str | None = None,  # noqa: A002
         key: str | None = None,
+        context_type: ContextType | None = None,
     ) -> None:
         """Initialize ContextSource with backward compatibility for old parameters."""
         # Handle legacy parameters
@@ -108,6 +119,7 @@ class ContextSource:
         object.__setattr__(self, "compressible", compressible)
         object.__setattr__(self, "min_tokens", min_tokens)
         object.__setattr__(self, "metadata", metadata or {})
+        object.__setattr__(self, "context_type", context_type)
 
     @classmethod
     def from_tool_output(
@@ -141,6 +153,7 @@ class ContextSource:
             source_id=tool_name,
             compressible=compressible,
             metadata={"tool": tool_name},
+            context_type=ContextType.RESOURCE,
         )
 
     @classmethod
@@ -177,6 +190,7 @@ class ContextSource:
             source_id=document_id,
             compressible=compressible,
             metadata={"document_id": document_id},
+            context_type=ContextType.RESOURCE,
         )
 
     @classmethod
@@ -213,6 +227,7 @@ class ContextSource:
             source_id=memory_key,
             compressible=compressible,
             metadata={"memory_key": memory_key},
+            context_type=ContextType.MEMORY,
         )
 
     @classmethod
@@ -250,18 +265,11 @@ class ContextSource:
             compressible=compressible,
             min_tokens=min_tokens,
             metadata={"critical": True},
+            context_type=ContextType.SKILL,
         )
 
     def with_priority(self, priority: int) -> ContextSource:
-        """
-        Create a new source with updated priority.
-
-        Args:
-            priority: New priority value
-
-        Returns:
-            New ContextSource instance
-        """
+        """Create a new source with updated priority."""
         return ContextSource(
             content=self.content,
             priority=priority,
@@ -272,18 +280,11 @@ class ContextSource:
             compressible=self.compressible,
             min_tokens=self.min_tokens,
             metadata=self.metadata,
+            context_type=self.context_type,
         )
 
     def with_token_count(self, token_count: TokenCount) -> ContextSource:
-        """
-        Create a new source with pre-computed token count.
-
-        Args:
-            token_count: Number of tokens in content
-
-        Returns:
-            New ContextSource instance
-        """
+        """Create a new source with pre-computed token count."""
         return ContextSource(
             content=self.content,
             priority=self.priority,
@@ -294,6 +295,7 @@ class ContextSource:
             compressible=self.compressible,
             min_tokens=self.min_tokens,
             metadata=self.metadata,
+            context_type=self.context_type,
         )
 
     def age_seconds(self, reference_time: datetime | None = None) -> float:

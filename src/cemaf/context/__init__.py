@@ -20,6 +20,12 @@ from cemaf.context.algorithm import (
     SelectionResult,
 )
 from cemaf.context.budget import BudgetAllocation, TokenBudget
+from cemaf.context.classification import (
+    CONTEXT_TYPE_BEHAVIORS,
+    ContextTypeBehavior,
+    classify_source,
+    get_behavior,
+)
 from cemaf.context.compiler import (
     AdvancedCompilerConfig,
     CompiledContext,
@@ -54,7 +60,7 @@ from cemaf.context.patch import (
     PatchSource,
 )
 from cemaf.context.paths import ContextPath, TypedContext, create_path_builder
-from cemaf.context.source import ContextSource
+from cemaf.context.source import ContextSource, ContextType
 
 __all__ = [
     "ContextCompiler",
@@ -91,6 +97,12 @@ __all__ = [
     "create_path_builder",
     # Source management (new in Phase 1)
     "ContextSource",
+    "ContextType",
+    # Classification
+    "ContextTypeBehavior",
+    "CONTEXT_TYPE_BEHAVIORS",
+    "classify_source",
+    "get_behavior",
     # Compiler implementations & config
     "PriorityContextCompiler",
     "SimpleTokenEstimator",
