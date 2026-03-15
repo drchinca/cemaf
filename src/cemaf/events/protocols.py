@@ -63,6 +63,7 @@ class EventType(str, Enum):
     MEMORY_ITEM_SET = "memory.item.set"
     MEMORY_ITEM_EXPIRED = "memory.item.expired"
     MEMORY_CLEANUP = "memory.cleanup"
+    MEMORY_EXTRACTED = "memory.extracted"
 
     # Execution events
     EXECUTION_CANCELLED = "execution.cancelled"

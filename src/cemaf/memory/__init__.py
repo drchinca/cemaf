@@ -84,6 +84,13 @@ from cemaf.memory.episodic import (
     EpisodicStore,
     InMemoryEpisodicStore,
 )
+from cemaf.memory.extraction import (
+    ExtractedMemory,
+    ExtractionCategory,
+    MemoryExtractor,
+    RuleBasedExtractor,
+)
+from cemaf.memory.extraction_pipeline import ExtractionPipeline, ExtractionReport
 from cemaf.memory.factories import (
     create_memory_manager,
     create_memory_store,
@@ -142,6 +149,13 @@ __all__ = [
     "EpisodicEvent",
     "EpisodicStore",
     "InMemoryEpisodicStore",
+    # Extraction
+    "ExtractionCategory",
+    "ExtractedMemory",
+    "ExtractionPipeline",
+    "ExtractionReport",
+    "MemoryExtractor",
+    "RuleBasedExtractor",
     # Semantic bridge
     "DefaultSemanticMemoryStore",
     "MemoryQuery",
