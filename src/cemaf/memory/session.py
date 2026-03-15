@@ -1,5 +1,7 @@
 """Session lifecycle — bootstrap/ingest/compact/dispose."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -11,6 +13,7 @@ from cemaf.core.utils import utc_now
 from cemaf.memory.base import MemoryItem
 from cemaf.memory.compaction import CompactedMemory, MemoryCompactor
 from cemaf.memory.episodic import EpisodicEvent
+from cemaf.memory.extraction_pipeline import ExtractionPipeline
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 
@@ -107,9 +110,11 @@ class DefaultSessionManager:
         *,
         memory_manager: MemoryManager,
         compactor: MemoryCompactor,
+        extraction_pipeline: ExtractionPipeline | None = None,
     ) -> None:
         self._manager = memory_manager
         self._compactor = compactor
+        self._extraction_pipeline = extraction_pipeline
         self._sessions: dict[str, SessionState] = {}
 
     async def bootstrap(
@@ -226,12 +231,29 @@ class DefaultSessionManager:
         return compacted
 
     async def dispose(self, session_id: str) -> int:
-        """Close episode, clean up SESSION items, transition to DISPOSED."""
+        """Run extraction (if configured), close episode, clean up SESSION items."""
         state = self._sessions.get(session_id)
         if state is None:
             return 0
         if state.phase == SessionPhase.DISPOSED:
             return 0
+
+        # Run extraction pipeline before cleanup
+        if self._extraction_pipeline is not None:
+            session_results = await self._manager.recall(
+                query=MemoryQuery(scope=MemoryScope.SESSION, limit=1000),
+            )
+            session_memories = tuple(r.item for r in session_results)
+            episodes = ()
+            recent_events = await self._manager.get_recent_history(
+                session_id=session_id,
+                limit=100,
+            )
+            await self._extraction_pipeline.run(
+                session_memories=session_memories,
+                episodes=episodes,
+                recent_events=recent_events,
+            )
 
         # Close episode
         if state.episode_id:
