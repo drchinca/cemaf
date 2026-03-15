@@ -89,6 +89,7 @@ from cemaf.memory.factories import (
     create_memory_store,
     create_memory_store_from_config,
     create_session_manager,
+    create_tiered_store,
 )
 from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
@@ -111,6 +112,13 @@ from cemaf.memory.session import (
     SessionPhase,
     SessionState,
 )
+from cemaf.memory.tiered import (
+    LoadingTier,
+    TieredMemoryItem,
+    TierGenerator,
+    TruncationTierGenerator,
+)
+from cemaf.memory.tiered_store import TieredMemoryStore
 
 __all__ = [
     # Core
@@ -149,6 +157,12 @@ __all__ = [
     "SessionManager",
     "SessionPhase",
     "SessionState",
+    # Tiered loading
+    "LoadingTier",
+    "TierGenerator",
+    "TieredMemoryItem",
+    "TieredMemoryStore",
+    "TruncationTierGenerator",
     # Deduplication
     "DeduplicationAction",
     "DeduplicationResult",
@@ -161,4 +175,5 @@ __all__ = [
     "create_memory_store",
     "create_memory_store_from_config",
     "create_session_manager",
+    "create_tiered_store",
 ]
