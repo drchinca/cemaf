@@ -70,6 +70,14 @@ from cemaf.memory.context_provider import (
     DefaultMemoryContextProvider,
     MemoryContextProvider,
 )
+from cemaf.memory.deduplication import (
+    DeduplicationAction,
+    DeduplicationResult,
+    DuplicateMatch,
+    MatchType,
+    MemoryDeduplicator,
+    SemanticDeduplicator,
+)
 from cemaf.memory.episodic import (
     Episode,
     EpisodicEvent,
@@ -141,6 +149,13 @@ __all__ = [
     "SessionManager",
     "SessionPhase",
     "SessionState",
+    # Deduplication
+    "DeduplicationAction",
+    "DeduplicationResult",
+    "DuplicateMatch",
+    "MatchType",
+    "MemoryDeduplicator",
+    "SemanticDeduplicator",
     # Factories
     "create_memory_manager",
     "create_memory_store",

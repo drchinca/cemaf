@@ -6,6 +6,7 @@ from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.memory.base import MemoryItem
+from cemaf.memory.deduplication import MemoryDeduplicator
 from cemaf.memory.episodic import Episode, EpisodicEvent, EpisodicStore
 from cemaf.memory.semantic import MemoryQuery, MemorySearchResult, SemanticMemoryStore
 
@@ -66,10 +67,12 @@ class DefaultMemoryManager:
         semantic_store: SemanticMemoryStore,
         episodic_store: EpisodicStore,
         event_bus: EventBus | None = None,
+        deduplicator: MemoryDeduplicator | None = None,
     ) -> None:
         self._semantic = semantic_store
         self._episodic = episodic_store
         self._event_bus = event_bus
+        self._deduplicator = deduplicator
 
     # -- Semantic memory -----------------------------------------------------
 
@@ -82,13 +85,21 @@ class DefaultMemoryManager:
         confidence: float = 1.0,
         content_for_embedding: str | None = None,
     ) -> MemoryItem:
-        """Store a memory item and emit MEMORY_ITEM_SET event."""
+        """Store a memory item with optional deduplication."""
         item = MemoryItem(
             scope=scope,
             key=key,
             value=value,
             confidence=Confidence(confidence),
         )
+
+        if self._deduplicator is not None:
+            matches = await self._deduplicator.find_duplicates(candidate=item)
+            result = await self._deduplicator.resolve(candidate=item, matches=matches)
+            if result.skipped:
+                return item
+            item = result.item
+
         await self._semantic.store(
             item=item,
             content_for_embedding=content_for_embedding,

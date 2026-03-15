@@ -16,6 +16,7 @@ from cemaf.config.protocols import Settings
 from cemaf.events.protocols import EventBus
 from cemaf.memory.base import InMemoryStore
 from cemaf.memory.compaction import SimpleMemoryCompactor
+from cemaf.memory.deduplication import MemoryDeduplicator
 from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.protocols import MemoryStore
@@ -141,6 +142,7 @@ def create_memory_manager(
     *,
     memory_store: MemoryStore | None = None,
     event_bus: EventBus | None = None,
+    deduplicator: MemoryDeduplicator | None = None,
 ) -> DefaultMemoryManager:
     """Create a fully wired DefaultMemoryManager."""
     store = memory_store or InMemoryStore()
@@ -159,6 +161,7 @@ def create_memory_manager(
         semantic_store=semantic_store,
         episodic_store=episodic_store,
         event_bus=event_bus,
+        deduplicator=deduplicator,
     )
 
 
