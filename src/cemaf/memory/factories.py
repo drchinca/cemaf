@@ -23,6 +23,8 @@ from cemaf.memory.protocols import MemoryStore
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore
 from cemaf.memory.session import DefaultSessionManager
+from cemaf.memory.tiered import TruncationTierGenerator
+from cemaf.memory.tiered_store import TieredMemoryStore
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
 
@@ -177,4 +179,26 @@ def create_session_manager(
     return DefaultSessionManager(
         memory_manager=manager,
         compactor=compactor,
+    )
+
+
+def create_tiered_store(
+    *,
+    memory_store: MemoryStore | None = None,
+) -> TieredMemoryStore:
+    """Create a TieredMemoryStore with default tier generator."""
+    store = memory_store or InMemoryStore()
+    embedding_provider = MockEmbeddingProvider()
+    scorer = TemporalDecayScorer()
+
+    semantic_store = DefaultSemanticMemoryStore(
+        memory_store=store,
+        vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
+        embedding_provider=embedding_provider,
+        scorer=scorer,
+    )
+
+    return TieredMemoryStore(
+        semantic_store=semantic_store,
+        tier_generator=TruncationTierGenerator(),
     )
