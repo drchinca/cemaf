@@ -93,6 +93,12 @@ from cemaf.memory.factories import (
 )
 from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
+from cemaf.memory.scope_hierarchy import (
+    PropagatingScorer,
+    ScopeNode,
+    ScopePath,
+    ScopeScorer,
+)
 from cemaf.memory.scoring import (
     DecayFunction,
     MemoryScorer,
@@ -157,6 +163,11 @@ __all__ = [
     "SessionManager",
     "SessionPhase",
     "SessionState",
+    # Scope hierarchy
+    "PropagatingScorer",
+    "ScopeNode",
+    "ScopePath",
+    "ScopeScorer",
     # Tiered loading
     "LoadingTier",
     "TierGenerator",

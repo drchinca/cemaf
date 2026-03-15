@@ -24,6 +24,7 @@ class MemoryQuery:
     min_confidence: float = 0.0
     max_age: timedelta | None = None
     limit: int = 10
+    scope_path: str | None = None  # Filter to items under this hierarchical scope path
 
 
 @dataclass(frozen=True)
@@ -230,7 +231,11 @@ class DefaultSemanticMemoryStore:
             age = utc_now() - item.updated_at
             if age > query.max_age:
                 return False
-        return True
+        return not (
+            query.scope_path is not None
+            and item.scope_path is not None
+            and not item.scope_path.startswith(query.scope_path)
+        )
 
     @staticmethod
     def _item_to_embed_text(item: MemoryItem) -> str:
