@@ -110,6 +110,13 @@ prometheus = [
     "prometheus-client>=0.20",
 ]
 
+# Web UI (architecture advisor)
+web = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sse-starlette>=2.0",
+]
+
 # All optional integrations
 all = [
     "tiktoken>=0.5",
@@ -117,6 +124,9 @@ all = [
     "anthropic>=0.20",
     "prometheus-client>=0.20",
     "aiosqlite>=0.20",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sse-starlette>=2.0",
 ]
 
 [project.urls]
