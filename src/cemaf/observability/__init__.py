@@ -60,6 +60,7 @@ from cemaf.observability.health import (
     get_health_monitor,
 )
 from cemaf.observability.metrics_helper import MetricsHelper, record_timing
+from cemaf.observability.prometheus_metrics import PrometheusMetrics
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
     InMemoryRunLogger,
@@ -70,6 +71,7 @@ from cemaf.observability.run_logger import (
     ToolCall,
 )
 from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
+from cemaf.observability.structured import StructuredLogger
 from cemaf.observability.token_telemetry import (
     count_tokens,
     extract_token_metadata,
@@ -94,6 +96,9 @@ __all__ = [
     "SimpleMetrics",
     "NoOpTracer",
     "NoOpMetrics",
+    # Production implementations
+    "StructuredLogger",
+    "PrometheusMetrics",
     # Health checks
     "HealthStatus",
     "HealthCheckResult",
