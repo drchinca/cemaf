@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+**Evals System (PRs #61-65)**
+- `OnlineEvalPipeline` subscribing to TASK_COMPLETED events with GATE/OBSERVE modes
+- `HierarchicalJudge` with three-tier cascade: deterministic → semantic → LLM judge
+- `QualityPolice` with rolling window, anomaly detection, and halt gate
+- `RunEvalTool`, `CheckQualityTool`, `RecordScoreTool` as CEMAF tools
+- `QualityGuardAgent` registered in AgentRegistry for self-evaluation
+- Shared test fakes in `tests/unit/evals/conftest.py`
+
+**OpenViking Enhancements (PRs #67-71)**
+- `MemoryDeduplicator` protocol and `SemanticDeduplicator` (exact key + embedding similarity)
+- `ContextType` enum (RESOURCE/MEMORY/SKILL) with `ContextTypeBehavior` rules
+- `TieredMemoryStore` with L0/L1/L2 progressive retrieval
+- `ScopePath` and `PropagatingScorer` for hierarchical scope propagation
+- `ExtractionPipeline` and `RuleBasedExtractor` for post-session memory extraction
+
+**Production Backends (PRs #74-76)**
+- `StructuredLogger` with JSON-lines output
+- `PrometheusMetrics` with lazy metric registration and `generate_metrics()`
+- `SqliteMemoryStore` backed by aiosqlite
+- `OpenAIEmbeddingProvider` using text-embedding-3-small
+- `ResilientLLMClient` with retry, circuit breaker, and rate limiting
+- VectorStore injectable in `create_memory_manager`
+
+**Architecture (PRs #58-59)**
+- `RuntimeServices` frozen dataclass bundling 16 optional runtime deps
+- `bootstrap.create_executor()` composition root
+- Node-type handlers extracted to `orchestration/node_handlers.py`
+
+**Web (PR #77)**
+- FastAPI architecture advisor using CEMAF's own agent stack
+
+**Infrastructure (PRs #23-31)**
 - `InstrumentedLLMClient` for transparent LLM call recording into RunLogger (PR #23)
 - `ProviderRegistry[T]` generic extensible factory registry replacing if/elif chains (PR #24)
 - `CancellationToken` support in `DAGExecutor.run()` for cooperative cancellation (PR #25)
@@ -17,13 +50,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `context_compiler_registry`, `llm_registry`, `vector_store_registry` — extensible backend registries
 
 ### Fixed
+
+**P0 Bugs**
+- Session cascade bootstrap failure with proper recall query (PR #58)
+- Loop `UnboundLocalError` in DAGExecutor (PR #60)
+- `Context.set()` now uses `copy.deepcopy()` for nested dict immutability (PR #60)
+- Dead online eval pipeline not receiving events (PR #63)
+- Decorative thresholds in QualityPolice having no effect (PR #63)
+- Swallowed errors hiding evaluation failures (PR #63)
+- `scope_path` bug in `PropagatingScorer` causing incorrect ancestor queries (PR #73)
+
+**P1 Bugs**
+- Anthropic adapter: tool results, stream tool_use events, assistant tool_call blocks (PR #58)
+- `datetime.now()` replaced with `utc_now()` everywhere (PR #60)
+- Tiered store scope_path propagation (PR #73)
+- MEMORY_EXTRACTED event missing output field (PR #73)
+- P1/P2 type safety and dead code removal (PR #65)
+
+**P2 Fixes**
+- Session dispose scoped cleanup (PR #73)
+- Zero-assertion tests replaced with proper checks (PR #60)
+- Exception swallowing in EventBus handlers (PR #60)
+
+**Integration & DI Gaps (PRs #72, #76)**
+- `ContextTypeClassifier` protocol added
+- `TieredMemoryStore` → `ContextProvider` wiring
+- Factory gaps closed for extraction pipeline, scope scorer, session manager
 - 30+ missing exports added to `__init__.py` across 7 packages: core, context, orchestration, llm, observability, agents, memory (PR #29)
 - Redundant `_utc_now` in `result.py` replaced with `core.utils.utc_now` (PR #29)
 
 ### Changed
+- MCP bridges consolidated to `mcp/bridges/` (PR #60)
+- `ToolSchema.to_definition()` bridges tools → LLM protocols (PR #60)
+- Singleton pattern removed from AgentRegistry (PR #60)
+- Agentic DAG integration tests with real agents, eval pipeline, and quality police (PR #66)
 - LLM, context compiler, and retrieval factories now use `ProviderRegistry` instead of if/elif chains
 - `ContextNodeExecutor` auto-wraps agents' LLM clients with `InstrumentedLLMClient`
-- Test suite expanded from 1464 → 1557 total (1452 unit + 105 integration) covering persistence, cost tracking, rate limiter, resilience decorators, core/registry, and DAG executor (PRs #29, #30)
+- Test suite expanded from 1464 → 1557 → 2118+ tests (PRs #29, #30, #57-76)
 - CI pipeline added: lint, type-check, security scan, tests with coverage on every push/PR (PR #31)
 
 ## [0.2.0] - 2026-02-19
