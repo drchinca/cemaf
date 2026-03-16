@@ -270,24 +270,46 @@ embeddings = await provider.embed_batch([doc.content for doc in docs])
 
 ## Embedding Providers
 
-### OpenAI Embeddings
+### OpenAIEmbeddingProvider
+
+Production embedding provider backed by the OpenAI text-embedding API. Requires the `cemaf[openai]` extra.
+
+```bash
+uv add "cemaf[openai]"
+```
 
 ```python
-from cemaf.retrieval import EmbeddingProvider
+from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
-class OpenAIEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, model: str = "text-embedding-3-small"):
-        self._model = model
-        self._dimension = 1536  # For text-embedding-3-small
+provider = OpenAIEmbeddingProvider(
+    api_key="sk-...",
+    model="text-embedding-3-small",
+    dimension=1536,
+)
 
-    async def embed(self, text: str) -> tuple[float, ...]:
-        # Call OpenAI API
-        response = await openai.embeddings.create(
-            model=self._model,
-            input=text,
-        )
-        return tuple(response.data[0].embedding)
+# Single embed
+embedding = await provider.embed(text="What is context engineering?")
+
+# Batch embed — single API call for all non-empty texts
+embeddings = await provider.embed_batch(
+    texts=["first document", "second document", "third document"]
+)
 ```
+
+**Features**:
+
+- Configurable model and dimension via constructor args
+- Empty/whitespace text returns a zero vector (no API call)
+- Batch embed sends all non-empty texts in a single API call, maps results back to original indices
+- Properties: `provider.dimension` and `provider.model_name`
+
+**Available Models**:
+
+| Model | Default Dimension | Notes |
+|-------|-------------------|-------|
+| `text-embedding-3-small` | 1536 | Default. Fast, cost-effective |
+| `text-embedding-3-large` | 3072 | Higher accuracy, larger vectors |
+| `text-embedding-ada-002` | 1536 | Legacy model |
 
 ### Sentence Transformers
 

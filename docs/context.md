@@ -463,3 +463,92 @@ compiler = create_context_compiler_from_config(algorithm_name="knapsack")
 context_compiler_registry.register(backend="custom", factory=my_compiler_factory)
 compiler = create_context_compiler_from_config(algorithm_name="custom")
 ```
+
+## Context Type Classification
+
+Context sources are classified into three behavioral types that control caching, sharing, compression, and compaction behavior.
+
+### ContextType Enum
+
+| Type | Semantics | Default Priority |
+|------|-----------|------------------|
+| `RESOURCE` | External data (documents, tool outputs) | 3 |
+| `MEMORY` | Agent/session memory | 7 |
+| `SKILL` | System prompts, instructions | 5 |
+
+The `ContextType` is set on `ContextSource` via factory methods:
+
+```python
+from cemaf.context.source import ContextSource, ContextType
+
+# Automatically classified as RESOURCE
+source = ContextSource.from_tool_output(content="search results...", tool_name="web_search")
+assert source.context_type == ContextType.RESOURCE
+
+# Automatically classified as MEMORY
+source = ContextSource.from_memory(content="user prefers dark mode", memory_key="pref:theme")
+assert source.context_type == ContextType.MEMORY
+
+# Automatically classified as SKILL
+source = ContextSource.from_system_prompt(content="You are a helpful assistant.")
+assert source.context_type == ContextType.SKILL
+```
+
+### ContextTypeBehavior
+
+Each type has behavioral rules that downstream systems use to make decisions:
+
+```python
+from cemaf.context.classification import get_behavior, classify_source, ContextTypeBehavior
+from cemaf.context.source import ContextType
+
+behavior = get_behavior(context_type=ContextType.MEMORY)
+# ContextTypeBehavior(
+#     cacheable=False,
+#     shareable=False,
+#     compressible=True,
+#     default_ttl_seconds=86400.0,
+#     default_priority=7,
+#     preferred_compaction="metadata",
+# )
+```
+
+### Behavioral Rules by Type
+
+| Property | RESOURCE | MEMORY | SKILL |
+|----------|----------|--------|-------|
+| `cacheable` | True | False | True |
+| `shareable` | True | False | True |
+| `compressible` | True | True | False |
+| `default_ttl_seconds` | None | 86400 | None |
+| `preferred_compaction` | `"summary"` | `"metadata"` | `"full"` |
+
+### ContextTypeClassifier Protocol
+
+Implement the `ContextTypeClassifier` protocol for custom classification:
+
+```python
+from cemaf.context.classification import ContextTypeClassifier, DefaultContextTypeClassifier
+
+# Default classifier maps string source_types to ContextType
+classifier = DefaultContextTypeClassifier()
+ct = classifier.classify(source_type="document")   # ContextType.RESOURCE
+ct = classifier.classify(source_type="memory")     # ContextType.MEMORY
+ct = classifier.classify(source_type="system")     # ContextType.SKILL
+ct = classifier.classify(source_type="unknown")    # ContextType.RESOURCE (default)
+
+# Module-level convenience functions
+from cemaf.context.classification import classify_source, get_behavior
+ct = classify_source(source_type="tool_output")
+behavior = get_behavior(context_type=ct)
+```
+
+### Default Source Type Mapping
+
+| `source_type` string | `ContextType` |
+|---------------------|--------------|
+| `"document"` | `RESOURCE` |
+| `"tool_output"` | `RESOURCE` |
+| `"memory"` | `MEMORY` |
+| `"system"` | `SKILL` |
+| anything else | `RESOURCE` (fallback) |

@@ -375,3 +375,132 @@ result = await orchestrator.run(
     initial_context=Context()
 )
 ```
+
+## Node Handlers
+
+Complex node-type execution logic is extracted into dedicated handler functions in `orchestration/node_handlers.py`, keeping `DAGExecutor` focused on graph traversal.
+
+### Handler Functions
+
+| Handler | Node Type | Behavior |
+|---------|-----------|----------|
+| `execute_router_node()` | `ROUTER` | Evaluates route function/key, selects downstream targets, supports `default_route` fallback |
+| `execute_conditional_node()` | `CONDITIONAL` | Evaluates condition (callable, rule, or context key), routes by boolean result |
+| `execute_loop_node()` | `LOOP` | Iterates body nodes up to `max_iterations`, checks `exit_condition` context key each iteration |
+| `execute_parallel_node()` | `PARALLEL` | Runs sub-nodes concurrently with semaphore-limited concurrency, merges branch contexts |
+
+All handlers receive a `NodeHandlerContext` that bundles shared execution utilities:
+
+```python
+from cemaf.orchestration.node_handlers import NodeHandlerContext
+
+handler_ctx = NodeHandlerContext(
+    route_choices=route_choices_dict,
+    apply_output=apply_output_fn,
+    execute_with_retry=execute_with_retry_fn,
+    merge_strategy=my_merge_strategy,
+    max_parallel=4,
+    run_logger=my_run_logger,
+    correlation_id="run-abc-123",
+)
+```
+
+### Parallel Execution Details
+
+`execute_parallel_node()` and `run_parallel_nodes()` handle:
+- Semaphore-bounded concurrency (configurable via `max_parallel`)
+- Context isolation per branch (each branch gets a copy)
+- Context merging after all branches complete (via `MergeStrategy`)
+- Merge conflict recording as context patches when `RunLogger` is available
+- Exception handling: failed branches produce error `NodeResult` without crashing others
+
+## RuntimeServices
+
+A frozen dataclass that bundles all optional runtime dependencies for orchestration. Avoids 16+ constructor parameters on `DAGExecutor`.
+
+```python
+from cemaf.orchestration.services import RuntimeServices
+
+services = RuntimeServices(
+    # Observability
+    run_logger=my_run_logger,
+    event_bus=my_event_bus,
+    health_monitor=my_health_monitor,
+    budget_guard=my_budget_guard,
+
+    # Quality
+    online_eval_pipeline=my_eval_pipeline,
+    quality_police=my_police,
+
+    # Memory
+    memory_manager=my_memory_manager,
+    session_manager=my_session_manager,
+
+    # Content safety
+    moderation_pipeline=my_moderation,
+
+    # Context
+    context_compiler=my_compiler,
+    token_budget=my_budget,
+    domain_context=my_domain_context,
+
+    # LLM + Retrieval
+    llm_client=my_llm,
+    vector_store=my_vector_store,
+
+    # Recovery
+    auto_heal_manager=my_heal_manager,
+)
+```
+
+### Field Groups
+
+| Group | Fields | Purpose |
+|-------|--------|---------|
+| Observability | `run_logger`, `event_bus`, `health_monitor`, `budget_guard` | Logging, events, health, cost limits |
+| Quality | `online_eval_pipeline`, `quality_police` | Online evals, quality monitoring |
+| Memory | `memory_manager`, `session_manager` | Memory recall/ingest, session lifecycle |
+| Content Safety | `moderation_pipeline` | Input/output moderation |
+| Context | `context_compiler`, `token_budget`, `domain_context` | Context compilation, budget, domain rules |
+| LLM + Retrieval | `llm_client`, `vector_store` | LLM access, vector search |
+| Recovery | `auto_heal_manager` | Auto-healing strategies |
+
+All fields are `None` by default. The composition root reads them and wires only what is provided.
+
+## Composition Root
+
+`bootstrap.create_executor()` is the single entry point for creating a fully-wired `DAGExecutor`. It reads `RuntimeServices` and `ExecutorConfig`, then wires everything together.
+
+```python
+from cemaf.bootstrap import create_executor
+from cemaf.orchestration.executor import ExecutorConfig
+from cemaf.orchestration.services import RuntimeServices
+from cemaf.agents.registry import AgentRegistry
+
+registry = AgentRegistry()
+registry.register_agent(agent_instance=my_agent)
+
+executor = create_executor(
+    agent_registry=registry,
+    config=ExecutorConfig(
+        max_parallel=4,
+        enable_logging=True,
+        enable_events=True,
+        enable_moderation=False,
+        node_timeout_seconds=30.0,
+    ),
+    services=RuntimeServices(
+        run_logger=my_logger,
+        event_bus=my_bus,
+        memory_manager=my_memory,
+        session_manager=my_sessions,
+    ),
+)
+```
+
+### What create_executor() Wires
+
+1. Creates `ContextNodeExecutor` with agent registry, domain context, LLM, memory, and context compilation
+2. If `event_bus` is enabled, subscribes `OnlineEvalPipeline` and `QualityPolice` to events
+3. Creates `DAGExecutor` with node executor, logging, events, moderation, health, auto-healing, budget guard, session manager, and quality police
+4. Config flags (`enable_logging`, `enable_events`, `enable_moderation`) control which optional components are active
