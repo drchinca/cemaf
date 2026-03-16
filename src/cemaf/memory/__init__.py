@@ -92,9 +92,11 @@ from cemaf.memory.extraction import (
 )
 from cemaf.memory.extraction_pipeline import ExtractionPipeline, ExtractionReport
 from cemaf.memory.factories import (
+    create_extraction_pipeline,
     create_memory_manager,
     create_memory_store,
     create_memory_store_from_config,
+    create_scope_scorer,
     create_session_manager,
     create_tiered_store,
 )
@@ -196,9 +198,11 @@ __all__ = [
     "MemoryDeduplicator",
     "SemanticDeduplicator",
     # Factories
+    "create_extraction_pipeline",
     "create_memory_manager",
     "create_memory_store",
     "create_memory_store_from_config",
+    "create_scope_scorer",
     "create_session_manager",
     "create_tiered_store",
 ]

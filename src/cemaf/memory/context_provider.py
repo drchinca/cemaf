@@ -8,6 +8,7 @@ from cemaf.context.source import ContextSource
 from cemaf.memory.compaction import MemoryCompactor
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
+from cemaf.memory.tiered_store import TieredMemoryStore
 
 
 @runtime_checkable
@@ -48,11 +49,13 @@ class DefaultMemoryContextProvider:
         compactor: MemoryCompactor,
         compiler: ContextCompiler,
         token_estimator: TokenEstimator,
+        tiered_store: TieredMemoryStore | None = None,
     ) -> None:
         self._memory_manager = memory_manager
         self._compactor = compactor
         self._compiler = compiler
         self._token_estimator = token_estimator
+        self._tiered_store = tiered_store
 
     async def provide_context_sources(
         self,
@@ -61,17 +64,9 @@ class DefaultMemoryContextProvider:
         token_budget: int,
     ) -> tuple[ContextSource, ...]:
         """Fetch, compact, and return as ContextSource objects."""
-        results = await self._memory_manager.recall(query=query)
-        if not results:
-            return ()
-
-        items = tuple(r.item for r in results)
-        compacted = await self._compactor.compact_batch_to_budget(
-            items=items,
-            token_budget=token_budget,
-        )
-
-        return tuple(cm.to_context_source() for cm in compacted)
+        if self._tiered_store is not None:
+            return await self._provide_via_tiered(query=query, token_budget=token_budget)
+        return await self._provide_via_flat(query=query, token_budget=token_budget)
 
     async def provide_memories_for_compiler(
         self,
@@ -112,6 +107,43 @@ class DefaultMemoryContextProvider:
             priorities=priorities,
         )
 
+    async def _provide_via_tiered(
+        self,
+        *,
+        query: MemoryQuery,
+        token_budget: int,
+    ) -> tuple[ContextSource, ...]:
+        """Progressive retrieval via TieredMemoryStore."""
+        assert self._tiered_store is not None
+        results = await self._tiered_store.progressive_search(query=query)
+        if not results:
+            return ()
+
+        items = tuple(r.item for r in results)
+        compacted = await self._compactor.compact_batch_to_budget(
+            items=items,
+            token_budget=token_budget,
+        )
+        return tuple(cm.to_context_source() for cm in compacted)
+
+    async def _provide_via_flat(
+        self,
+        *,
+        query: MemoryQuery,
+        token_budget: int,
+    ) -> tuple[ContextSource, ...]:
+        """Flat retrieval via MemoryManager.recall()."""
+        results = await self._memory_manager.recall(query=query)
+        if not results:
+            return ()
+
+        items = tuple(r.item for r in results)
+        compacted = await self._compactor.compact_batch_to_budget(
+            items=items,
+            token_budget=token_budget,
+        )
+        return tuple(cm.to_context_source() for cm in compacted)
+
     def _allocate_memory_budget(
         self,
         *,
@@ -120,9 +152,7 @@ class DefaultMemoryContextProvider:
     ) -> int:
         """Allocate a portion of the token budget to memories."""
         available = total_budget.available_tokens
-        # Check for explicit memory section allocation
         section_budget = total_budget.get_section_budget(section="memory")
         if section_budget > 0:
             return section_budget
-        # Default: give memories 30% of available tokens
         return int(available * 0.3)

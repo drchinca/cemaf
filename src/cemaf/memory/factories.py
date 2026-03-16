@@ -18,10 +18,13 @@ from cemaf.memory.base import InMemoryStore
 from cemaf.memory.compaction import SimpleMemoryCompactor
 from cemaf.memory.deduplication import MemoryDeduplicator
 from cemaf.memory.episodic import InMemoryEpisodicStore
-from cemaf.memory.manager import DefaultMemoryManager
+from cemaf.memory.extraction import MemoryExtractor, RuleBasedExtractor
+from cemaf.memory.extraction_pipeline import ExtractionPipeline
+from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryStore
+from cemaf.memory.scope_hierarchy import PropagatingScorer
 from cemaf.memory.scoring import TemporalDecayScorer
-from cemaf.memory.semantic import DefaultSemanticMemoryStore
+from cemaf.memory.semantic import DefaultSemanticMemoryStore, SemanticMemoryStore
 from cemaf.memory.session import DefaultSessionManager
 from cemaf.memory.tiered import TruncationTierGenerator
 from cemaf.memory.tiered_store import TieredMemoryStore
@@ -170,8 +173,9 @@ def create_memory_manager(
 def create_session_manager(
     *,
     memory_manager: DefaultMemoryManager | None = None,
+    extraction_pipeline: ExtractionPipeline | None = None,
 ) -> DefaultSessionManager:
-    """Create a DefaultSessionManager with default compactor."""
+    """Create a DefaultSessionManager with default compactor and optional extraction."""
     manager = memory_manager or create_memory_manager()
     scorer = TemporalDecayScorer()
     compactor = SimpleMemoryCompactor(scorer=scorer)
@@ -179,6 +183,7 @@ def create_session_manager(
     return DefaultSessionManager(
         memory_manager=manager,
         compactor=compactor,
+        extraction_pipeline=extraction_pipeline,
     )
 
 
@@ -201,4 +206,32 @@ def create_tiered_store(
     return TieredMemoryStore(
         semantic_store=semantic_store,
         tier_generator=TruncationTierGenerator(),
+    )
+
+
+def create_extraction_pipeline(
+    *,
+    memory_manager: MemoryManager,
+    extractor: MemoryExtractor | None = None,
+    deduplicator: MemoryDeduplicator | None = None,
+    event_bus: EventBus | None = None,
+) -> ExtractionPipeline:
+    """Create an ExtractionPipeline with defaults."""
+    return ExtractionPipeline(
+        extractor=extractor or RuleBasedExtractor(),
+        deduplicator=deduplicator,
+        memory_manager=memory_manager,
+        event_bus=event_bus,
+    )
+
+
+def create_scope_scorer(
+    *,
+    semantic_store: SemanticMemoryStore,
+    propagation_factor: float = 0.7,
+) -> PropagatingScorer:
+    """Create a PropagatingScorer with configurable propagation."""
+    return PropagatingScorer(
+        semantic_store=semantic_store,
+        propagation_factor=propagation_factor,
     )
