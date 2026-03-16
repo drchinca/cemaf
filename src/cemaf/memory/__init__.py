@@ -58,7 +58,7 @@ CEMAF orchestration systems.
 See cemaf.memory.protocols.MemoryStore for the protocol definition.
 """
 
-# Built-in implementation
+# Built-in implementations
 from cemaf.memory.base import InMemoryStore
 from cemaf.memory.compaction import (
     CompactedMemory,
@@ -127,6 +127,7 @@ from cemaf.memory.session import (
     SessionPhase,
     SessionState,
 )
+from cemaf.memory.sqlite_store import SqliteMemoryStore
 from cemaf.memory.tiered import (
     LoadingTier,
     TieredMemoryItem,
@@ -140,6 +141,7 @@ __all__ = [
     "MemoryItem",
     "MemoryStore",
     "InMemoryStore",
+    "SqliteMemoryStore",
     # Scoring
     "DecayFunction",
     "MemoryScorer",
