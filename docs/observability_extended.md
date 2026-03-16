@@ -598,3 +598,146 @@ Core metrics for all CEMAF systems:
 - **Business logic**: Don't put business decisions in observability
 - **Sensitive data**: Don't log passwords, API keys, or PII
 - **High-frequency events**: Don't log every millisecond. Sample instead.
+
+## StructuredLogger Deep Dive
+
+JSON-lines logger for production observability. Each log line is a single JSON object written to stdout, ready for log aggregation (Fluentd, Datadog, CloudWatch).
+
+**Source**: `observability/structured.py`
+
+### Core Design
+
+- Implements the `Logger` protocol (debug/info/warning/error methods)
+- Outputs one JSON line per log call, flushed immediately
+- Supports lazy `%` formatting (format string only evaluated if level passes)
+- Carries persistent context fields that merge into every log line
+
+### Output Format
+
+```json
+{
+    "timestamp": "2026-03-16T12:00:00+00:00",
+    "level": "INFO",
+    "logger": "cemaf.memory",
+    "message": "Memory item stored",
+    "scope": "project",
+    "key": "brand_colors"
+}
+```
+
+### Usage
+
+```python
+from cemaf.observability.structured import StructuredLogger
+import logging
+
+# Create with name and level
+logger = StructuredLogger(name="cemaf.memory", level=logging.DEBUG)
+
+# Log with structured fields
+logger.info("Memory item stored", scope="project", key="brand_colors")
+logger.warning("Confidence below threshold", confidence=0.3, key="stale_fact")
+logger.error("Store operation failed", error="connection refused", retries=3)
+
+# Lazy formatting (only computed if level passes)
+logger.debug("Query returned %d results in %.2fms", 42, 15.3)
+```
+
+### Context Propagation
+
+`with_context()` creates a new logger instance with merged context fields. Every log line from the child logger includes the context fields without repeating them in each call.
+
+```python
+base = StructuredLogger(name="cemaf")
+
+# Create scoped logger for a specific run
+run_logger = base.with_context(run_id="run-123", user="alice")
+run_logger.info("Run started")
+# {"timestamp": "...", "level": "INFO", "logger": "cemaf", "message": "Run started", "run_id": "run-123", "user": "alice"}
+
+# Further scope for a node
+node_logger = run_logger.with_context(node_id="summarizer")
+node_logger.info("Node executing")
+# includes run_id, user, AND node_id
+```
+
+### Level Filtering
+
+Messages below the configured level are dropped before formatting:
+
+```python
+logger = StructuredLogger(name="cemaf", level=logging.WARNING)
+logger.debug("This is skipped")     # not emitted
+logger.info("This is also skipped") # not emitted
+logger.warning("This is emitted")   # JSON line written
+```
+
+## PrometheusMetrics Deep Dive
+
+Prometheus-compatible metrics collector using `prometheus_client`. Supports counters, gauges, histograms, and timing with labeled dimensions.
+
+**Source**: `observability/prometheus_metrics.py`
+
+### Core Design
+
+- Lazy-imports `prometheus_client` (fails with clear error if not installed)
+- All metric names prefixed with configurable prefix (default: `cemaf`)
+- Lazy metric registration: counters/gauges/histograms created on first use
+- Internal cache keyed by `(full_name, label_names)` prevents duplicate registration
+
+### Metric Types
+
+```python
+from cemaf.observability.prometheus_metrics import PrometheusMetrics
+
+metrics = PrometheusMetrics(prefix="cemaf")
+
+# Counter: monotonically increasing count
+metrics.counter(name="llm_calls", value=1, tags={"model": "claude-sonnet", "status": "success"})
+
+# Gauge: current value, can go up or down
+metrics.gauge(name="active_sessions", value=5, tags={"scope": "project"})
+
+# Histogram: distribution of observations
+metrics.histogram(name="llm_latency_seconds", value=1.23, tags={"model": "claude-sonnet"})
+
+# Timing: convenience for recording duration (converts ms to seconds)
+metrics.timing(name="memory_query_duration", value_ms=45.2, tags={"store": "sqlite"})
+```
+
+### Label Handling
+
+Tags (labels) are sorted by key for consistent metric identity. The same metric name with different label sets creates different Prometheus metrics.
+
+```python
+# These create ONE counter with label "model"
+metrics.counter(name="requests", tags={"model": "gpt-4"})
+metrics.counter(name="requests", tags={"model": "claude"})
+
+# This creates a DIFFERENT counter (different label set)
+metrics.counter(name="requests", tags={"model": "gpt-4", "region": "us-east"})
+```
+
+### Text Exposition
+
+```python
+# Generate Prometheus text format (for /metrics endpoint)
+text = metrics.generate_metrics()
+# Returns multiline string like:
+# # HELP cemaf_llm_calls Counter for llm_calls
+# # TYPE cemaf_llm_calls counter
+# cemaf_llm_calls_total{model="claude-sonnet",status="success"} 42.0
+```
+
+### Integration with ResilientLLMClient
+
+The `ResilientLLMClient` accepts a `MetricsCollector` and records LLM call metrics (model, tokens, duration, success) via `MetricsHelper.record_llm_call()`. `PrometheusMetrics` satisfies the `MetricsCollector` protocol.
+
+```python
+from cemaf.observability.prometheus_metrics import PrometheusMetrics
+from cemaf.llm.resilient import create_resilient_client
+
+metrics = PrometheusMetrics()
+client = create_resilient_client(client=base_llm, metrics=metrics)
+# Every LLM call now records prometheus metrics automatically
+```

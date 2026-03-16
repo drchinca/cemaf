@@ -164,3 +164,111 @@ logger = SimpleLogger()
 logger.info("Operation started")
 logger.error("Operation failed", exc_info=True)
 ```
+
+## StructuredLogger
+
+Production JSON-lines logger that writes structured records to stdout. Satisfies the `Logger` protocol with context propagation.
+
+```python
+from cemaf.observability.structured import StructuredLogger
+
+logger = StructuredLogger(name="my_service", level=logging.INFO)
+
+# Standard log levels with lazy % formatting
+logger.info("Processing item %s", item_id)
+logger.warning("Slow query", duration_ms=523, query="SELECT ...")
+logger.error("Failed to connect", host="db.example.com")
+```
+
+Output (one JSON object per line):
+
+```json
+{"timestamp": "2026-03-16T12:00:00+00:00", "level": "INFO", "logger": "my_service", "message": "Processing item abc-123"}
+```
+
+### Context Propagation
+
+`with_context()` returns a new logger with merged context fields that appear in every log entry:
+
+```python
+# Create a scoped logger with persistent fields
+request_logger = logger.with_context(
+    request_id="req-abc",
+    user_id="user-42",
+)
+request_logger.info("Starting request")
+# Output includes request_id and user_id in every line
+
+# Chain contexts
+node_logger = request_logger.with_context(node_id="summarizer")
+node_logger.info("Executing node")
+# Output includes request_id, user_id, AND node_id
+```
+
+### Keyword Arguments
+
+Any extra keyword arguments passed to log methods are included as top-level fields in the JSON output:
+
+```python
+logger.info("LLM call completed", model="gpt-4", tokens=1523, cost_usd=0.045)
+# {"timestamp": "...", "level": "INFO", "message": "LLM call completed", "model": "gpt-4", "tokens": 1523, "cost_usd": 0.045}
+```
+
+## PrometheusMetrics
+
+Production metrics collector backed by `prometheus_client`. Uses lazy registration to avoid duplicate metric errors and supports counters, gauges, histograms, and timing.
+
+```python
+from cemaf.observability.prometheus_metrics import PrometheusMetrics
+
+metrics = PrometheusMetrics(prefix="cemaf")
+
+# Counters
+metrics.counter(name="requests_total", value=1, tags={"method": "POST", "status": "200"})
+
+# Gauges
+metrics.gauge(name="active_connections", value=42.0, tags={"service": "llm"})
+
+# Histograms
+metrics.histogram(name="response_size_bytes", value=1024.0)
+
+# Timing (converts ms to seconds for histogram)
+metrics.timing(name="llm_latency", value_ms=523.0, tags={"model": "gpt-4"})
+
+# Export Prometheus text format (for /metrics endpoint)
+exposition = metrics.generate_metrics()
+```
+
+### Lazy Registration
+
+Metrics are created on first use and cached. Calling the same metric name with the same label set reuses the existing Prometheus collector:
+
+```python
+# First call registers the counter
+metrics.counter(name="llm_calls", tags={"model": "gpt-4"})
+
+# Subsequent calls increment the existing counter
+metrics.counter(name="llm_calls", tags={"model": "gpt-4"})
+```
+
+### Integration with ResilientLLMClient
+
+Pass `PrometheusMetrics` as the `MetricsCollector` to `ResilientLLMClient` for automatic LLM call tracking:
+
+```python
+from cemaf.llm.resilient import create_resilient_client
+
+client = create_resilient_client(
+    client=my_llm_client,
+    metrics=metrics,
+)
+# Every complete() call records: prompt_tokens, completion_tokens, duration, success/error
+```
+
+### Installation
+
+Requires the `prometheus-client` package:
+
+```bash
+uv add prometheus-client
+```
