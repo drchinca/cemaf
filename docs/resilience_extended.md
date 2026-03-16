@@ -635,3 +635,187 @@ resilience:
 - [Tools Module](./tools.md) - Tool execution
 - [LLM Module](./llm.md) - External API calls
 - [Orchestration Module](./orchestration.md) - DAG execution
+
+## ResilientLLMClient Deep Dive
+
+The `ResilientLLMClient` wraps any `LLMClient` implementation with retry, circuit breaker, and rate limiting. It is the recommended way to call LLMs in production.
+
+**Source**: `llm/resilient.py`
+
+### Execution Order
+
+For `complete()`, the resilience layers execute in this order:
+
+```
+Request
+  │
+  v
+Rate Limiter ──[exceeded]──> CompletionResult.fail("Rate limit exceeded")
+  │
+  [acquired]
+  │
+  v
+Retry Policy ──[wraps]──> Circuit Breaker ──[wraps]──> client.complete()
+  │                              │
+  │                        [CircuitOpenError]
+  │                              │
+  │                              v
+  │                   CompletionResult.fail("Circuit breaker open")
+  │
+  [all retries failed]
+  │
+  v
+CompletionResult.fail("All retry attempts failed")
+```
+
+The key insight: **rate limiter runs first** (before any retries), **retry wraps circuit breaker** (each retry attempt checks the circuit), and **circuit breaker wraps the actual client call**.
+
+For `stream()`, retry is not applied (streaming is not idempotent). Only rate limiting and circuit breaker protect streaming calls.
+
+### Constructor
+
+```python
+from cemaf.llm.resilient import ResilientLLMClient
+from cemaf.resilience.retry import RetryPolicy, RetryConfig, BackoffStrategy
+from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
+from cemaf.resilience.rate_limiter import RateLimiter, RateLimitConfig
+
+client = ResilientLLMClient(
+    client=base_llm_client,
+    retry=RetryPolicy(config=RetryConfig(
+        max_attempts=3,
+        initial_delay_seconds=1.0,
+        backoff_strategy=BackoffStrategy.EXPONENTIAL,
+    )),
+    circuit_breaker=CircuitBreaker(config=CircuitConfig(
+        failure_threshold=5,
+        failure_window_seconds=60.0,
+        recovery_timeout_seconds=30.0,
+    )),
+    rate_limiter=RateLimiter(config=RateLimitConfig(
+        rate=10.0,     # requests per second
+        burst=20,      # token bucket capacity
+    )),
+    metrics=prometheus_metrics,  # optional, records LLM call metrics
+)
+```
+
+### Factory Function
+
+`create_resilient_client()` provides sensible defaults:
+
+```python
+from cemaf.llm.resilient import create_resilient_client
+
+client = create_resilient_client(
+    client=base_llm_client,
+    metrics=prometheus_metrics,  # optional
+)
+# Defaults: 3 retries (exponential backoff), circuit breaker (5 failures), rate limiter (10 req/s, burst 20)
+```
+
+### Error Handling
+
+The client never raises exceptions for LLM failures. Instead, it returns `CompletionResult.fail(error=...)`:
+
+- **Rate limit exceeded**: Returns fail immediately, no retries attempted
+- **Circuit breaker open**: Returns fail immediately, short-circuits all retry attempts
+- **All retries exhausted**: Returns fail with the last error message
+- **Unexpected exception**: Caught, recorded to metrics, returned as fail
+
+### Metrics Recording
+
+When a `MetricsCollector` is provided, every `complete()` call records:
+
+- Model name, prompt tokens, completion tokens
+- Duration in milliseconds
+- Success/failure status
+- Finish reason
+
+Error events record the operation name and error type. This integrates with `PrometheusMetrics` for dashboarding.
+
+```python
+# After calls, metrics are available via prometheus exposition
+text = prometheus_metrics.generate_metrics()
+# cemaf_llm_calls_total{model="claude-sonnet-4-20250514", success="true"} 142
+# cemaf_llm_latency_seconds_bucket{model="claude-sonnet-4-20250514", le="1.0"} 98
+```
+
+### RetryPolicy Internals
+
+**Source**: `resilience/retry.py`
+
+The `RetryPolicy` supports four backoff strategies:
+
+| Strategy | Formula | Use Case |
+|----------|---------|----------|
+| `CONSTANT` | `initial_delay` | Fixed-interval polling |
+| `LINEAR` | `initial_delay * (attempt + 1)` | Gradual increase |
+| `EXPONENTIAL` | `initial_delay * multiplier^attempt` | Standard for API calls |
+| `FIBONACCI` | `initial_delay * fib(attempt)` | Gentle growth curve |
+
+Jitter adds +/- `jitter_factor` (default 10%) randomness to prevent thundering herd. Delay is capped at `max_delay_seconds`.
+
+`RetryResult` captures full telemetry: attempts count, total delay, per-attempt errors, start/end timestamps.
+
+### CircuitBreaker Internals
+
+**Source**: `resilience/circuit_breaker.py`
+
+State machine with three states:
+
+```
+CLOSED ──[failures >= threshold]──> OPEN
+  ^                                    │
+  │                              [recovery_timeout]
+  │                                    │
+  │                                    v
+  └──[successes >= threshold]── HALF_OPEN ──[any failure]──> OPEN
+```
+
+- **CLOSED**: Normal operation. Failures within `failure_window_seconds` are counted. When `failure_threshold` reached, transitions to OPEN.
+- **OPEN**: All calls rejected with `CircuitOpenError`. After `recovery_timeout_seconds`, transitions to HALF_OPEN.
+- **HALF_OPEN**: Trial calls allowed. `success_threshold` consecutive successes close the circuit. Any failure reopens it.
+
+Old failures outside the window are cleaned on every state check. Uses `asyncio.Lock` for thread safety.
+
+`CircuitMetrics` tracks: total/successful/failed/rejected calls, recent failures, state transition counts, timestamps.
+
+### RateLimiter Internals
+
+**Source**: `resilience/rate_limiter.py`
+
+Token bucket algorithm with configurable behavior:
+
+- `rate`: tokens added per second
+- `burst`: maximum bucket capacity
+- `wait_on_limit`: if True, `acquire()` blocks until a token is available (up to `max_wait_seconds`). If False, raises `RateLimitExceeded` immediately.
+
+```python
+limiter = RateLimiter(config=RateLimitConfig(
+    rate=10.0,              # 10 requests/second
+    burst=20,               # up to 20 in a burst
+    wait_on_limit=True,     # block instead of reject
+    max_wait_seconds=30.0,  # max wait before rejecting
+))
+
+await limiter.acquire()       # blocks if bucket empty
+result = await limiter.execute(my_function, arg1=val)  # acquire + call
+
+# Inspect metrics
+print(limiter.metrics.total_requests)
+print(limiter.metrics.throttled_requests)
+print(limiter.metrics.total_wait_time_seconds)
+```
+
+### Resilience Factory Functions
+
+**Source**: `resilience/factories.py`
+
+| Factory | Creates | Env Vars |
+|---------|---------|----------|
+| `create_retry_policy(max_attempts=, backoff_strategy=)` | `RetryPolicy` | `CEMAF_RESILIENCE_MAX_RETRIES`, `CEMAF_RESILIENCE_INITIAL_RETRY_DELAY_SECONDS`, `CEMAF_RESILIENCE_RETRY_BACKOFF_STRATEGY` |
+| `create_circuit_breaker(failure_threshold=)` | `CircuitBreaker` | `CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_THRESHOLD`, `..._FAILURE_WINDOW_SECONDS`, `..._RECOVERY_TIMEOUT_SECONDS` |
+| `create_rate_limiter(requests_per_second=, burst=)` | `RateLimiter` | `CEMAF_RESILIENCE_RATE_LIMIT_REQUESTS_PER_SECOND`, `CEMAF_RESILIENCE_RATE_LIMIT_BURST` |
+
+Each has a `_from_config()` variant that reads environment variables with sensible defaults.

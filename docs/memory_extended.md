@@ -477,3 +477,290 @@ for scope in [TURN, CONVERSATION, PLATFORM, PERSONAE, PROJECT, BRAND]:
     if style_fact and style_fact.confidence >= 0.7:
         final_style.update(style_fact.value)
 ```
+
+## Deduplication
+
+The deduplication system prevents near-duplicate memory items from accumulating. It uses a two-stage detection strategy: exact key match first, then semantic similarity via embeddings.
+
+**Source**: `memory/deduplication.py`
+
+### Protocol
+
+```python
+@runtime_checkable
+class MemoryDeduplicator(Protocol):
+    async def find_duplicates(
+        self, candidate: MemoryItem, *, threshold: float = 0.85,
+    ) -> tuple[DuplicateMatch, ...]: ...
+
+    async def resolve(
+        self, candidate: MemoryItem, matches: tuple[DuplicateMatch, ...],
+    ) -> DeduplicationResult: ...
+```
+
+### Match Types
+
+| MatchType | Description | Similarity |
+|-----------|-------------|------------|
+| `EXACT_KEY` | Same scope + key | 1.0 |
+| `SEMANTIC` | Embedding similarity above threshold | >= threshold |
+| `PARTIAL_KEY` | Reserved for substring key matching | varies |
+
+### Resolution Actions
+
+| Action | When | Behavior |
+|--------|------|----------|
+| `STORE_NEW` | No matches found | Store candidate as-is |
+| `SKIP` | Semantic match with higher-confidence existing item | Do not store |
+| `MERGE` | Exact key or semantic match where candidate has higher confidence | Keep best confidence, return merged item |
+
+### SemanticDeduplicator
+
+The default implementation. On `find_duplicates`, it first checks for an exact key match via `SemanticMemoryStore.get()`. If found, returns immediately with similarity 1.0. Otherwise, embeds the candidate (`key: json(value)`) and searches the same scope for similar items.
+
+On `resolve`, it picks the best match. For exact keys, it merges (keeping the higher-confidence value). For semantic matches, it skips if the existing item has higher confidence, otherwise merges.
+
+```python
+from cemaf.memory.deduplication import SemanticDeduplicator
+
+dedup = SemanticDeduplicator(
+    semantic_store=semantic_store,
+    similarity_threshold=0.85,
+)
+
+matches = await dedup.find_duplicates(candidate=new_item)
+result = await dedup.resolve(candidate=new_item, matches=matches)
+
+if not result.skipped:
+    await manager.remember(scope=result.item.scope, key=result.item.key, value=result.item.value)
+```
+
+## Three-Tier Progressive Loading
+
+Memory items are represented at three resolution tiers (L0/L1/L2) to enable progressive context loading under token budgets.
+
+**Source**: `memory/tiered.py`, `memory/tiered_store.py`
+
+### Loading Tiers
+
+| Tier | Token Budget | Content | Use Case |
+|------|-------------|---------|----------|
+| L0 | ~100 tokens | One-sentence abstract (key + first sentence) | Broad scan, metadata filtering |
+| L1 | ~2K tokens | Overview (truncated full content) | Planning, shortlisting |
+| L2 | Full | Complete content | Final selection, execution |
+
+### TieredMemoryItem
+
+Pre-computes all three representations at store time:
+
+```python
+@dataclass(frozen=True)
+class TieredMemoryItem:
+    item: MemoryItem
+    l0_abstract: str
+    l0_token_count: int
+    l1_overview: str
+    l1_token_count: int
+    l2_token_count: int
+
+    def content_at_tier(self, tier: LoadingTier) -> str: ...
+    def to_compacted(self, tier: LoadingTier) -> CompactedMemory: ...
+```
+
+### TieredMemoryStore
+
+Wraps `SemanticMemoryStore` with tier-aware progressive retrieval:
+
+```python
+from cemaf.memory.factories import create_tiered_store
+
+tiered = create_tiered_store()
+
+# Store with tier generation
+tiered_item = await tiered.store_with_tiers(item=memory_item)
+
+# Progressive search: L0 broad scan (50) -> L1 shortlist (10) -> L2 final (5)
+results = await tiered.progressive_search(
+    query=MemoryQuery(text="user preferences", scope=MemoryScope.PROJECT),
+    l0_limit=50,
+    l1_limit=10,
+    l2_limit=5,
+)
+```
+
+### TruncationTierGenerator
+
+Default tier generator that uses truncation heuristics (no LLM required):
+- L0: `key: first_sentence`, max 400 chars
+- L1: Truncated to 8000 chars
+- L2: Full JSON content
+
+## Scope Propagation
+
+Hierarchical scope paths enable parent-to-child score propagation during memory retrieval. A query for `project/campaign` can inherit relevance from `project`.
+
+**Source**: `memory/scope_hierarchy.py`
+
+### ScopePath
+
+```python
+from cemaf.memory.scope_hierarchy import ScopePath
+
+path = ScopePath.from_string("project/campaign/assets")
+assert path.root == "project"
+assert path.depth == 3
+assert str(path.parent) == "project/campaign"
+assert path.is_ancestor_of(ScopePath.from_string("project/campaign/assets/images"))
+```
+
+### PropagatingScorer
+
+Scores scope paths against a query, then propagates parent scores down to children with a decay factor:
+
+```python
+from cemaf.memory.factories import create_scope_scorer
+
+scorer = create_scope_scorer(
+    semantic_store=semantic_store,
+    propagation_factor=0.7,  # child += parent_score * 0.7
+)
+
+nodes = await scorer.score_scopes(
+    query=MemoryQuery(text="brand colors", scope=MemoryScope.PROJECT),
+    scope_paths=(
+        ScopePath.from_string("project"),
+        ScopePath.from_string("project/design"),
+        ScopePath.from_string("project/design/colors"),
+    ),
+)
+# nodes sorted by score descending; deeper paths inherit parent relevance
+```
+
+The algorithm:
+1. Sample up to 5 items per scope path via semantic search
+2. Compute base score as mean `combined_score` of sampled results
+3. Sort paths by depth, propagate: `child_score += parent_score * propagation_factor`
+4. Return `ScopeNode` tuples sorted by score descending
+
+## Post-Session Extraction
+
+Automatically promotes short-lived session memories to long-term storage when a session ends. Runs inside `SessionManager.dispose()`.
+
+**Source**: `memory/extraction.py`, `memory/extraction_pipeline.py`
+
+### MemoryExtractor Protocol
+
+```python
+@runtime_checkable
+class MemoryExtractor(Protocol):
+    async def extract(
+        self,
+        *,
+        session_memories: tuple[MemoryItem, ...],
+        episodes: tuple[Episode, ...],
+        recent_events: tuple[EpisodicEvent, ...],
+    ) -> tuple[ExtractedMemory, ...]: ...
+```
+
+### RuleBasedExtractor
+
+Default heuristic extractor (no LLM required). Applies three rules:
+
+| Rule | Input | Output | Target Scope |
+|------|-------|--------|-------------|
+| High-confidence promotion | SESSION items with confidence >= 0.6 | FACT | PROJECT |
+| Pattern detection | Same action repeated 3+ times | PATTERN | PROJECT |
+| Correction extraction | Error/correction events with importance >= 0.7 | CORRECTION | PROJECT |
+
+### ExtractionPipeline
+
+Full pipeline: extract -> deduplicate -> store -> emit event.
+
+```python
+from cemaf.memory.factories import create_extraction_pipeline
+
+pipeline = create_extraction_pipeline(
+    memory_manager=manager,
+    deduplicator=deduplicator,  # optional, skips dedup if None
+    event_bus=event_bus,        # optional, emits MEMORY_EXTRACTED event
+)
+
+report = await pipeline.run(
+    session_memories=session_items,
+    episodes=episodes,
+    recent_events=recent_events,
+)
+
+# report.extracted_count, report.stored_count, report.deduplicated_count, report.skipped_count
+```
+
+The pipeline emits a `MEMORY_EXTRACTED` event with a payload containing item details for downstream subscribers.
+
+## SQLite Store
+
+Persistent `MemoryStore` implementation backed by SQLite via `aiosqlite`. Suitable for single-node production deployments.
+
+**Source**: `memory/sqlite_store.py`
+
+### Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS memory_items (
+    scope TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value_json TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ttl_seconds REAL,
+    expires_at TEXT,
+    scope_path TEXT,
+    PRIMARY KEY (scope, key)
+)
+```
+
+### Usage
+
+```python
+from cemaf.memory.sqlite_store import SqliteMemoryStore
+
+store = SqliteMemoryStore(db_path="cemaf_memory.db")
+
+await store.set(item=memory_item)
+item = await store.get(scope=MemoryScope.PROJECT, key="brand_colors")
+items = await store.list_by_scope(scope=MemoryScope.PROJECT)
+removed = await store.cleanup_expired()  # returns count of removed items
+```
+
+Key behaviors:
+- Auto-creates table on first operation (`_ensure_table`)
+- `get()` checks expiration and auto-deletes expired items
+- `list_by_scope()` filters expired items in the SQL query
+- `cleanup_expired()` batch-removes all expired rows
+- Uses `INSERT OR REPLACE` for upsert semantics
+
+### Factory
+
+```python
+from cemaf.memory.factories import create_memory_store
+
+# In-memory (default, for testing)
+store = create_memory_store(backend="memory")
+
+# SQLite (for production)
+store = create_memory_store(backend="sqlite")
+# Reads CEMAF_MEMORY_SQLITE_PATH env var, defaults to "cemaf_memory.db"
+```
+
+## Factory Functions
+
+All memory factories live in `memory/factories.py`. They wire internal dependencies with sensible defaults while accepting injectable overrides.
+
+| Factory | Creates | Key Deps |
+|---------|---------|----------|
+| `create_memory_store(backend=)` | `InMemoryStore` or `SqliteMemoryStore` | None |
+| `create_memory_manager(memory_store=, embedding_provider=, vector_store=, deduplicator=)` | `DefaultMemoryManager` | MemoryStore, VectorStore, EmbeddingProvider |
+| `create_session_manager(memory_manager=, extraction_pipeline=)` | `DefaultSessionManager` | MemoryManager, compactor |
+| `create_tiered_store(memory_store=)` | `TieredMemoryStore` | SemanticMemoryStore, TruncationTierGenerator |
+| `create_extraction_pipeline(memory_manager=, extractor=, deduplicator=, event_bus=)` | `ExtractionPipeline` | MemoryManager, MemoryExtractor |
+| `create_scope_scorer(semantic_store=, propagation_factor=)` | `PropagatingScorer` | SemanticMemoryStore |
