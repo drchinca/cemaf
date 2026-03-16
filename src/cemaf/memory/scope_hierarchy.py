@@ -94,21 +94,20 @@ class PropagatingScorer:
         item_counts: dict[str, int] = {}
 
         for path in scope_paths:
+            path_str = str(path)
             sample_query = MemoryQuery(
                 text=query.text,
                 scope=query.scope,
                 scopes=query.scopes,
                 min_confidence=query.min_confidence,
+                scope_path=path_str,
                 limit=5,
             )
             results = await self._store.search(query=sample_query)
-            # Filter to items whose keys start with this scope path
-            path_str = str(path)
-            matching = [r for r in results if r.item.key.startswith(path_str)]
 
-            if matching:
-                base_scores[path_str] = sum(r.combined_score for r in matching) / len(matching)
-                item_counts[path_str] = len(matching)
+            if results:
+                base_scores[path_str] = sum(r.combined_score for r in results) / len(results)
+                item_counts[path_str] = len(results)
             else:
                 base_scores[path_str] = 0.0
                 item_counts[path_str] = 0

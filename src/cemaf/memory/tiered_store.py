@@ -46,6 +46,7 @@ class TieredMemoryStore:
             scopes=query.scopes,
             min_confidence=query.min_confidence,
             max_age=query.max_age,
+            scope_path=query.scope_path,
             limit=l0_limit,
         )
         candidates = await self._store.search(query=broad_query)

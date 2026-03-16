@@ -259,8 +259,14 @@ class DefaultSessionManager:
         if state.episode_id:
             await self._manager.end_episode(episode_id=state.episode_id)
 
-        # Clean up session-scoped memories
-        removed = await self._manager.cleanup()
+        # Clean up session-scoped memories explicitly (not global cleanup)
+        session_results = await self._manager.recall(
+            query=MemoryQuery(scope=MemoryScope.SESSION, limit=10000),
+        )
+        removed = 0
+        for result in session_results:
+            if await self._manager.forget(scope=result.item.scope, key=result.item.key):
+                removed += 1
 
         # Transition to DISPOSED
         state = state._transition(SessionPhase.DISPOSED, memory_count=0)

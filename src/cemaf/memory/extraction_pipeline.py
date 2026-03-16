@@ -95,6 +95,17 @@ class ExtractionPipeline:
                     "stored_count": stored_count,
                     "deduplicated_count": deduplicated_count,
                     "skipped_count": skipped_count,
+                    "output": {
+                        "items": [
+                            {
+                                "key": m.key,
+                                "category": m.category.value,
+                                "confidence": m.confidence,
+                                "target_scope": m.target_scope.value,
+                            }
+                            for m in extracted
+                        ],
+                    },
                 },
                 source="extraction_pipeline",
             )
