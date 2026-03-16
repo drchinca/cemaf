@@ -21,8 +21,10 @@ from cemaf.context.algorithm import (
 )
 from cemaf.context.budget import BudgetAllocation, TokenBudget
 from cemaf.context.classification import (
-    CONTEXT_TYPE_BEHAVIORS,
+    DEFAULT_BEHAVIORS,
     ContextTypeBehavior,
+    ContextTypeClassifier,
+    DefaultContextTypeClassifier,
     classify_source,
     get_behavior,
 )
@@ -100,7 +102,9 @@ __all__ = [
     "ContextType",
     # Classification
     "ContextTypeBehavior",
-    "CONTEXT_TYPE_BEHAVIORS",
+    "ContextTypeClassifier",
+    "DefaultContextTypeClassifier",
+    "DEFAULT_BEHAVIORS",
     "classify_source",
     "get_behavior",
     # Compiler implementations & config
