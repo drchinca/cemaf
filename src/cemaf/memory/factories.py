@@ -30,7 +30,7 @@ from cemaf.memory.sqlite_store import SqliteMemoryStore
 from cemaf.memory.tiered import TruncationTierGenerator
 from cemaf.memory.tiered_store import TieredMemoryStore
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
-from cemaf.retrieval.protocols import EmbeddingProvider
+from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
 
 
 def create_memory_store(
@@ -154,15 +154,17 @@ def create_memory_manager(
     event_bus: EventBus | None = None,
     deduplicator: MemoryDeduplicator | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    vector_store: VectorStore | None = None,
 ) -> DefaultMemoryManager:
     """Create a fully wired DefaultMemoryManager."""
     store = memory_store or InMemoryStore()
     provider = embedding_provider or MockEmbeddingProvider()
     scorer = TemporalDecayScorer()
+    vs = vector_store or InMemoryVectorStore(embedding_provider=provider)
 
     semantic_store = DefaultSemanticMemoryStore(
         memory_store=store,
-        vector_store=InMemoryVectorStore(embedding_provider=provider),
+        vector_store=vs,
         embedding_provider=provider,
         scorer=scorer,
     )
