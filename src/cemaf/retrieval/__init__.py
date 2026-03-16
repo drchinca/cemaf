@@ -28,6 +28,7 @@ from cemaf.retrieval.factories import (
 )
 from cemaf.retrieval.hybrid import HybridRetriever, RetrievalConfig
 from cemaf.retrieval.memory_store import InMemoryVectorStore
+from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import (
     Document,
     EmbeddingProvider,
@@ -47,6 +48,7 @@ __all__ = [
     "RetrievalConfig",
     "InMemoryVectorStore",
     "HashEmbeddingProvider",
+    "OpenAIEmbeddingProvider",
     # Factories
     "create_in_memory_vector_store",
     "create_vector_store_from_config",
