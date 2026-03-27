@@ -195,6 +195,7 @@ class Node:
         agent_id: str,
         description: str = "",
         config: JSON | None = None,
+        input_mapping: JSON | None = None,
         output_key: str = "",
     ) -> Node:
         """Create an agent node."""
@@ -205,6 +206,7 @@ class Node:
             description=description,
             ref_id=agent_id,
             config=config or {},
+            input_mapping=input_mapping or {},
             output_key=output_key,
         )
 
