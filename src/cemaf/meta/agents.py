@@ -24,7 +24,6 @@ from cemaf.meta.tools import (
     KnowledgeGraphTool,
     TraceAnalyzerTool,
 )
-from cemaf.skills.base import Skill
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
         return "Discovers available agents/tools and designs DAG pipelines for feature descriptions"
 
     @property
-    def skills(self) -> tuple[Skill[Any, Any], ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(
@@ -189,7 +188,7 @@ _AGENT_TEMPLATE = textwrap.dedent('''\
             return "{description}"
 
         @property
-        def skills(self) -> tuple[Skill[Any, Any], ...]:
+        def skills(self) -> tuple[()]:
             return ()
 
         async def run(
@@ -223,7 +222,7 @@ class AgentSynthesizer(Agent[SynthesizerGoal, SynthesizerResult]):
         return "Generates Python source code for new CEMAF agents from a spec"
 
     @property
-    def skills(self) -> tuple[Skill[Any, Any], ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(
@@ -309,7 +308,7 @@ class AuditAgent(Agent[AuditGoal, AuditResult]):
         return "Deterministic analysis of execution traces for quality and anomaly detection"
 
     @property
-    def skills(self) -> tuple[Skill[Any, Any], ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(
@@ -398,7 +397,7 @@ class KnowledgeGraphAgent(Agent[KnowledgeGraphGoal, KnowledgeGraphResult]):
         return "Queries and manages the CEMAF knowledge graph"
 
     @property
-    def skills(self) -> tuple[Skill[Any, Any], ...]:
+    def skills(self) -> tuple[()]:
         return ()
 
     async def run(
