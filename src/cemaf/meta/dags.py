@@ -59,6 +59,7 @@ def create_knowledge_refresh_dag() -> DAG:
             id="update_kg",
             name="KG Agent",
             agent_id="MetaKnowledgeGraph",
+            input_mapping={"operation": "refresh"},
             output_key="kg_result",
         )
     )
