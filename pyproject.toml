@@ -3,7 +3,7 @@ name = "cemaf"
 version = "0.2.0"
 description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [
     { name = "Hikuri Bado Chinca", email = "chincadr@gmail.com" },
@@ -170,7 +170,7 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -186,6 +186,12 @@ module = [
     "aiohttp.*",
     "prometheus_client",
     "prometheus_client.*",
+    "anthropic",
+    "anthropic.*",
+    "openai",
+    "openai.*",
+    "pinecone",
+    "pinecone.*",
 ]
 ignore_missing_imports = true
 

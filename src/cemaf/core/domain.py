@@ -1,5 +1,7 @@
 """Domain context for multi-tenant, domain-scoped operations."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import DomainID, TenantID
