@@ -7,7 +7,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-2118_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Tests](https://img.shields.io/badge/Tests-2301_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
 [![Coverage](https://img.shields.io/badge/Coverage-80%25-brightgreen?style=flat-square)](.)
 [![CI](https://img.shields.io/github/actions/workflow/status/drchinca/cemaf/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/drchinca/cemaf/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
@@ -88,7 +88,7 @@ cd cemaf
 pip install -e ".[dev]"
 ```
 
-**Requirements**: Python 3.11+
+**Requirements**: Python 3.14+
 
 ---
 
@@ -233,6 +233,15 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **Configuration-Driven**: Zero-config defaults with .env customization
 - **Resilience**: Retry, circuit breaker, rate limiting as composable decorators
 
+### Self-Hosting Engine (v0.2.0)
+CEMAF is its own first client — three opt-in modules where the framework uses its own primitives to introspect, audit, and extend itself. Fully decoupled from the base framework.
+
+- **Audit Trail**: `EventBusAuditLog` subscribes to EventBus, converts events into queryable `AuditEntry` records with quality trend analysis and z-score anomaly detection
+- **Knowledge Graph**: `MemoryBackedKnowledgeGraph` — entities and relations backed by MemoryManager with semantic search and neighbor traversal
+- **Meta-Agents**: `MetaArchitect` (DAG design), `MetaSynthesizer` (code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations)
+- **Pre-built DAGs**: `create_self_audit_dag()`, `create_feature_synthesis_dag()`, `create_knowledge_refresh_dag()`
+- **Entry point**: `create_meta_executor()` wraps `create_executor()`, auto-wires audit + KG from RuntimeServices
+
 ---
 
 ## Documentation
@@ -314,7 +323,7 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 2118+ tests | 100% passing | TDD from day one
+**Project Stats**: 2301+ tests | 100% passing | TDD from day one
 
 ---
 
