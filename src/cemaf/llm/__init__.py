@@ -40,7 +40,7 @@ from cemaf.llm.protocols import (
     ToolCall,
     ToolDefinition,
 )
-from cemaf.llm.resilient import ResilientLLMClient, create_resilient_client
+from cemaf.llm.resilient import QuerySource, ResilientLLMClient, create_resilient_client
 from cemaf.llm.response_utils import ParseResult, ResponseParser, StreamingJSONParser
 from cemaf.llm.tiktoken_estimator import TiktokenEstimator
 
@@ -67,6 +67,7 @@ __all__ = [
     # Instrumented
     "InstrumentedLLMClient",
     # Resilient
+    "QuerySource",
     "ResilientLLMClient",
     "create_resilient_client",
     # Response utilities

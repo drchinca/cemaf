@@ -234,6 +234,21 @@ class Tool(Protocol):
         """
         ...
 
+    @property
+    def is_concurrent_safe(self) -> bool:
+        """Whether this tool can run concurrently with other tools."""
+        ...
+
+    @property
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads data (no side effects)."""
+        ...
+
+    @property
+    def is_destructive(self) -> bool:
+        """Whether this tool performs destructive/irreversible operations."""
+        ...
+
     async def execute(self, **kwargs: Any) -> ToolResult:
         """
         Execute the tool with keyword arguments.

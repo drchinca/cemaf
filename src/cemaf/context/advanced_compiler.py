@@ -3,6 +3,7 @@ Advanced Context Compiler - Extends PriorityContextCompiler with summarization.
 """
 
 import logging
+from typing import Any
 
 from cemaf.context.algorithm import (
     ContextSelectionAlgorithm,
@@ -282,3 +283,22 @@ class AdvancedContextCompiler:
         Uses configured target from AdvancedCompilerConfig.
         """
         return self._config.target_summary_tokens
+
+    async def compact(
+        self,
+        *,
+        compiled: CompiledContext,
+        preserve_recent: int = 2,
+        summary_budget_tokens: int = 500,
+        summarizer: Any | None = None,
+    ) -> CompiledContext:
+        """Compact old sources while preserving recent ones."""
+        from cemaf.context.compiler import PriorityContextCompiler
+
+        delegate = PriorityContextCompiler(token_estimator=self._estimator, algorithm=self._algorithm)
+        return await delegate.compact(
+            compiled=compiled,
+            preserve_recent=preserve_recent,
+            summary_budget_tokens=summary_budget_tokens,
+            summarizer=summarizer,
+        )

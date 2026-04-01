@@ -6,7 +6,7 @@ import pytest
 
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, MessageRole, StreamChunk
-from cemaf.llm.resilient import ResilientLLMClient
+from cemaf.llm.resilient import QuerySource, ResilientLLMClient
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
 from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiter
 from cemaf.resilience.retry import RetryConfig, RetryPolicy
@@ -170,3 +170,114 @@ async def test_config_delegates() -> None:
     resilient = ResilientLLMClient(client=inner)
 
     assert resilient.config.model == "test-model"
+
+
+# --- Model fallback tests ---
+
+
+@pytest.mark.asyncio
+async def test_fallback_model_activates_after_consecutive_failures() -> None:
+    """After N failures, subsequent calls use the fallback model config."""
+    inner = _mock_client(result=_make_result(success=False))
+    resilient = ResilientLLMClient(
+        client=inner,
+        fallback_model="gpt-3.5-turbo",
+        fallback_after_failures=2,
+    )
+
+    # Two failures to cross the threshold
+    await resilient.complete(messages=[Message.user(content="hi")])
+    await resilient.complete(messages=[Message.user(content="hi")])
+
+    assert resilient._consecutive_failures == 2
+
+    # Third call should use fallback model in config_override
+    await resilient.complete(messages=[Message.user(content="hi")])
+
+    last_call = inner.complete.call_args
+    override: LLMConfig = last_call.kwargs["config_override"]
+    assert override.model == "gpt-3.5-turbo"
+
+
+@pytest.mark.asyncio
+async def test_fallback_resets_on_success() -> None:
+    """A successful call resets the failure counter, stopping fallback."""
+    call_count = 0
+
+    async def _alternate(**kwargs: object) -> CompletionResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 3:
+            return _make_result(success=False)
+        return _make_result(success=True)
+
+    inner = _mock_client()
+    inner.complete = AsyncMock(side_effect=_alternate)
+    resilient = ResilientLLMClient(
+        client=inner,
+        fallback_model="gpt-3.5-turbo",
+        fallback_after_failures=3,
+    )
+
+    # 3 failures
+    for _ in range(3):
+        await resilient.complete(messages=[Message.user(content="hi")])
+    assert resilient._consecutive_failures == 3
+
+    # 4th call succeeds (using fallback), resets counter
+    await resilient.complete(messages=[Message.user(content="hi")])
+    assert resilient._consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_no_fallback_when_not_configured() -> None:
+    """Without fallback_model, config_override stays None."""
+    inner = _mock_client(result=_make_result(success=False))
+    resilient = ResilientLLMClient(client=inner)
+
+    for _ in range(5):
+        await resilient.complete(messages=[Message.user(content="hi")])
+
+    last_call = inner.complete.call_args
+    assert last_call.kwargs["config_override"] is None
+
+
+# --- Source-aware retry gating tests ---
+
+
+@pytest.mark.asyncio
+async def test_background_source_skips_retry() -> None:
+    """BACKGROUND queries bypass retry entirely."""
+    inner = _mock_client()
+    inner.complete = AsyncMock(side_effect=ConnectionError("down"))
+    retry = RetryPolicy(
+        config=RetryConfig(max_attempts=3, initial_delay_seconds=0.01, jitter=False),
+    )
+    resilient = ResilientLLMClient(client=inner, retry=retry)
+
+    with patch.object(retry, "execute", new_callable=AsyncMock) as mock_retry_exec:
+        result = await resilient.complete(
+            messages=[Message.user(content="hi")],
+            source=QuerySource.BACKGROUND,
+        )
+
+    # Retry.execute should NOT be called for background
+    mock_retry_exec.assert_not_awaited()
+    assert result.success is False
+
+
+@pytest.mark.asyncio
+async def test_foreground_source_uses_retry() -> None:
+    """FOREGROUND queries use retry as normal."""
+    inner = _mock_client()
+    retry = RetryPolicy(
+        config=RetryConfig(max_attempts=3, initial_delay_seconds=0.01, jitter=False),
+    )
+    resilient = ResilientLLMClient(client=inner, retry=retry)
+
+    result = await resilient.complete(
+        messages=[Message.user(content="hi")],
+        source=QuerySource.FOREGROUND,
+    )
+
+    assert result.success is True

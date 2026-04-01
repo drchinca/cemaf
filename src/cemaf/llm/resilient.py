@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from enum import Enum
 from time import perf_counter
 
 from cemaf.core.types import TokenCount
@@ -22,6 +23,13 @@ from cemaf.resilience.retry import BackoffStrategy, RetryConfig, RetryPolicy
 logger = logging.getLogger(__name__)
 
 
+class QuerySource(str, Enum):
+    """Controls retry budget based on call criticality."""
+
+    FOREGROUND = "foreground"
+    BACKGROUND = "background"
+
+
 class ResilientLLMClient:
     """LLM client wrapper with retry, circuit breaker, and rate limiting."""
 
@@ -33,12 +41,17 @@ class ResilientLLMClient:
         circuit_breaker: CircuitBreaker | None = None,
         rate_limiter: RateLimiter | None = None,
         metrics: MetricsCollector | None = None,
+        fallback_model: str | None = None,
+        fallback_after_failures: int = 3,
     ) -> None:
         self._client = client
         self._retry = retry
         self._circuit_breaker = circuit_breaker
         self._rate_limiter = rate_limiter
         self._metrics = metrics
+        self._fallback_model = fallback_model
+        self._fallback_after_failures = fallback_after_failures
+        self._consecutive_failures: int = 0
 
     @property
     def config(self) -> LLMConfig:
@@ -50,6 +63,7 @@ class ResilientLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        source: QuerySource = QuerySource.FOREGROUND,
     ) -> CompletionResult:
         """Complete with rate_limit -> circuit_breaker -> retry -> client.complete."""
         start = perf_counter()
@@ -61,11 +75,13 @@ class ResilientLLMClient:
             self._record_error(operation="llm.complete", error=exc)
             return CompletionResult.fail(error=f"Rate limit exceeded: {exc}")
 
+        effective_config = self._resolve_config_override(config_override=config_override)
+
         async def _inner_complete() -> CompletionResult:
             return await self._client.complete(
                 messages=messages,
                 tools=tools,
-                config_override=config_override,
+                config_override=effective_config,
             )
 
         async def _with_circuit_breaker() -> CompletionResult:
@@ -74,8 +90,9 @@ class ResilientLLMClient:
             return await _inner_complete()
 
         try:
-            if self._retry is not None:
-                retry_result = await self._retry.execute(_with_circuit_breaker)
+            use_retry = self._retry is not None and source == QuerySource.FOREGROUND
+            if use_retry:
+                retry_result = await self._retry.execute(_with_circuit_breaker)  # type: ignore[union-attr]
                 if retry_result.success:
                     result = retry_result.result
                 else:
@@ -89,6 +106,8 @@ class ResilientLLMClient:
         except Exception as exc:
             self._record_error(operation="llm.complete", error=exc)
             return CompletionResult.fail(error=f"LLM call failed: {exc}")
+
+        self._track_consecutive_failures(success=result.success)
 
         duration_ms = (perf_counter() - start) * 1000
         completion_result: CompletionResult = result
@@ -124,6 +143,25 @@ class ResilientLLMClient:
         """Delegate message token counting to inner client."""
         return self._client.count_messages_tokens(messages=messages)
 
+    def _resolve_config_override(self, *, config_override: LLMConfig | None) -> LLMConfig | None:
+        """Apply fallback model when consecutive failures exceed threshold."""
+        if self._fallback_model is not None and self._consecutive_failures >= self._fallback_after_failures:
+            base = config_override or self._client.config
+            logger.warning(
+                "Falling back to %s after %d consecutive failures",
+                self._fallback_model,
+                self._consecutive_failures,
+            )
+            return base.model_copy(update={"model": self._fallback_model})
+        return config_override
+
+    def _track_consecutive_failures(self, *, success: bool) -> None:
+        """Update consecutive failure counter."""
+        if success:
+            self._consecutive_failures = 0
+        else:
+            self._consecutive_failures += 1
+
     def _record_llm_metrics(self, *, result: CompletionResult, duration_ms: float) -> None:
         """Record LLM call metrics if collector available."""
         if self._metrics is None:
@@ -153,6 +191,7 @@ def create_resilient_client(
     *,
     client: LLMClient,
     metrics: MetricsCollector | None = None,
+    fallback_model: str | None = None,
 ) -> ResilientLLMClient:
     """Create ResilientLLMClient with sensible defaults."""
     return ResilientLLMClient(
@@ -171,4 +210,5 @@ def create_resilient_client(
             config=RateLimitConfig(rate=10.0, burst=20),
         ),
         metrics=metrics,
+        fallback_model=fallback_model,
     )

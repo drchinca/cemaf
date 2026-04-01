@@ -38,6 +38,9 @@ class ToolSchema:
     description: str
     parameters: JSON = field(default_factory=lambda: {"type": "object", "properties": {}})
     required: tuple[str, ...] = ()
+    is_concurrent_safe: bool = False
+    is_read_only: bool = False
+    is_destructive: bool = False
 
     def __post_init__(self) -> None:
         """Validate that schema parameters are JSON-serializable."""
@@ -126,6 +129,21 @@ class Tool(ABC):
     def schema(self) -> ToolSchema:
         """JSON Schema definition for this tool's parameters."""
         ...
+
+    @property
+    def is_concurrent_safe(self) -> bool:
+        """Whether this tool can run concurrently with other tools."""
+        return False
+
+    @property
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads data (no side effects)."""
+        return False
+
+    @property
+    def is_destructive(self) -> bool:
+        """Whether this tool performs destructive/irreversible operations."""
+        return False
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:
@@ -226,6 +244,21 @@ def tool(
             @property
             def schema(self) -> ToolSchema:
                 return _schema
+
+            @property
+            def is_concurrent_safe(self) -> bool:
+                """Whether this tool can run concurrently with other tools."""
+                return _schema.is_concurrent_safe
+
+            @property
+            def is_read_only(self) -> bool:
+                """Whether this tool only reads data (no side effects)."""
+                return _schema.is_read_only
+
+            @property
+            def is_destructive(self) -> bool:
+                """Whether this tool performs destructive/irreversible operations."""
+                return _schema.is_destructive
 
             async def execute(self, **kwargs: Any) -> ToolResult:
                 try:
