@@ -343,6 +343,29 @@ class TestIntrospectRegistryTool:
         assert len(result.data["tools"]) == 1
         assert result.data["tools"][0]["name"] == "calculator"
 
+    def test_safety_flags_read_only_and_concurrent_safe(self) -> None:
+        """IntrospectRegistryTool is read-only and concurrent-safe."""
+        tool = self._make_tool()
+        assert tool.is_read_only is True
+        assert tool.is_concurrent_safe is True
+        assert tool.is_destructive is False
+
+    @pytest.mark.asyncio
+    async def test_tool_entries_include_safety_metadata(self) -> None:
+        """Introspection results include safety flags per tool."""
+        tr = FakeToolRegistry()
+        tr.register(tool=_FakeTool(name="search"))
+        tool = self._make_tool(tool_registry=tr)
+
+        result = await tool.execute(registry_type="tools")
+
+        assert result.success
+        tool_entry = result.data["tools"][0]
+        assert "safety" in tool_entry
+        assert "is_concurrent_safe" in tool_entry["safety"]
+        assert "is_read_only" in tool_entry["safety"]
+        assert "is_destructive" in tool_entry["safety"]
+
 
 # ---------------------------------------------------------------------------
 # GenerateDAGTool
@@ -453,6 +476,13 @@ class TestGenerateDAGTool:
 
         assert not result.success
 
+    def test_safety_flags_concurrent_safe(self) -> None:
+        """GenerateDAGTool is concurrent-safe (stateless, no side effects)."""
+        tool = self._make_tool()
+        assert tool.is_concurrent_safe is True
+        assert tool.is_read_only is False
+        assert tool.is_destructive is False
+
 
 # ---------------------------------------------------------------------------
 # TraceAnalyzerTool
@@ -516,6 +546,13 @@ class TestTraceAnalyzerTool:
 
         assert not result.success
         assert "unknown" in result.error.lower()
+
+    def test_safety_flags_read_only_and_concurrent_safe(self) -> None:
+        """TraceAnalyzerTool is read-only and concurrent-safe."""
+        tool = self._make_tool()
+        assert tool.is_read_only is True
+        assert tool.is_concurrent_safe is True
+        assert tool.is_destructive is False
 
 
 # ---------------------------------------------------------------------------
@@ -691,3 +728,10 @@ class TestKnowledgeGraphTool:
 
         assert not result.success
         assert "entity_id" in result.error.lower()
+
+    def test_safety_flags_destructive(self) -> None:
+        """KnowledgeGraphTool is destructive (remove_entity)."""
+        tool = self._make_tool()
+        assert tool.is_destructive is True
+        assert tool.is_read_only is False
+        assert tool.is_concurrent_safe is False

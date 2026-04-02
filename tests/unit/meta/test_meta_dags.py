@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cemaf.core.enums import NodeType
 from cemaf.meta.dags import (
+    create_context_compaction_dag,
     create_feature_synthesis_dag,
     create_knowledge_refresh_dag,
     create_self_audit_dag,
@@ -72,6 +73,43 @@ class TestCreateFeatureSynthesisDag:
         node_map = {str(n.id): n for n in dag.nodes}
         assert node_map["architect"].output_key == "dag_spec"
         assert node_map["synthesize"].output_key == "agent_code"
+
+
+class TestCreateContextCompactionDag:
+    """Tests for the context compaction DAG factory."""
+
+    def test_returns_valid_dag(self) -> None:
+        dag = create_context_compaction_dag()
+        assert dag.validate_structure() is True
+
+    def test_dag_name(self) -> None:
+        dag = create_context_compaction_dag()
+        assert dag.name == "context_compaction"
+
+    def test_has_two_nodes(self) -> None:
+        dag = create_context_compaction_dag()
+        assert len(dag.nodes) == 2
+        ref_ids = {n.ref_id for n in dag.nodes}
+        assert ref_ids == {"MetaAuditor", "MetaKnowledgeGraph"}
+
+    def test_has_one_edge(self) -> None:
+        dag = create_context_compaction_dag()
+        assert len(dag.edges) == 1
+        edge = dag.edges[0]
+        assert str(edge.source) == "audit_context"
+        assert str(edge.target) == "update_kg"
+
+    def test_audit_node_uses_quality_analysis(self) -> None:
+        dag = create_context_compaction_dag()
+        node_map = {str(n.id): n for n in dag.nodes}
+        audit_node = node_map["audit_context"]
+        assert audit_node.input_mapping.get("analysis_type") == "quality"
+
+    def test_kg_node_uses_refresh_operation(self) -> None:
+        dag = create_context_compaction_dag()
+        node_map = {str(n.id): n for n in dag.nodes}
+        kg_node = node_map["update_kg"]
+        assert kg_node.input_mapping.get("operation") == "refresh"
 
 
 class TestCreateKnowledgeRefreshDag:

@@ -17,6 +17,7 @@ from cemaf.meta.agents import (
     ArchitectAgent,
     AuditAgent,
     KnowledgeGraphAgent,
+    _analyze_tool_safety,
 )
 from cemaf.meta.goals import (
     ArchitectGoal,
@@ -363,6 +364,24 @@ class TestArchitectAgent:
         assert len(result.output.dag_spec["nodes"]) == 1
         assert len(result.output.dag_spec["edges"]) == 0
 
+    @pytest.mark.asyncio
+    async def test_run_rationale_includes_safety_analysis(self) -> None:
+        """ArchitectAgent reports concurrent-safe and destructive tools in rationale."""
+        ar = FakeAgentRegistry()
+        ar.register(agent=_FakeAgent(agent_id="Researcher"))
+        tr = FakeToolRegistry()
+        tr.register(tool=_FakeTool(name="search"))
+        introspect = _make_introspect_tool(agent_registry=ar, tool_registry=tr)
+        dag_tool = GenerateDAGTool()
+        agent = ArchitectAgent(introspect_tool=introspect, generate_dag_tool=dag_tool)
+        ctx = _make_context()
+        goal = ArchitectGoal(feature_description="Safety-aware pipeline")
+
+        result = await agent.run(goal=goal, context=ctx)
+
+        assert result.success
+        assert "Pipeline" in result.output.rationale
+
 
 # ---------------------------------------------------------------------------
 # AgentSynthesizer
@@ -683,3 +702,71 @@ class TestKnowledgeGraphAgent:
 
         assert not result.success
         assert "destroy" in result.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# _analyze_tool_safety helper
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzeToolSafety:
+    """Tests for the safety analysis helper used by ArchitectAgent."""
+
+    def test_categorizes_concurrent_safe(self) -> None:
+        tools = [
+            {
+                "name": "search",
+                "safety": {"is_concurrent_safe": True, "is_read_only": False, "is_destructive": False},
+            }
+        ]
+        result = _analyze_tool_safety(tools=tools)
+        assert result["concurrent_safe"] == ["search"]
+        assert result["read_only"] == []
+        assert result["destructive"] == []
+
+    def test_categorizes_read_only(self) -> None:
+        tools = [
+            {
+                "name": "reader",
+                "safety": {"is_concurrent_safe": False, "is_read_only": True, "is_destructive": False},
+            }
+        ]
+        result = _analyze_tool_safety(tools=tools)
+        assert result["read_only"] == ["reader"]
+
+    def test_categorizes_destructive(self) -> None:
+        tools = [
+            {
+                "name": "deleter",
+                "safety": {"is_concurrent_safe": False, "is_read_only": False, "is_destructive": True},
+            }
+        ]
+        result = _analyze_tool_safety(tools=tools)
+        assert result["destructive"] == ["deleter"]
+
+    def test_handles_missing_safety_key(self) -> None:
+        tools = [{"name": "legacy_tool"}]
+        result = _analyze_tool_safety(tools=tools)
+        assert result["concurrent_safe"] == []
+        assert result["read_only"] == []
+        assert result["destructive"] == []
+
+    def test_multiple_tools_mixed_flags(self) -> None:
+        tools = [
+            {
+                "name": "a",
+                "safety": {"is_concurrent_safe": True, "is_read_only": True, "is_destructive": False},
+            },
+            {
+                "name": "b",
+                "safety": {"is_concurrent_safe": False, "is_read_only": False, "is_destructive": True},
+            },
+            {
+                "name": "c",
+                "safety": {"is_concurrent_safe": True, "is_read_only": False, "is_destructive": False},
+            },
+        ]
+        result = _analyze_tool_safety(tools=tools)
+        assert result["concurrent_safe"] == ["a", "c"]
+        assert result["read_only"] == ["a"]
+        assert result["destructive"] == ["b"]
