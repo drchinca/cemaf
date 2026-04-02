@@ -52,7 +52,17 @@ class IntrospectRegistryTool(Tool):
                 },
             },
             required=("registry_type",),
+            is_read_only=True,
+            is_concurrent_safe=True,
         )
+
+    @property
+    def is_read_only(self) -> bool:
+        return True
+
+    @property
+    def is_concurrent_safe(self) -> bool:
+        return True
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Return structured capabilities from the requested registries."""
@@ -92,6 +102,11 @@ class IntrospectRegistryTool(Tool):
                             "description": s.description,
                             "parameters": s.parameters,
                             "required": list(s.required),
+                            "safety": {
+                                "is_concurrent_safe": s.is_concurrent_safe,
+                                "is_read_only": s.is_read_only,
+                                "is_destructive": s.is_destructive,
+                            },
                         }
                     )
                 result["tools"] = tool_entries
@@ -109,10 +124,15 @@ class GenerateDAGTool(Tool):
         return ToolID("meta_generate_dag")
 
     @property
+    def is_concurrent_safe(self) -> bool:
+        return True
+
+    @property
     def schema(self) -> ToolSchema:
         return ToolSchema(
             name="meta_generate_dag",
             description="Create a validated DAG from a declarative specification of nodes and edges.",
+            is_concurrent_safe=True,
             parameters={
                 "type": "object",
                 "properties": {
@@ -225,10 +245,20 @@ class TraceAnalyzerTool(Tool):
         return ToolID("meta_trace_analyzer")
 
     @property
+    def is_read_only(self) -> bool:
+        return True
+
+    @property
+    def is_concurrent_safe(self) -> bool:
+        return True
+
+    @property
     def schema(self) -> ToolSchema:
         return ToolSchema(
             name="meta_trace_analyzer",
             description="Analyze execution traces via the audit trail.",
+            is_read_only=True,
+            is_concurrent_safe=True,
             parameters={
                 "type": "object",
                 "properties": {
@@ -300,10 +330,15 @@ class KnowledgeGraphTool(Tool):
         return ToolID("meta_knowledge_graph")
 
     @property
+    def is_destructive(self) -> bool:
+        return True  # remove_entity is destructive
+
+    @property
     def schema(self) -> ToolSchema:
         return ToolSchema(
             name="meta_knowledge_graph",
             description="Perform CRUD operations on the knowledge graph.",
+            is_destructive=True,
             parameters={
                 "type": "object",
                 "properties": {

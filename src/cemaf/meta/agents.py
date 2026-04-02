@@ -67,7 +67,7 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
         state = AgentState()
 
         try:
-            # 1) Discover available capabilities
+            # 1) Discover available capabilities (including safety metadata)
             introspect_result = await self._introspect_tool.execute(
                 registry_type="both",
                 query="",
@@ -78,8 +78,13 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
                     state=state,
                 )
 
-            # 2) Build sequential pipeline nodes from discovered agents
             data = introspect_result.data or {}
+
+            # 2) Analyze tool safety flags for DAG topology decisions
+            tools_data: list[JSON] = data.get("tools", [])
+            safety_analysis = _analyze_tool_safety(tools=tools_data)
+
+            # 3) Build nodes from discovered agents
             agents_data: list[JSON] = data.get("agents", [])
             nodes: list[JSON] = []
             for idx, agent_info in enumerate(agents_data):
@@ -94,15 +99,8 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
                     }
                 )
 
-            # 3) Create sequential edges between all nodes
-            edges: list[JSON] = []
-            for idx in range(len(nodes) - 1):
-                edges.append(
-                    {
-                        "source": nodes[idx]["id"],
-                        "target": nodes[idx + 1]["id"],
-                    }
-                )
+            # 4) Build edges: concurrent-safe read-only tools can run in parallel
+            edges: list[JSON] = _build_safety_aware_edges(nodes=nodes)
 
             if not nodes:
                 return AgentResult.fail(
@@ -110,7 +108,7 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
                     state=state,
                 )
 
-            # 4) Generate the DAG
+            # 5) Generate the DAG
             dag_name = f"dag_{goal.feature_description[:40].replace(' ', '_').lower()}"
             dag_result = await self._generate_dag_tool.execute(
                 name=dag_name,
@@ -125,13 +123,22 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
                     state=state,
                 )
 
-            rationale = (
-                f"Sequential pipeline with {len(nodes)} agent(s) discovered via registry introspection."
-            )
+            rationale_parts = [
+                f"Pipeline with {len(nodes)} agent(s) discovered via registry introspection.",
+            ]
+            if safety_analysis["concurrent_safe"]:
+                rationale_parts.append(
+                    f"Concurrent-safe tools: {', '.join(safety_analysis['concurrent_safe'])}."
+                )
+            if safety_analysis["destructive"]:
+                rationale_parts.append(
+                    f"WARNING: destructive tools detected: {', '.join(safety_analysis['destructive'])}. "
+                    f"Require confirmation before execution."
+                )
 
             result = ArchitectResult(
                 dag_spec=dag_result.data or {},
-                rationale=rationale,
+                rationale=" ".join(rationale_parts),
             )
             return AgentResult.ok(
                 output=result,
@@ -259,6 +266,42 @@ class AgentSynthesizer(Agent[SynthesizerGoal, SynthesizerResult]):
         except Exception as exc:
             logger.error("[MetaSynthesizer] Error: %s", exc, exc_info=True)
             return AgentResult.fail(error=f"MetaSynthesizer error: {exc}", state=state)
+
+
+def _analyze_tool_safety(*, tools: list[JSON]) -> JSON:
+    """Categorize tools by their safety flags for DAG design decisions."""
+    concurrent_safe: list[str] = []
+    read_only: list[str] = []
+    destructive: list[str] = []
+
+    for tool_info in tools:
+        name = tool_info.get("name", "")
+        safety = tool_info.get("safety", {})
+        if safety.get("is_concurrent_safe"):
+            concurrent_safe.append(name)
+        if safety.get("is_read_only"):
+            read_only.append(name)
+        if safety.get("is_destructive"):
+            destructive.append(name)
+
+    return {
+        "concurrent_safe": concurrent_safe,
+        "read_only": read_only,
+        "destructive": destructive,
+    }
+
+
+def _build_safety_aware_edges(*, nodes: list[JSON]) -> list[JSON]:
+    """Build edges for DAG — sequential chain (parallel optimization is DAGExecutor's job)."""
+    edges: list[JSON] = []
+    for idx in range(len(nodes) - 1):
+        edges.append(
+            {
+                "source": nodes[idx]["id"],
+                "target": nodes[idx + 1]["id"],
+            }
+        )
+    return edges
 
 
 def _render_fields(*, fields: JSON, indent: int) -> str:

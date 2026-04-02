@@ -43,6 +43,31 @@ def create_feature_synthesis_dag() -> DAG:
     return dag
 
 
+def create_context_compaction_dag() -> DAG:
+    """DAG: Audit stale context, then compact via summary generation."""
+    dag = DAG(name="context_compaction", description="Audit and compact stale context sources")
+    dag = dag.add_node(
+        node=Node.agent(
+            id="audit_context",
+            name="Audit Context",
+            agent_id="MetaAuditor",
+            input_mapping={"analysis_type": "quality"},
+            output_key="audit_data",
+        )
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="update_kg",
+            name="KG Refresh",
+            agent_id="MetaKnowledgeGraph",
+            input_mapping={"operation": "refresh"},
+            output_key="kg_result",
+        )
+    )
+    dag = dag.add_edge(edge=Edge(source=NodeID("audit_context"), target=NodeID("update_kg")))
+    return dag
+
+
 def create_knowledge_refresh_dag() -> DAG:
     """DAG: Audit recent runs then update knowledge graph."""
     dag = DAG(name="knowledge_refresh", description="Refresh CEMAF knowledge graph from execution history")
