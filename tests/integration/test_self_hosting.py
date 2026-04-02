@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
+from cemaf.agents.base import AgentContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
 from cemaf.core.enums import MemoryScope
@@ -14,10 +17,13 @@ from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.memory.base import MemoryItem
 from cemaf.memory.episodic import Episode, EpisodicEvent
 from cemaf.memory.semantic import MemoryQuery, MemorySearchResult
+from cemaf.meta.agents import DreamAgent
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
-from cemaf.meta.dags import create_self_audit_dag
+from cemaf.meta.dags import create_dream_dag, create_self_audit_dag
+from cemaf.meta.goals import DreamGoal
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.scheduler.gates import LockGate, SessionCountGate, TimeGate
 from cemaf.tools.registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -243,3 +249,69 @@ async def test_audit_to_knowledge_graph_wiring() -> None:
     result = await trace_tool.execute(analysis_type="quality_trend", window=10)
     assert result.success is True
     assert len(result.data["trend"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# DreamAgent integration — gates + memory wired together
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dream_agent_three_gate_trigger() -> None:
+    """DreamAgent with three-gate system: time + session + lock."""
+    mm = FakeMemoryManager()
+    await mm.remember(
+        scope=MemoryScope.PROJECT,
+        key="fact1",
+        value={"data": "important context"},
+    )
+    await mm.remember(
+        scope=MemoryScope.PROJECT,
+        key="fact2",
+        value={"data": "another signal"},
+    )
+
+    # All gates pass
+    gates = (
+        TimeGate(min_interval=timedelta(hours=24)),  # never run = pass
+        SessionCountGate(min_sessions=3, current_count=5),  # pass
+        LockGate(),  # not locked = pass
+    )
+    agent = DreamAgent(memory_manager=mm, gates=gates)  # type: ignore[arg-type]
+    ctx = AgentContext(run_id="dream-integration", agent_id="MetaDream")
+    goal = DreamGoal()
+
+    result = await agent.run(goal=goal, context=ctx)
+
+    assert result.success
+    assert result.output.consolidated_count == 2
+    assert "Dream complete" in result.output.summary
+
+
+@pytest.mark.asyncio
+async def test_dream_agent_blocked_by_session_gate() -> None:
+    """DreamAgent defers when session count gate fails."""
+    mm = FakeMemoryManager()
+    await mm.remember(scope=MemoryScope.PROJECT, key="fact1", value={"data": "x"})
+
+    gates = (
+        SessionCountGate(min_sessions=10, current_count=2),  # fail
+    )
+    agent = DreamAgent(memory_manager=mm, gates=gates)  # type: ignore[arg-type]
+    ctx = AgentContext(run_id="dream-blocked", agent_id="MetaDream")
+    goal = DreamGoal()
+
+    result = await agent.run(goal=goal, context=ctx)
+
+    assert result.success
+    assert result.output.consolidated_count == 0
+    assert "gate" in result.output.summary.lower()
+
+
+@pytest.mark.asyncio
+async def test_dream_dag_valid_structure() -> None:
+    """Dream DAG is structurally valid and references MetaDream."""
+    dag = create_dream_dag()
+    assert dag.validate_structure() is True
+    assert dag.nodes[0].ref_id == "MetaDream"
+    assert dag.nodes[0].output_key == "dream_result"

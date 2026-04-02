@@ -2,6 +2,7 @@
 
 import pytest
 
+from cemaf.core.enums import ToolRiskLevel
 from cemaf.core.result import Result
 from cemaf.core.types import ToolID
 from cemaf.tools.base import Tool, ToolResult, ToolSchema, tool
@@ -202,6 +203,10 @@ class TestToolProtocolSafetyFlags:
             @property
             def is_destructive(self) -> bool:
                 return False
+
+            @property
+            def risk_level(self) -> ToolRiskLevel:
+                return ToolRiskLevel.LOW
 
             async def execute(self, **kwargs: object) -> ToolResult:
                 return Result.ok(data="custom")

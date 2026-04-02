@@ -90,3 +90,11 @@ class ExclusionReason(str, Enum):
     STALE = "stale"
     DUPLICATE = "duplicate"
     FILTERED = "filtered"
+
+
+class ToolRiskLevel(str, Enum):
+    """Risk classification for tool actions — gates execution policy."""
+
+    LOW = "low"  # Read-only, no side effects (e.g., search, introspect)
+    MEDIUM = "medium"  # Writes data, reversible (e.g., add entity, update config)
+    HIGH = "high"  # Destructive or irreversible (e.g., delete, deploy, send)

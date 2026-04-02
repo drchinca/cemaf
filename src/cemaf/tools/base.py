@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
+from cemaf.core.enums import ToolRiskLevel
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
 from cemaf.llm.protocols import ToolDefinition
@@ -41,6 +42,7 @@ class ToolSchema:
     is_concurrent_safe: bool = False
     is_read_only: bool = False
     is_destructive: bool = False
+    risk_level: ToolRiskLevel = ToolRiskLevel.MEDIUM
 
     def __post_init__(self) -> None:
         """Validate that schema parameters are JSON-serializable."""
@@ -144,6 +146,11 @@ class Tool(ABC):
     def is_destructive(self) -> bool:
         """Whether this tool performs destructive/irreversible operations."""
         return False
+
+    @property
+    def risk_level(self) -> ToolRiskLevel:
+        """Risk classification for execution gating."""
+        return ToolRiskLevel.MEDIUM
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:
@@ -259,6 +266,11 @@ def tool(
             def is_destructive(self) -> bool:
                 """Whether this tool performs destructive/irreversible operations."""
                 return _schema.is_destructive
+
+            @property
+            def risk_level(self) -> ToolRiskLevel:
+                """Risk classification for execution gating."""
+                return _schema.risk_level
 
             async def execute(self, **kwargs: Any) -> ToolResult:
                 try:

@@ -6,6 +6,20 @@ from cemaf.core.types import NodeID
 from cemaf.orchestration.dag import DAG, Edge, Node
 
 
+def create_dream_dag() -> DAG:
+    """DAG that runs DreamAgent for autonomous memory consolidation."""
+    dag = DAG(name="dream", description="Autonomous memory consolidation cycle")
+    dag = dag.add_node(
+        node=Node.agent(
+            id="dream",
+            name="Dream Agent",
+            agent_id="MetaDream",
+            output_key="dream_result",
+        )
+    )
+    return dag
+
+
 def create_self_audit_dag() -> DAG:
     """DAG that runs AuditAgent to inspect recent execution history."""
     dag = DAG(name="self_audit", description="Audit recent CEMAF execution")

@@ -40,6 +40,7 @@ Example:
 
 from typing import Any, Protocol, runtime_checkable
 
+from cemaf.core.enums import ToolRiskLevel
 from cemaf.core.types import ToolID
 
 # Re-export data classes from base (these are not changed)
@@ -247,6 +248,11 @@ class Tool(Protocol):
     @property
     def is_destructive(self) -> bool:
         """Whether this tool performs destructive/irreversible operations."""
+        ...
+
+    @property
+    def risk_level(self) -> ToolRiskLevel:
+        """Risk classification for execution gating."""
         ...
 
     async def execute(self, **kwargs: Any) -> ToolResult:

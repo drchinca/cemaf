@@ -83,3 +83,22 @@ class KnowledgeGraphResult(BaseModel):
 
     entities: tuple[JSON, ...] = Field(default_factory=tuple, description="Matched entities")
     stats: JSON = Field(default_factory=dict, description="Graph statistics")
+
+
+# ---------------------------------------------------------------------------
+# DreamAgent
+# ---------------------------------------------------------------------------
+
+
+class DreamGoal(BaseModel):
+    """Trigger a memory consolidation dream cycle."""
+
+    max_consolidations: int = Field(default=50, description="Max items to consolidate per dream")
+
+
+class DreamResult(BaseModel):
+    """Output from DreamAgent consolidation."""
+
+    consolidated_count: int = Field(default=0, description="Items consolidated")
+    pruned_count: int = Field(default=0, description="Stale items pruned")
+    summary: str = Field(default="", description="Human-readable dream summary")
