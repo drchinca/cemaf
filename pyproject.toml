@@ -74,13 +74,13 @@ tiktoken = [
 
 # OpenAI integration
 openai = [
-    "openai>=1.0",
+    "openai~=2.14",
     "tiktoken>=0.5",
 ]
 
 # Anthropic integration
 anthropic = [
-    "anthropic>=0.20",
+    "anthropic~=0.40",
 ]
 
 # Vector store integrations
@@ -93,10 +93,8 @@ pinecone = [
 #     "chromadb>=0.4",
 # ]
 
-# SQLite persistent memory store
-sqlite = [
-    "aiosqlite>=0.20",
-]
+# SQLite persistent memory store (aiosqlite is already a core dep)
+# Kept as extra for documentation — installs nothing additional
 
 # Performance profiling tools
 profiling = [
@@ -120,10 +118,9 @@ web = [
 # All optional integrations
 all = [
     "tiktoken>=0.5",
-    "openai>=1.0",
-    "anthropic>=0.20",
+    "openai~=2.14",
+    "anthropic~=0.40",
     "prometheus-client>=0.20",
-    "aiosqlite>=0.20",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "sse-starlette>=2.0",
