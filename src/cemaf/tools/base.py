@@ -93,29 +93,29 @@ class Tool(ABC):
     - Returns Result (never raises exceptions)
 
     Example:
-        class CalculateTool(Tool):
+        class AddTool(Tool):
             @property
             def id(self) -> ToolID:
-                return ToolID("calculate")
+                return ToolID("add")
 
             @property
             def schema(self) -> ToolSchema:
                 return ToolSchema(
-                    name="calculate",
-                    description="Perform arithmetic calculation",
+                    name="add",
+                    description="Add two numbers",
                     parameters={
                         "type": "object",
                         "properties": {
-                            "expression": {"type": "string", "description": "Math expression"}
+                            "a": {"type": "number", "description": "First number"},
+                            "b": {"type": "number", "description": "Second number"},
                         }
                     },
-                    required=("expression",)
+                    required=("a", "b")
                 )
 
-            async def execute(self, expression: str) -> ToolResult:
+            async def execute(self, a: float, b: float) -> ToolResult:
                 try:
-                    result = eval(expression)
-                    return Result.ok(result)
+                    return Result.ok(a + b)
                 except Exception as e:
                     return Result.fail(str(e))
     """
@@ -156,6 +156,16 @@ class Tool(ABC):
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Execute the tool with keyword arguments."""
         ...
+
+    async def validated_execute(self, **kwargs: Any) -> ToolResult:
+        """Validate kwargs against schema.required, then execute."""
+        missing = [r for r in self.schema.required if r not in kwargs]
+        if missing:
+            return Result.fail(
+                error=f"Missing required parameters: {', '.join(missing)}",
+                metadata={"tool": str(self.id), "missing": missing},
+            )
+        return await self.execute(**kwargs)
 
     async def _check_moderation_input(
         self,

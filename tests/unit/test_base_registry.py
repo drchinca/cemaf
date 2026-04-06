@@ -144,12 +144,10 @@ class TestProtocolValidation:
         """BaseRegistry._implements_protocol must be overridden."""
 
         class BareRegistry(BaseRegistry):
-            def __init__(self):
-                super().__init__(item_type_name="Bare")
+            pass
 
-        registry = BareRegistry()
-        with pytest.raises(NotImplementedError):
-            registry._implements_protocol(obj=FakeItem())
+        with pytest.raises(TypeError, match="abstract"):
+            BareRegistry()
 
 
 class TestRepr:

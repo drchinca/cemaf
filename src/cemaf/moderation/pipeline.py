@@ -6,6 +6,7 @@ for observability and convenient methods for input/output checking.
 """
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -393,4 +394,4 @@ class ModerationPipeline:
             self._pending_tasks.add(task)
             task.add_done_callback(self._pending_tasks.discard)
         except RuntimeError:
-            pass
+            logging.getLogger(__name__).warning("Failed to publish moderation event — no running event loop")

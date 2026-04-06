@@ -25,6 +25,7 @@ import importlib
 import inspect
 import pkgutil
 import types
+from abc import ABC, abstractmethod
 
 from cemaf.observability import get_logger
 
@@ -37,7 +38,7 @@ class RegistryError(Exception):
     pass
 
 
-class BaseRegistry[T]:
+class BaseRegistry[T](ABC):
     """
     Generic registry for protocol-based components.
 
@@ -424,21 +425,10 @@ class BaseRegistry[T]:
         # Fall back to class name
         return item_class.__name__
 
+    @abstractmethod
     def _implements_protocol(self, obj: object) -> bool:
-        """
-        Check if object implements the required protocol.
-
-        MUST be implemented by subclasses.
-
-        Args:
-            obj: Object to check (class or instance)
-
-        Returns:
-            True if object implements required protocol
-        """
-        raise NotImplementedError(
-            f"Subclass must implement _implements_protocol() to validate {self._item_type_name} protocol"
-        )
+        """Check if object implements the required protocol."""
+        ...
 
     def __repr__(self) -> str:
         """Developer-friendly representation."""

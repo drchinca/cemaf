@@ -78,34 +78,34 @@ class Tool(Protocol):
     Example:
         >>> from pydantic import BaseModel
         >>>
-        >>> class CalculateTool:
+        >>> class AddTool:
         ...     @property
         ...     def id(self) -> ToolID:
-        ...         return ToolID("calculate")
+        ...         return ToolID("add")
         ...
         ...     @property
         ...     def schema(self) -> ToolSchema:
         ...         return ToolSchema(
-        ...             name="calculate",
-        ...             description="Perform arithmetic calculation",
+        ...             name="add",
+        ...             description="Add two numbers",
         ...             parameters={
         ...                 "type": "object",
         ...                 "properties": {
-        ...                     "expression": {"type": "string", "description": "Math expression"}
+        ...                     "a": {"type": "number", "description": "First number"},
+        ...                     "b": {"type": "number", "description": "Second number"},
         ...                 }
         ...             },
-        ...             required=("expression",)
+        ...             required=("a", "b")
         ...         )
         ...
-        ...     async def execute(self, expression: str) -> ToolResult:
+        ...     async def execute(self, a: float, b: float) -> ToolResult:
         ...         try:
-        ...             result = eval(expression)
-        ...             return Result.ok(result)
+        ...             return Result.ok(a + b)
         ...         except Exception as e:
         ...             return Result.fail(str(e))
         >>>
         >>> # Automatically compatible - no inheritance!
-        >>> tool = CalculateTool()
+        >>> tool = AddTool()
         >>> assert isinstance(tool, Tool)
         >>>
         >>> # Can be used in LLM function calling

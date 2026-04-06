@@ -1,41 +1,76 @@
 """
 CEMAF - Context Engineering Multi-Agent Framework
 
-A pluggable, modular framework for building AI agent systems with:
-- Tools: Atomic, stateless functions
-- Skills: Composable capabilities using tools
-- Agents: Autonomous entities with goals and memory
-- DeepAgent: Hierarchical orchestration with context isolation
-- Dynamic DAGs: Runtime workflow composition
+Quickstart:
+    from cemaf import create_executor, AgentRegistry, DAG, Context
 
-Author: Hikuri Bado Chinca (@drchinca)
-Email: chincadr@gmail.com
-
-API Discovery:
-    Use Python's built-in introspection:
-    >>> import cemaf
-    >>> help(cemaf)           # Full documentation
-    >>> dir(cemaf)            # List public API
-    >>> cemaf.__all__         # Explicit exports
+    registry = AgentRegistry()
+    executor = create_executor(agent_registry=registry)
+    result = await executor.run(dag=my_dag)
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import version as _get_version
 
-from cemaf.core.enums import AgentStatus, MemoryScope, NodeType, RunStatus
+__version__ = _get_version("cemaf")
+
+# Core types and enums
+# Key protocols
+from cemaf.agents.base import Agent, AgentContext, AgentResult
+from cemaf.agents.registry import AgentRegistry
+
+# Entry points
+from cemaf.bootstrap import create_executor
+from cemaf.context.budget import TokenBudget
+from cemaf.context.compiler import ContextCompiler, PriorityContextCompiler
+from cemaf.context.context import Context
+from cemaf.context.source import ContextSource
+from cemaf.core.enums import AgentStatus, MemoryScope, NodeType, RunStatus, ToolRiskLevel
+from cemaf.core.result import Result
 from cemaf.core.types import JSON, AgentID, NodeID, RunID, SkillID, ToolID
+from cemaf.orchestration.dag import DAG, Edge, Node
+from cemaf.orchestration.executor import DAGExecutor
+from cemaf.orchestration.services import RuntimeServices
+from cemaf.tools.base import Tool, ToolSchema, tool
+from cemaf.tools.registry import ToolRegistry
 
 __all__ = [
     "__version__",
-    # Types
+    # Entry points
+    "create_executor",
+    # Core types
     "JSON",
     "AgentID",
     "NodeID",
     "RunID",
     "SkillID",
     "ToolID",
+    "Result",
     # Enums
     "AgentStatus",
     "MemoryScope",
     "NodeType",
     "RunStatus",
+    "ToolRiskLevel",
+    # Agent system
+    "Agent",
+    "AgentContext",
+    "AgentResult",
+    "AgentRegistry",
+    # Tools
+    "Tool",
+    "ToolSchema",
+    "ToolRegistry",
+    "tool",
+    # Orchestration
+    "DAG",
+    "Node",
+    "Edge",
+    "DAGExecutor",
+    "RuntimeServices",
+    # Context
+    "Context",
+    "ContextSource",
+    "ContextCompiler",
+    "PriorityContextCompiler",
+    "TokenBudget",
 ]
