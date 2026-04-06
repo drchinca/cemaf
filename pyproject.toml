@@ -136,6 +136,9 @@ Repository = "https://github.com/drchinca/cemaf"
 "Changelog" = "https://github.com/drchinca/cemaf/blob/main/CHANGELOG.md"
 "Source Code" = "https://github.com/drchinca/cemaf"
 
+[project.scripts]
+cemaf = "cemaf.cli:main"
+
 # =============================================================================
 # BUILD SYSTEM
 # =============================================================================

@@ -157,6 +157,16 @@ class Tool(ABC):
         """Execute the tool with keyword arguments."""
         ...
 
+    async def validated_execute(self, **kwargs: Any) -> ToolResult:
+        """Validate kwargs against schema.required, then execute."""
+        missing = [r for r in self.schema.required if r not in kwargs]
+        if missing:
+            return Result.fail(
+                error=f"Missing required parameters: {', '.join(missing)}",
+                metadata={"tool": str(self.id), "missing": missing},
+            )
+        return await self.execute(**kwargs)
+
     async def _check_moderation_input(
         self,
         text: str,
