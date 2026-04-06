@@ -6,12 +6,13 @@ enabling resilient context chaining between nodes.
 """
 
 import copy
+import logging
 import re
 from typing import Any, cast
 
 from cemaf.context.context import Context
 
-logger = __import__("logging").getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def resolve_dependencies(input_params: dict[str, Any], context: Context) -> dict[str, Any]:

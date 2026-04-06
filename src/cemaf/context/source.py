@@ -10,8 +10,7 @@ Usage:
     source1 = ContextSource(
         content="User profile data...",
         priority=10,  # High priority
-        timestamp=datetime.now(),
-        source_type="user_data"
+        source_type="user_data",
     )
 
     source2 = ContextSource(
