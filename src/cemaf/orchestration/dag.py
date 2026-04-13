@@ -211,6 +211,23 @@ class Node:
         )
 
     @classmethod
+    def checkpoint(
+        cls,
+        id: str,
+        name: str = "Checkpoint",
+        description: str = "",
+        config: JSON | None = None,
+    ) -> Node:
+        """Create a checkpoint node — an explicit eval gate in the DAG."""
+        return cls(
+            id=NodeID(id),
+            type=NodeType.CHECKPOINT,
+            name=name,
+            description=description or "Quality checkpoint",
+            config=config or {},
+        )
+
+    @classmethod
     def router(
         cls,
         id: str,

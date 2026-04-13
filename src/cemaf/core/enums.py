@@ -37,6 +37,7 @@ class NodeType(str, Enum):
     PARALLEL = "parallel"
     CONDITIONAL = "conditional"
     LOOP = "loop"
+    CHECKPOINT = "checkpoint"
 
 
 class MemoryScope(str, Enum):

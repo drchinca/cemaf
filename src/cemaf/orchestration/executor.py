@@ -418,6 +418,28 @@ class DAGExecutor:
                     for body_id in (node.config or {}).get("body_node_ids", []):
                         completed[NodeID(body_id)] = result
 
+                elif node.type == NodeType.CHECKPOINT:
+                    # Checkpoint node — emit DAG_CHECKPOINT for eval pipeline
+                    checkpoint_result = NodeResult(
+                        node_id=node_id,
+                        success=True,
+                        output={"checkpoint": str(node_id)},
+                        duration_ms=0.0,
+                    )
+                    node_results.append(checkpoint_result)
+                    completed[node_id] = checkpoint_result
+                    result = checkpoint_result
+
+                    await self._emit_event(
+                        event_type=EventType.DAG_CHECKPOINT,
+                        payload={
+                            "node_id": str(node_id),
+                            "dag_name": dag.name,
+                            "dag_total_nodes": len(order),
+                            "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
+                        },
+                    )
+
                 else:
                     # Standard execution (TOOL, SKILL, AGENT)
                     result, new_context = await self._execute_with_retry(node, context)  # Added new_context
