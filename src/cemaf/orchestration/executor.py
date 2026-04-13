@@ -474,6 +474,18 @@ class DAGExecutor:
                     },
                 )
 
+                # Fire checkpoint event if node has checkpoint marker
+                if node.checkpoint_enabled and result.success and node.type != NodeType.CHECKPOINT:
+                    await self._emit_event(
+                        event_type=EventType.DAG_CHECKPOINT,
+                        payload={
+                            "node_id": str(node_id),
+                            "dag_name": dag.name,
+                            "dag_total_nodes": len(order),
+                            "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
+                        },
+                    )
+
                 # Budget guard check after each node
                 if self._budget_guard and result.success:
                     cost = result.metadata.get("cost_usd", 0.0) if result.metadata else 0.0
