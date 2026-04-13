@@ -10,11 +10,13 @@ from cemaf.meta.agents import (
     ArchitectAgent,
     AuditAgent,
     KnowledgeGraphAgent,
+    SolutionDesignerAgent,
 )
 from cemaf.meta.goals import (
     ArchitectGoal,
     AuditGoal,
     KnowledgeGraphGoal,
+    SolutionGoal,
     SynthesizerGoal,
 )
 from cemaf.meta.tools import (
@@ -62,3 +64,14 @@ def register_meta_agents(
 
     kg_agent = KnowledgeGraphAgent(kg_tool=kg_tool)
     agent_registry.register_agent(agent_instance=kg_agent, goal_type=KnowledgeGraphGoal)
+
+    # Solution designer — the full self-hosting loop
+    solution_designer = SolutionDesignerAgent(
+        introspect_tool=introspect_tool,
+        generate_dag_tool=generate_dag_tool,
+        kg_tool=kg_tool,
+    )
+    agent_registry.register_agent(
+        agent_instance=solution_designer,
+        goal_type=SolutionGoal,
+    )
