@@ -15,7 +15,7 @@ __version__ = _get_version("cemaf")
 
 # Core types and enums
 # Key protocols
-from cemaf.agents.base import Agent, AgentContext, AgentResult
+from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 
 # Entry points
@@ -55,6 +55,7 @@ __all__ = [
     "Agent",
     "AgentContext",
     "AgentResult",
+    "AgentState",
     "AgentRegistry",
     # Tools
     "Tool",
