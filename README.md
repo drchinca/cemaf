@@ -95,47 +95,26 @@ pip install -e ".[dev]"
 ## Quick Start
 
 ```python
-from cemaf.context import Context, ContextPatch
-from cemaf.observability import InMemoryRunLogger
-from cemaf.replay import Replayer
-from cemaf.blueprint import Blueprint, SceneGoal, StyleGuide
-from cemaf.moderation import ModerationPipeline, PreFlightGate, KeywordRule, PIIRule
+from cemaf import Agent, AgentContext, AgentResult, AgentState, AgentRegistry
+from cemaf import DAG, Node, create_executor
 
-# Create context with provenance tracking
-ctx = Context()
-patch = ContextPatch.from_tool("search", "results", {"items": [...]})
-ctx = ctx.apply(patch)
+# 1. Define an agent
+class MyAgent(Agent[MyGoal, MyResult]):
+    async def run(self, goal, context):
+        return AgentResult.ok(output=result, state=AgentState())
 
-# Record runs for replay
-logger = InMemoryRunLogger()
-logger.start_run("run-123", initial_context=ctx)
-logger.record_patch(patch)
-record = logger.end_run(final_context=ctx)
+# 2. Build a DAG and run it
+registry = AgentRegistry()
+registry.register_agent(agent_instance=MyAgent(), goal_type=MyGoal)
 
-# Replay deterministically
-replayer = Replayer(record)
-result = await replayer.replay()
-assert result.final_context == record.final_context  # Deterministic!
+dag = DAG(name="pipeline", description="My pipeline")
+dag = dag.add_node(Node.agent(id="step1", name="Step 1", agent_id="MyAgent", output_key="out"))
 
-# Use semantic blueprints for structured content generation
-blueprint = Blueprint(
-    id="social-post",
-    name="Social Media Post",
-    scene_goal=SceneGoal(objective="Create engaging social media content"),
-    style_guide=StyleGuide(tone="casual", length_hint="concise")
-)
-prompt = blueprint.to_prompt()  # Convert to LLM-ready prompt
-
-# Add content safety with moderation guardrails
-moderation = ModerationPipeline(
-    pre_flight=PreFlightGate([KeywordRule(["spam", "scam"]), PIIRule()])
-)
-result = await moderation.check_input(user_message)
-if not result.allowed:
-    raise ValueError(f"Content blocked: {result.violations}")
+executor = create_executor(agent_registry=registry)
+result = await executor.run(dag=dag)
 ```
 
-See the [Quick Start Guide](docs/quickstart.md) for more detailed examples.
+See `examples/hello_world.py` for a complete runnable example.
 
 ---
 

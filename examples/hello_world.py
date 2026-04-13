@@ -13,13 +13,12 @@ from cemaf import (
     Agent,
     AgentContext,
     AgentResult,
+    AgentState,
     AgentRegistry,
     DAG,
-    Edge,
     Node,
     create_executor,
 )
-from cemaf.agents.base import AgentState
 from cemaf.core.types import AgentID
 
 
@@ -55,7 +54,7 @@ class GreeterAgent(Agent[GreetGoal, GreetResult]):
         return AgentResult.ok(output=result, state=AgentState())
 
 
-# 3. Register and build DAG
+# 3. Register, build DAG, run
 async def main() -> None:
     registry = AgentRegistry()
     registry.register_agent(agent_instance=GreeterAgent(), goal_type=GreetGoal)
@@ -74,8 +73,7 @@ async def main() -> None:
     executor = create_executor(agent_registry=registry)
     result = await executor.run(dag=dag)
 
-    print(f"DAG completed: {result.status.value}")
-    print(f"Context keys: {list(result.final_context.data.keys())}")
+    print(f"Status: {result.status.value}")
     if "greeting" in result.final_context.data:
         print(f"Result: {result.final_context.data['greeting']}")
 
