@@ -66,16 +66,18 @@ async def main() -> None:
             id="greet",
             name="Greeter",
             agent_id="Greeter",
+            input_mapping={"name": "World"},
             output_key="greeting",
         )
     )
 
     executor = create_executor(agent_registry=registry)
-    final_context = await executor.run(dag=dag)
+    result = await executor.run(dag=dag)
 
-    print(f"DAG completed. Context keys: {list(final_context.data.keys())}")
-    if "greeting" in final_context.data:
-        print(f"Result: {final_context.data['greeting']}")
+    print(f"DAG completed: {result.status.value}")
+    print(f"Context keys: {list(result.final_context.data.keys())}")
+    if "greeting" in result.final_context.data:
+        print(f"Result: {result.final_context.data['greeting']}")
 
 
 if __name__ == "__main__":
