@@ -108,9 +108,9 @@ class TestRegisterMetaAgents:
         assert self.agent_registry.get_goal_type("MetaKnowledgeGraph") is KnowledgeGraphGoal
 
     def test_agent_count(self) -> None:
-        """Exactly 4 agents registered (no extras)."""
+        """Exactly 5 agents registered (4 base + SolutionDesigner)."""
         self._register()
-        assert len(self.agent_registry.list_agents()) == 4
+        assert len(self.agent_registry.list_agents()) == 5
 
     def test_tool_count(self) -> None:
         """Exactly 4 tools registered (no extras)."""

@@ -18,6 +18,8 @@ from cemaf.meta.goals import (
     DreamResult,
     KnowledgeGraphGoal,
     KnowledgeGraphResult,
+    SolutionGoal,
+    SolutionResult,
     SynthesizerGoal,
     SynthesizerResult,
 )
@@ -654,3 +656,198 @@ class DreamAgent(Agent[DreamGoal, DreamResult]):
         except Exception as exc:
             logger.error("[MetaDream] Error: %s", exc, exc_info=True)
             return AgentResult.fail(error=f"MetaDream error: {exc}", state=state)
+
+
+# ---------------------------------------------------------------------------
+# SolutionDesignerAgent — autonomous use-case solver
+# ---------------------------------------------------------------------------
+
+
+class SolutionDesignerAgent(Agent[SolutionGoal, SolutionResult]):
+    """Designs, generates, versions, and self-evaluates multi-agent solutions.
+
+    The full self-hosting loop: CEMAF uses its own primitives to solve
+    arbitrary use cases by designing DAG architectures and generating agents.
+    Solutions are versioned in the KnowledgeGraph for iterative improvement.
+    """
+
+    def __init__(
+        self,
+        *,
+        introspect_tool: IntrospectRegistryTool,
+        generate_dag_tool: GenerateDAGTool,
+        kg_tool: KnowledgeGraphTool,
+    ) -> None:
+        self._introspect_tool = introspect_tool
+        self._generate_dag_tool = generate_dag_tool
+        self._kg_tool = kg_tool
+
+    @property
+    def id(self) -> AgentID:
+        return AgentID("MetaSolutionDesigner")
+
+    @property
+    def description(self) -> str:
+        return "Autonomous solution designer — designs, generates, and versions multi-agent architectures"
+
+    @property
+    def skills(self) -> tuple[()]:
+        return ()
+
+    async def run(
+        self,
+        goal: SolutionGoal,
+        context: AgentContext,
+    ) -> AgentResult[SolutionResult]:
+        """Design → Generate → Version → Self-evaluate."""
+        logger.info("[MetaSolutionDesigner] Solving: %s", goal.use_case)
+        state = AgentState()
+
+        try:
+            # Phase 1: INTROSPECT — discover available capabilities
+            introspect_result = await self._introspect_tool.execute(
+                registry_type="both",
+                query="",
+            )
+            if not introspect_result.success:
+                return AgentResult.fail(
+                    error=f"Introspection failed: {introspect_result.error}",
+                    state=state,
+                )
+
+            capabilities = introspect_result.data or {}
+
+            # Phase 2: DESIGN — architect a DAG for the use case
+            agents_data: list[JSON] = capabilities.get("agents", [])
+            tools_data: list[JSON] = capabilities.get("tools", [])
+            safety = _analyze_tool_safety(tools=tools_data)
+
+            # Build nodes from discovered agents
+            nodes: list[JSON] = []
+            for idx, agent_info in enumerate(agents_data):
+                agent_id = agent_info.get("id", f"agent_{idx}")
+                nodes.append(
+                    {
+                        "id": f"n{idx}",
+                        "type": "agent",
+                        "name": agent_id,
+                        "ref_id": agent_id,
+                        "output_key": f"output_{agent_id}",
+                    }
+                )
+
+            edges = _build_safety_aware_edges(nodes=nodes)
+
+            if not nodes:
+                return AgentResult.fail(
+                    error="No agents available to build solution",
+                    state=state,
+                )
+
+            # Generate the DAG
+            dag_name = f"solution_{goal.version_tag}_{goal.use_case[:30].replace(' ', '_').lower()}"
+            dag_result = await self._generate_dag_tool.execute(
+                name=dag_name,
+                description=f"Solution for: {goal.use_case}",
+                nodes=nodes,
+                edges=edges,
+            )
+
+            if not dag_result.success:
+                return AgentResult.fail(
+                    error=f"DAG generation failed: {dag_result.error}",
+                    state=state,
+                )
+
+            dag_spec = dag_result.data or {}
+
+            # Phase 3: VERSION — store solution in knowledge graph
+            version_entity = {
+                "id": f"solution_{dag_name}",
+                "type": "dag",
+                "name": dag_name,
+                "description": goal.use_case,
+                "properties": {
+                    "version": goal.version_tag,
+                    "use_case": goal.use_case,
+                    "node_count": len(nodes),
+                    "constraints": goal.constraints,
+                    "safety_analysis": safety,
+                },
+            }
+            await self._kg_tool.execute(
+                operation="add_entity",
+                entity=version_entity,
+            )
+
+            # Phase 4: SELF-EVALUATE — assess solution quality
+            quality_score = self._assess_quality(
+                dag_spec=dag_spec,
+                node_count=len(nodes),
+                safety=safety,
+                constraints=goal.constraints,
+            )
+
+            rationale_parts = [
+                f"Designed {dag_name} with {len(nodes)} agents for: {goal.use_case}.",
+                f"Version: {goal.version_tag}. Quality score: {quality_score:.2f}.",
+            ]
+            if safety.get("destructive"):
+                rationale_parts.append(f"WARNING: destructive tools: {', '.join(safety['destructive'])}.")
+            if safety.get("concurrent_safe"):
+                rationale_parts.append(
+                    f"Concurrent-safe tools available: {', '.join(safety['concurrent_safe'])}."
+                )
+
+            result = SolutionResult(
+                dag_spec=dag_spec,
+                generated_agents=tuple({"id": n["ref_id"], "node_id": n["id"]} for n in nodes),
+                version=goal.version_tag,
+                rationale=" ".join(rationale_parts),
+                quality_score=quality_score,
+            )
+
+            logger.info(
+                "[MetaSolutionDesigner] Solution %s created (score=%.2f)",
+                dag_name,
+                quality_score,
+            )
+            return AgentResult.ok(output=result, state=state)
+
+        except Exception as exc:
+            logger.error("[MetaSolutionDesigner] Error: %s", exc, exc_info=True)
+            return AgentResult.fail(
+                error=f"MetaSolutionDesigner error: {exc}",
+                state=state,
+            )
+
+    def _assess_quality(
+        self,
+        *,
+        dag_spec: JSON,
+        node_count: int,
+        safety: JSON,
+        constraints: JSON,
+    ) -> float:
+        """Deterministic self-assessment of solution quality."""
+        score = 0.5  # Base
+
+        # More agents = more capable (up to a point)
+        if node_count >= 2:
+            score += 0.1
+        if node_count >= 4:
+            score += 0.1
+
+        # DAG has edges = proper chaining
+        if dag_spec.get("edges"):
+            score += 0.1
+
+        # No destructive tools = safer
+        if not safety.get("destructive"):
+            score += 0.1
+
+        # Has concurrent-safe tools = parallelizable
+        if safety.get("concurrent_safe"):
+            score += 0.1
+
+        return min(1.0, score)

@@ -90,6 +90,24 @@ class KnowledgeGraphResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class SolutionGoal(BaseModel):
+    """Design, generate, and version a multi-agent solution for a use case."""
+
+    use_case: str = Field(description="Problem description to solve")
+    constraints: JSON = Field(default_factory=dict, description="Design constraints")
+    version_tag: str = Field(default="v1", description="Version label for this solution iteration")
+
+
+class SolutionResult(BaseModel):
+    """Complete solution output — DAG spec, generated code, version metadata."""
+
+    dag_spec: JSON = Field(default_factory=dict, description="Designed DAG specification")
+    generated_agents: tuple[JSON, ...] = Field(default_factory=tuple, description="Generated agent specs")
+    version: str = Field(default="v1", description="Solution version")
+    rationale: str = Field(default="", description="Design rationale")
+    quality_score: float = Field(default=0.0, description="Self-evaluated quality score")
+
+
 class DreamGoal(BaseModel):
     """Trigger a memory consolidation dream cycle."""
 

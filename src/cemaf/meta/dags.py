@@ -82,6 +82,61 @@ def create_context_compaction_dag() -> DAG:
     return dag
 
 
+def create_solution_engine_dag() -> DAG:
+    """Full self-hosting loop: diagnose → design → version → learn.
+
+    Uses checkpoints between phases for quality gating.
+    This is CEMAF solving problems by using its own primitives.
+    """
+    dag = DAG(name="solution_engine", description="Autonomous multi-agent solution designer")
+
+    # Phase 1: DIAGNOSE — audit existing state
+    dag = dag.add_node(
+        node=Node.agent(
+            id="diagnose",
+            name="Diagnose",
+            agent_id="MetaAuditor",
+            input_mapping={"analysis_type": "full"},
+            output_key="diagnosis",
+        )
+    )
+
+    # Checkpoint: verify diagnosis quality before designing
+    dag = dag.add_node(node=Node.checkpoint(id="cp_diagnosis", name="Diagnosis Gate"))
+
+    # Phase 2: DESIGN — solution designer creates versioned architecture
+    dag = dag.add_node(
+        node=Node.agent(
+            id="design",
+            name="Design Solution",
+            agent_id="MetaSolutionDesigner",
+            output_key="solution",
+        )
+    )
+
+    # Checkpoint: verify design quality before learning
+    dag = dag.add_node(node=Node.checkpoint(id="cp_design", name="Design Gate"))
+
+    # Phase 3: LEARN — consolidate into memory
+    dag = dag.add_node(
+        node=Node.agent(
+            id="learn",
+            name="Knowledge Update",
+            agent_id="MetaKnowledgeGraph",
+            input_mapping={"operation": "refresh"},
+            output_key="kg_update",
+        )
+    )
+
+    # Wire the chain
+    dag = dag.add_edge(edge=Edge(source=NodeID("diagnose"), target=NodeID("cp_diagnosis")))
+    dag = dag.add_edge(edge=Edge(source=NodeID("cp_diagnosis"), target=NodeID("design")))
+    dag = dag.add_edge(edge=Edge(source=NodeID("design"), target=NodeID("cp_design")))
+    dag = dag.add_edge(edge=Edge(source=NodeID("cp_design"), target=NodeID("learn")))
+
+    return dag
+
+
 def create_knowledge_refresh_dag() -> DAG:
     """DAG: Audit recent runs then update knowledge graph."""
     dag = DAG(name="knowledge_refresh", description="Refresh CEMAF knowledge graph from execution history")
