@@ -112,6 +112,32 @@ class EvalResult:
         )
 
 
+@dataclass(frozen=True)
+class EvalContext:
+    """Rich context passed to evaluators — preserves structured output and DAG position."""
+
+    output: Any  # Structured output (not stringified)
+    node_id: str = ""
+    node_type: str = ""
+    dag_name: str = ""
+    dag_position: int = 0  # Index in topological order
+    dag_total_nodes: int = 0
+    previous_scores: tuple[float, ...] = ()  # Scores from prior checkpoints
+    metadata: JSON = field(default_factory=dict)
+
+    @property
+    def output_as_str(self) -> str:
+        """Fallback string representation for evaluators that need it."""
+        if isinstance(self.output, str):
+            return self.output
+        import json
+
+        try:
+            return json.dumps(self.output, default=str)
+        except (TypeError, ValueError):
+            return str(self.output)
+
+
 class EvalConfig(BaseModel):
     """Configuration for evaluation."""
 
