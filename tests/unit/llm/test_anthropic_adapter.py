@@ -390,9 +390,10 @@ class TestFactory:
 
         assert isinstance(client, AnthropicLLMClient)
 
-    def test_factory_requires_api_key(self) -> None:
+    def test_factory_requires_api_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Factory raises ValueError without api_key."""
         from cemaf.llm.factories import llm_registry
 
-        with pytest.raises(ValueError, match="api_key is required"):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="api_key required"):
             llm_registry.create(backend="anthropic")

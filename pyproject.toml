@@ -67,6 +67,11 @@ dev = [
     "pre-commit>=4.0",
 ]
 
+# HTTP client for OpenAI-compat, Gemini, Groq, Together adapters
+http = [
+    "httpx>=0.27",
+]
+
 # Accurate token counting (OpenAI tokenizer)
 tiktoken = [
     "tiktoken>=0.5",
