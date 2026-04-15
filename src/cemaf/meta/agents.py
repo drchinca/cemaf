@@ -699,52 +699,51 @@ class SolutionDesignerAgent(Agent[SolutionGoal, SolutionResult]):
         goal: SolutionGoal,
         context: AgentContext,
     ) -> AgentResult[SolutionResult]:
-        """Design → Generate → Version → Self-evaluate."""
+        """Two-stage design: decompose use case → synthesize domain agents → build DAG."""
         logger.info("[MetaSolutionDesigner] Solving: %s", goal.use_case)
         state = AgentState()
 
         try:
-            # Phase 1: INTROSPECT — discover available capabilities
-            introspect_result = await self._introspect_tool.execute(
-                registry_type="both",
-                query="",
+            # Phase 1: DECOMPOSE — analyze use case into domain agent roles
+            roles = _decompose_use_case(
+                use_case=goal.use_case,
+                constraints=goal.constraints,
             )
-            if not introspect_result.success:
-                return AgentResult.fail(
-                    error=f"Introspection failed: {introspect_result.error}",
-                    state=state,
-                )
+            if not roles:
+                return AgentResult.fail(error="Could not decompose use case into roles", state=state)
 
-            capabilities = introspect_result.data or {}
+            logger.info(
+                "[MetaSolutionDesigner] Decomposed into %d roles: %s", len(roles), [r["name"] for r in roles]
+            )
 
-            # Phase 2: DESIGN — architect a DAG for the use case
-            agents_data: list[JSON] = capabilities.get("agents", [])
-            tools_data: list[JSON] = capabilities.get("tools", [])
-            safety = _analyze_tool_safety(tools=tools_data)
-
-            # Build nodes from discovered agents
+            # Phase 2: SYNTHESIZE — generate agent specs for each role
+            generated_agents: list[JSON] = []
             nodes: list[JSON] = []
-            for idx, agent_info in enumerate(agents_data):
-                agent_id = agent_info.get("id", f"agent_{idx}")
+            for idx, role in enumerate(roles):
+                agent_id = role["name"]
                 nodes.append(
                     {
                         "id": f"n{idx}",
                         "type": "agent",
-                        "name": agent_id,
+                        "name": role["name"],
                         "ref_id": agent_id,
-                        "output_key": f"output_{agent_id}",
+                        "output_key": f"output_{role['name'].lower().replace(' ', '_')}",
+                    }
+                )
+                generated_agents.append(
+                    {
+                        "id": agent_id,
+                        "node_id": f"n{idx}",
+                        "role": role["role"],
+                        "description": role["description"],
+                        "goal_fields": role.get("goal_fields", {}),
+                        "result_fields": role.get("result_fields", {}),
                     }
                 )
 
+            # Phase 3: BUILD DAG — chain agents with edges
             edges = _build_safety_aware_edges(nodes=nodes)
 
-            if not nodes:
-                return AgentResult.fail(
-                    error="No agents available to build solution",
-                    state=state,
-                )
-
-            # Generate the DAG
             dag_name = f"solution_{goal.version_tag}_{goal.use_case[:30].replace(' ', '_').lower()}"
             dag_result = await self._generate_dag_tool.execute(
                 name=dag_name,
@@ -754,14 +753,16 @@ class SolutionDesignerAgent(Agent[SolutionGoal, SolutionResult]):
             )
 
             if not dag_result.success:
-                return AgentResult.fail(
-                    error=f"DAG generation failed: {dag_result.error}",
-                    state=state,
-                )
+                return AgentResult.fail(error=f"DAG generation failed: {dag_result.error}", state=state)
 
             dag_spec = dag_result.data or {}
 
-            # Phase 3: VERSION — store solution in knowledge graph
+            # Phase 4: INTROSPECT for safety analysis
+            introspect_result = await self._introspect_tool.execute(registry_type="tools", query="")
+            tools_data = (introspect_result.data or {}).get("tools", []) if introspect_result.success else []
+            safety = _analyze_tool_safety(tools=tools_data)
+
+            # Phase 5: VERSION — store in knowledge graph
             version_entity = {
                 "id": f"solution_{dag_name}",
                 "type": "dag",
@@ -770,56 +771,42 @@ class SolutionDesignerAgent(Agent[SolutionGoal, SolutionResult]):
                 "properties": {
                     "version": goal.version_tag,
                     "use_case": goal.use_case,
+                    "roles": [r["name"] for r in roles],
                     "node_count": len(nodes),
                     "constraints": goal.constraints,
-                    "safety_analysis": safety,
                 },
             }
-            await self._kg_tool.execute(
-                operation="add_entity",
-                entity=version_entity,
-            )
+            await self._kg_tool.execute(operation="add_entity", entity=version_entity)
 
-            # Phase 4: SELF-EVALUATE — assess solution quality
+            # Phase 6: SELF-EVALUATE
             quality_score = self._assess_quality(
                 dag_spec=dag_spec,
                 node_count=len(nodes),
                 safety=safety,
                 constraints=goal.constraints,
+                roles=roles,
             )
 
-            rationale_parts = [
-                f"Designed {dag_name} with {len(nodes)} agents for: {goal.use_case}.",
-                f"Version: {goal.version_tag}. Quality score: {quality_score:.2f}.",
-            ]
-            if safety.get("destructive"):
-                rationale_parts.append(f"WARNING: destructive tools: {', '.join(safety['destructive'])}.")
-            if safety.get("concurrent_safe"):
-                rationale_parts.append(
-                    f"Concurrent-safe tools available: {', '.join(safety['concurrent_safe'])}."
-                )
+            rationale = (
+                f"Designed {dag_name} with {len(roles)} domain agents: "
+                f"{', '.join(r['name'] for r in roles)}. "
+                f"Version: {goal.version_tag}. Quality: {quality_score:.2f}."
+            )
 
             result = SolutionResult(
                 dag_spec=dag_spec,
-                generated_agents=tuple({"id": n["ref_id"], "node_id": n["id"]} for n in nodes),
+                generated_agents=tuple(generated_agents),
                 version=goal.version_tag,
-                rationale=" ".join(rationale_parts),
+                rationale=rationale,
                 quality_score=quality_score,
             )
 
-            logger.info(
-                "[MetaSolutionDesigner] Solution %s created (score=%.2f)",
-                dag_name,
-                quality_score,
-            )
+            logger.info("[MetaSolutionDesigner] Solution %s created (score=%.2f)", dag_name, quality_score)
             return AgentResult.ok(output=result, state=state)
 
         except Exception as exc:
             logger.error("[MetaSolutionDesigner] Error: %s", exc, exc_info=True)
-            return AgentResult.fail(
-                error=f"MetaSolutionDesigner error: {exc}",
-                state=state,
-            )
+            return AgentResult.fail(error=f"MetaSolutionDesigner error: {exc}", state=state)
 
     def _assess_quality(
         self,
@@ -828,26 +815,174 @@ class SolutionDesignerAgent(Agent[SolutionGoal, SolutionResult]):
         node_count: int,
         safety: JSON,
         constraints: JSON,
+        roles: list[JSON] | None = None,
     ) -> float:
         """Deterministic self-assessment of solution quality."""
-        score = 0.5  # Base
+        score = 0.4  # Base
 
-        # More agents = more capable (up to a point)
-        if node_count >= 2:
-            score += 0.1
-        if node_count >= 4:
-            score += 0.1
+        # Domain agents (not meta-agents) = better design
+        if roles:
+            domain_count = sum(1 for r in roles if not r.get("name", "").startswith("Meta"))
+            if domain_count >= 2:
+                score += 0.15
+            if domain_count >= 4:
+                score += 0.1
 
         # DAG has edges = proper chaining
         if dag_spec.get("edges"):
             score += 0.1
 
+        # Constraints respected
+        if constraints:
+            score += 0.1
+
         # No destructive tools = safer
         if not safety.get("destructive"):
-            score += 0.1
+            score += 0.05
 
         # Has concurrent-safe tools = parallelizable
         if safety.get("concurrent_safe"):
-            score += 0.1
+            score += 0.05
+
+        # Roles have descriptions = well-specified
+        if roles and all(r.get("description") for r in roles):
+            score += 0.05
 
         return min(1.0, score)
+
+
+def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
+    """Decompose a use case description into domain-specific agent roles.
+
+    Uses keyword analysis to identify required pipeline phases and
+    maps them to agent roles with goal/result field specs.
+    """
+    text = use_case.lower()
+    roles: list[JSON] = []
+
+    # Phase detection via keywords
+    phase_map: list[tuple[list[str], JSON]] = [
+        (
+            ["transcript", "download", "fetch", "ingest", "extract text", "scrape", "crawl"],
+            {
+                "name": "DataIngestor",
+                "role": "ingest",
+                "description": "Fetches and ingests raw data from external sources",
+                "goal_fields": {"source_url": "str", "source_type": "str"},
+                "result_fields": {"raw_content": "str", "metadata": "dict[str, Any]"},
+            },
+        ),
+        (
+            ["chunk", "split", "segment", "partition", "tokenize"],
+            {
+                "name": "SemanticChunker",
+                "role": "chunk",
+                "description": "Splits content into semantically coherent chunks with overlap",
+                "goal_fields": {"content": "str", "chunk_size": "int", "overlap": "int"},
+                "result_fields": {"chunks": "list[dict]", "chunk_count": "int"},
+            },
+        ),
+        (
+            ["entity", "extract", "ner", "parse", "structure", "classify"],
+            {
+                "name": "EntityExtractor",
+                "role": "extract",
+                "description": "Extracts structured entities, facts, and key concepts from chunks",
+                "goal_fields": {"chunks": "list[dict]", "entity_types": "list[str]"},
+                "result_fields": {"entities": "list[dict]", "facts": "list[str]"},
+            },
+        ),
+        (
+            ["relation", "graph", "knowledge", "connect", "link", "relate", "network"],
+            {
+                "name": "KnowledgeGraphBuilder",
+                "role": "relate",
+                "description": "Builds entity-relation knowledge graph from extracted data",
+                "goal_fields": {"entities": "list[dict]", "source_id": "str"},
+                "result_fields": {"nodes_added": "int", "edges_added": "int"},
+            },
+        ),
+        (
+            ["query", "search", "retrieve", "answer", "lookup", "find"],
+            {
+                "name": "QueryResolver",
+                "role": "query",
+                "description": "Resolves natural language queries against the knowledge base",
+                "goal_fields": {"query": "str", "max_results": "int"},
+                "result_fields": {"results": "list[dict]", "confidence": "float"},
+            },
+        ),
+        (
+            ["summarize", "synthesize", "overview", "digest", "brief", "tldr"],
+            {
+                "name": "Synthesizer",
+                "role": "synthesize",
+                "description": "Produces summaries and synthesized insights from processed data",
+                "goal_fields": {"content": "str", "max_length": "int"},
+                "result_fields": {"summary": "str", "key_points": "list[str]"},
+            },
+        ),
+        (
+            ["evaluate", "score", "assess", "quality", "validate", "check"],
+            {
+                "name": "QualityEvaluator",
+                "role": "evaluate",
+                "description": "Evaluates output quality and provides improvement feedback",
+                "goal_fields": {"output": "str", "criteria": "list[str]"},
+                "result_fields": {"score": "float", "feedback": "str"},
+            },
+        ),
+        (
+            ["store", "persist", "save", "cache", "archive", "memory"],
+            {
+                "name": "PersistenceManager",
+                "role": "persist",
+                "description": "Manages persistent storage of processed results",
+                "goal_fields": {"data": "dict", "scope": "str"},
+                "result_fields": {"stored": "bool", "storage_key": "str"},
+            },
+        ),
+    ]
+
+    for keywords, role_spec in phase_map:
+        if any(kw in text for kw in keywords):
+            roles.append(role_spec)
+
+    # Check constraints for explicit phases
+    explicit_phases = constraints.get("phases", []) or constraints.get("must_use", [])
+    if explicit_phases:
+        existing_roles = {r.get("role") for r in roles}
+        for phase in explicit_phases:
+            phase_lower = str(phase).lower()
+            for keywords, role_spec in phase_map:
+                if any(kw in phase_lower for kw in keywords) and role_spec["role"] not in existing_roles:
+                    roles.append(role_spec)
+                    existing_roles.add(role_spec["role"])
+
+    # Fallback: if nothing matched, create a generic 3-agent pipeline
+    if not roles:
+        roles = [
+            {
+                "name": "Researcher",
+                "role": "research",
+                "description": "Gathers and analyzes relevant information",
+                "goal_fields": {"topic": "str"},
+                "result_fields": {"findings": "str"},
+            },
+            {
+                "name": "Processor",
+                "role": "process",
+                "description": "Processes and transforms gathered data",
+                "goal_fields": {"data": "str"},
+                "result_fields": {"processed": "str"},
+            },
+            {
+                "name": "OutputGenerator",
+                "role": "output",
+                "description": "Generates the final output from processed data",
+                "goal_fields": {"processed_data": "str"},
+                "result_fields": {"output": "str"},
+            },
+        ]
+
+    return roles
