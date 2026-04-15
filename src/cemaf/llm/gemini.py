@@ -12,6 +12,11 @@ from collections.abc import AsyncIterator
 from time import perf_counter
 from typing import Any
 
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore[assignment,unused-ignore]
+
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
@@ -59,9 +64,7 @@ class GeminiClient:
         config_override: LLMConfig | None = None,
     ) -> CompletionResult:
         """Send request to Gemini generateContent API."""
-        try:
-            import httpx
-        except ImportError:
+        if httpx is None:
             return CompletionResult.fail(error="httpx required for GeminiClient")
 
         cfg = config_override or self._config
@@ -139,9 +142,7 @@ class GeminiClient:
         config_override: LLMConfig | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream from Gemini streamGenerateContent API."""
-        try:
-            import httpx
-        except ImportError:
+        if httpx is None:
             yield StreamChunk(content="Error: httpx required", is_final=True)
             return
 

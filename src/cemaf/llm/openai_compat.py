@@ -39,6 +39,12 @@ from time import perf_counter
 from typing import Any
 
 from cemaf.core.types import TokenCount
+
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore[assignment,unused-ignore]
+
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -87,9 +93,7 @@ class OpenAICompatClient:
         config_override: LLMConfig | None = None,
     ) -> CompletionResult:
         """Send chat completion request to OpenAI-compatible API."""
-        try:
-            import httpx
-        except ImportError:
+        if httpx is None:
             return CompletionResult.fail(
                 error="httpx is required for OpenAICompatClient. Install with: uv add httpx"
             )
@@ -166,9 +170,7 @@ class OpenAICompatClient:
         config_override: LLMConfig | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream chat completion from OpenAI-compatible API."""
-        try:
-            import httpx
-        except ImportError:
+        if httpx is None:
             yield StreamChunk(content="Error: httpx required", is_final=True)
             return
 
