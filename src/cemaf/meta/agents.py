@@ -860,10 +860,10 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
     text = use_case.lower()
     roles: list[JSON] = []
 
-    # Phase detection via keywords
+    # Phase detection via keywords — covers domain + CEMAF-specific terms
     phase_map: list[tuple[list[str], JSON]] = [
         (
-            ["transcript", "download", "fetch", "ingest", "extract text", "scrape", "crawl"],
+            ["transcript", "download", "fetch", "ingest", "scrape", "crawl", "video", "url", "api"],
             {
                 "name": "DataIngestor",
                 "role": "ingest",
@@ -873,7 +873,7 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
             },
         ),
         (
-            ["chunk", "split", "segment", "partition", "tokenize"],
+            ["chunk", "split", "segment", "partition", "tokenize", "overlap", "window"],
             {
                 "name": "SemanticChunker",
                 "role": "chunk",
@@ -883,17 +883,27 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
             },
         ),
         (
-            ["entity", "extract", "ner", "parse", "structure", "classify"],
+            ["entity", "extract", "ner", "parse", "structure", "classify", "concept", "fact"],
             {
                 "name": "EntityExtractor",
                 "role": "extract",
-                "description": "Extracts structured entities, facts, and key concepts from chunks",
+                "description": "Extracts structured entities, facts, and key concepts",
                 "goal_fields": {"chunks": "list[dict]", "entity_types": "list[str]"},
                 "result_fields": {"entities": "list[dict]", "facts": "list[str]"},
             },
         ),
         (
-            ["relation", "graph", "knowledge", "connect", "link", "relate", "network"],
+            [
+                "relation",
+                "graph",
+                "knowledge",
+                "connect",
+                "link",
+                "relate",
+                "network",
+                "cross-reference",
+                "global view",
+            ],
             {
                 "name": "KnowledgeGraphBuilder",
                 "role": "relate",
@@ -903,7 +913,7 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
             },
         ),
         (
-            ["query", "search", "retrieve", "answer", "lookup", "find"],
+            ["query", "search", "retrieve", "answer", "lookup", "find", "natural language"],
             {
                 "name": "QueryResolver",
                 "role": "query",
@@ -913,7 +923,7 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
             },
         ),
         (
-            ["summarize", "synthesize", "overview", "digest", "brief", "tldr"],
+            ["summarize", "synthesize", "overview", "digest", "brief", "tldr", "insight"],
             {
                 "name": "Synthesizer",
                 "role": "synthesize",
@@ -923,7 +933,7 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
             },
         ),
         (
-            ["evaluate", "score", "assess", "quality", "validate", "check"],
+            ["evaluate", "score", "assess", "quality", "validate", "check", "gate"],
             {
                 "name": "QualityEvaluator",
                 "role": "evaluate",
@@ -933,13 +943,63 @@ def _decompose_use_case(*, use_case: str, constraints: JSON) -> list[JSON]:
             },
         ),
         (
-            ["store", "persist", "save", "cache", "archive", "memory"],
+            ["store", "persist", "save", "cache", "archive"],
             {
                 "name": "PersistenceManager",
                 "role": "persist",
                 "description": "Manages persistent storage of processed results",
                 "goal_fields": {"data": "dict", "scope": "str"},
                 "result_fields": {"stored": "bool", "storage_key": "str"},
+            },
+        ),
+        # CEMAF-specific context engineering phases
+        (
+            ["unify", "context", "resource", "skill", "fragment", "scatter", "uniform", "single"],
+            {
+                "name": "ContextUnifier",
+                "role": "unify",
+                "description": "Unifies fragmented memories, resources, and skills into addressable context",
+                "goal_fields": {"sources": "list[dict]", "scope": "str"},
+                "result_fields": {"unified_context": "dict", "source_count": "int"},
+            },
+        ),
+        (
+            ["compact", "compress", "budget", "token", "tier", "surging", "growing", "truncat"],
+            {
+                "name": "ContextCompactor",
+                "role": "compact",
+                "description": "Compacts context via tiered storage and token budget management",
+                "goal_fields": {"context": "dict", "budget_tokens": "int"},
+                "result_fields": {"compacted": "dict", "tokens_saved": "int"},
+            },
+        ),
+        (
+            ["audit", "trace", "provenance", "debug", "observable", "transparent", "black box"],
+            {
+                "name": "AuditTracer",
+                "role": "audit",
+                "description": "Provides transparent audit trail and provenance tracking for context",
+                "goal_fields": {"run_id": "str", "depth": "int"},
+                "result_fields": {"audit_trail": "list[dict]", "anomalies": "list[str]"},
+            },
+        ),
+        (
+            [
+                "dream",
+                "consolidat",
+                "episode",
+                "iteration",
+                "task memory",
+                "long-term",
+                "beyond user",
+                "agent memory",
+            ],
+            {
+                "name": "MemoryConsolidator",
+                "role": "consolidate",
+                "description": "Consolidates episodic and task memory with dream-cycle extraction",
+                "goal_fields": {"session_id": "str", "max_items": "int"},
+                "result_fields": {"consolidated": "int", "pruned": "int"},
             },
         ),
     ]
