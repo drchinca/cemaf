@@ -1,4 +1,55 @@
-"""Runtime services bundle for orchestration components."""
+"""RuntimeServices — the typed DI container at CEMAF's composition root.
+
+`RuntimeServices` is the single, frozen, type-checked bundle that wires every
+cross-cutting dependency into `DAGExecutor`. It replaces what would otherwise
+be a 15+ kwarg constructor with one field-per-concern:
+
+    services = RuntimeServices(
+        # Observability
+        run_logger=logger,            # records LLM calls, patches, metrics per run
+        event_bus=bus,                # pub/sub seam between modules
+        health_monitor=health,        # pre-execution health gates
+        budget_guard=guard,           # hard cost cap with HaltSignal
+        # Quality
+        online_eval_pipeline=evals,   # subscribes to TASK_COMPLETED
+        quality_police=police,        # rolling-window quality monitor + halt
+        # Memory
+        memory_manager=memory,        # semantic + episodic recall
+        session_manager=sessions,     # per-run session lifecycle + ingest
+        # Content Safety
+        moderation_pipeline=mod,      # pre/post-flight moderation on agent I/O
+        # Context
+        context_compiler=compiler,    # token-budgeted context compilation
+        token_budget=budget,          # per-call token cap
+        domain_context=domain,        # cross-run domain knowledge
+        # LLM + Retrieval
+        llm_client=llm,               # the LLMClient protocol impl (may be wrapped)
+        vector_store=vectors,         # embedding-backed retrieval
+        # Recovery
+        auto_heal_manager=heal,       # autonomous heal on node failure
+    )
+
+Why this shape:
+- **Type-checked wiring**. Mypy catches misconfiguration at write time, not
+  at 3am.
+- **Request-scoped DI for free**. One `RuntimeServices` per HTTP request /
+  per tenant / per user gives per-request observability, budget, quality —
+  no framework support needed beyond passing the bundle.
+- **Graceful degradation**. Every field is `| None = None`. Absence of a
+  service means "that behavior is off" — nothing crashes when it isn't
+  configured.
+- **Future-proof**. New cross-cutting controllers (rate limits, SLO trackers,
+  tenant quotas) add a field here. The `DAGExecutor` constructor stays
+  stable.
+
+Anti-pattern — do **not** add a new kwarg to `DAGExecutor.__init__` for a
+cross-cutting concern. It lands on `RuntimeServices`. The legacy 13-kwarg
+constructor on `DAGExecutor` is a 0.3.x-only migration bridge; it is
+removed in 0.4.
+
+Self-hosting (Layer 2) adds `MetaServices` on top of this with audit + KG +
+OpenSpec deps. See `cemaf.meta.bootstrap`.
+"""
 
 from dataclasses import dataclass
 

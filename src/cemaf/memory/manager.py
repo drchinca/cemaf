@@ -1,4 +1,40 @@
-"""Memory manager — unified orchestrator for semantic + episodic memory."""
+"""MemoryManager — unified orchestrator for semantic + episodic memory.
+
+The single entry point for agents that need to remember things across calls.
+Agents do not talk to `MemoryStore` / `SemanticMemoryStore` / `EpisodicStore`
+directly; they call `manager.remember()`, `manager.recall()`,
+`manager.start_episode()`, etc., and the manager composes the right
+backends behind the scenes.
+
+Composition:
+- A `MemoryStore` (SQLite, InMemory, or BYO) for scoped key-value persistence
+- A `SemanticMemoryStore` for vector-similarity recall
+- An `EpisodicStore` for turn-by-turn session history
+- An optional `MemoryDeduplicator` for near-duplicate resolution on write
+- An optional `EventBus` for emitting `MEMORY_*` events to subscribers
+  (audit trail, knowledge graph refresh, etc.)
+
+Scopes (in `MemoryScope` enum) — the isolation boundaries:
+- `SESSION` — per-run memory; disposed at run end via `SessionManager`
+- `PROJECT` — persistent across runs within a project
+- `BRAND` — cross-project durable memory
+- `GLOBAL` — framework-wide (use sparingly)
+
+Protocol-first — `MemoryManager` is a `@runtime_checkable` Protocol so you
+can drop in your own implementation (Redis-backed, Postgres, graph DB)
+via `RuntimeServices(memory_manager=MyMemoryManager())` without forking.
+
+Factory:
+    from cemaf.memory.factories import create_memory_manager
+
+    manager = create_memory_manager(
+        memory_store=SqliteMemoryStore(db_path="memory.db"),
+        embedding_provider=OpenAIEmbeddingProvider(...),
+        event_bus=bus,
+    )
+
+Then inject via `RuntimeServices(memory_manager=manager, session_manager=...)`.
+"""
 
 from typing import Protocol, runtime_checkable
 
