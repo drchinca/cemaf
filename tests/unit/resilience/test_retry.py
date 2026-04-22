@@ -32,7 +32,7 @@ class TestRetryPolicy:
 
     @pytest.mark.asyncio
     async def test_retry_on_failure(self, retry_config: RetryConfig):
-        """Retries on failure."""
+        """Retries transient network/timeout errors."""
         policy = RetryPolicy(retry_config)
         call_count = 0
 
@@ -40,7 +40,7 @@ class TestRetryPolicy:
             nonlocal call_count
             call_count += 1
             if call_count < 3:
-                raise ValueError("Temporary error")
+                raise ConnectionError("Transient network hiccup")
             return "success"
 
         result = await policy.execute(fail_twice)
@@ -51,7 +51,7 @@ class TestRetryPolicy:
 
     @pytest.mark.asyncio
     async def test_max_attempts_exceeded(self):
-        """Fails after max attempts."""
+        """Fails after max attempts on a retryable error."""
         policy = RetryPolicy(
             RetryConfig(
                 max_attempts=3,
@@ -60,13 +60,32 @@ class TestRetryPolicy:
         )
 
         async def always_fail():
-            raise ValueError("Always fails")
+            raise ConnectionError("Always fails")
 
         result = await policy.execute(always_fail)
 
         assert not result.success
         assert result.attempts == 3
         assert len(result.attempt_errors) == 3
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_non_transient_errors(self):
+        """Regression: ValueError (400-style) must not retry under default config."""
+        policy = RetryPolicy(
+            RetryConfig(max_attempts=5, initial_delay_seconds=0.001),
+        )
+        call_count = 0
+
+        async def bad_request():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("400: schema mismatch")
+
+        result = await policy.execute(bad_request)
+
+        assert not result.success
+        assert result.attempts == 1, "Non-transient errors must fail fast"
+        assert call_count == 1
 
     @pytest.mark.asyncio
     async def test_exponential_backoff(self):

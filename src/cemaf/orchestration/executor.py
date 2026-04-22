@@ -486,6 +486,41 @@ class DAGExecutor:
                         },
                     )
 
+                # Post-flight moderation on the node's output. The executor
+                # holds the pipeline (previously plumbed but never invoked);
+                # if it blocks, the node is rewritten to failed with an
+                # explicit violation error, and the DAG cannot pass the tainted
+                # output to downstream nodes.
+                if self._moderation_pipeline is not None and result.success and result.output is not None:
+                    moderation_result = await self._moderation_pipeline.check_output(
+                        content=str(result.output),
+                        context=context,
+                    )
+                    if not moderation_result.allowed:
+                        violation_codes = [v.code for v in moderation_result.violations]
+                        error_msg = (
+                            f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})"
+                        )
+                        logger.warning(
+                            "Node output blocked by moderation",
+                            node_id=str(node_id),
+                            violations=violation_codes,
+                        )
+                        blocked_metadata = dict(result.metadata or {})
+                        blocked_metadata["moderation_blocked"] = True
+                        blocked_metadata["moderation_violations"] = violation_codes
+                        result = NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            output=None,
+                            error=error_msg,
+                            duration_ms=result.duration_ms,
+                            metadata=blocked_metadata,
+                        )
+                        # Replace the recorded result so downstream checks see failure.
+                        node_results[-1] = result
+                        completed[node_id] = result
+
                 # Budget guard check after each node.
                 # Telemetry (token_telemetry.extract_token_metadata) writes
                 # `cost_estimate_usd` and `tokens_total`; we honor both those
