@@ -2,10 +2,15 @@
 
 Context Engineering Multi-Agent Framework
 
+## Start here (read in order)
+
+1. [**Architecture**](architecture.md) — the software architecture we build toward
+2. [**Design Patterns**](patterns.md) — the 12 patterns reviewers enforce
+3. [**Module Layout**](modules.md) — where each kind of thing lives
+
 ## Quick Links
 
 - [Quick Start](quickstart.md) - Get running in 5 minutes
-- [Architecture](architecture.md) - System design overview
 - [Protocol Guide](protocol_guide.md) - Understanding protocol-based design
 - [Extension Patterns](extension_patterns.md) - How to extend CEMAF
 - [Module Reference](module_reference.md) - API reference

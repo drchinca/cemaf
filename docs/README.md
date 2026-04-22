@@ -2,121 +2,141 @@
 
 **Context Engineering Multi-Agent Framework**
 
-Context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone OR plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
+Protocol-first framework for running multi-agent LLM workloads with provenance, budget control, eval, moderation, and self-hosting. Use standalone or drop modules into LangGraph / AutoGen / CrewAI.
 
-## System Overview
+---
 
-```mermaid
-flowchart TB
-    subgraph "Context Engineering Layer"
-        CTX[Context<br/>Immutable State]
-        PATCH[Patches<br/>Provenance Tracking]
-        BUDGET[TokenBudget<br/>Limit Management]
-    end
+## Start here
 
-    subgraph "Recording & Replay"
-        LOGGER[RunLogger<br/>Recording]
-        RECORD[RunRecord<br/>Serializable]
-        REPLAY[Replayer<br/>Deterministic]
-    end
+New to CEMAF? Read these three in order:
 
-    subgraph "Execution Layer"
-        DAG[DAG<br/>Workflow Definition]
-        EXEC[DAGExecutor<br/>Orchestration]
-        TOOLS[Tools<br/>Atomic Functions]
-    end
+1. **[Architecture](architecture.md)** — the software architecture we build toward. Layer 1 / Layer 2, dependency invariants, composition root, what we say no to.
+2. **[Design Patterns](patterns.md)** — the 12 patterns that show up everywhere. Protocol-first, BYO-X, RuntimeServices, HaltSignal, immutable-context-patches, ContextVar per-run, decorator LLM clients.
+3. **[Module Layout](modules.md)** — where each kind of thing lives. When you're unsure where a new file goes, check here.
 
-    subgraph "Glass Box Audit"
-        PROV[ProvenanceChain<br/>Audit Trail]
-        GUARD[BudgetGuard<br/>Cost Enforcement]
-        GLASS[GlassBoxReporter<br/>Full Reports]
-    end
+Then pick your entry point:
+- Want to build something: [Quick Start](quickstart.md)
+- Want to extend CEMAF: [Extension Patterns](extension_patterns.md)
+- Want to integrate with your framework: [Integration Guide](integration.md)
 
-    subgraph "Infrastructure"
-        MEM[Memory<br/>Scoped + TTL]
-        EVENTS[Events<br/>Pub/Sub]
-        CANCEL[Cancellation<br/>Timeout]
-    end
+---
 
-    CTX --> PATCH
-    PATCH --> LOGGER
-    LOGGER --> RECORD
-    RECORD --> REPLAY
+## How CEMAF is structured
 
-    DAG --> EXEC
-    EXEC --> TOOLS
-    EXEC --> LOGGER
-    EXEC --> GUARD
-    TOOLS --> PATCH
-    LOGGER --> PROV
-    PROV --> GLASS
+```
+┌───────────────────────────────────────────────────────────────────┐
+│  LAYER 2 — Self-Hosting                                            │
+│  audit/ ◄── knowledge/ ◄── meta/ (Specifier, Architect, …)        │
+│                                                                    │
+│  ─── one-way dependency ────────────────────────────────────────   │
+│                                                                    │
+│  LAYER 1 — Base Framework                                          │
+│                                                                    │
+│    orchestration/ ──► DAGExecutor, RuntimeServices, node handlers │
+│         │                                                          │
+│         ▼                                                          │
+│    agents/ • tools/ • skills/ • blueprint/                         │
+│    context/ • memory/ • retrieval/ • rlm/                         │
+│    llm/ • generation/ • streaming/                                 │
+│    evals/ • moderation/ • validation/ • citation/                 │
+│    events/ • observability/ • resilience/ • persistence/          │
+│    mcp/ • cache/ • replay/ • ingestion/                           │
+│                                                                    │
+│    Composition root:                                               │
+│      bootstrap.create_executor(                                    │
+│          agent_registry,                                           │
+│          services=RuntimeServices(...),                            │
+│          config=ExecutorConfig(...),                               │
+│      )                                                             │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
-## Documentation Index
+Full diagram + per-module details: [modules.md](modules.md).
+
+---
+
+## Documentation index
 
 ### Getting Started
-- [Quick Start Guide](quickstart.md) - Installation and first steps
-- [Protocol Guide](protocol_guide.md) - Understanding CEMAF's protocol-based architecture
-- [Extension Patterns](extension_patterns.md) - How to extend CEMAF with your own implementations
-- [Standalone Usage](standalone_usage.md) - Using modules independently
-- [Architecture Overview](architecture.md) - System design and components
-- [Integration Guide](integration.md) - Mode A/B integration patterns
+- [Quick Start](quickstart.md) — install, run, first agent
+- [Protocol Guide](protocol_guide.md) — how the protocol layer works
+- [Extension Patterns](extension_patterns.md) — BYO-LLM, BYO-VectorStore, BYO-MemoryBackend
+- [Standalone Usage](standalone_usage.md) — using modules independently
+- [Integration Guide](integration.md) — Mode A (CEMAF orchestrates) and Mode B (CEMAF as library)
 
-### Context Engineering (Core Differentiator)
-- [Context Management](context.md) - Patches, provenance, budgeting, compilation
-- [Replay & Recording](replay.md) - Run logging, deterministic replay
-- [Memory](memory.md) - Scoped memory with TTL and hooks
+### Canonical reference (read these)
+- [**Architecture**](architecture.md) — the software architecture we build toward
+- [**Design Patterns**](patterns.md) — the pattern catalog reviewers enforce
+- [**Module Layout**](modules.md) — where each thing lives
+
+### Context Engineering (core differentiator)
+- [Context Management](context.md) — Context, ContextPatch, ContextCompiler, TokenBudget
+- [Replay & Recording](replay.md) — RunLogger, RunRecord, deterministic replay
+- [Memory](memory.md) — MemoryManager, scopes, TTL, tiered storage, sessions
 
 ### Execution Layer
-- [Tools](tools.md) - Atomic, stateless functions with recording
-- [Skills](skills.md) - Composable capabilities
-- [Agents](agents.md) - Autonomous entities with goals
-- [Orchestration](orchestration.md) - DAG, Executor, DeepAgent, Checkpointing
+- [Tools](tools.md) — atomic, stateless functions with recording
+- [Skills](skills.md) — composable capabilities
+- [Agents](agents.md) — autonomous entities with typed goals/results
+- [Orchestration](orchestration.md) — DAG, Executor, Node handlers, Checkpointing
 
-### Glass Box Audit Trail
-- [Observability](observability.md) - Logger, Tracer, Metrics, RunLogger, BudgetGuard, GlassBoxReporter
-- [Core: Provenance](core.md#provenance) - ProvenanceChain, ProvenanceLink, SourceReference
-- [Context Agents](context_engineering_agents.md) - Librarian, Researcher, Summarizer, Writer
+### Quality & Safety
+- [Evals](evals.md) — evaluators, hierarchical judge, online eval pipeline, quality police, groundedness
+- [Moderation](moderation.md) — pre/post-flight gates, PII, ModeratingLLMClient, streaming moderation
+- [Validation](validation.md) — contract-shape validation
+- [Citation](citation.md) — source tracking and verification
 
-### Core Infrastructure
-- [Core](core.md) - Types, enums, Result pattern, execution context, provenance
-- [Resilience](resilience.md) - Retry, CircuitBreaker, RateLimiter
-- [Events](events.md) - Event bus and notifiers
+### LLM Integration
+- [LLM](llm.md) — LLMClient protocol, 6 adapters, decorators (moderating, resilient, instrumented), exact token counting
 
-### Supporting Modules
-- [LLM](llm.md) - LLM client protocols and adapters
-- [Retrieval](retrieval.md) - Vector stores and embeddings
-- [Citation](citation.md) - Source attribution tracking
-- [MCP](mcp.md) - Model Context Protocol integration
-- [Blueprint](blueprint.md) - Semantic blueprints for content generation
-- [Moderation](moderation.md) - Guardrails and content safety
-- [Streaming](streaming.md) - SSE and stream buffers
-- [Generation](generation.md) - Image, audio, video, UI, code generation
-- [Cache](cache.md) - Caching with TTL and eviction
-- [Validation](validation.md) - Validation rules and pipelines
-- [Scheduler](scheduler.md) - Job scheduling and triggers
-- [Config](config.md) - Configuration management
-- [Persistence](persistence.md) - Entities (Project, Run, Artifact)
-- [Evals](evals.md) - Evaluators and LLM-as-judge
+### Observability
+- [Observability](observability.md) — structured logger, Prometheus metrics, RunLogger, BudgetGuard, HealthMonitor, glass-box audit
+- [Provenance](core.md#provenance) — ProvenanceChain linking LLM calls to context sources
 
-## Quick Links
+### Infrastructure
+- [Core](core.md) — types, enums, Result[T], IDs, utilities
+- [Resilience](resilience.md) — RetryPolicy, CircuitBreaker, RateLimiter
+- [Events](events.md) — EventBus pub/sub
+- [Persistence](persistence.md) — Project, RunRecord, durable storage
+- [Cache](cache.md) — TTL caching
+- [Config](config.md) — Settings, env loading, provider registry
+- [Scheduler](scheduler.md) — gates and task scheduling
 
-| Task | Documentation |
-|------|---------------|
-| Track context changes | [Context Patches](context.md#context-patches) |
-| Record and replay runs | [Replay & Recording](replay.md) |
-| Integrate with LangGraph | [Integration Guide](integration.md#with-langgraph) |
-| Set memory TTL | [Memory](memory.md#ttl) |
-| Add cancellation | [Execution Context](core.md#execution-context) |
-| Build a DAG | [Orchestration](orchestration.md#building-dags) |
-| Audit an LLM call | [Provenance](core.md#provenance) |
-| Enforce cost limits | [BudgetGuard](observability.md#budget-guard) |
-| Generate audit report | [GlassBoxReporter](observability.md#glass-box-reporter) |
-| Use context agents | [Context Agents](context_engineering_agents.md) |
+### Integrations
+- [MCP](mcp.md) — Model Context Protocol adapter + OpenSpec bridge
+- [Retrieval](retrieval.md) — VectorStore, EmbeddingProvider protocols
+- [Blueprint](blueprint.md) — semantic blueprints for structured generation
+- [Streaming](streaming.md) — SSE, stream buffers
+- [Generation](generation.md) — image, audio, video, UI, code
+- [RLM](rlm.md) — Recursive LLM for 1M+ token contexts
 
-## Project Stats
+### Self-Hosting (Layer 2)
+- [Audit](audit.md) — AuditTrail, anomaly detection
+- [Knowledge Graph](knowledge.md) — entities + relations backed by memory
+- [Meta Layer](meta.md) — MetaArchitect, MetaSpecifier, MetaSynthesizer, MetaScaffolder, app_synthesis DAG
 
-- **1557 tests** | **100% passing** | **TDD from day one**
-- **Python 3.14+** | **Fully typed** | **Protocol-based design**
-- **Glass Box Audit** | **Provenance Tracking** | **Budget Enforcement**
-- **MIT License**
+---
+
+## Quick links
+
+| Task | Doc |
+|------|------|
+| Wire up a full executor | [architecture.md § composition root](architecture.md#composition-root) |
+| Plug in your own LLM | [patterns.md § BYO-X](patterns.md#2-bring-your-own-x-byo-x) |
+| Halt a runaway DAG | [patterns.md § HaltSignal](patterns.md#8-haltsignal-with-structured-reason) |
+| Get exact token counts | [llm.md § count_tokens_exact](llm.md) |
+| Detect prompt injection via tools | [moderation.md § ModeratingLLMClient](moderation.md) |
+| Track what the LLM saw | [context.md § patches](context.md) |
+| Run recorded executions | [replay.md](replay.md) |
+| Build self-specifying apps | [meta.md § app_synthesis](meta.md) |
+| Add a new cross-cutting controller | [modules.md § placement decisions](modules.md#placement-decisions--worked-examples) |
+
+---
+
+## Project stats
+
+- **2735+ tests** | **100% passing** | TDD from day one
+- **Python 3.14+** | fully typed | protocol-based design
+- Glass-box audit | provenance tracking | budget enforcement | structured halt signals
+- Six LLM providers supported out-of-box; exact token counting via provider APIs
+- MIT License
