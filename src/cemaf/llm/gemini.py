@@ -180,11 +180,39 @@ class GeminiClient:
         yield StreamChunk(content="", is_final=True, accumulated_content=accumulated)
 
     def count_tokens(self, text: str) -> TokenCount:
-        return TokenCount(max(1, len(text) // 4))
+        """Heuristic count (~3.5 chars/token) calibrated for Gemini/Gamma tokenizers."""
+        if not text:
+            return TokenCount(0)
+        return TokenCount(max(1, round(len(text) / 3.5)))
 
     def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
-        total = sum(len(str(m.content)) // 4 + 4 for m in messages)
+        total = sum(self.count_tokens(text=str(m.content)) + 4 for m in messages)
         return TokenCount(max(1, total))
+
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """Exact token count via Gemini's countTokens API.
+
+        POSTs to `https://generativelanguage.googleapis.com/v1beta/models/<model>:countTokens`
+        Free to call. Returns the totalTokens field.
+        """
+        if httpx is None:
+            raise RuntimeError("httpx required for GeminiClient.count_tokens_exact")
+        contents = _messages_to_gemini(messages=messages)
+        url = f"{_GEMINI_API_BASE}/models/{self._config.model}:countTokens"
+        payload: dict[str, Any] = {"contents": contents}
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            response = await http_client.post(
+                url,
+                params={"key": self._api_key},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+        return TokenCount(int(data.get("totalTokens", 0)))
 
 
 # ---------------------------------------------------------------------------

@@ -120,6 +120,14 @@ class MockLLMClient:
                 finish_reason="stop" if i == len(words) - 1 else None,
             )
 
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """Mock exact counter — just uses the heuristic (no real API to call)."""
+        return self.count_messages_tokens(messages=messages)
+
     def count_tokens(self, text: str) -> TokenCount:
         """Estimate tokens from text."""
         return TokenCount(max(1, int(len(text) * self._tokens_per_char)))

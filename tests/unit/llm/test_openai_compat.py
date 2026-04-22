@@ -56,9 +56,10 @@ class TestTokenCounting:
         count = client.count_tokens(text="hello world test")
         assert count > 0
 
-    def test_count_tokens_minimum_one(self) -> None:
+    def test_count_tokens_empty_is_zero(self) -> None:
+        """Empty text has zero tokens (was masked by floor-at-1 in old heuristic)."""
         client = OpenAICompatClient()
-        assert client.count_tokens(text="") == TokenCount(1)
+        assert client.count_tokens(text="") == TokenCount(0)
 
     def test_count_messages_tokens(self) -> None:
         client = OpenAICompatClient()

@@ -33,6 +33,20 @@ from cemaf.llm.protocols import (
 from cemaf.moderation.pipeline import ModerationPipeline
 
 _BLOCKED_STUB = "[blocked by moderation: tool result contained disallowed content]"
+_BLOCKED_OUTPUT_STUB = "\n[BLOCKED by moderation — output truncated]"
+
+# Sentence terminators that trigger a boundary-flush. We only moderate
+# completed sentences so the gate sees coherent units, not token fragments.
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?][\"')\]]?\s+|\n\n")
+
+
+def _find_sentence_boundary(*, text: str) -> int | None:
+    """Return the index one-past the first sentence terminator, or None."""
+    match = _SENTENCE_BOUNDARY_RE.search(text)
+    if match is None:
+        return None
+    return match.end()
+
 
 # Invisible / formatting Unicode categories commonly used to smuggle
 # instructions past keyword gates: zero-width chars, bidi controls,
@@ -112,10 +126,19 @@ class ModeratingLLMClient:
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
     ) -> AsyncIterator[StreamChunk]:
+        """Stream completion with chunk-level output moderation.
+
+        Sanitizes inbound tool-result messages (same as complete()), THEN
+        buffers outbound chunks by sentence boundary and runs the pipeline's
+        post-flight gate on each boundary. On violation, the stream is
+        truncated with a [BLOCKED] marker and `is_final=True` — the caller
+        can never have received more than one sentence of disallowed content.
+
+        Without this, a streaming client showed users partial unsafe output
+        before the (non-existent) end-of-stream moderation check. Now every
+        emitted chunk has been cleared by moderation.
+        """
         sanitized = await self._sanitize_messages(messages=messages)
-        # LLMClient protocol types stream() as returning a coroutine that
-        # yields an AsyncIterator; real implementations are async generators
-        # (directly iterable). Handle both shapes.
         stream_call: Any = self._inner.stream(
             messages=sanitized,
             tools=tools,
@@ -124,8 +147,70 @@ class ModeratingLLMClient:
         iterator: AsyncIterator[StreamChunk] = (
             await stream_call if hasattr(stream_call, "__await__") else stream_call
         )
+
+        # If no post-flight gate, pass through unchanged (cheap path).
+        if self._moderation.post_flight is None:
+            async for chunk in iterator:
+                yield chunk
+            return
+
+        # Buffered path: accumulate by sentence boundary, moderate each
+        # finalized sentence before emission.
+        pending = ""
+        emitted_total = ""
         async for chunk in iterator:
-            yield chunk
+            pending += chunk.content
+            emitted_chunks: list[str] = []
+            while True:
+                boundary = _find_sentence_boundary(text=pending)
+                if boundary is None:
+                    break
+                sentence, pending = pending[:boundary], pending[boundary:]
+                moderation_result = await self._moderation.check_output(content=sentence)
+                if not moderation_result.allowed:
+                    # Emit blocked marker and stop the stream.
+                    emitted_total += _BLOCKED_OUTPUT_STUB
+                    yield StreamChunk(
+                        content=_BLOCKED_OUTPUT_STUB,
+                        is_final=True,
+                        accumulated_content=emitted_total,
+                    )
+                    return
+                emitted_chunks.append(sentence)
+                emitted_total += sentence
+            if emitted_chunks:
+                yield StreamChunk(
+                    content="".join(emitted_chunks),
+                    accumulated_content=emitted_total,
+                    is_final=False,
+                )
+            if chunk.is_final:
+                # Flush any trailing unterminated sentence through moderation too.
+                if pending:
+                    moderation_result = await self._moderation.check_output(content=pending)
+                    if not moderation_result.allowed:
+                        emitted_total += _BLOCKED_OUTPUT_STUB
+                        yield StreamChunk(
+                            content=_BLOCKED_OUTPUT_STUB,
+                            is_final=True,
+                            accumulated_content=emitted_total,
+                        )
+                        return
+                    emitted_total += pending
+                    yield StreamChunk(
+                        content=pending,
+                        is_final=True,
+                        accumulated_content=emitted_total,
+                        finish_reason=chunk.finish_reason,
+                    )
+                    return
+                yield StreamChunk(
+                    content="",
+                    is_final=True,
+                    accumulated_content=emitted_total,
+                    finish_reason=chunk.finish_reason,
+                )
+                return
 
     def count_tokens(self, text: str) -> int:
         return self._inner.count_tokens(text=text)
