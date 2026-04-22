@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import keyword
 import logging
 import shutil
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.core.types import AgentID
 from cemaf.meta.goals import (
+    GeneratedAgent,
     ProjectSkeleton,
     ScaffoldGoal,
     ScaffoldResult,
 )
 
 logger = logging.getLogger(__name__)
+
+_CEMAF_SOURCE_PLACEHOLDER = (
+    "# FIXME: set cemaf_source on ScaffoldGoal to a resolvable spec "
+    '(e.g. "cemaf @ git+https://...@<sha>" or "cemaf @ file:///path/to/cemaf"). '
+    "The default below is not resolvable by uv."
+)
 
 
 def render_project(*, skeleton: ProjectSkeleton) -> Mapping[str, str]:
@@ -39,14 +48,36 @@ def render_project(*, skeleton: ProjectSkeleton) -> Mapping[str, str]:
     return files
 
 
+def _toml_string(value: str) -> str:
+    """Escape a value for use inside a TOML basic string.
+
+    TOML basic strings use the same escape rules as JSON strings. Using
+    `json.dumps` gives us correct handling of `"`, `\\`, newlines, and
+    non-printable characters without rolling our own escape table.
+    """
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _py_string(value: str) -> str:
+    """Escape a value for use as a Python string literal (same rules as JSON)."""
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _render_pyproject(*, skeleton: ProjectSkeleton) -> str:
-    return f"""[project]
-name = "{skeleton.module_name}"
+    name_literal = _toml_string(skeleton.module_name)
+    desc_literal = _toml_string(skeleton.description)
+    cemaf_dep_literal = (
+        _toml_string(skeleton.cemaf_source) if skeleton.cemaf_source else _toml_string("cemaf")
+    )
+    preamble = "" if skeleton.cemaf_source else f"\n{_CEMAF_SOURCE_PLACEHOLDER}\n"
+    packages_literal = _toml_string(f"src/{skeleton.module_name}")
+    return f"""{preamble}[project]
+name = {name_literal}
 version = "0.1.0"
-description = "{skeleton.description}"
+description = {desc_literal}
 requires-python = ">=3.13"
 dependencies = [
-    "cemaf",
+    {cemaf_dep_literal},
     "pydantic>=2.0",
 ]
 
@@ -55,11 +86,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/{skeleton.module_name}"]
+packages = [{packages_literal}]
 """
 
 
 def _render_readme(*, skeleton: ProjectSkeleton) -> str:
+    # Title and description go directly into markdown where quotes are safe.
     return f"""# {skeleton.title}
 
 {skeleton.description}
@@ -81,42 +113,44 @@ def _render_init(*, skeleton: ProjectSkeleton) -> str:
 
 
 def _render_agents(*, skeleton: ProjectSkeleton) -> str:
-    if not skeleton.agent_sources:
+    if not skeleton.generated_agents:
         return (
             '"""Generated agents for this app."""\n'
             "\n"
-            "# No agents were synthesized; add your own by registering them in bootstrap.py.\n"
+            "# No agents were synthesized; register your own in bootstrap.py.\n"
         )
     header = '"""Generated agents — produced by MetaSynthesizer."""\n\n'
-    return header + "\n\n".join(src.rstrip() for src in skeleton.agent_sources) + "\n"
+    return header + "\n\n".join(a.source.rstrip() for a in skeleton.generated_agents) + "\n"
 
 
 def _render_dags(*, skeleton: ProjectSkeleton) -> str:
+    # Description goes into a DAG kwarg — must be a valid Python string literal.
+    dag_name_literal = _py_string(f"{skeleton.module_name}_main")
+    desc_literal = _py_string(skeleton.description)
     return f'''"""DAG factories for {skeleton.module_name}."""
 
-from cemaf.core.types import NodeID
-from cemaf.orchestration.dag import DAG, Edge, Node
+from cemaf.orchestration.dag import DAG
 
 
 def create_main_dag() -> DAG:
     """Default DAG — extend as your app grows."""
-    dag = DAG(name="{skeleton.module_name}_main", description="{skeleton.description}")
-    return dag
+    return DAG(name={dag_name_literal}, description={desc_literal})
 '''
 
 
 def _render_bootstrap(*, skeleton: ProjectSkeleton) -> str:
-    registrations = "\n".join(
-        f"    registry.register_agent(agent_instance={cls}(), goal_type={cls}Goal)"
-        for cls in skeleton.agent_class_names
-    )
-    agent_imports = (
-        f"from {skeleton.module_name}.agents import (\n"
-        + "\n".join(f"    {cls}," for cls in skeleton.agent_class_names)
-        + "\n)\n"
-        if skeleton.agent_class_names
-        else "# No agents to import — add them here as your app grows.\n"
-    )
+    agents = skeleton.generated_agents
+    if agents:
+        import_names = ", ".join(sorted({a.class_name for a in agents} | {a.goal_class_name for a in agents}))
+        agent_imports = f"from {skeleton.module_name}.agents import {import_names}\n"
+        registrations = "\n".join(
+            f"    registry.register_agent(agent_instance={a.class_name}(), goal_type={a.goal_class_name})"
+            for a in agents
+        )
+    else:
+        agent_imports = "# No agents to import — add them here as your app grows.\n"
+        registrations = "    # no agents registered"
+
     return f'''"""App bootstrap — wires the registry and returns a DAGExecutor."""
 
 from cemaf.agents.registry import AgentRegistry
@@ -129,7 +163,7 @@ from cemaf.orchestration.services import RuntimeServices
 def create_app_registry() -> AgentRegistry:
     """Register this app's agents and return the registry."""
     registry = AgentRegistry()
-{registrations or "    # no agents registered"}
+{registrations}
     return registry
 
 
@@ -148,6 +182,7 @@ def create_app_executor(
 
 
 def _render_smoke_test(*, skeleton: ProjectSkeleton) -> str:
+    expected_name_literal = _py_string(f"{skeleton.module_name}_main")
     return f'''"""Smoke test — imports and wires the app."""
 
 from {skeleton.module_name}.bootstrap import create_app_executor, create_app_registry
@@ -166,12 +201,21 @@ def test_executor_builds() -> None:
 
 def test_main_dag_is_valid() -> None:
     dag = create_main_dag()
-    assert dag.name == "{skeleton.module_name}_main"
+    assert dag.name == {expected_name_literal}
 '''
+
+
+# stdlib modules we refuse to shadow — keeps generated apps from clobbering
+# common imports in their own namespace.
+_FORBIDDEN_PROJECT_NAMES = frozenset(sys.stdlib_module_names) | frozenset({"cemaf", "pydantic", "pytest"})
 
 
 class MetaScaffolder(Agent[ScaffoldGoal, ScaffoldResult]):
     """Write a runnable CEMAF-based app to disk from a ProposalDoc + synthesized agents."""
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._registry_lock = asyncio.Lock()
 
     @property
     def id(self) -> AgentID:
@@ -196,18 +240,20 @@ class MetaScaffolder(Agent[ScaffoldGoal, ScaffoldResult]):
             target_dir = Path(goal.target_dir).resolve()
             project_root = (target_dir / goal.project_name).resolve()
             _validate_within(target=project_root, root=target_dir)
-            await self._prepare_root(project_root=project_root, overwrite=goal.overwrite)
+            lock = await self._acquire_project_lock(project_root=project_root)
+            async with lock:
+                await self._prepare_root(project_root=project_root, overwrite=goal.overwrite)
 
-            skeleton = ProjectSkeleton(
-                project_name=goal.project_name,
-                module_name=goal.project_name,
-                title=goal.proposal.title,
-                description=goal.proposal.why.splitlines()[0][:200],
-                agent_sources=goal.generated_agents,
-                agent_class_names=goal.agent_class_names,
-            )
-            files = render_project(skeleton=skeleton)
-            written = await asyncio.to_thread(_write_files, project_root, files)
+                skeleton = ProjectSkeleton(
+                    project_name=goal.project_name,
+                    module_name=goal.project_name,
+                    title=goal.proposal.title,
+                    description=_first_nonempty_line(text=goal.proposal.why)[:200],
+                    generated_agents=goal.generated_agents,
+                    cemaf_source=goal.cemaf_source,
+                )
+                files = render_project(skeleton=skeleton)
+                written = await asyncio.to_thread(_write_files, project_root, files)
 
             result = ScaffoldResult(
                 project_root=str(project_root),
@@ -220,6 +266,12 @@ class MetaScaffolder(Agent[ScaffoldGoal, ScaffoldResult]):
         except (ValueError, OSError) as exc:
             logger.exception("[MetaScaffolder] failed")
             return AgentResult.fail(error=str(exc), state=state)
+
+    async def _acquire_project_lock(self, *, project_root: Path) -> asyncio.Lock:
+        """Per-project-root asyncio.Lock — serializes concurrent scaffolds to the same target."""
+        key = str(project_root)
+        async with self._registry_lock:
+            return self._locks.setdefault(key, asyncio.Lock())
 
     async def _prepare_root(self, *, project_root: Path, overwrite: bool) -> None:
         if project_root.exists():
@@ -234,11 +286,24 @@ class MetaScaffolder(Agent[ScaffoldGoal, ScaffoldResult]):
         project_root.mkdir(parents=True, exist_ok=True)
 
 
+def _first_nonempty_line(*, text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return text.strip() or "CEMAF-based app"
+
+
 def _validate_module_name(*, name: str) -> None:
     if not name.isidentifier():
         raise ValueError(f"project_name {name!r} is not a valid Python identifier")
     if keyword.iskeyword(name) or keyword.issoftkeyword(name):
         raise ValueError(f"project_name {name!r} is a reserved Python keyword")
+    if name in _FORBIDDEN_PROJECT_NAMES:
+        raise ValueError(
+            f"project_name {name!r} collides with a stdlib or known package name; "
+            "pick a project-specific name"
+        )
 
 
 def _validate_within(*, target: Path, root: Path) -> None:
@@ -263,4 +328,5 @@ def _write_files(root: Path, files: Mapping[str, str]) -> list[str]:
 __all__ = [
     "MetaScaffolder",
     "render_project",
+    "GeneratedAgent",
 ]

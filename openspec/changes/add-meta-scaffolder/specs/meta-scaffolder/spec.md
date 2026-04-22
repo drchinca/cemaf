@@ -60,8 +60,11 @@ mapping relative paths to file contents.
 
 ### Requirement: app_synthesis DAG chains Specifier → Architect → Synthesizer → Scaffolder
 
-The system SHALL provide `create_app_synthesis_dag(target_dir)` producing a DAG
-that executes the four meta-agents in order, with context propagation.
+The system SHALL provide `create_app_synthesis_dag()` producing a DAG
+that executes the four meta-agents in order, with context propagation. The
+target directory is passed per-invocation via the `ScaffoldGoal.target_dir`
+field, not as a parameter to the DAG factory — DAGs remain stateless and
+reusable across calls.
 
 #### Scenario: End-to-end app synthesis produces a working project
 

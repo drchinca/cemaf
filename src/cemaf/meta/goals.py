@@ -208,6 +208,20 @@ class SpecResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GeneratedAgent(BaseModel):
+    """One synthesized agent — keeps class name, goal class name, and source aligned.
+
+    Replaces the earlier parallel-tuple shape (agent_sources + class_names) where
+    misalignment produced a silent NameError at import time.
+    """
+
+    model_config = {"frozen": True}
+
+    class_name: str = Field(min_length=1, description="Agent class name")
+    goal_class_name: str = Field(min_length=1, description="Pydantic goal class used for registration")
+    source: str = Field(min_length=1, description="Python source defining both classes")
+
+
 class ProjectSkeleton(BaseModel):
     """Typed representation of a scaffolded CEMAF-based app."""
 
@@ -217,11 +231,12 @@ class ProjectSkeleton(BaseModel):
     module_name: str = Field(min_length=1, description="Python module name (identifier)")
     title: str = Field(min_length=1, description="Human-readable title")
     description: str = Field(min_length=1, description="One-line app description")
-    agent_sources: tuple[str, ...] = Field(
-        default_factory=tuple, description="Python sources for generated agents"
+    generated_agents: tuple[GeneratedAgent, ...] = Field(
+        default_factory=tuple, description="Synthesized agents to register"
     )
-    agent_class_names: tuple[str, ...] = Field(
-        default_factory=tuple, description="Class names for the generated agents"
+    cemaf_source: str = Field(
+        default="",
+        description="pyproject spec for cemaf (e.g. 'cemaf @ git+https://…'); empty emits a loud placeholder",
     )
 
 
@@ -233,11 +248,12 @@ class ScaffoldGoal(BaseModel):
     proposal: ProposalDoc
     project_name: str = Field(min_length=1, description="Directory + python module name")
     target_dir: str = Field(min_length=1, description="Parent directory for project_name/")
-    generated_agents: tuple[str, ...] = Field(
-        default_factory=tuple, description="Python sources for generated agents"
+    generated_agents: tuple[GeneratedAgent, ...] = Field(
+        default_factory=tuple, description="Synthesized agents to register"
     )
-    agent_class_names: tuple[str, ...] = Field(
-        default_factory=tuple, description="Class names referenced by generated agents"
+    cemaf_source: str = Field(
+        default="",
+        description="pyproject spec for cemaf; empty emits a placeholder the user must fill",
     )
     overwrite: bool = Field(default=False, description="If True, replace existing project dir")
 
