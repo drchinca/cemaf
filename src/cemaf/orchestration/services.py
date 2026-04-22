@@ -10,6 +10,8 @@ from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
 from cemaf.llm.protocols import LLMClient
+from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
+from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
@@ -51,3 +53,7 @@ class RuntimeServices:
 
     # Recovery
     auto_heal_manager: AutoHealManager | None = None
+
+    # Self-hosting / OpenSpec
+    openspec_runtime: OpenSpecRuntime | None = None
+    openspec_workspace: OpenSpecWorkspace | None = None

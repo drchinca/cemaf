@@ -120,3 +120,80 @@ class DreamResult(BaseModel):
     consolidated_count: int = Field(default=0, description="Items consolidated")
     pruned_count: int = Field(default=0, description="Stale items pruned")
     summary: str = Field(default="", description="Human-readable dream summary")
+
+
+# ---------------------------------------------------------------------------
+# MetaSpecifier — OpenSpec proposal authoring
+# ---------------------------------------------------------------------------
+
+
+class Scenario(BaseModel):
+    """A single GIVEN/WHEN/THEN scenario under a requirement."""
+
+    model_config = {"frozen": True}
+
+    name: str = Field(description="Scenario name, rendered as '#### Scenario: <name>'")
+    given: tuple[str, ...] = Field(default_factory=tuple, description="GIVEN clauses")
+    when: tuple[str, ...] = Field(default_factory=tuple, description="WHEN clauses")
+    then: tuple[str, ...] = Field(default_factory=tuple, description="THEN clauses")
+
+
+class Requirement(BaseModel):
+    """A single requirement within a capability delta."""
+
+    model_config = {"frozen": True}
+
+    name: str = Field(description="Requirement name, rendered as '### Requirement: <name>'")
+    statement: str = Field(description="The SHALL statement")
+    scenarios: tuple[Scenario, ...] = Field(default_factory=tuple)
+
+
+class CapabilityDelta(BaseModel):
+    """Deltas to apply to a capability's spec."""
+
+    model_config = {"frozen": True}
+
+    capability: str = Field(description="Capability directory name (specs/<capability>/spec.md)")
+    added_requirements: tuple[Requirement, ...] = Field(default_factory=tuple)
+
+
+class ProposalDoc(BaseModel):
+    """Typed representation of an OpenSpec change proposal."""
+
+    model_config = {"frozen": True}
+
+    change_id: str = Field(description="Change directory name under openspec/changes/")
+    title: str = Field(description="Human-readable title for the proposal")
+    why: str = Field(description="Motivation paragraph(s)")
+    what_changes: tuple[str, ...] = Field(
+        default_factory=tuple, description="Bulleted summary of what changes"
+    )
+    impact: tuple[str, ...] = Field(default_factory=tuple, description="Bulleted impact notes")
+    tasks: tuple[str, ...] = Field(default_factory=tuple, description="Flat task list")
+    deltas: tuple[CapabilityDelta, ...] = Field(
+        default_factory=tuple, description="Per-capability spec changes"
+    )
+
+
+class SpecGoal(BaseModel):
+    """Describe a feature for which MetaSpecifier should author an OpenSpec proposal."""
+
+    feature_description: str = Field(description="What the feature does; why it matters")
+    change_id: str = Field(description="OpenSpec change identifier (kebab-case)")
+    capabilities: tuple[str, ...] = Field(
+        default_factory=tuple, description="Capability directories this change touches"
+    )
+    constraints: JSON = Field(default_factory=dict, description="Optional constraints")
+
+
+class SpecResult(BaseModel):
+    """Outcome of a MetaSpecifier run."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    change_id: str
+    proposal: ProposalDoc
+    rendered_files: JSON = Field(default_factory=dict, description="Map of relative path -> content")
+    validation_passed: bool = False
+    diagnostics: tuple[JSON, ...] = Field(default_factory=tuple)
+    runtime: str = Field(default="", description="Display name of the OpenSpec runtime used")

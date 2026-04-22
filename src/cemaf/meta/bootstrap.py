@@ -10,7 +10,7 @@ from cemaf.audit.protocols import AuditLog, AuditTrail
 from cemaf.bootstrap import create_executor
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.protocols import KnowledgeGraph
-from cemaf.meta.registry import register_meta_agents
+from cemaf.meta.registry import register_meta_agents, register_meta_specifier
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
 from cemaf.tools.registry import ToolRegistry
@@ -60,6 +60,16 @@ def create_meta_executor(
             tool_registry=tool_reg,
             audit_trail=audit_trail,
             knowledge_graph=kg,
+        )
+
+    # Register MetaSpecifier when an OpenSpec workspace is available
+    if svc.openspec_workspace is not None:
+        register_meta_specifier(
+            agent_registry,
+            tool_registry=tool_reg,
+            workspace=svc.openspec_workspace,
+            runtime=svc.openspec_runtime,
+            llm_client=svc.llm_client,
         )
 
     # Delegate to standard bootstrap

@@ -137,6 +137,33 @@ def create_solution_engine_dag() -> DAG:
     return dag
 
 
+def create_self_spec_dag() -> DAG:
+    """DAG: MetaSpecifier authors + validates a proposal, MetaAuditor records outcome.
+
+    Closes the self-spec loop: feature description in, audit entry out.
+    """
+    dag = DAG(name="self_spec", description="Author, validate, and audit an OpenSpec proposal")
+    dag = dag.add_node(
+        node=Node.agent(
+            id="specify",
+            name="Specifier",
+            agent_id="MetaSpecifier",
+            output_key="spec_result",
+        )
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="audit_spec",
+            name="Audit Spec",
+            agent_id="MetaAuditor",
+            input_mapping={"analysis_type": "quality"},
+            output_key="audit_report",
+        )
+    )
+    dag = dag.add_edge(edge=Edge(source=NodeID("specify"), target=NodeID("audit_spec")))
+    return dag
+
+
 def create_knowledge_refresh_dag() -> DAG:
     """DAG: Audit recent runs then update knowledge graph."""
     dag = DAG(name="knowledge_refresh", description="Refresh CEMAF knowledge graph from execution history")
