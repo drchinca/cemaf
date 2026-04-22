@@ -4,7 +4,8 @@ Blueprint protocols - Abstract interfaces for blueprint management.
 Supports:
 - Blueprint schema definitions
 - Blueprint validation rules
-- Blueprint registry for storage/retrieval
+- Blueprint registry for storage/retrieval (async key-value backend)
+- Blueprint sources for library ingestion (sync generators)
 - Scene goal and participant management
 
 ## Protocol-First Design
@@ -17,15 +18,19 @@ Extension Point:
     No registration needed - structural typing ensures compatibility.
 """
 
+from collections.abc import Iterable
 from typing import Protocol, runtime_checkable
 
 # Re-export data classes
 from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
+from cemaf.blueprint.library import BlueprintEntry
 
 __all__ = [
     "BlueprintRegistry",
+    "BlueprintSource",
     # Data classes
     "Blueprint",
+    "BlueprintEntry",
     "SceneGoal",
     "StyleGuide",
 ]
@@ -109,4 +114,28 @@ class BlueprintRegistry(Protocol):
             >>> blueprints = await registry.list_all()
             >>> print(f"Total blueprints: {len(blueprints)}")
         """
+        ...
+
+
+@runtime_checkable
+class BlueprintSource(Protocol):
+    """A source of `BlueprintEntry` records for a `BlueprintLibrary`.
+
+    Implementations enumerate entries from a specific substrate — a JSON
+    file on disk, a directory of YAML blueprints, a database query, a
+    git-tracked registry, an HTTP API. The `BlueprintLibrary` composes
+    any number of sources at construction time and treats them uniformly.
+
+    Keep sources lazy-loading where possible: `load()` is synchronous
+    (libraries are usually built at import time) but should not hold open
+    file handles or network connections beyond the generator's lifetime.
+    """
+
+    @property
+    def name(self) -> str:
+        """Short identifier for this source (written to BlueprintEntry.source)."""
+        ...
+
+    def load(self) -> Iterable[BlueprintEntry]:
+        """Yield every entry this source produces."""
         ...

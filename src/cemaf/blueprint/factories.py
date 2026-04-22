@@ -11,9 +11,12 @@ Extension Point:
 """
 
 import os
+from pathlib import Path
 
+from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.blueprint.mock import MockBlueprintRegistry
-from cemaf.blueprint.protocols import BlueprintRegistry
+from cemaf.blueprint.protocols import BlueprintRegistry, BlueprintSource
+from cemaf.blueprint.sources import JSONFileBlueprintSource
 from cemaf.config.protocols import Settings
 
 
@@ -109,3 +112,43 @@ def create_blueprint_registry_from_config(settings: Settings | None = None) -> B
         f"To add your own, extend create_blueprint_registry_from_config() "
         f"in cemaf/blueprint/factories.py"
     )
+
+
+def create_blueprint_library(
+    *,
+    sources: tuple[BlueprintSource, ...] = (),
+) -> BlueprintLibrary:
+    """Build a `BlueprintLibrary`, optionally pre-loaded from sources.
+
+    This is the standard composition-root entry point for applications
+    that want a blueprint library wired up without hand-assembling one.
+
+    Example:
+        >>> from cemaf.blueprint.factories import create_blueprint_library
+        >>> from cemaf.blueprint.sources import JSONFileBlueprintSource
+        >>> library = create_blueprint_library(
+        ...     sources=(JSONFileBlueprintSource(path=Path("blueprints.json")),),
+        ... )
+    """
+    library = BlueprintLibrary()
+    if sources:
+        library.register_from(sources=sources)
+    return library
+
+
+def create_blueprint_library_from_env() -> BlueprintLibrary:
+    """Build a `BlueprintLibrary` from environment configuration.
+
+    Reads:
+        CEMAF_BLUEPRINT_CATALOG — path to a JSON catalog file
+                                  (see `JSONFileBlueprintSource`).
+
+    If the env var is unset or the file is missing, returns an empty
+    library. Callers that need a catalog should fail loudly themselves;
+    the factory treats absence as "no curated catalog yet."
+    """
+    catalog_env = os.getenv("CEMAF_BLUEPRINT_CATALOG")
+    sources: tuple[BlueprintSource, ...] = ()
+    if catalog_env:
+        sources = (JSONFileBlueprintSource(path=Path(catalog_env)),)
+    return create_blueprint_library(sources=sources)
