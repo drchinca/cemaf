@@ -89,6 +89,16 @@ class HaltReason(str, Enum):
     QUALITY_DEGRADED = "quality_degraded"
 
 
+@dataclass(slots=True)
+class _HealState:
+    """Mutable per-attempt state for autonomous healing inside _execute_with_retry."""
+
+    max_attempts: int
+    count: int = 0
+    attempted_keys: set[str] = field(default_factory=set)
+    exhausted: bool = False
+
+
 @dataclass(frozen=True, slots=True)
 class HaltSignal:
     """Signal raised by an outer controller to stop mid-flight execution.
@@ -1041,175 +1051,187 @@ class DAGExecutor:
     async def _execute_with_retry(
         self,
         node: Node,
-        context: Context,  # Updated to Context
-    ) -> tuple[NodeResult, Context]:  # Returns new Context
-        """Execute a node with retry logic and autonomous healing."""
-        # Handle max_retries=0 case - still try once
+        context: Context,
+    ) -> tuple[NodeResult, Context]:
+        """Execute a node with retry + autonomous healing.
+
+        Refactored from a 158-line god-method into a driver loop + two
+        helpers: `_try_once` (run + budget record) and `_try_heal` (attempt
+        autonomous recovery). Behavior is unchanged — same tests pass — but
+        each failure mode is now independently readable and testable.
+        """
         max_attempts = max(1, node.max_retries) if node.retry_on_failure else 1
+        heal = _HealState(max_attempts=2)
+        current_context = context
         last_error: str | None = None
         start_time = utc_now()
-        current_context = context  # Keep track of context
-
-        # Track heal attempts for this specific node execution run
-        heal_attempts: set[str] = set()
-        heal_count = 0  # Hard limit on healing attempts
-        max_heal_attempts_per_node = 2  # Maximum healing attempts before giving up
 
         for attempt in range(max_attempts):
             try:
-                # Resolve input_mapping dependencies before execution
-                # This enables regex-based context chaining ($$STEP_N_OUTPUT$$)
-                resolved_context = current_context
-                if node.input_mapping:
-                    # Resolve placeholders in input_mapping and create a context with resolved inputs
-                    resolved_inputs = resolve_node_input(node.input_mapping, current_context)
-                    # Store resolved inputs in context for the node executor to use
-                    # Node executors can access these via context.get("_resolved_inputs")
-                    resolved_context = current_context.set("_resolved_inputs", resolved_inputs)
-
-                try:
-                    result = await asyncio.wait_for(
-                        self._node_executor.execute_node(node, resolved_context),
-                        timeout=self._node_timeout,
-                    )
-                except TimeoutError:
-                    result = NodeResult(
-                        node_id=node.id,
-                        success=False,
-                        error=f"Node timed out after {self._node_timeout}s",
-                    )
-
-                # Enhance result metadata with token telemetry if available from agent results
-                # NodeExecutors that execute agents should include agent metadata in NodeResult.metadata
-                # This ensures token tracking flows through the execution pipeline
-
-                # Apply output to context here, even if it's not a final success,
-                # as intermediate results might be needed for subsequent retries
-                # Use _apply_node_output to emit patches with correlation IDs
-                current_context = self._apply_node_output(node, result, current_context)
-
-                # Record cost to BudgetGuard on every execution that carries
-                # telemetry, regardless of success. A failed-but-billed call
-                # (e.g. LLM returned content-policy refusal after burning 10k
-                # tokens) MUST still count against the cap — that's the exact
-                # runaway-spend scenario a budget guard exists to catch.
-                # We record unconditionally when metadata carries numbers,
-                # NaN-safe so hostile agents can't corrupt accounting.
-                if self._budget_guard is not None:
-                    meta = result.metadata or {}
-                    cost_raw = meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0))
-                    tokens_raw = meta.get("tokens_total", meta.get("tokens_used", 0))
-                    try:
-                        cost = float(cost_raw)
-                        tokens = int(tokens_raw)
-                    except (TypeError, ValueError):
-                        cost, tokens = 0.0, 0
-                    # NaN/inf guard — they're float values that pass isinstance
-                    # but corrupt the accumulator.
-                    import math
-
-                    if math.isnan(cost) or math.isinf(cost):
-                        cost = 0.0
-                    if cost > 0 or tokens > 0:
-                        self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
-
+                result, current_context = await self._try_once(node=node, context=current_context)
                 if result.success:
                     return result, current_context
-
                 last_error = result.error
 
-                # Attempt Auto-Heal if manager is available
-                if self._auto_heal_manager and not result.success:
-                    from cemaf.core.result import Result
-
-                    error_res: Result[None] = Result.fail(
-                        result.error or "Node failed", metadata=result.metadata
-                    )
-
-                    # Check heal attempt limit (safeguard against infinite healing loops)
-                    if heal_count >= max_heal_attempts_per_node:
-                        logger.warning(
-                            "Maximum healing attempts exceeded for node, giving up",
-                            node_id=str(node.id),
-                            max_heal_attempts=max_heal_attempts_per_node,
-                            heal_count=heal_count,
-                        )
-                        # Stop retrying after healing has been exhausted without progress
-                        # This prevents wasting resources on a problem healing can't solve
-                        break
-                    else:
-                        # Track history before heal
-                        history_before = current_context.get_timeline()
-                        context_hash_before = current_context.state_hash()
-                        heal_result = self._auto_heal_manager.heal(error_res, current_context)
-
-                        if heal_result.success:
-                            # Increment heal count ONCE healing is attempted (whether it helps or not)
-                            heal_count += 1
-
-                            # Prevent retrying same error state multiple times
-                            state_hash = context_hash_before
-                            heal_key = f"{state_hash}:{result.error}"
-
-                            if heal_key in heal_attempts:
-                                logger.warning(
-                                    "Auto-heal already attempted for this state, giving up to prevent loop",
-                                    node_id=str(node.id),
-                                    state_hash=state_hash,
-                                )
-                                # If we give up on healing, we MUST NOT 'continue'.
-                                # We let the loop proceed to the retry logic or exit.
-                            elif heal_result.data is not None:
-                                # Verify that healing actually changed the context state
-                                context_hash_after = heal_result.data.state_hash()
-
-                                if context_hash_after == context_hash_before:
-                                    # Healing succeeded but didn't change context - likely won't help
-                                    logger.warning(
-                                        "Healing succeeded but didn't change context state, not retrying",
-                                        node_id=str(node.id),
-                                        state_hash=context_hash_before,
-                                    )
-                                else:
-                                    # Healing succeeded AND changed context - proceed with retry
-                                    heal_attempts.add(heal_key)
-                                    logger.info(
-                                        "Autonomous recovery successful for node",
-                                        node_id=str(node.id),
-                                        attempt=attempt + 1,
-                                        heal_count=heal_count,
-                                    )
-                                    current_context = heal_result.data
-
-                                    # Record any new patches created during healing
-                                    if self._run_logger:
-                                        history_after = current_context.get_timeline()
-                                        new_patches = history_after[len(history_before) :]
-                                        for patch in new_patches:
-                                            self._run_logger.record_patch(patch)
-
-                                    # We healed! We can now retry the node with the healed context.
-                                    continue
-
-                # Don't retry if retry_on_failure is False
+                # Try autonomous heal. Returns a new context iff heal succeeded
+                # AND produced a different state — in that case we retry with
+                # the healed context immediately (skip the sleep).
+                healed_context = await self._try_heal(
+                    node=node,
+                    result=result,
+                    context=current_context,
+                    heal=heal,
+                )
+                if healed_context is not None:
+                    current_context = healed_context
+                    continue
+                if heal.exhausted:
+                    break
                 if not node.retry_on_failure:
                     break
+            except Exception as exc:
+                last_error = str(exc)
 
-            except Exception as e:
-                last_error = str(e)
-
-            # Don't sleep on last attempt
             if attempt < max_attempts - 1:
-                await asyncio.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                await asyncio.sleep(0.1 * (attempt + 1))
 
         end_time = utc_now()
-        final_result = NodeResult(
-            node_id=node.id,
-            success=False,
-            error=last_error or "Max retries exceeded",
-            duration_ms=(end_time - start_time).total_seconds() * 1000,
+        return (
+            NodeResult(
+                node_id=node.id,
+                success=False,
+                error=last_error or "Max retries exceeded",
+                duration_ms=(end_time - start_time).total_seconds() * 1000,
+            ),
+            current_context,
         )
-        return final_result, current_context
+
+    async def _try_once(
+        self,
+        *,
+        node: Node,
+        context: Context,
+    ) -> tuple[NodeResult, Context]:
+        """Resolve inputs, execute the node once, apply output, record budget cost.
+
+        The one-attempt unit that _execute_with_retry drives. Extracted so the
+        per-attempt bookkeeping is readable in isolation and the retry loop
+        is just `try once → decide → maybe heal → maybe retry`.
+        """
+        resolved_context = context
+        if node.input_mapping:
+            resolved_inputs = resolve_node_input(node.input_mapping, context)
+            resolved_context = context.set("_resolved_inputs", resolved_inputs)
+
+        try:
+            result = await asyncio.wait_for(
+                self._node_executor.execute_node(node, resolved_context),
+                timeout=self._node_timeout,
+            )
+        except TimeoutError:
+            result = NodeResult(
+                node_id=node.id,
+                success=False,
+                error=f"Node timed out after {self._node_timeout}s",
+            )
+
+        new_context = self._apply_node_output(node, result, context)
+        self._record_budget_usage(result=result)
+        return result, new_context
+
+    def _record_budget_usage(self, *, result: NodeResult) -> None:
+        """Record per-node cost against BudgetGuard, NaN-safe.
+
+        Failed-but-billed calls count — the runaway-spend scenario the guard
+        exists for is exactly the agent that burns tokens then fails.
+        """
+        if self._budget_guard is None:
+            return
+        meta = result.metadata or {}
+        try:
+            cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)))
+            tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)))
+        except (TypeError, ValueError):
+            cost, tokens = 0.0, 0
+        import math
+
+        if math.isnan(cost) or math.isinf(cost):
+            cost = 0.0
+        if cost > 0 or tokens > 0:
+            self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
+
+    async def _try_heal(
+        self,
+        *,
+        node: Node,
+        result: NodeResult,
+        context: Context,
+        heal: _HealState,
+    ) -> Context | None:
+        """Attempt autonomous healing; return a new context iff progress was made.
+
+        Returns None when:
+        - no heal manager configured
+        - heal attempt budget exhausted (heal.exhausted becomes True)
+        - heal.heal() itself failed
+        - heal returned but didn't change the context state (dead-end)
+        - we already tried healing this same (state, error) pair
+        """
+        if self._auto_heal_manager is None:
+            return None
+
+        if heal.count >= heal.max_attempts:
+            logger.warning(
+                "Maximum healing attempts exceeded for node, giving up",
+                node_id=str(node.id),
+                max_heal_attempts=heal.max_attempts,
+                heal_count=heal.count,
+            )
+            heal.exhausted = True
+            return None
+
+        from cemaf.core.result import Result
+
+        error_res: Result[None] = Result.fail(result.error or "Node failed", metadata=result.metadata)
+        history_before = context.get_timeline()
+        context_hash_before = context.state_hash()
+        heal_result = self._auto_heal_manager.heal(error_res, context)
+        if not heal_result.success:
+            return None
+
+        # Count every heal ATTEMPT even if it doesn't land.
+        heal.count += 1
+        heal_key = f"{context_hash_before}:{result.error}"
+
+        if heal_key in heal.attempted_keys:
+            logger.warning(
+                "Auto-heal already attempted for this state, giving up to prevent loop",
+                node_id=str(node.id),
+                state_hash=context_hash_before,
+            )
+            return None
+        if heal_result.data is None:
+            return None
+        if heal_result.data.state_hash() == context_hash_before:
+            logger.warning(
+                "Healing succeeded but didn't change context state, not retrying",
+                node_id=str(node.id),
+                state_hash=context_hash_before,
+            )
+            return None
+
+        # Healing succeeded AND changed context — the retry has a chance now.
+        heal.attempted_keys.add(heal_key)
+        logger.info(
+            "Autonomous recovery successful for node",
+            node_id=str(node.id),
+            heal_count=heal.count,
+        )
+        if self._run_logger:
+            history_after = heal_result.data.get_timeline()
+            for patch in history_after[len(history_before) :]:
+                self._run_logger.record_patch(patch)
+        return heal_result.data
 
     async def run_parallel_nodes(
         self,
