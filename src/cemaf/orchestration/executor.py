@@ -224,6 +224,16 @@ class DAGExecutor:
         self._budget_guard = budget_guard
         self._session_manager = session_manager
 
+    def _should_halt(self) -> bool:
+        """Aggregate check of all outer halt signals.
+
+        Called by inner handlers (LOOP, etc.) between cooperative iterations
+        so they don't waste work after an outer signal fires.
+        """
+        quality_halted = self._quality_police is not None and self._quality_police.should_halt()
+        budget_halted = self._budget_guard is not None and self._budget_guard.should_halt()
+        return quality_halted or budget_halted
+
     async def _emit_event(self, event_type: EventType, payload: JSON) -> None:
         """Emit event if bus is configured."""
         if self._event_bus is None:
@@ -347,6 +357,9 @@ class DAGExecutor:
             # Build handler context for node-type dispatchers. route_choices
             # is a dict reference shared with the ContextVar's view; mutations
             # by handlers propagate to readers via the same object.
+            # `should_halt` lets inner LOOP handlers poll for outer halts
+            # (QualityPolice, BudgetGuard) between iterations so they don't
+            # waste N-1 LLM calls after halt fires.
             handler_ctx = NodeHandlerContext(
                 route_choices=_current_route_choices(),
                 apply_output=self._apply_node_output,
@@ -355,6 +368,7 @@ class DAGExecutor:
                 max_parallel=self._max_parallel,
                 run_logger=self._run_logger,
                 correlation_id=_correlation_id_var.get(),
+                should_halt=self._should_halt,
             )
 
             for node_id in order:
@@ -551,43 +565,38 @@ class DAGExecutor:
                         node_results[-1] = result
                         completed[node_id] = result
 
-                # Budget guard check after each node.
-                # Telemetry (token_telemetry.extract_token_metadata) writes
-                # `cost_estimate_usd` and `tokens_total`; we honor both those
-                # canonical keys and the legacy `cost_usd`/`tokens_used` aliases
-                # that hand-populated metadata may use.
-                if self._budget_guard and result.success:
-                    metadata = result.metadata or {}
-                    cost = metadata.get("cost_estimate_usd", metadata.get("cost_usd", 0.0))
-                    tokens = metadata.get("tokens_total", metadata.get("tokens_used", 0))
-                    self._budget_guard.record_usage(cost_usd=float(cost), tokens=int(tokens))
-                    if self._budget_guard.should_halt():
-                        completed_at = utc_now()
-                        duration_ms = (completed_at - started_at).total_seconds() * 1000
-                        halt_msg = "Budget exhausted - execution halted"
-                        logger.warning(
-                            halt_msg,
-                            dag_name=dag.name,
-                            budget_state=self._budget_guard.to_dict(),
-                        )
-                        if self._run_logger:
-                            self._run_logger.end_run(
-                                final_context=context,
-                                success=False,
-                                error=halt_msg,
-                            )
-                        return ExecutionResult(
-                            run_id=run_id,
-                            dag_name=dag.name,
-                            status=RunStatus.FAILED,
-                            node_results=tuple(node_results),
+                # Budget guard halt check after each node. Cost recording
+                # itself happens inside _execute_with_retry (see there), so
+                # LOOP body iterations also count toward the cap — otherwise
+                # a runaway loop could burn its entire cost budget before the
+                # outer halt check sees anything.
+                if self._budget_guard and result.success and self._budget_guard.should_halt():
+                    completed_at = utc_now()
+                    duration_ms = (completed_at - started_at).total_seconds() * 1000
+                    halt_msg = "Budget exhausted - execution halted"
+                    logger.warning(
+                        halt_msg,
+                        dag_name=dag.name,
+                        budget_state=self._budget_guard.to_dict(),
+                    )
+                    if self._run_logger:
+                        self._run_logger.end_run(
                             final_context=context,
+                            success=False,
                             error=halt_msg,
-                            started_at=started_at,
-                            completed_at=completed_at,
-                            health_check_metadata=health_check_metadata,
-                            metadata={"budget_guard": self._budget_guard.to_dict()},
                         )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=halt_msg,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        health_check_metadata=health_check_metadata,
+                        metadata={"budget_guard": self._budget_guard.to_dict()},
+                    )
 
                 # Quality police check after each node
                 if self._quality_police and self._quality_police.should_halt():
@@ -930,6 +939,17 @@ class DAGExecutor:
                 # as intermediate results might be needed for subsequent retries
                 # Use _apply_node_output to emit patches with correlation IDs
                 current_context = self._apply_node_output(node, result, current_context)
+
+                # Record cost to BudgetGuard on every successful execution, not
+                # just at the top-level node. Without this, a LOOP body runs
+                # N iterations with zero cost recorded, and should_halt() stays
+                # False regardless of how much budget the body actually burned.
+                if result.success and self._budget_guard is not None:
+                    meta = result.metadata or {}
+                    cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)))
+                    tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)))
+                    if cost or tokens:
+                        self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
 
                 if result.success:
                     return result, current_context
