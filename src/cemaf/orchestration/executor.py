@@ -57,6 +57,7 @@ from cemaf.orchestration.node_handlers import (
 from cemaf.orchestration.node_handlers import (
     run_parallel_nodes as _run_parallel_nodes,
 )
+from cemaf.orchestration.services import RuntimeServices
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
@@ -254,32 +255,80 @@ class DAGExecutor:
     def __init__(
         self,
         node_executor: NodeExecutor,
-        max_parallel: int = MAX_PARALLEL_NODES,
+        *,
+        services: RuntimeServices | None = None,
+        config: ExecutorConfig | None = None,
+        require_healthy: bool = True,
+        # --- legacy kwargs (removed in 0.4) ---
+        max_parallel: int | None = None,
         run_logger: RunLogger | None = None,
         event_bus: EventBus | None = None,
         moderation_pipeline: ModerationPipeline | None = None,
         merge_strategy: MergeStrategy | None = None,
         health_registry: HealthMonitor | None = None,
-        require_healthy: bool = True,
         auto_heal_manager: AutoHealManager | None = None,
         budget_guard: BudgetGuard | None = None,
         session_manager: SessionManager | None = None,
-        node_timeout_seconds: float = 300.0,
+        node_timeout_seconds: float | None = None,
         quality_police: QualityPolice | None = None,
     ) -> None:
+        """Construct a DAGExecutor from bundled services + config.
+
+        Canonical form:
+            DAGExecutor(
+                node_executor=x,
+                services=RuntimeServices(...),
+                config=ExecutorConfig(...),
+            )
+
+        The legacy individual kwargs (run_logger, event_bus, …) are accepted
+        during the 0.3.x line for migration ease but will be removed in 0.4.
+        Mixing `services=` with a legacy kwarg is a ValueError — pick one.
+        """
+        if services is not None and any(
+            v is not None
+            for v in (
+                run_logger,
+                event_bus,
+                moderation_pipeline,
+                health_registry,
+                auto_heal_manager,
+                budget_guard,
+                session_manager,
+                quality_police,
+            )
+        ):
+            raise ValueError(
+                "Cannot mix `services=RuntimeServices(...)` with legacy per-field "
+                "kwargs. Pass either a services bundle or the legacy kwargs — not both."
+            )
+        if services is None:
+            services = RuntimeServices(
+                run_logger=run_logger,
+                event_bus=event_bus,
+                moderation_pipeline=moderation_pipeline,
+                health_monitor=health_registry,
+                auto_heal_manager=auto_heal_manager,
+                budget_guard=budget_guard,
+                session_manager=session_manager,
+                quality_police=quality_police,
+            )
+        cfg = config or ExecutorConfig()
         self._node_executor = node_executor
-        self._max_parallel = max_parallel
-        self._node_timeout = node_timeout_seconds
-        self._run_logger = run_logger
-        self._event_bus = event_bus
-        self._moderation_pipeline = moderation_pipeline
-        self._quality_police = quality_police
+        self._max_parallel = max_parallel if max_parallel is not None else cfg.max_parallel
+        self._node_timeout = (
+            node_timeout_seconds if node_timeout_seconds is not None else cfg.node_timeout_seconds
+        )
+        self._run_logger = services.run_logger
+        self._event_bus = services.event_bus
+        self._moderation_pipeline = services.moderation_pipeline
+        self._quality_police = services.quality_police
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
-        self._health_registry = health_registry
+        self._health_registry = services.health_monitor
         self._require_healthy = require_healthy
-        self._auto_heal_manager = auto_heal_manager
-        self._budget_guard = budget_guard
-        self._session_manager = session_manager
+        self._auto_heal_manager = services.auto_heal_manager
+        self._budget_guard = services.budget_guard
+        self._session_manager = services.session_manager
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.

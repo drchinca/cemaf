@@ -35,16 +35,18 @@ def create_executor(
         if svc.quality_police:
             svc.quality_police.subscribe(event_bus=svc.event_bus)
 
-    return DAGExecutor(
-        node_executor=node_executor,
-        max_parallel=cfg.max_parallel,
+    # Build a filtered RuntimeServices view honoring the config's enable_* flags.
+    # DAGExecutor now takes a single services bundle instead of 13 kwargs.
+    from dataclasses import replace
+
+    effective_services = replace(
+        svc,
         run_logger=svc.run_logger if cfg.enable_logging else None,
         event_bus=svc.event_bus if cfg.enable_events else None,
         moderation_pipeline=svc.moderation_pipeline if cfg.enable_moderation else None,
-        health_registry=svc.health_monitor,
-        auto_heal_manager=svc.auto_heal_manager,
-        budget_guard=svc.budget_guard,
-        session_manager=svc.session_manager,
-        node_timeout_seconds=cfg.node_timeout_seconds,
-        quality_police=svc.quality_police,
+    )
+    return DAGExecutor(
+        node_executor=node_executor,
+        services=effective_services,
+        config=cfg,
     )
