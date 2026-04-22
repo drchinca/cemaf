@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
@@ -12,7 +13,11 @@ from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
-from cemaf.meta.registry import register_meta_agents, register_meta_specifier
+from cemaf.meta.registry import (
+    register_meta_agents,
+    register_meta_scaffolder,
+    register_meta_specifier,
+)
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
 from cemaf.tools.registry import ToolRegistry
@@ -31,6 +36,7 @@ class MetaServices:
     knowledge_graph: KnowledgeGraph | None = None
     openspec_runtime: OpenSpecRuntime | None = None
     openspec_workspace: OpenSpecWorkspace | None = None
+    scaffold_output_dir: Path | None = None
 
 
 def create_meta_executor(
@@ -79,6 +85,11 @@ def create_meta_executor(
             runtime=meta_services.openspec_runtime,
             llm_client=svc.llm_client,
         )
+
+    # Register MetaScaffolder unconditionally — it's stateless and safe to
+    # register even when no target dir is configured. Callers who want to
+    # synthesize apps pass target_dir via ScaffoldGoal.
+    register_meta_scaffolder(agent_registry)
 
     # Delegate to standard bootstrap
     return create_executor(

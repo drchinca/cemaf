@@ -20,10 +20,12 @@ from cemaf.meta.goals import (
     ArchitectGoal,
     AuditGoal,
     KnowledgeGraphGoal,
+    ScaffoldGoal,
     SolutionGoal,
     SpecGoal,
     SynthesizerGoal,
 )
+from cemaf.meta.scaffolder import MetaScaffolder
 from cemaf.meta.specifier import MetaSpecifier
 from cemaf.meta.tools import (
     GenerateDAGTool,
@@ -107,3 +109,13 @@ def register_meta_specifier(
         llm_client=llm_client,
     )
     agent_registry.register_agent(agent_instance=specifier, goal_type=SpecGoal)
+
+
+def register_meta_scaffolder(agent_registry: AgentRegistry) -> None:
+    """Register MetaScaffolder — always safe, stateless.
+
+    The agent reads target_dir from each ScaffoldGoal; there's no per-runtime
+    configuration to inject. Callers who never synthesize apps simply never
+    dispatch the agent.
+    """
+    agent_registry.register_agent(agent_instance=MetaScaffolder(), goal_type=ScaffoldGoal)

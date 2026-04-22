@@ -201,3 +201,52 @@ class SpecResult(BaseModel):
         default_factory=tuple, description="Structured diagnostics from openspec validate"
     )
     runtime: str = Field(default="", description="Display name of the OpenSpec runtime used")
+
+
+# ---------------------------------------------------------------------------
+# MetaScaffolder — runnable CEMAF-based app synthesis
+# ---------------------------------------------------------------------------
+
+
+class ProjectSkeleton(BaseModel):
+    """Typed representation of a scaffolded CEMAF-based app."""
+
+    model_config = {"frozen": True}
+
+    project_name: str = Field(min_length=1, description="Directory name")
+    module_name: str = Field(min_length=1, description="Python module name (identifier)")
+    title: str = Field(min_length=1, description="Human-readable title")
+    description: str = Field(min_length=1, description="One-line app description")
+    agent_sources: tuple[str, ...] = Field(
+        default_factory=tuple, description="Python sources for generated agents"
+    )
+    agent_class_names: tuple[str, ...] = Field(
+        default_factory=tuple, description="Class names for the generated agents"
+    )
+
+
+class ScaffoldGoal(BaseModel):
+    """Input to MetaScaffolder: a ProposalDoc + synthesized agents + where to write."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    proposal: ProposalDoc
+    project_name: str = Field(min_length=1, description="Directory + python module name")
+    target_dir: str = Field(min_length=1, description="Parent directory for project_name/")
+    generated_agents: tuple[str, ...] = Field(
+        default_factory=tuple, description="Python sources for generated agents"
+    )
+    agent_class_names: tuple[str, ...] = Field(
+        default_factory=tuple, description="Class names referenced by generated agents"
+    )
+    overwrite: bool = Field(default=False, description="If True, replace existing project dir")
+
+
+class ScaffoldResult(BaseModel):
+    """Outcome of a MetaScaffolder run."""
+
+    model_config = {"frozen": True}
+
+    project_root: str
+    module_name: str
+    written_files: tuple[str, ...] = Field(default_factory=tuple)
