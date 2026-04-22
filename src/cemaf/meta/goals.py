@@ -189,11 +189,15 @@ class SpecGoal(BaseModel):
 class SpecResult(BaseModel):
     """Outcome of a MetaSpecifier run."""
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = {"frozen": True}
 
     change_id: str
     proposal: ProposalDoc
-    rendered_files: JSON = Field(default_factory=dict, description="Map of relative path -> content")
+    rendered_files: dict[str, str] = Field(
+        default_factory=dict, description="Map of relative path -> file contents"
+    )
     validation_passed: bool = False
-    diagnostics: tuple[JSON, ...] = Field(default_factory=tuple)
+    diagnostics: tuple[dict[str, str], ...] = Field(
+        default_factory=tuple, description="Structured diagnostics from openspec validate"
+    )
     runtime: str = Field(default="", description="Display name of the OpenSpec runtime used")

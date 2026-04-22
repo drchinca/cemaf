@@ -158,6 +158,76 @@ async def test_specifier_handles_fenced_json(workspace: OpenSpecWorkspace) -> No
 
 
 @pytest.mark.asyncio
+async def test_specifier_tolerates_prose_preamble_and_suffix(workspace: OpenSpecWorkspace) -> None:
+    """LLMs add preambles and trailing notes — bracket-matching parser must cope."""
+    runtime = FakeOpenSpecRuntime()
+    runtime.register_result(("validate",), SubprocessResult(returncode=0, stdout=b"", stderr=b""))
+    body = _valid_proposal_json("add-prose")
+    wrapped = (
+        "Here is the JSON proposal you asked for:\n\n"
+        f"```json\n{body}\n```\n\n"
+        "Let me know if you need changes!"
+    )
+    llm = ScriptedLLM(responses=[wrapped])
+    agent = MetaSpecifier(workspace=workspace, runtime=runtime, llm_client=llm)
+    result = await agent.run(
+        goal=SpecGoal(
+            feature_description="x",
+            change_id="add-prose",
+            capabilities=("foo",),
+        ),
+        context=_agent_context(),
+    )
+    assert result.success
+
+
+@pytest.mark.asyncio
+async def test_specifier_reads_anthropic_content_blocks(workspace: OpenSpecWorkspace) -> None:
+    """_extract_text handles block lists with {type, text} shape and skips tool_use blocks."""
+    runtime = FakeOpenSpecRuntime()
+    runtime.register_result(("validate",), SubprocessResult(returncode=0, stdout=b"", stderr=b""))
+    body = _valid_proposal_json("add-blocks")
+
+    class BlockLLM(ScriptedLLM):
+        async def complete(self, messages, tools=None, config_override=None) -> CompletionResult:
+            self.calls.append(messages)
+            blocks = [
+                {"type": "text", "text": body},
+                {"type": "tool_use", "input": {"irrelevant": True}},  # must be skipped
+            ]
+            return CompletionResult.ok(message=Message(role=MessageRole.ASSISTANT, content=blocks))
+
+    llm = BlockLLM(responses=[])
+    agent = MetaSpecifier(workspace=workspace, runtime=runtime, llm_client=llm)
+    result = await agent.run(
+        goal=SpecGoal(
+            feature_description="x",
+            change_id="add-blocks",
+            capabilities=("foo",),
+        ),
+        context=_agent_context(),
+    )
+    assert result.success
+
+
+@pytest.mark.asyncio
+async def test_specifier_uses_injected_system_prompt(workspace: OpenSpecWorkspace) -> None:
+    """Operators can override the system prompt for steering/evals."""
+    runtime = FakeOpenSpecRuntime()
+    runtime.register_result(("validate",), SubprocessResult(returncode=0, stdout=b"", stderr=b""))
+    llm = ScriptedLLM(responses=[_valid_proposal_json("injected")])
+    custom = "CUSTOM STEERING: always include latency scenarios."
+    agent = MetaSpecifier(workspace=workspace, runtime=runtime, llm_client=llm, system_prompt=custom)
+    await agent.run(
+        goal=SpecGoal(feature_description="x", change_id="injected", capabilities=("foo",)),
+        context=_agent_context(),
+    )
+    assert llm.calls, "LLM should have been called"
+    system_msg = llm.calls[0][0]
+    assert system_msg.content == custom
+
+
+@pytest.mark.asyncio
 async def test_specifier_fails_on_invalid_llm_json(workspace: OpenSpecWorkspace) -> None:
     runtime = FakeOpenSpecRuntime()
     llm = ScriptedLLM(responses=["this is not json"])

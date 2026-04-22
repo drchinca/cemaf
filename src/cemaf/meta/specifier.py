@@ -144,12 +144,14 @@ class MetaSpecifier(Agent[SpecGoal, SpecResult]):
         llm_client: LLMClient | None = None,
         validate_timeout: float = DEFAULT_VALIDATE_TIMEOUT,
         max_repairs: int = 1,
+        system_prompt: str = "",
     ) -> None:
         self._workspace = workspace
         self._runtime = runtime
         self._llm_client = llm_client
         self._validate_timeout = validate_timeout
         self._max_repairs = max_repairs
+        self._system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
 
     @property
     def id(self) -> AgentID:
@@ -217,30 +219,38 @@ class MetaSpecifier(Agent[SpecGoal, SpecResult]):
     ) -> ProposalDoc:
         if self._llm_client is None:
             return previous
-        return await self._llm_proposal(goal=goal, previous=previous, diagnostics=diagnostics)
+        # Re-author from scratch with diagnostic feedback — sending the full
+        # previous doc back would double the prompt every iteration. The model
+        # gets the original goal + the validation errors and starts fresh.
+        return await self._llm_proposal(goal=goal, diagnostics=diagnostics)
 
     async def _llm_proposal(
         self,
         *,
         goal: SpecGoal,
-        previous: ProposalDoc | None = None,
         diagnostics: tuple[OpenSpecDiagnostic, ...] = (),
     ) -> ProposalDoc:
-        assert self._llm_client is not None
-        prompt = _build_prompt(goal=goal, previous=previous, diagnostics=diagnostics)
+        if self._llm_client is None:
+            raise RuntimeError("LLM client is required for _llm_proposal")
+        prompt = _build_prompt(goal=goal, diagnostics=diagnostics)
         completion = await self._llm_client.complete(
             messages=[
-                Message.system(content=_SYSTEM_PROMPT),
+                Message.system(content=self._system_prompt),
                 Message.user(content=prompt),
             ],
         )
         if not completion.success or completion.message is None:
             raise RuntimeError(completion.error or "LLM completion failed")
         raw = _extract_text(message=completion.message)
-        payload = _extract_json(text=raw)
+        try:
+            payload = _extract_json(text=raw)
+        except RuntimeError:
+            logger.warning("[MetaSpecifier] LLM output failed JSON extraction: %s", raw[:500])
+            raise
         try:
             return ProposalDoc.model_validate(payload)
         except ValidationError as exc:
+            logger.warning("[MetaSpecifier] LLM output failed ProposalDoc schema: %s", raw[:500])
             raise RuntimeError(f"LLM output did not match ProposalDoc schema: {exc}") from exc
 
     async def _write_and_validate(self, *, proposal: ProposalDoc) -> ValidationReport:
@@ -276,7 +286,7 @@ class MetaSpecifier(Agent[SpecGoal, SpecResult]):
         )
 
 
-_SYSTEM_PROMPT = (
+_DEFAULT_SYSTEM_PROMPT = (
     "You are MetaSpecifier, a CEMAF meta-agent that authors OpenSpec change proposals. "
     "Respond with ONLY a JSON object matching the ProposalDoc schema. "
     "Every capability must have at least one requirement; every requirement at least one scenario. "
@@ -288,7 +298,6 @@ _SYSTEM_PROMPT = (
 def _build_prompt(
     *,
     goal: SpecGoal,
-    previous: ProposalDoc | None,
     diagnostics: tuple[OpenSpecDiagnostic, ...],
 ) -> str:
     lines: list[str] = [
@@ -300,40 +309,69 @@ def _build_prompt(
     ]
     if goal.constraints:
         lines.extend(["", "Constraints:", json.dumps(goal.constraints, indent=2)])
-    if previous is not None:
-        lines.extend(["", "Previous attempt (fix the errors below):", previous.model_dump_json()])
     if diagnostics:
         error_msgs = [d.message for d in diagnostics if d.severity is DiagnosticSeverity.ERROR]
-        lines.extend(["", "Validation errors to fix:"])
-        lines.extend(f"- {msg}" for msg in error_msgs)
+        if error_msgs:
+            lines.extend(["", "Previous attempt failed validation. Fix these errors:"])
+            lines.extend(f"- {msg}" for msg in error_msgs)
     return "\n".join(lines)
 
 
 def _extract_text(*, message: Message) -> str:
+    """Extract text from a Message, handling Anthropic-shaped content blocks.
+
+    Anthropic content blocks are dicts with shape {"type": "text", "text": str}.
+    Tool-use blocks (`type=="tool_use"`) are skipped, not silently consumed.
+    """
     content = message.content
     if isinstance(content, str):
         return content
     chunks: list[str] = []
     for block in content:
-        value = block.get("text") or block.get("content")
-        if isinstance(value, str):
-            chunks.append(value)
+        if block.get("type") == "text":
+            text_value = block.get("text")
+            if isinstance(text_value, str):
+                chunks.append(text_value)
     return "".join(chunks)
 
 
 def _extract_json(*, text: str) -> Any:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = stripped.strip("`")
-        first_newline = stripped.find("\n")
-        if first_newline != -1:
-            stripped = stripped[first_newline + 1 :]
-        if stripped.endswith("```"):
-            stripped = stripped[: -len("```")]
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Could not decode JSON from LLM output: {exc}") from exc
+    """Find and decode the first balanced JSON object in `text`.
+
+    Walks the string with explicit brace-depth + string-state tracking so
+    fences (```json), preamble ("Here is the JSON:"), and trailing prose
+    are all tolerated. Rejects fenced markdown by simply ignoring it — the
+    walker only sees the braces.
+    """
+    start = text.find("{")
+    if start == -1:
+        raise RuntimeError("No JSON object found in LLM output")
+    depth = 0
+    in_string = False
+    escape_next = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape_next:
+                escape_next = False
+            elif char == "\\":
+                escape_next = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                payload = text[start : index + 1]
+                try:
+                    return json.loads(payload)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(f"Could not decode JSON from LLM output: {exc}") from exc
+    raise RuntimeError("Unbalanced JSON object in LLM output")
 
 
 def _diagnostic_to_dict(*, d: OpenSpecDiagnostic) -> dict[str, str]:
