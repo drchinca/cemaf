@@ -66,6 +66,9 @@ CEMAF is a protocol-first framework designed for **context engineering** in mult
 | **Content Safety** | Harmful outputs slip through | Pre/post-flight moderation gates + PII detection |
 | **Quality Drift** | Output quality degrades silently | Online eval pipeline with rolling monitors and halt gates |
 | **Prompt Engineering** | Inconsistent LLM outputs | Semantic blueprints for structured content generation |
+| **Spec Drift** | Code and intent diverge silently | MetaSpecifier authors OpenSpec proposals; `openspec validate --strict` is a deterministic eval signal |
+| **Zero-to-App** | Going from feature idea to runnable code takes days | `app_synthesis` DAG: description → spec → DAG design → agents → scaffolded, importable CEMAF app on disk |
+| **Framework Evolution** | Adding new capabilities requires hand-wiring registries, DAGs, bootstrap | Self-hosting meta-layer — CEMAF uses CEMAF to extend CEMAF |
 
 ---
 
@@ -212,14 +215,17 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **Configuration-Driven**: Zero-config defaults with .env customization
 - **Resilience**: Retry, circuit breaker, rate limiting as composable decorators
 
-### Self-Hosting Engine (v0.2.0)
-CEMAF is its own first client — three opt-in modules where the framework uses its own primitives to introspect, audit, and extend itself. Fully decoupled from the base framework.
+### Self-Hosting Engine
+CEMAF is its own first client — opt-in modules where the framework uses its own primitives to introspect, audit, spec, and extend itself. Fully decoupled from the base framework (one-way dependency).
 
 - **Audit Trail**: `EventBusAuditLog` subscribes to EventBus, converts events into queryable `AuditEntry` records with quality trend analysis and z-score anomaly detection
 - **Knowledge Graph**: `MemoryBackedKnowledgeGraph` — entities and relations backed by MemoryManager with semantic search and neighbor traversal
-- **Meta-Agents**: `MetaArchitect` (DAG design), `MetaSynthesizer` (code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations)
-- **Pre-built DAGs**: `create_self_audit_dag()`, `create_feature_synthesis_dag()`, `create_knowledge_refresh_dag()`
-- **Entry point**: `create_meta_executor()` wraps `create_executor()`, auto-wires audit + KG from RuntimeServices
+- **Meta-Agents**: `MetaArchitect` (DAG design), `MetaSpecifier` (OpenSpec proposal authoring), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations), `MetaScaffolder` (runnable CEMAF-app synthesis)
+- **OpenSpec Bridge**: `OpenSpecRuntime` protocol (System/Npx/Fake impls) + `OpenSpecWorkspace` (atomic writes, per-change locks) exposes `openspec validate/list/show/write/delete` as CEMAF tools
+- **Pre-built DAGs**: `create_self_audit_dag()`, `create_feature_synthesis_dag()`, `create_knowledge_refresh_dag()`, `create_self_spec_dag()`, `create_app_synthesis_dag()`
+- **Entry point**: `create_meta_executor()` wraps `create_executor()`, auto-wires audit + KG from `RuntimeServices` and MetaSpecifier/OpenSpec tools from `MetaServices`
+
+**What this gets you**: one instruction ("build an app that does X") becomes a working CEMAF-based app on disk — spec validated by `openspec validate --strict`, agents synthesized from the spec, scaffolded into an importable package with its own registry, DAGs, and smoke tests. See `create_app_synthesis_dag()`.
 
 ---
 
