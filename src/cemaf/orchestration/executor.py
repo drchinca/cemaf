@@ -486,10 +486,15 @@ class DAGExecutor:
                         },
                     )
 
-                # Budget guard check after each node
+                # Budget guard check after each node.
+                # Telemetry (token_telemetry.extract_token_metadata) writes
+                # `cost_estimate_usd` and `tokens_total`; we honor both those
+                # canonical keys and the legacy `cost_usd`/`tokens_used` aliases
+                # that hand-populated metadata may use.
                 if self._budget_guard and result.success:
-                    cost = result.metadata.get("cost_usd", 0.0) if result.metadata else 0.0
-                    tokens = result.metadata.get("tokens_used", 0) if result.metadata else 0
+                    metadata = result.metadata or {}
+                    cost = metadata.get("cost_estimate_usd", metadata.get("cost_usd", 0.0))
+                    tokens = metadata.get("tokens_total", metadata.get("tokens_used", 0))
                     self._budget_guard.record_usage(cost_usd=float(cost), tokens=int(tokens))
                     if self._budget_guard.should_halt():
                         completed_at = utc_now()
