@@ -1,11 +1,36 @@
-"""
-Evaluation protocols - Abstract interfaces for output evaluation.
+"""Evaluation protocols — taxonomy of metrics, results, evaluators.
 
-Supports:
-- Pass/fail evaluation
-- Numeric scoring
-- Multi-metric evaluation
-- Confidence scores
+The contracts every evaluator implements. Three axes to understand:
+
+**EvalMetric (enum)** — what is being measured:
+- Binary: `PASS_FAIL`
+- Similarity: `EXACT_MATCH`, `CONTAINS`, `SEMANTIC_SIMILARITY`
+- Quality: `COHERENCE`, `RELEVANCE`, `FACTUALITY`, `HELPFULNESS`,
+  `GROUNDEDNESS` (n-gram support from context — hallucination),
+  `TOOL_USE_SUCCESS` (tool-call success × result-reference)
+- Safety: `TOXICITY`, `BIAS`
+- Format: `JSON_VALID`, `SCHEMA_VALID`, `LENGTH`
+- Extensibility: `CUSTOM`
+
+**EvalResult** — a `@dataclass(frozen=True)` carrying score (0.0-1.0),
+pass/fail, reason, expected/actual values, confidence, latency, and
+free-form metadata. All evaluators return this shape.
+
+**Evaluator / BaseEvaluator** — the `@runtime_checkable` Protocol.
+`async def evaluate(output, expected=None, context=None) -> EvalResult`.
+Implement it and your evaluator plugs into `OnlineEvalPipeline`,
+`HierarchicalJudge`, `CompositeEvaluator` with zero wiring changes.
+
+Pluggability:
+    class MyEvaluator(BaseEvaluator):
+        @property
+        def metric(self) -> EvalMetric: return EvalMetric.CUSTOM
+        async def evaluate(self, output, expected=None, context=None) -> EvalResult:
+            ...
+            return self._make_result(score=0.85, reason="...")
+
+Then wire via `NodeEvalBinding` into `OnlineEvalPipeline` or by hand
+through `RunEvalTool` for one-off grading.
 """
 
 from abc import ABC, abstractmethod

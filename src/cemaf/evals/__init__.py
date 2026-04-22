@@ -1,12 +1,39 @@
-"""
-Evals module - Evaluation framework for LLM outputs.
+"""Evaluation framework — deterministic + LLM-judge + online pipeline.
 
-Provides:
-- Evaluator protocol for pluggable evaluation strategies
-- LLM-as-judge evaluation
-- Semantic similarity evaluation
-- Exact match and regex evaluation
-- Composite evaluators
+Three tiers of evaluation that compose:
+
+1. **Deterministic** (cheap, exact): `ExactMatch`, `Contains`, `Regex`,
+   `JsonValid`, `Length`, `GroundednessEvaluator` (n-gram overlap for
+   hallucination detection), `ToolUseSuccessEvaluator` (tool call success
+   rate × result-reference in output).
+2. **Semantic** (embedding similarity): `SemanticSimilarityEvaluator`.
+3. **LLM-as-judge** (expensive, flexible): `LLMJudgeEvaluator` with
+   `JudgeCriteria` (HELPFULNESS, COHERENCE, RELEVANCE, FACTUALITY, SAFETY).
+
+`HierarchicalJudge` escalates from tier-1 to tier-3 only when earlier
+tiers don't resolve the question — bounded cost.
+
+Online pipeline:
+- `OnlineEvalPipeline` subscribes to `TASK_COMPLETED` events on the EventBus
+  and runs bound `Evaluator`s per node.
+- `QualityPolice` watches a rolling window of scores and raises a
+  `HaltSignal(reason=QUALITY_DEGRADED)` if quality drops below threshold.
+- Dogfood: `RunEvalTool`, `CheckQualityTool`, `RecordScoreTool`,
+  `QualityGuardAgent` — CEMAF eval primitives registered as CEMAF tools.
+
+Usage:
+    from cemaf.evals.evaluators import ExactMatchEvaluator
+    from cemaf.evals.grounding import GroundednessEvaluator
+    from cemaf.evals.online import OnlineEvalPipeline, NodeEvalBinding, EvalMode
+
+    pipeline = OnlineEvalPipeline(event_bus=bus, bindings=[
+        NodeEvalBinding(
+            node_id="writer",
+            evaluator=GroundednessEvaluator(n=3),
+            mode=EvalMode.OBSERVE,
+        ),
+    ])
+    pipeline.subscribe()
 """
 
 from cemaf.evals.agents import QualityGuardAgent, QualityGuardGoal, QualityGuardResult

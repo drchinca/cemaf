@@ -1,12 +1,38 @@
-"""
-Orchestration module - Dynamic DAG execution with DeepAgent pattern.
+"""Orchestration — DAG execution, composition root, runtime services.
 
-This module provides:
-- DAG: Directed Acyclic Graph for workflow definition
-- Node: Atomic unit of execution in a DAG
-- Edge: Connection between nodes with conditions
-- DeepAgent: Hierarchical orchestrator with context isolation
-- Executor: Runs DAGs with parallel execution support
+The top of Layer 1: this package wires everything together and is allowed
+to import from every other Layer 1 package. Nothing below `orchestration/`
+imports from `orchestration/` (except via the EventBus).
+
+Key concepts:
+- **DAG / Node / Edge** — the workflow data model (immutable, frozen dataclasses)
+- **DAGExecutor** — runs a DAG; concurrent-safe via `contextvars.ContextVar`
+- **ContextNodeExecutor** — dispatches AGENT nodes through the AgentRegistry
+- **RuntimeServices** — frozen dataclass bundling 15+ optional dependencies;
+  the typed DI container injected at the composition root
+- **ExecutorConfig** — sizing, timeouts, enable/disable flags
+- **HaltSignal / HaltReason** — structured halt reporting (BUDGET_EXHAUSTED,
+  QUALITY_DEGRADED, …). Propagates into LOOP bodies so runaway loops stop
+  mid-flight instead of wasting N-1 calls after halt fires
+- **NodeHandlerContext** — per-run state passed to router/loop/parallel/
+  conditional handlers; includes `should_halt` callback for cooperative
+  cancellation
+- **Checkpointer** — replay checkpoint support
+
+Canonical wiring — prefer `cemaf.bootstrap.create_executor` over instantiating
+DAGExecutor directly. The bootstrap hooks event subscriptions and health
+checks that individual construction skips.
+
+    from cemaf.bootstrap import create_executor
+    executor = create_executor(
+        agent_registry=registry,
+        services=RuntimeServices(...),
+        config=ExecutorConfig(...),
+    )
+    result = await executor.run(dag=dag)
+
+See docs/architecture.md for the full architecture and
+docs/patterns.md for the RuntimeServices / composition-root patterns.
 """
 
 from cemaf.orchestration.checkpointer import (
