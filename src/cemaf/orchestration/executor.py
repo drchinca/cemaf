@@ -20,6 +20,7 @@ import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -73,6 +74,32 @@ _correlation_id_var: ContextVar[str] = ContextVar(
     "cemaf_correlation_id",
     default="",
 )
+
+
+class HaltReason(str, Enum):
+    """Why a DAG execution was halted mid-flight.
+
+    Enum-typed so on-call engineers reading logs at 3am know immediately
+    which gate fired — a bare `should_halt=True` with no reason is
+    debuggable-pain.
+    """
+
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    QUALITY_DEGRADED = "quality_degraded"
+
+
+@dataclass(frozen=True, slots=True)
+class HaltSignal:
+    """Signal raised by an outer controller to stop mid-flight execution.
+
+    `reason` drives alerting/routing; `detail` is a free-form human hint
+    (budget state dict, quality window, etc.) for logs. `source` names
+    the component that raised — BudgetGuard, QualityPolice, etc.
+    """
+
+    reason: HaltReason
+    source: str
+    detail: str = ""
 
 
 def _current_route_choices() -> dict[NodeID, set[NodeID]]:
@@ -254,15 +281,32 @@ class DAGExecutor:
         self._budget_guard = budget_guard
         self._session_manager = session_manager
 
-    def _should_halt(self) -> bool:
-        """Aggregate check of all outer halt signals.
+    def _halt_signal(self) -> HaltSignal | None:
+        """Aggregate halt check across all outer controllers.
 
-        Called by inner handlers (LOOP, etc.) between cooperative iterations
-        so they don't waste work after an outer signal fires.
+        Returns the first-firing signal with structured reason + source, so
+        logs and alerts carry WHY the DAG stopped. None = keep running.
+
+        Priority: budget (harder stop — you literally can't afford more)
+        over quality (soft stop — outputs are degraded).
         """
-        quality_halted = self._quality_police is not None and self._quality_police.should_halt()
-        budget_halted = self._budget_guard is not None and self._budget_guard.should_halt()
-        return quality_halted or budget_halted
+        if self._budget_guard is not None and self._budget_guard.should_halt():
+            return HaltSignal(
+                reason=HaltReason.BUDGET_EXHAUSTED,
+                source="BudgetGuard",
+                detail=str(self._budget_guard.to_dict()),
+            )
+        if self._quality_police is not None and self._quality_police.should_halt():
+            return HaltSignal(
+                reason=HaltReason.QUALITY_DEGRADED,
+                source="QualityPolice",
+                detail=str(self._quality_police.to_dict()),
+            )
+        return None
+
+    def _should_halt(self) -> bool:
+        """Bool adapter over _halt_signal() for the NodeHandlerContext.should_halt callback."""
+        return self._halt_signal() is not None
 
     async def _emit_event(self, event_type: EventType, payload: JSON) -> None:
         """Emit event if bus is configured."""

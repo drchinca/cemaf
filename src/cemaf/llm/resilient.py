@@ -143,6 +143,14 @@ class ResilientLLMClient:
         """Delegate message token counting to inner client."""
         return self._client.count_messages_tokens(messages=messages)
 
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """Delegate exact token counting to inner client."""
+        return await self._client.count_tokens_exact(messages=messages, tools=tools)
+
     def _resolve_config_override(self, *, config_override: LLMConfig | None) -> LLMConfig | None:
         """Apply fallback model when consecutive failures exceed threshold."""
         if self._fallback_model is not None and self._consecutive_failures >= self._fallback_after_failures:

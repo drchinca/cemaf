@@ -191,6 +191,36 @@ class AnthropicLLMClient:
                 total += self.count_tokens(text=json.dumps(msg.content))
         return TokenCount(total)
 
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """Exact token count via the Anthropic /messages/count_tokens endpoint.
+
+        Use before long-context requests where a 30% heuristic under-estimate
+        would cause a 400 context_length_exceeded. The API is free to call
+        and caches server-side.
+        """
+        system_msg, api_messages = _convert_messages(messages=messages)
+        kwargs: dict[str, object] = {
+            "model": self._model,
+            "messages": api_messages,
+        }
+        if system_msg:
+            kwargs["system"] = system_msg
+        if tools:
+            kwargs["tools"] = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.parameters,
+                }
+                for t in tools
+            ]
+        response = await self._client.messages.count_tokens(**kwargs)
+        return TokenCount(response.input_tokens)
+
 
 def _convert_messages(
     *,
