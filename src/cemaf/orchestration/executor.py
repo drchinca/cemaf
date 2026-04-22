@@ -17,6 +17,7 @@ Type imports happen at runtime within methods that need them.
 """
 
 import asyncio
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -58,6 +59,28 @@ from cemaf.orchestration.node_handlers import (
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
+
+
+# Per-run state lives in ContextVars so a single DAGExecutor instance is
+# safe under concurrent run() calls — each async task sees its own run's
+# route choices and correlation id without clobbering siblings. Defaults
+# are None; run() seeds both on entry via .set() with fresh values.
+_route_choices_var: ContextVar[dict[NodeID, set[NodeID]] | None] = ContextVar(
+    "cemaf_route_choices",
+    default=None,
+)
+_correlation_id_var: ContextVar[str] = ContextVar(
+    "cemaf_correlation_id",
+    default="",
+)
+
+
+def _current_route_choices() -> dict[NodeID, set[NodeID]]:
+    """Read-accessor with defensive empty-dict fallback for pre-run reads."""
+    choices = _route_choices_var.get()
+    if choices is None:
+        return {}
+    return choices
 
 
 class ExecutorConfig(BaseModel):
@@ -195,8 +218,6 @@ class DAGExecutor:
         self._moderation_pipeline = moderation_pipeline
         self._quality_police = quality_police
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
-        self._route_choices: dict[NodeID, set[NodeID]] = {}
-        self._correlation_id: str = ""
         self._health_registry = health_registry
         self._require_healthy = require_healthy
         self._auto_heal_manager = auto_heal_manager
@@ -211,7 +232,7 @@ class DAGExecutor:
             type=event_type,
             payload=payload,
             source="dag_executor",
-            correlation_id=self._correlation_id,
+            correlation_id=_correlation_id_var.get(),
         )
         await self._event_bus.publish(event=event)
 
@@ -237,8 +258,11 @@ class DAGExecutor:
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
-        self._route_choices = {}
-        self._correlation_id = str(run_id)
+        # Per-run state goes into ContextVars — each run() call gets its own
+        # view, so concurrent runs on the same executor instance cannot clobber
+        # each other's route choices or correlation id.
+        _route_choices_var.set({})
+        _correlation_id_var.set(str(run_id))
         health_check_metadata: JSON = {}
 
         # Record DAG execution start
@@ -320,15 +344,17 @@ class DAGExecutor:
             # Track completed nodes for edge conditions
             completed: dict[NodeID, NodeResult] = {}
 
-            # Build handler context for node-type dispatchers
+            # Build handler context for node-type dispatchers. route_choices
+            # is a dict reference shared with the ContextVar's view; mutations
+            # by handlers propagate to readers via the same object.
             handler_ctx = NodeHandlerContext(
-                route_choices=self._route_choices,
+                route_choices=_current_route_choices(),
                 apply_output=self._apply_node_output,
                 execute_with_retry=self._execute_with_retry,
                 merge_strategy=self._merge_strategy,
                 max_parallel=self._max_parallel,
                 run_logger=self._run_logger,
-                correlation_id=self._correlation_id,
+                correlation_id=_correlation_id_var.get(),
             )
 
             for node_id in order:
@@ -788,7 +814,7 @@ class DAGExecutor:
         if not source_result:
             return False
 
-        allowed_targets = self._route_choices.get(edge.source)
+        allowed_targets = _current_route_choices().get(edge.source)
         if allowed_targets is not None and edge.target not in allowed_targets:
             return False
 
@@ -832,7 +858,7 @@ class DAGExecutor:
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
                 reason=f"Output from node '{node.id}'",
-                correlation_id=self._correlation_id,
+                correlation_id=_correlation_id_var.get(),
             )
 
             # Record patch
@@ -1010,13 +1036,13 @@ class DAGExecutor:
     ) -> tuple[tuple[NodeResult, ...], Context]:
         """Execute multiple nodes in parallel with context merging."""
         handler_ctx = NodeHandlerContext(
-            route_choices=self._route_choices,
+            route_choices=_current_route_choices(),
             apply_output=self._apply_node_output,
             execute_with_retry=self._execute_with_retry,
             merge_strategy=self._merge_strategy,
             max_parallel=self._max_parallel,
             run_logger=self._run_logger,
-            correlation_id=self._correlation_id,
+            correlation_id=_correlation_id_var.get(),
         )
         return await _run_parallel_nodes(
             nodes=nodes,
