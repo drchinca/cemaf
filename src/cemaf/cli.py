@@ -16,10 +16,35 @@ def main() -> None:
 
     subparsers.add_parser("inspect", help="Introspect framework protocols, node types, and eval metrics")
 
+    docs_parser = subparsers.add_parser(
+        "docs",
+        help="Search CEMAF's own docs + docstrings (for LLMs and humans)",
+    )
+    docs_parser.add_argument("query", nargs="+", help="Search query")
+    docs_parser.add_argument("-k", type=int, default=5, help="Max results (default 5)")
+    docs_parser.add_argument(
+        "--kind",
+        choices=["guide", "package", "module", "pattern", "spec"],
+        action="append",
+        help="Filter by kind (repeatable)",
+    )
+    docs_parser.add_argument(
+        "--show",
+        metavar="ID",
+        help="Print full body for a specific entry id (skips search)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "inspect":
         _inspect()
+    elif args.command == "docs":
+        _docs(
+            query=" ".join(args.query) if args.query else "",
+            k=args.k,
+            kinds=tuple(args.kind) if args.kind else None,
+            show=args.show,
+        )
     else:
         parser.print_help()
 
@@ -64,6 +89,58 @@ def _inspect() -> None:
     print("Quick start:")
     print("  from cemaf import create_executor, AgentRegistry, DAG, Node")
     print("  See: examples/hello_world.py")
+
+
+def _docs(
+    *,
+    query: str,
+    k: int,
+    kinds: tuple[str, ...] | None,
+    show: str | None,
+) -> None:
+    """Search CEMAF docs or show a specific entry."""
+    from cemaf.docs_api import build_default_index
+    from cemaf.docs_api.index import DocEntryKind
+
+    index = build_default_index()
+
+    if show:
+        entry = index.get(show)
+        if entry is None:
+            print(f"No entry with id: {show}")
+            return
+        print(f"# {entry.title}")
+        print(f"id:     {entry.id}")
+        print(f"kind:   {entry.kind.value}")
+        print(f"source: {entry.source}")
+        if entry.path:
+            print(f"path:   {entry.path}")
+        print()
+        print(entry.body)
+        return
+
+    if not query:
+        print("Usage: cemaf docs <query> [-k N] [--kind guide|package|module|pattern]")
+        print("       cemaf docs --show <entry-id>")
+        print(f"\nIndex size: {len(index)} entries")
+        return
+
+    kind_filter: tuple[DocEntryKind, ...] | None = None
+    if kinds:
+        kind_filter = tuple(DocEntryKind(k) for k in kinds)
+
+    results = index.search(query=query, k=k, kinds=kind_filter)
+    if not results:
+        print(f"No matches for: {query}")
+        return
+    print(f"Query: {query}   ({len(results)} result(s), index size {len(index)})\n")
+    for entry, score in results:
+        print(f"  [{score:5.1f}]  {entry.kind.value:<8}  {entry.title}")
+        print(f"            id: {entry.id}")
+        if entry.anchors:
+            print(f"            anchors: {', '.join(entry.anchors[:3])}")
+        print()
+    print("Show full body:  cemaf docs --show <id>")
 
 
 def _list_protocols() -> None:
