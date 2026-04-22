@@ -16,6 +16,8 @@ model can correlate the turn, but the poisoned payload is gone.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -31,6 +33,43 @@ from cemaf.llm.protocols import (
 from cemaf.moderation.pipeline import ModerationPipeline
 
 _BLOCKED_STUB = "[blocked by moderation: tool result contained disallowed content]"
+
+# Invisible / formatting Unicode categories commonly used to smuggle
+# instructions past keyword gates: zero-width chars, bidi controls,
+# tag characters. We strip them before moderation.
+_ZERO_WIDTH_RE = re.compile(
+    "["
+    "​-‏"  # ZWSP/ZWNJ/ZWJ + LRM/RLM
+    "‪-‮"  # LRE/RLE/PDF/LRO/RLO
+    "⁦-⁩"  # LRI/RLI/FSI/PDI
+    "﻿"  # BOM / ZWNBSP
+    "️"  # Variation selector
+    "]"
+)
+
+
+def _normalize_text(text: str) -> str:
+    """Unicode-normalize + strip invisible chars so moderation sees real content.
+
+    Defense against: homoglyph attacks (Cyrillic а vs Latin a), zero-width
+    char smuggling ('ignore​previous​instructions'), bidi tricks.
+    """
+    normalized = unicodedata.normalize("NFKC", text)
+    return _ZERO_WIDTH_RE.sub("", normalized)
+
+
+def _flatten_content(*, content: Any) -> str:
+    """Extract text from a Message.content that may be str or structured."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        parts: list[str] = []
+        for value in content.values():
+            parts.append(_flatten_content(content=value))
+        return "\n".join(parts)
+    if isinstance(content, (list, tuple)):
+        return "\n".join(_flatten_content(content=item) for item in content)
+    return str(content)
 
 
 class ModeratingLLMClient:
@@ -98,7 +137,11 @@ class ModeratingLLMClient:
             if msg.role is not MessageRole.TOOL:
                 out.append(msg)
                 continue
-            content_text = msg.content if isinstance(msg.content, str) else str(msg.content)
+            # Normalize + flatten structured content. Raw `str(dict)` gives
+            # Python repr (drowns semantic text in noise). Unicode NFKC
+            # normalization collapses homoglyphs and invisible chars that
+            # would otherwise bypass keyword/regex moderation gates.
+            content_text = _normalize_text(_flatten_content(content=msg.content))
             result = await self._moderation.check_input(content=content_text)
             if result.allowed:
                 out.append(msg)

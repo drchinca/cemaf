@@ -83,6 +83,36 @@ def _current_route_choices() -> dict[NodeID, set[NodeID]]:
     return choices
 
 
+def _flatten_for_moderation(*, output: Any, max_depth: int = 10) -> str:
+    """Extract concatenated string leaves from a possibly nested output.
+
+    str(dict) produces Python repr (`{'key': 'val'}`) which moderation gates
+    can't meaningfully parse — the separators and quotes drown out semantic
+    content. This walker pulls every string leaf out and joins them with
+    newlines so moderation sees the actual language, not the container.
+    """
+    parts: list[str] = []
+
+    def _walk(value: Any, depth: int) -> None:
+        if depth > max_depth:
+            return
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                _walk(v, depth + 1)
+        elif isinstance(value, (list, tuple, set)):
+            for v in value:
+                _walk(v, depth + 1)
+        elif value is None or isinstance(value, bool):
+            return
+        else:
+            parts.append(str(value))
+
+    _walk(output, 0)
+    return "\n".join(parts)
+
+
 class ExecutorConfig(BaseModel):
     """
     Configuration for DAGExecutor.
@@ -253,6 +283,31 @@ class DAGExecutor:
         run_id: RunID | None = None,
         cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
+        """Public entry point. Wraps _run_impl in ContextVar reset guard."""
+        effective_run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        route_token = _route_choices_var.set({})
+        correlation_token = _correlation_id_var.set(str(effective_run_id))
+        try:
+            return await self._run_impl(
+                dag=dag,
+                initial_context=initial_context,
+                run_id=effective_run_id,
+                cancellation_token=cancellation_token,
+            )
+        finally:
+            # Reset ContextVars so sequential awaits in the same task don't
+            # inherit stale state from this run. Task-copy semantics protect
+            # concurrent runs; this protects sequential ones.
+            _route_choices_var.reset(route_token)
+            _correlation_id_var.reset(correlation_token)
+
+    async def _run_impl(
+        self,
+        dag: DAG,
+        initial_context: Context | None = None,
+        run_id: RunID | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
         """
         Execute the DAG.
 
@@ -264,15 +319,12 @@ class DAGExecutor:
         Returns:
             ExecutionResult with all node results and final context
         """
+        # ContextVars were set by the public run() wrapper and will be
+        # reset in its finally block. We just read them here.
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
-        # Per-run state goes into ContextVars — each run() call gets its own
-        # view, so concurrent runs on the same executor instance cannot clobber
-        # each other's route choices or correlation id.
-        _route_choices_var.set({})
-        _correlation_id_var.set(str(run_id))
         health_check_metadata: JSON = {}
 
         # Record DAG execution start
@@ -536,8 +588,11 @@ class DAGExecutor:
                 # explicit violation error, and the DAG cannot pass the tainted
                 # output to downstream nodes.
                 if self._moderation_pipeline is not None and result.success and result.output is not None:
+                    # Flatten structured output to its text leaves before
+                    # moderation. str({"summary": "..."}) produces Python repr
+                    # which gates read as noise; semantic content lives inside.
                     moderation_result = await self._moderation_pipeline.check_output(
-                        content=str(result.output),
+                        content=_flatten_for_moderation(output=result.output),
                         context=context,
                     )
                     if not moderation_result.allowed:
@@ -940,15 +995,29 @@ class DAGExecutor:
                 # Use _apply_node_output to emit patches with correlation IDs
                 current_context = self._apply_node_output(node, result, current_context)
 
-                # Record cost to BudgetGuard on every successful execution, not
-                # just at the top-level node. Without this, a LOOP body runs
-                # N iterations with zero cost recorded, and should_halt() stays
-                # False regardless of how much budget the body actually burned.
-                if result.success and self._budget_guard is not None:
+                # Record cost to BudgetGuard on every execution that carries
+                # telemetry, regardless of success. A failed-but-billed call
+                # (e.g. LLM returned content-policy refusal after burning 10k
+                # tokens) MUST still count against the cap — that's the exact
+                # runaway-spend scenario a budget guard exists to catch.
+                # We record unconditionally when metadata carries numbers,
+                # NaN-safe so hostile agents can't corrupt accounting.
+                if self._budget_guard is not None:
                     meta = result.metadata or {}
-                    cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)))
-                    tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)))
-                    if cost or tokens:
+                    cost_raw = meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0))
+                    tokens_raw = meta.get("tokens_total", meta.get("tokens_used", 0))
+                    try:
+                        cost = float(cost_raw)
+                        tokens = int(tokens_raw)
+                    except (TypeError, ValueError):
+                        cost, tokens = 0.0, 0
+                    # NaN/inf guard — they're float values that pass isinstance
+                    # but corrupt the accumulator.
+                    import math
+
+                    if math.isnan(cost) or math.isinf(cost):
+                        cost = 0.0
+                    if cost > 0 or tokens > 0:
                         self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
 
                 if result.success:

@@ -237,14 +237,16 @@ async def test_full_stack_composition(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_full_stack_halts_when_budget_exhausted(tmp_path: Path) -> None:
-    """Confirm the full stack also halts correctly when budget trips mid-run."""
+    """Confirm the full stack halts correctly when budget trips mid-run.
+
+    Tight cap — Research (0.05) passes, Summarize (0.02) pushes total=0.07,
+    Write (0.08) records to 0.15 and then should_halt() returns True.
+    """
     registry = AgentRegistry()
     registry.register_agent(agent_instance=_ResearchAgent(), goal_type=_ResearchGoal)
     registry.register_agent(agent_instance=_SummarizeAgent(), goal_type=_SummarizeGoal)
     registry.register_agent(agent_instance=_WriteAgent(), goal_type=_WriteGoal)
 
-    # Tight cap — Research (0.05) passes, Summarize (0.02) passes total=0.07,
-    # Write (0.08) pushes total to 0.15 > 0.10 cap, halts.
     budget_guard = BudgetGuard(max_cost_usd=0.10)
     executor = create_executor(
         agent_registry=registry,
@@ -256,5 +258,13 @@ async def test_full_stack_halts_when_budget_exhausted(tmp_path: Path) -> None:
 
     assert result.status == RunStatus.FAILED
     assert "udget" in (result.error or "")
-    # Research and Summarize should both have completed; Writer hit the halt
-    assert len(result.node_results) <= 3
+    # Verify the halt fired AFTER Write (total 0.15 > 0.10) — Writer completed
+    # its call (cost recorded) but subsequent DAG progression aborted.
+    completed_ids = {str(nr.node_id) for nr in result.node_results if nr.success}
+    assert "research" in completed_ids
+    assert "summarize" in completed_ids
+    # final_context should not carry the downstream node's output when halted
+    # mid-flow (DAG aborts BEFORE applying post-halt output).
+    assert budget_guard.accumulated_cost_usd >= 0.10, (
+        f"halt fired before budget exceeded threshold: {budget_guard.accumulated_cost_usd}"
+    )

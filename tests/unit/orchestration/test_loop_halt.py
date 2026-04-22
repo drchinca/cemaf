@@ -99,9 +99,11 @@ async def test_loop_halts_mid_body_on_budget_exhaustion() -> None:
 
     await executor.run(dag=_loop_dag(max_iterations=10))
 
-    # Without halt, we'd see 10 calls. With halt, should see ~3 (0.4*3=1.2 > 1.0).
-    assert agent.calls < 10, f"loop did not halt; completed {agent.calls} iterations"
-    assert agent.calls >= 2, f"halt too eager: only {agent.calls} iterations"
+    # Deterministic count: cost 0.4/call, cap 1.0. Halt checked BEFORE each
+    # iteration after prior cost was recorded. Iteration 1: cost=0.4, not
+    # halted. Iteration 2: 0.8, not halted. Iteration 3: 1.2 > 1.0, halted
+    # BEFORE running. Exactly 3 calls.
+    assert agent.calls == 3, f"expected exactly 3 iterations before halt, got {agent.calls}"
 
 
 @pytest.mark.asyncio
