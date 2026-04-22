@@ -447,10 +447,14 @@ class DAGExecutor:
                     node_results.append(result)
                     completed[node_id] = result
 
-                # Record per-node metrics
+                # Record per-node metrics.
+                # We deliberately do NOT include node_id or run_id in tags —
+                # those are unbounded cardinality dimensions and will OOM a
+                # Prometheus registry within hours of real traffic. node_id and
+                # run_id live in structured logs and audit entries where they
+                # belong; metrics stay aggregable.
                 node_type_name = node.type.value if hasattr(node.type, "value") else str(node.type)
                 node_tags = {
-                    "node_id": str(node_id),
                     "node_type": node_type_name,
                     "dag_name": dag.name,
                     "status": "success" if result.success else "failed",
