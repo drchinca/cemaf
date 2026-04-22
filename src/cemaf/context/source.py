@@ -38,6 +38,7 @@ class ContextType(str, Enum):
     RESOURCE = "resource"
     MEMORY = "memory"
     SKILL = "skill"
+    SPEC = "spec"
 
 
 @dataclass(frozen=True)
@@ -265,6 +266,39 @@ class ContextSource:
             min_tokens=min_tokens,
             metadata={"critical": True},
             context_type=ContextType.SKILL,
+        )
+
+    @classmethod
+    def from_spec(
+        cls,
+        content: str,
+        spec_id: str,
+        *,
+        token_count: TokenCount | None = None,
+        priority: int = 8,
+        timestamp: datetime | None = None,
+        change_id: str = "",
+        capability: str = "",
+    ) -> ContextSource:
+        """Create a ContextSource from an OpenSpec proposal or archived spec.
+
+        Specs are never lossy-compacted — scenarios are load-bearing.
+        """
+        metadata: JSON = {"spec_id": spec_id}
+        if change_id:
+            metadata["change_id"] = change_id
+        if capability:
+            metadata["capability"] = capability
+        return cls(
+            content=content,
+            token_count=token_count,
+            priority=priority,
+            timestamp=timestamp or utc_now(),
+            source_type="spec",
+            source_id=spec_id,
+            compressible=False,
+            metadata=metadata,
+            context_type=ContextType.SPEC,
         )
 
     def with_priority(self, priority: int) -> ContextSource:

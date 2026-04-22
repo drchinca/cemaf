@@ -73,6 +73,14 @@ DEFAULT_BEHAVIORS: dict[ContextType, ContextTypeBehavior] = {
         default_priority=5,
         preferred_compaction="full",
     ),
+    ContextType.SPEC: ContextTypeBehavior(
+        cacheable=True,
+        shareable=True,
+        compressible=False,
+        default_ttl_seconds=None,
+        default_priority=8,
+        preferred_compaction="full",
+    ),
 }
 
 DEFAULT_SOURCE_TYPE_MAP: dict[str, ContextType] = {
@@ -80,6 +88,7 @@ DEFAULT_SOURCE_TYPE_MAP: dict[str, ContextType] = {
     "tool_output": ContextType.RESOURCE,
     "memory": ContextType.MEMORY,
     "system": ContextType.SKILL,
+    "spec": ContextType.SPEC,
 }
 
 
