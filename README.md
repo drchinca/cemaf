@@ -7,7 +7,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-2400+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Tests](https://img.shields.io/badge/Tests-2700+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
 [![Coverage](https://img.shields.io/badge/Coverage-80%25-brightgreen?style=flat-square)](.)
 [![CI](https://img.shields.io/github/actions/workflow/status/drchinca/cemaf/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/drchinca/cemaf/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
@@ -40,17 +40,46 @@
 
 ## Overview
 
-CEMAF is a protocol-first framework designed for **context engineering** in multi-agent AI systems. It provides:
+CEMAF is a protocol-first framework for **context engineering** in multi-agent AI systems. It owns the hard infrastructure problems — token budgeting, provenance, memory scoping, eval, moderation, resilience, self-hosting — while staying framework-agnostic. Use it standalone or drop modules into LangGraph / AutoGen / CrewAI.
 
-- Token budgeting and automatic context optimization
-- Deterministic run recording and replay capabilities
-- Full provenance tracking for every context change
-- Memory management with strict scoping and TTL
-- Zero-config defaults with environment-based customization
+- **Protocol-first**: every integration point is a `@runtime_checkable` Protocol. Bring your own LLM, vector store, memory backend, embedding provider. Structural typing, no inheritance required.
+- **Immutable context with provenance**: `Context.apply(patch)` — every context change is an auditable `ContextPatch`. Replay, debug, and grade any past run deterministically.
+- **Composition root**: `create_executor(services=RuntimeServices(...), config=ExecutorConfig(...))` wires 15+ optional services into one typed bundle. Request-scoped DI shape, no module-level singletons.
+- **Self-hosting meta-layer**: CEMAF uses CEMAF to introspect, audit, spec, and extend itself. One instruction becomes a runnable CEMAF-based app on disk.
 
-**Philosophy**: Own the hard infrastructure problems while remaining framework-agnostic.
+---
 
-**Design**: Protocol-based architecture where modules work standalone. Use our defaults or replace them with your own implementations. See [Protocol Guide](docs/protocol_guide.md) for details.
+## Architecture at a Glance
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          LAYER 2  —  Self-Hosting                    │
+│   audit/  •  knowledge/  •  meta/  (MetaSpecifier, MetaScaffolder…)  │
+│                              ▲                                       │
+│                              │ one-way dependency                    │
+│ ─────────────────────────────┴─────────────────────────────────────  │
+│                          LAYER 1  —  Base Framework                  │
+│                                                                      │
+│  orchestration/  ──────  DAGExecutor + ContextNodeExecutor          │
+│       │                  (topo sort → node dispatch → context)       │
+│       ▼                                                              │
+│  agents/  •  tools/  •  skills/  •  blueprint/                       │
+│  context/ •  memory/ •  retrieval/ •  rlm/                          │
+│  llm/     •  generation/ • streaming/                                │
+│  evals/   •  moderation/ • validation/ • citation/                  │
+│  events/  •  observability/ • resilience/ • persistence/            │
+│  mcp/     •  cache/    • replay/    • ingestion/                    │
+│                                                                      │
+│  Composition root:                                                   │
+│    bootstrap.create_executor(                                        │
+│        agent_registry=registry,                                      │
+│        services=RuntimeServices(...),    # 15+ optional deps         │
+│        config=ExecutorConfig(...),        # sizing / timeouts        │
+│    )                                                                 │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Read [docs/architecture.md](docs/architecture.md)** for the canonical software architecture we build toward, **[docs/patterns.md](docs/patterns.md)** for the design patterns catalog, and **[docs/modules.md](docs/modules.md)** for ideal package boundaries.
 
 ---
 
@@ -69,6 +98,11 @@ CEMAF is a protocol-first framework designed for **context engineering** in mult
 | **Spec Drift** | Code and intent diverge silently | MetaSpecifier authors OpenSpec proposals; `openspec validate --strict` is a deterministic eval signal |
 | **Zero-to-App** | Going from feature idea to runnable code takes days | `app_synthesis` DAG: description → spec → DAG design → agents → scaffolded, importable CEMAF app on disk |
 | **Framework Evolution** | Adding new capabilities requires hand-wiring registries, DAGs, bootstrap | Self-hosting meta-layer — CEMAF uses CEMAF to extend CEMAF |
+| **Prompt Injection via Tool Results** | Retrieved docs / MCP results bypass moderation, land in the next turn | `ModeratingLLMClient` wraps any LLMClient: NFKC-normalizes, strips zero-width chars, flattens structured tool output, runs pre-flight gate |
+| **Streaming Leaks Unsafe Tokens** | Chat UIs show content to users before moderation fires | Sentence-boundary buffered moderation in `stream()` — caller never sees more than one sentence of disallowed content |
+| **Silent Budget Overrun** | Cost cap looks configured but never fires | `BudgetGuard` records every billed call (success OR failure) with NaN-safe accumulation; `HaltSignal(reason=BUDGET_EXHAUSTED)` propagates into loop bodies between iterations |
+| **Context-Length Surprises** | Heuristic token counts under-estimate 30-50% → `400 context_length_exceeded` in prod | `count_tokens_exact(messages, tools)` via Anthropic / OpenAI / Gemini APIs + tiktoken fallback |
+| **Concurrent-Run Contamination** | One `DAGExecutor` instance shared across coroutines clobbers route choices & correlation IDs | `contextvars.ContextVar` per-run state; concurrent calls on the same executor are isolated |
 
 ---
 
@@ -98,26 +132,83 @@ pip install -e ".[dev]"
 ## Quick Start
 
 ```python
-from cemaf import Agent, AgentContext, AgentResult, AgentState, AgentRegistry
-from cemaf import DAG, Node, create_executor
+from pydantic import BaseModel
+from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
+from cemaf.agents.registry import AgentRegistry
+from cemaf.bootstrap import create_executor
+from cemaf.core.enums import NodeType
+from cemaf.core.types import AgentID, NodeID
+from cemaf.orchestration.dag import DAG, Node
+from cemaf.orchestration.executor import ExecutorConfig
+from cemaf.orchestration.services import RuntimeServices
 
-# 1. Define an agent
-class MyAgent(Agent[MyGoal, MyResult]):
+
+# 1. Define your goal / result types (Pydantic)
+class ResearchGoal(BaseModel):
+    topic: str
+
+
+class ResearchResult(BaseModel):
+    findings: str
+
+
+# 2. Define an agent
+class Researcher(Agent[ResearchGoal, ResearchResult]):
+    @property
+    def id(self) -> AgentID:
+        return AgentID("Researcher")
+
+    @property
+    def description(self) -> str:
+        return "Researches a topic and returns findings"
+
+    @property
+    def skills(self) -> tuple[()]:
+        return ()
+
     async def run(self, goal, context):
-        return AgentResult.ok(output=result, state=AgentState())
+        return AgentResult.ok(
+            output=ResearchResult(findings=f"key findings on {goal.topic}"),
+            state=AgentState(),
+            # BudgetGuard / eval pipeline read these telemetry keys
+            metadata={"cost_estimate_usd": 0.05, "tokens_total": 500},
+        )
 
-# 2. Build a DAG and run it
+
+# 3. Wire services via RuntimeServices (budget, evals, moderation, memory…)
 registry = AgentRegistry()
-registry.register_agent(agent_instance=MyAgent(), goal_type=MyGoal)
+registry.register_agent(agent_instance=Researcher(), goal_type=ResearchGoal)
 
-dag = DAG(name="pipeline", description="My pipeline")
-dag = dag.add_node(Node.agent(id="step1", name="Step 1", agent_id="MyAgent", output_key="out"))
+executor = create_executor(
+    agent_registry=registry,
+    services=RuntimeServices(),           # defaults; add budget_guard, event_bus, …
+    config=ExecutorConfig(enable_events=False),
+)
 
-executor = create_executor(agent_registry=registry)
+# 4. Build the DAG and run
+dag = DAG(
+    name="research",
+    nodes=(
+        Node(
+            id=NodeID("n1"),
+            type=NodeType.AGENT,
+            name="research",
+            ref_id="Researcher",
+            input_mapping={"topic": "quantum computing"},
+            output_key="findings",
+        ),
+    ),
+    edges=(),
+    entry_node=NodeID("n1"),
+)
+
 result = await executor.run(dag=dag)
+print(result.final_context.get("findings"))
 ```
 
-See `examples/hello_world.py` for a complete runnable example.
+See `examples/hello_world.py` for a complete runnable example and
+`tests/integration/test_full_stack.py` for a realistic 3-agent pipeline
+wiring `SqliteMemoryStore`, `BudgetGuard`, `ContextCompiler`, and `EventBus`.
 
 ---
 
@@ -192,6 +283,15 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **Online Eval Pipeline**: Subscribe to execution events and run evaluators on node outputs in real-time
 - **Quality Police**: Rolling window quality monitor with anomaly detection and automatic halt gates
 - **Eval Tools & Agents**: RunEvalTool, CheckQualityTool, RecordScoreTool, QualityGuardAgent -- dogfooding the eval system as CEMAF tools
+- **GroundednessEvaluator**: deterministic n-gram overlap between output and retrieved context sources — catches hallucination without an LLM judge
+- **ToolUseSuccessEvaluator**: tool-call success rate × result-reference in output — detects silent tool-use failures
+
+### LLM Integration
+- **Six adapters out-of-the-box**: Anthropic, OpenAI, Gemini, Groq/Together/Fireworks (via OpenAI-compat), Ollama/vLLM/LM Studio (via OpenAI-compat), Mock
+- **`count_tokens_exact(messages, tools)`** async method for pre-flight sizing: Anthropic API, OpenAI tiktoken, Gemini `:countTokens`, heuristic fallback
+- **`ModeratingLLMClient`** decorator: NFKC unicode normalization + zero-width strip + structured-content flattening, runs pre-flight gate on every tool-result message before forwarding. Defends against prompt injection via retrieved docs / MCP results.
+- **Streaming-aware moderation**: `stream()` buffers by sentence boundary and runs post-flight gate per completed sentence — callers never see more than one sentence of disallowed content
+- **`ResilientLLMClient`**: retry (narrow transient-error list) + circuit breaker + rate limiter composing around any LLMClient
 
 ### Production Backends
 - **Resilient LLM Client**: Retry with exponential backoff + circuit breaker + rate limiter composing around any LLMClient
@@ -201,11 +301,14 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 
 ### Orchestration
 - **DAG Executor**: Topological sort, parallel execution, conditional routing, loop nodes, cooperative cancellation
+- **Concurrent-Safe**: `contextvars.ContextVar` per-run state — one `DAGExecutor` instance handles N concurrent `run()` calls without clobbering route choices or correlation IDs
+- **HaltSignal**: structured halt reporting with `HaltReason` enum (`BUDGET_EXHAUSTED`, `QUALITY_DEGRADED`). Propagates into LOOP bodies via `should_halt` callback so runaway loops don't burn N-1 calls after halt fires
+- **Canonical constructor**: `DAGExecutor(services=RuntimeServices(...), config=ExecutorConfig(...))` — cross-cutting deps bundled, not 13 kwargs
 - **Node Type Handlers**: Extracted router, conditional, loop, parallel handlers for clean separation
 - **RuntimeServices**: Frozen dataclass bundling 15+ optional dependencies for composition root
 - **Bootstrap**: Single `create_executor()` entry point wiring registry, services, and subscriptions
 - **Context Agents**: Built-in Librarian, Researcher, Summarizer, Writer agents with dynamic registry
-- **Budget Guard**: Configurable cost and token limits with warning/critical/halt thresholds
+- **Budget Guard**: Configurable cost/token limits. Records every billed call including failures and retries. NaN-safe. Halts the DAG between nodes AND mid-loop via `HaltSignal`.
 
 ### Infrastructure
 - **Protocol-Based**: Plug into any framework -- modules work standalone, extend with your own implementations
@@ -233,14 +336,18 @@ CEMAF is its own first client — opt-in modules where the framework uses its ow
 
 **[Full Documentation →](docs/README.md)**
 
-### Getting Started
+### Start Here (new to CEMAF?)
+- [**Architecture**](docs/architecture.md) - The software architecture we build toward
+- [**Design Patterns**](docs/patterns.md) - Protocol-first, BYO-X, RuntimeServices, HaltSignal, Context-as-Patch
+- [**Module Layout**](docs/modules.md) - Ideal package division, what lives where
 - [Quick Start Guide](docs/quickstart.md) - Get running in 5 minutes
+
+### Getting Started
 - [Protocol Guide](docs/protocol_guide.md) - Understanding CEMAF's protocol-based architecture
 - [Extension Patterns](docs/extension_patterns.md) - How to extend CEMAF with your own implementations
 - [Standalone Usage](docs/standalone_usage.md) - Using modules independently
 
 ### Core Guides
-- [Architecture Overview](docs/architecture.md) - System design and principles
 - [Context Management](docs/context.md) - Patches, provenance, budgeting
 - [Replay & Recording](docs/replay.md) - Deterministic replay
 - [Tools, Skills, Agents](docs/tools.md) - Execution layer
