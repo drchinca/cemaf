@@ -1,4 +1,31 @@
-"""Core module - Types, enums, constants, result, storage, execution, and utilities."""
+"""Core — the bottom of the import graph. Types, enums, Result, utilities.
+
+Every other CEMAF module can import from `core`; `core` imports from nothing
+else in this project. That makes it the safe place for primitives that
+cross package boundaries without creating cycles.
+
+Key exports:
+- **NewType IDs**: `AgentID`, `NodeID`, `RunID`, `ToolID`, `TokenCount`,
+  `Confidence`. Stringly-typed domain identifiers are an anti-pattern —
+  use these so mypy catches cross-slot mistakes.
+- **Enums**: `MemoryScope`, `NodeType`, `RunStatus`, `AgentStatus`,
+  `ToolRiskLevel`, `Priority`, `ExclusionReason`, `VerificationStatus`,
+  `ContextArtifactType`.
+- **Result[T]**: the canonical success/failure wrapper used by `Tool.execute`,
+  moderation, evals, and anywhere we want to return structured errors
+  without raising.
+- **Domain**: `DomainContext`, `ProvenanceChain`, `ProvenanceLink`,
+  `SourceReference` — the primitives for cross-run provenance.
+- **Execution**: `CancellationToken` for cooperative cancellation.
+- **Constants**: `DEFAULT_MAX_RETRIES`, `DEFAULT_TIMEOUT_SECONDS`,
+  `MAX_CONTEXT_TOKENS`, `MAX_PARALLEL_NODES`.
+- **Utilities**: `utc_now()`, `generate_id()` — use these (not `datetime.now()`
+  and not `uuid.uuid4()` directly) for testability and determinism.
+
+Rule: `core` is the only package allowed module-level singletons for
+constants. Anything behavioral (registry, manager, controller) lives in a
+feature package, not here.
+"""
 
 from cemaf.core.constants import (
     DEFAULT_MAX_RETRIES,

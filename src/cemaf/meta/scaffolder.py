@@ -1,4 +1,43 @@
-"""MetaScaffolder — assembles generated specs + agents into a runnable CEMAF-based app."""
+"""MetaScaffolder — emits a runnable CEMAF-based app from a spec + synthesized agents.
+
+The final stage of the self-hosting loop. Takes a `ScaffoldGoal` carrying a
+`ProposalDoc` (from MetaSpecifier), a tuple of generated agent sources
+(from MetaSynthesizer), and a project name + target directory. Writes a
+complete, importable Python package to disk:
+
+    target_dir/project_name/
+    ├── pyproject.toml              # hatchling build, pins cemaf + pydantic
+    ├── README.md                   # generated from the spec's Title/Why
+    ├── src/<module>/__init__.py
+    ├── src/<module>/agents.py      # generated agent classes, verbatim
+    ├── src/<module>/dags.py        # create_main_dag() factory
+    ├── src/<module>/bootstrap.py   # create_app_registry / create_app_executor
+    └── tests/test_smoke.py         # imports + build checks
+
+Invariants (see `openspec/changes/add-meta-scaffolder/specs/meta-scaffolder/spec.md`):
+- `project_name` MUST be a valid Python identifier, not a stdlib module,
+  not a Python keyword — rejected at the agent boundary with a ValueError.
+- Writes go only under `target_dir/project_name/`. Path-traversal attempts
+  are rejected.
+- Pure renderer: `render_project(skeleton: ProjectSkeleton) -> Mapping[str, str]`
+  produces byte-identical output for identical input (no clock reads, no
+  randomness, no I/O).
+- String content is escaped before interpolation — `description` with
+  `"quotes"` produces valid TOML + valid Python via `json.dumps` pass-through.
+- Refuses to overwrite non-empty existing project dirs unless
+  `overwrite=True`.
+- Per-`project_root` `asyncio.Lock` serializes concurrent scaffolds
+  targeting the same directory.
+
+Sibling pieces:
+- `ProjectSkeleton` / `ScaffoldGoal` / `ScaffoldResult` / `GeneratedAgent`
+  in `cemaf.meta.goals`.
+- `create_app_synthesis_dag()` in `cemaf.meta.dags` — the 4-node pipeline
+  (MetaSpecifier → MetaArchitect → MetaSynthesizer → MetaScaffolder) that
+  turns a feature description into a working app on disk.
+- Integration test: `tests/integration/test_app_synthesis.py` generates
+  an app, `importlib.import_module`s it, and exercises its bootstrap.
+"""
 
 from __future__ import annotations
 
