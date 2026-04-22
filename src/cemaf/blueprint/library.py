@@ -34,7 +34,7 @@ registration time (which kind do we use?), not at every call site.
 Usage:
     >>> from cemaf.blueprint.library import BlueprintLibrary, BlueprintEntry
     >>> library = BlueprintLibrary()
-    >>> library.register(entry=BlueprintEntry.snapshot(
+    >>> library.register(entry=BlueprintEntry.snapshot_entry(
     ...     id="content/announcement",
     ...     title="Product Announcement",
     ...     blueprint=my_blueprint,
@@ -51,12 +51,9 @@ import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.blueprint.core import Blueprint
-
-if TYPE_CHECKING:
-    from cemaf.blueprint.protocols import BlueprintSource
 
 
 class BlueprintEntryKind(str, Enum):
@@ -103,9 +100,9 @@ class BlueprintEntry:
     matching `kind`. The `__post_init__` check enforces that invariant at
     construction time so resolution logic can trust the discriminator.
 
-    Prefer the factory classmethods (`snapshot`, `factory`, `recipe`) over
-    constructing this directly — they keep the discriminator and the
-    payload in sync.
+    Prefer the factory classmethods (`snapshot_entry`, `factory_entry`,
+    `recipe_entry`) over constructing this directly — they keep the
+    discriminator and the payload in sync.
     """
 
     id: str
@@ -419,3 +416,17 @@ class BlueprintLibrary:
 
         scored.sort(key=lambda pair: (-pair[1], pair[0].id))
         return scored[:k]
+
+
+@runtime_checkable
+class BlueprintSource(Protocol):
+    """Pluggable ingestion seam for a `BlueprintLibrary`."""
+
+    @property
+    def name(self) -> str:
+        """Short identifier written to `BlueprintEntry.source` for provenance."""
+        ...
+
+    def load(self) -> Iterable[BlueprintEntry]:
+        """Yield every entry this source produces."""
+        ...

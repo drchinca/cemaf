@@ -126,21 +126,6 @@ cemaf blueprint search "product launch"  # keyword search
 cemaf blueprint show content/announce    # resolve and render prompt
 ```
 
-## Composition-root wiring
-
-Inject the library into `RuntimeServices` so DAG nodes can reach it
-uniformly:
-
-```python
-from cemaf.orchestration.services import RuntimeServices
-from cemaf.blueprint.factories import create_blueprint_library_from_env
-
-services = RuntimeServices(
-    blueprint_library=create_blueprint_library_from_env(),
-    # ...the rest of your bundle
-)
-```
-
 ## Design notes
 
 - **Entry vs. Blueprint**: the library holds *entries*, not live
