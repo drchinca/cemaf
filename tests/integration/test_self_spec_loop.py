@@ -23,6 +23,7 @@ from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
 from cemaf.meta.dags import create_self_spec_dag
 from cemaf.meta.goals import SpecGoal
+from cemaf.meta.specifier import MetaSpecifier
 from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
@@ -140,6 +141,52 @@ async def test_specifier_end_to_end_writes_and_validates(tmp_path: Path) -> None
     assert "## ADDED Requirements" in spec_content
     assert "#### Scenario:" in spec_content
     assert runtime.calls, "runtime.validate should have been invoked"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_specifier_runs_same_change_id_serialize(tmp_path: Path) -> None:
+    """Two MetaSpecifiers writing to the same change_id must not produce torn state.
+
+    OpenSpecWorkspace's per-change asyncio.Lock + atomic tmpdir→rename means
+    the last writer wins cleanly — never a half-written mix of files from both.
+    """
+    import asyncio
+
+    workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
+    runtime = FakeOpenSpecRuntime()
+    runtime.register_result(("validate",), SubprocessResult(returncode=0, stdout=b"", stderr=b""))
+
+    # Two specifiers share the same workspace — simulates two concurrent
+    # meta-runs hitting the same change_id (plausible when re-running a DAG).
+    spec_a = MetaSpecifier(workspace=workspace, runtime=runtime, llm_client=None)
+    spec_b = MetaSpecifier(workspace=workspace, runtime=runtime, llm_client=None)
+
+    goal = SpecGoal(
+        feature_description="Concurrent write race",
+        change_id="concurrent-race",
+        capabilities=("race",),
+    )
+    from cemaf.agents.base import AgentContext
+
+    ctx_a = AgentContext(run_id="a", agent_id="MetaSpecifier")
+    ctx_b = AgentContext(run_id="b", agent_id="MetaSpecifier")
+
+    results = await asyncio.gather(
+        spec_a.run(goal=goal, context=ctx_a),
+        spec_b.run(goal=goal, context=ctx_b),
+    )
+
+    assert all(r.success for r in results)
+    # Workspace ended in a valid state — one coherent change dir, not a mix
+    change_dir = workspace.changes_dir / "concurrent-race"
+    assert change_dir.is_dir()
+    assert (change_dir / "proposal.md").exists()
+    assert (change_dir / "tasks.md").exists()
+    assert (change_dir / "specs" / "race" / "spec.md").exists()
+    # Staging tmpdirs were cleaned up via os.replace — no orphans
+    staging = workspace.root / ".staging"
+    leftovers = [p for p in staging.iterdir() if p.name.startswith("concurrent-race-")]
+    assert not leftovers, f"staging tmpdirs should be consumed, got: {leftovers}"
 
 
 @pytest.mark.asyncio
