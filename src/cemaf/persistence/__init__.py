@@ -1,14 +1,15 @@
 """
 Persistence module - Core entities and storage protocols.
 
-Core entities (from start.ini):
+**Extension Point** — This module defines protocols and entities for project persistence.
+No concrete storage backends are included. Implement the protocols (ProjectStore, ArtifactStore,
+ContentStore, RunStore) to connect to your storage layer (PostgreSQL, MongoDB, etc.).
+
+Core entities:
 - Project: Multi-tenant project container
 - ContextArtifact: Versioned context documents
-- MemoryItem: Scoped memory entries
 - ContentItem: Generated content
 - Run: Pipeline execution record
-
-Protocols for pluggable storage backends.
 """
 
 from cemaf.persistence.entities import (

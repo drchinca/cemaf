@@ -12,6 +12,8 @@ from cemaf.events.bus import (
 from cemaf.events.mock import MockEventBus, MockNotifier
 from cemaf.events.notifiers import (
     CompositeNotifier,
+    HttpClient,
+    HttpResponse,
     LoggingNotifier,
     WebhookNotifier,
 )
@@ -19,6 +21,7 @@ from cemaf.events.protocols import (
     Event,
     EventBus,
     EventHandler,
+    EventHandlerFn,
     EventType,
     Notifier,
     NotifyResult,
@@ -28,6 +31,7 @@ __all__ = [
     # Protocols
     "Event",
     "EventHandler",
+    "EventHandlerFn",
     "EventBus",
     "Notifier",
     "NotifyResult",
@@ -36,6 +40,8 @@ __all__ = [
     "InMemoryEventBus",
     "AsyncEventBus",
     # Notifiers
+    "HttpClient",
+    "HttpResponse",
     "WebhookNotifier",
     "CompositeNotifier",
     "LoggingNotifier",

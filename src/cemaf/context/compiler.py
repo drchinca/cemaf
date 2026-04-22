@@ -10,6 +10,7 @@ The compiler:
 
 import hashlib
 import json
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, runtime_checkable
@@ -172,6 +173,17 @@ class ContextCompiler(Protocol):
         """
         ...
 
+    async def compact(
+        self,
+        *,
+        compiled: CompiledContext,
+        preserve_recent: int = 2,
+        summary_budget_tokens: int = 500,
+        summarizer: Callable[[str], Coroutine[None, None, str]] | None = None,
+    ) -> CompiledContext:
+        """Compact old sources while preserving the most recent ones."""
+        ...
+
 
 class PriorityContextCompiler:
     """
@@ -258,5 +270,83 @@ class PriorityContextCompiler:
             metadata={
                 **selection_result.metadata,
                 "algorithm_used": selection_result.selection_method,
+            },
+        )
+
+    async def compact(
+        self,
+        *,
+        compiled: CompiledContext,
+        preserve_recent: int = 2,
+        summary_budget_tokens: int = 500,
+        summarizer: Callable[[str], Coroutine[None, None, str]] | None = None,
+    ) -> CompiledContext:
+        """Compact old sources while preserving the most recent ones."""
+        sources = list(compiled.sources)
+
+        if len(sources) <= preserve_recent:
+            return compiled
+
+        # Partition: high-priority sources (>= 90) are always preserved
+        high_priority_threshold = 90
+        to_preserve: list[ContextSource] = []
+        candidates: list[ContextSource] = []
+
+        for source in sources:
+            if source.priority >= high_priority_threshold:
+                to_preserve.append(source)
+            else:
+                candidates.append(source)
+
+        # From the remaining candidates, preserve the last N (most recent by position)
+        if len(candidates) <= preserve_recent:
+            # Nothing meaningful to compact
+            return compiled
+
+        to_summarize = candidates[:-preserve_recent]
+        to_preserve.extend(candidates[-preserve_recent:])
+
+        # Build combined text from sources that will be summarized
+        combined_text = "\n\n".join(f"[{s.source_type}:{s.source_id}] {s.content}" for s in to_summarize)
+
+        # Produce summary content
+        if summarizer is not None:
+            summary_content = await summarizer(combined_text)
+        else:
+            # Simple truncation fallback: keep chars proportional to budget
+            char_budget = summary_budget_tokens * 4  # rough chars-per-token estimate
+            if len(combined_text) > char_budget:
+                summary_content = combined_text[:char_budget] + "\n[...truncated]"
+            else:
+                summary_content = combined_text
+
+        summary_tokens = self._estimator.estimate(text=summary_content)
+
+        summary_source = ContextSource(
+            content=summary_content,
+            token_count=TokenCount(summary_tokens),
+            priority=50,
+            source_type="compacted_summary",
+            source_id="compacted_context",
+            compressible=True,
+            metadata={
+                "compacted_from": [s.source_id for s in to_summarize],
+                "original_source_count": len(to_summarize),
+            },
+        )
+
+        # Assemble: summary first, then preserved sources in original order
+        final_sources = [summary_source, *to_preserve]
+        total_tokens = sum((s.token_count or 0) for s in final_sources)
+
+        return CompiledContext(
+            sources=tuple(final_sources),
+            total_tokens=total_tokens,
+            budget=compiled.budget,
+            metadata={
+                **compiled.metadata,
+                "compacted": True,
+                "compacted_source_count": len(to_summarize),
+                "preserved_source_count": len(to_preserve),
             },
         )

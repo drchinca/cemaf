@@ -2,11 +2,11 @@
 Mock cache implementation for testing.
 """
 
-from datetime import datetime
 from typing import Any
 
 from cemaf.cache.protocols import CacheEntry, CacheStats
 from cemaf.core.types import JSON
+from cemaf.core.utils import utc_now
 
 
 class MockCache:
@@ -79,12 +79,12 @@ class MockCache:
 
         expires_at = None
         if ttl_seconds is not None:
-            expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
+            expires_at = utc_now() + timedelta(seconds=ttl_seconds)
 
         self._data[key] = CacheEntry(
             key=key,
             value=value,
-            created_at=datetime.now(),
+            created_at=utc_now(),
             expires_at=expires_at,
             metadata=metadata or {},
         )
@@ -135,6 +135,6 @@ class MockCache:
         self._data[key] = CacheEntry(
             key=key,
             value=value,
-            created_at=datetime.now(),
+            created_at=utc_now(),
             expires_at=None,
         )

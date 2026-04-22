@@ -13,13 +13,17 @@ and avoid circular imports with cemaf.moderation and cemaf.observability.
 Type imports happen at runtime within methods that need them.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
+from cemaf.core.enums import ToolRiskLevel
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
+from cemaf.llm.protocols import ToolDefinition
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -35,6 +39,10 @@ class ToolSchema:
     description: str
     parameters: JSON = field(default_factory=lambda: {"type": "object", "properties": {}})
     required: tuple[str, ...] = ()
+    is_concurrent_safe: bool = False
+    is_read_only: bool = False
+    is_destructive: bool = False
+    risk_level: ToolRiskLevel = ToolRiskLevel.MEDIUM
 
     def __post_init__(self) -> None:
         """Validate that schema parameters are JSON-serializable."""
@@ -64,6 +72,15 @@ class ToolSchema:
             "input_schema": {**self.parameters, "required": list(self.required)},
         }
 
+    def to_definition(self) -> ToolDefinition:
+        """Convert to LLM ToolDefinition."""
+        return ToolDefinition(
+            name=self.name,
+            description=self.description,
+            parameters=self.parameters,
+            required=self.required,
+        )
+
 
 class Tool(ABC):
     """
@@ -76,29 +93,29 @@ class Tool(ABC):
     - Returns Result (never raises exceptions)
 
     Example:
-        class CalculateTool(Tool):
+        class AddTool(Tool):
             @property
             def id(self) -> ToolID:
-                return ToolID("calculate")
+                return ToolID("add")
 
             @property
             def schema(self) -> ToolSchema:
                 return ToolSchema(
-                    name="calculate",
-                    description="Perform arithmetic calculation",
+                    name="add",
+                    description="Add two numbers",
                     parameters={
                         "type": "object",
                         "properties": {
-                            "expression": {"type": "string", "description": "Math expression"}
+                            "a": {"type": "number", "description": "First number"},
+                            "b": {"type": "number", "description": "Second number"},
                         }
                     },
-                    required=("expression",)
+                    required=("a", "b")
                 )
 
-            async def execute(self, expression: str) -> ToolResult:
+            async def execute(self, a: float, b: float) -> ToolResult:
                 try:
-                    result = eval(expression)
-                    return Result.ok(result)
+                    return Result.ok(a + b)
                 except Exception as e:
                     return Result.fail(str(e))
     """
@@ -115,10 +132,40 @@ class Tool(ABC):
         """JSON Schema definition for this tool's parameters."""
         ...
 
+    @property
+    def is_concurrent_safe(self) -> bool:
+        """Whether this tool can run concurrently with other tools."""
+        return False
+
+    @property
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads data (no side effects)."""
+        return False
+
+    @property
+    def is_destructive(self) -> bool:
+        """Whether this tool performs destructive/irreversible operations."""
+        return False
+
+    @property
+    def risk_level(self) -> ToolRiskLevel:
+        """Risk classification for execution gating."""
+        return ToolRiskLevel.MEDIUM
+
     @abstractmethod
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Execute the tool with keyword arguments."""
         ...
+
+    async def validated_execute(self, **kwargs: Any) -> ToolResult:
+        """Validate kwargs against schema.required, then execute."""
+        missing = [r for r in self.schema.required if r not in kwargs]
+        if missing:
+            return Result.fail(
+                error=f"Missing required parameters: {', '.join(missing)}",
+                metadata={"tool": str(self.id), "missing": missing},
+            )
+        return await self.execute(**kwargs)
 
     async def _check_moderation_input(
         self,
@@ -215,6 +262,26 @@ def tool(
             def schema(self) -> ToolSchema:
                 return _schema
 
+            @property
+            def is_concurrent_safe(self) -> bool:
+                """Whether this tool can run concurrently with other tools."""
+                return _schema.is_concurrent_safe
+
+            @property
+            def is_read_only(self) -> bool:
+                """Whether this tool only reads data (no side effects)."""
+                return _schema.is_read_only
+
+            @property
+            def is_destructive(self) -> bool:
+                """Whether this tool performs destructive/irreversible operations."""
+                return _schema.is_destructive
+
+            @property
+            def risk_level(self) -> ToolRiskLevel:
+                """Risk classification for execution gating."""
+                return _schema.risk_level
+
             async def execute(self, **kwargs: Any) -> ToolResult:
                 try:
                     result = await func(**kwargs)
@@ -227,7 +294,3 @@ def tool(
         return FunctionTool()
 
     return decorator
-
-
-# Backwards compatibility alias
-tool_decorator = tool

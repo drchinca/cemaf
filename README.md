@@ -5,10 +5,11 @@
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=flat-square)](https://opensource.org)
 [![Project Status: Alpha](https://img.shields.io/badge/Status-Alpha-yellow?style=flat-square)](https://github.com/drchinca/cemaf)
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-1095_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
-[![Coverage](https://img.shields.io/badge/Coverage-77%25-yellow?style=flat-square)](.)
+[![Tests](https://img.shields.io/badge/Tests-2400+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Coverage](https://img.shields.io/badge/Coverage-80%25-brightgreen?style=flat-square)](.)
+[![CI](https://img.shields.io/github/actions/workflow/status/drchinca/cemaf/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/drchinca/cemaf/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
 [![MyPy](https://img.shields.io/badge/Typed-MyPy-blue?style=flat-square)](http://mypy-lang.org/)
 [![Stars](https://img.shields.io/github/stars/drchinca/cemaf?style=flat-square&logo=github)](https://github.com/drchinca/cemaf)
@@ -63,7 +64,11 @@ CEMAF is a protocol-first framework designed for **context engineering** in mult
 | **Reproducibility** | Can't replay/debug runs | Run recording + deterministic replay |
 | **Memory Leaks** | State bleeds between scopes | Strict memory boundaries with TTL |
 | **Content Safety** | Harmful outputs slip through | Pre/post-flight moderation gates + PII detection |
+| **Quality Drift** | Output quality degrades silently | Online eval pipeline with rolling monitors and halt gates |
 | **Prompt Engineering** | Inconsistent LLM outputs | Semantic blueprints for structured content generation |
+| **Spec Drift** | Code and intent diverge silently | MetaSpecifier authors OpenSpec proposals; `openspec validate --strict` is a deterministic eval signal |
+| **Zero-to-App** | Going from feature idea to runnable code takes days | `app_synthesis` DAG: description → spec → DAG design → agents → scaffolded, importable CEMAF app on disk |
+| **Framework Evolution** | Adding new capabilities requires hand-wiring registries, DAGs, bootstrap | Self-hosting meta-layer — CEMAF uses CEMAF to extend CEMAF |
 
 ---
 
@@ -75,9 +80,10 @@ pip install cemaf
 
 # With optional integrations
 pip install "cemaf[openai]"        # OpenAI + tiktoken
-pip install "cemaf[anthropic]"    # Anthropic
-pip install "cemaf[tiktoken]"     # Accurate token counting only
-pip install "cemaf[all]"          # All optional dependencies
+pip install "cemaf[anthropic]"     # Anthropic
+pip install "cemaf[tiktoken]"      # Accurate token counting only
+pip install "cemaf[prometheus]"    # Prometheus metrics export
+pip install "cemaf[all]"           # All optional dependencies
 
 # Development installation
 git clone https://github.com/drchinca/cemaf.git
@@ -85,54 +91,33 @@ cd cemaf
 pip install -e ".[dev]"
 ```
 
-**Requirements**: Python 3.11+
+**Requirements**: Python 3.14+
 
 ---
 
 ## Quick Start
 
 ```python
-from cemaf.context import Context, ContextPatch
-from cemaf.observability import InMemoryRunLogger
-from cemaf.replay import Replayer
-from cemaf.blueprint import Blueprint, SceneGoal, StyleGuide
-from cemaf.moderation import ModerationPipeline, PreFlightGate, KeywordRule, PIIRule
+from cemaf import Agent, AgentContext, AgentResult, AgentState, AgentRegistry
+from cemaf import DAG, Node, create_executor
 
-# Create context with provenance tracking
-ctx = Context()
-patch = ContextPatch.from_tool("search", "results", {"items": [...]})
-ctx = ctx.apply(patch)
+# 1. Define an agent
+class MyAgent(Agent[MyGoal, MyResult]):
+    async def run(self, goal, context):
+        return AgentResult.ok(output=result, state=AgentState())
 
-# Record runs for replay
-logger = InMemoryRunLogger()
-logger.start_run("run-123", initial_context=ctx)
-logger.record_patch(patch)
-record = logger.end_run(final_context=ctx)
+# 2. Build a DAG and run it
+registry = AgentRegistry()
+registry.register_agent(agent_instance=MyAgent(), goal_type=MyGoal)
 
-# Replay deterministically
-replayer = Replayer(record)
-result = await replayer.replay()
-assert result.final_context == record.final_context  # Deterministic!
+dag = DAG(name="pipeline", description="My pipeline")
+dag = dag.add_node(Node.agent(id="step1", name="Step 1", agent_id="MyAgent", output_key="out"))
 
-# Use semantic blueprints for structured content generation
-blueprint = Blueprint(
-    id="social-post",
-    name="Social Media Post",
-    scene_goal=SceneGoal(objective="Create engaging social media content"),
-    style_guide=StyleGuide(tone="casual", length_hint="concise")
-)
-prompt = blueprint.to_prompt()  # Convert to LLM-ready prompt
-
-# Add content safety with moderation guardrails
-moderation = ModerationPipeline(
-    pre_flight=PreFlightGate([KeywordRule(["spam", "scam"]), PIIRule()])
-)
-result = await moderation.check_input(user_message)
-if not result.allowed:
-    raise ValueError(f"Content blocked: {result.violations}")
+executor = create_executor(agent_registry=registry)
+result = await executor.run(dag=dag)
 ```
 
-See the [Quick Start Guide](docs/quickstart.md) for more detailed examples.
+See `examples/hello_world.py` for a complete runnable example.
 
 ---
 
@@ -185,16 +170,62 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 
 ## Key Features
 
-- **📍 Context Patches**: Track every context change with full provenance
-- **🔄 Deterministic Replay**: Record and replay runs for debugging
-- **💾 Token Budgeting**: Stay within limits with smart compilation
-- **⏱️ TTL & Cleanup**: Memory items expire automatically
-- **🔒 Memory Boundaries**: Strict scoping prevents state leaks
-- **⚡ Cancellation**: Cooperative cancellation with timeouts
-- **🔧 Protocol-Based**: Plug into any framework - modules work standalone, extend with your own implementations
-- **⚙️ Configuration-Driven**: Zero-config defaults with .env customization
-- **📋 Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
-- **🛡️ Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
+### Context Engineering
+- **Context Patches**: Track every context change with full provenance
+- **Token Budgeting**: Stay within limits with smart compilation (greedy, knapsack, optimal algorithms)
+- **Deterministic Replay**: Record and replay runs for debugging
+- **Glass Box Audit**: Full provenance chain linking every LLM call to its context sources, citations, and costs
+- **Context Type Classification**: RESOURCE/MEMORY/SKILL behavioral semantics with per-type compaction rules
+- **Semantic Blueprints**: Structured content generation with Denis Rothman's blueprint pattern
+- **Recursive LLM**: Parallel divide-and-conquer querying for 1M+ token contexts
+
+### Memory System
+- **Strict Scoping**: Memory boundaries with TTL prevent state leaks
+- **Three-Tier Progressive Loading**: L0 abstract / L1 overview / L2 full content for token-efficient retrieval
+- **Semantic Deduplication**: Exact key + embedding similarity detection with merge/skip resolution
+- **Post-Session Extraction**: Automatic promotion of session learnings to long-term memory (patterns, corrections, facts)
+- **Hierarchical Scope Propagation**: Parent-to-child score propagation for scope-aware retrieval
+- **SQLite Persistence**: Production-ready persistent memory store via aiosqlite
+
+### Online Evaluation
+- **Hierarchical Judge**: Three-tier evaluation -- fast deterministic checks, semantic similarity, LLM judge (escalates only when needed)
+- **Online Eval Pipeline**: Subscribe to execution events and run evaluators on node outputs in real-time
+- **Quality Police**: Rolling window quality monitor with anomaly detection and automatic halt gates
+- **Eval Tools & Agents**: RunEvalTool, CheckQualityTool, RecordScoreTool, QualityGuardAgent -- dogfooding the eval system as CEMAF tools
+
+### Production Backends
+- **Resilient LLM Client**: Retry with exponential backoff + circuit breaker + rate limiter composing around any LLMClient
+- **OpenAI Embeddings**: Production embedding provider using text-embedding-3-small with batch support
+- **Structured Logging**: JSON-lines logger with context fields for production observability
+- **Prometheus Metrics**: Counter/gauge/histogram/timing export with lazy metric registration
+
+### Orchestration
+- **DAG Executor**: Topological sort, parallel execution, conditional routing, loop nodes, cooperative cancellation
+- **Node Type Handlers**: Extracted router, conditional, loop, parallel handlers for clean separation
+- **RuntimeServices**: Frozen dataclass bundling 15+ optional dependencies for composition root
+- **Bootstrap**: Single `create_executor()` entry point wiring registry, services, and subscriptions
+- **Context Agents**: Built-in Librarian, Researcher, Summarizer, Writer agents with dynamic registry
+- **Budget Guard**: Configurable cost and token limits with warning/critical/halt thresholds
+
+### Infrastructure
+- **Protocol-Based**: Plug into any framework -- modules work standalone, extend with your own implementations
+- **Extensible Registries**: ProviderRegistry pattern for pluggable LLM, compiler, and retrieval backends
+- **Instrumented LLM**: Transparent LLM call recording for automatic glass box audit
+- **Moderation & Guardrails**: Pre/post-flight content safety with PII detection and compliance rules
+- **Configuration-Driven**: Zero-config defaults with .env customization
+- **Resilience**: Retry, circuit breaker, rate limiting as composable decorators
+
+### Self-Hosting Engine
+CEMAF is its own first client — opt-in modules where the framework uses its own primitives to introspect, audit, spec, and extend itself. Fully decoupled from the base framework (one-way dependency).
+
+- **Audit Trail**: `EventBusAuditLog` subscribes to EventBus, converts events into queryable `AuditEntry` records with quality trend analysis and z-score anomaly detection
+- **Knowledge Graph**: `MemoryBackedKnowledgeGraph` — entities and relations backed by MemoryManager with semantic search and neighbor traversal
+- **Meta-Agents**: `MetaArchitect` (DAG design), `MetaSpecifier` (OpenSpec proposal authoring), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations), `MetaScaffolder` (runnable CEMAF-app synthesis)
+- **OpenSpec Bridge**: `OpenSpecRuntime` protocol (System/Npx/Fake impls) + `OpenSpecWorkspace` (atomic writes, per-change locks) exposes `openspec validate/list/show/write/delete` as CEMAF tools
+- **Pre-built DAGs**: `create_self_audit_dag()`, `create_feature_synthesis_dag()`, `create_knowledge_refresh_dag()`, `create_self_spec_dag()`, `create_app_synthesis_dag()`
+- **Entry point**: `create_meta_executor()` wraps `create_executor()`, auto-wires audit + KG from `RuntimeServices` and MetaSpecifier/OpenSpec tools from `MetaServices`
+
+**What this gets you**: one instruction ("build an app that does X") becomes a working CEMAF-based app on disk — spec validated by `openspec validate --strict`, agents synthesized from the spec, scaffolded into an importable package with its own registry, DAGs, and smoke tests. See `create_app_synthesis_dag()`.
 
 ---
 
@@ -277,7 +308,7 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 1095 tests | 100% passing | TDD from day one
+**Project Stats**: 2301+ tests | 100% passing | TDD from day one
 
 ---
 

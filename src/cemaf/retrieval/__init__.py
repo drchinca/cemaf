@@ -21,12 +21,14 @@ Usage:
     store = InMemoryVectorStore(embedding_provider)
 """
 
+from cemaf.retrieval.embedding_providers import HashEmbeddingProvider
 from cemaf.retrieval.factories import (
     create_in_memory_vector_store,
     create_vector_store_from_config,
 )
 from cemaf.retrieval.hybrid import HybridRetriever, RetrievalConfig
 from cemaf.retrieval.memory_store import InMemoryVectorStore
+from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import (
     Document,
     EmbeddingProvider,
@@ -45,6 +47,8 @@ __all__ = [
     "HybridRetriever",
     "RetrievalConfig",
     "InMemoryVectorStore",
+    "HashEmbeddingProvider",
+    "OpenAIEmbeddingProvider",
     # Factories
     "create_in_memory_vector_store",
     "create_vector_store_from_config",

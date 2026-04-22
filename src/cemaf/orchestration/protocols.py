@@ -19,6 +19,9 @@ Extension Point:
 
 from typing import Any, Protocol, runtime_checkable
 
+from cemaf.agents.protocols import Agent
+from cemaf.context.context import Context
+
 # Re-export data classes (not changed)
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import ExecutionResult
@@ -68,7 +71,7 @@ class DAGExecutor(Protocol):
         >>> assert isinstance(executor, DAGExecutor)
     """
 
-    async def execute(self, dag: DAG, context: Any) -> ExecutionResult:
+    async def execute(self, dag: DAG, context: Context | None) -> ExecutionResult:
         """
         Execute a DAG with the given context.
 
@@ -121,7 +124,7 @@ class DeepAgentOrchestrator(Protocol):
         >>> assert isinstance(orchestrator, DeepAgentOrchestrator)
     """
 
-    async def orchestrate(self, parent_agent: Any, child_agents: list[Any]) -> Any:
+    async def orchestrate(self, parent_agent: Agent[Any, Any], child_agents: list[Agent[Any, Any]]) -> Any:
         """
         Orchestrate parent and child agents hierarchically.
 

@@ -12,6 +12,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 from cemaf.core.types import JSON
+from cemaf.core.utils import utc_now
 
 
 class JobStatus(str, Enum):
@@ -47,7 +48,7 @@ class JobResult(BaseModel):
         result: Any = None,
     ) -> JobResult:
         """Create a successful result."""
-        completed_at = datetime.now()
+        completed_at = utc_now()
         return cls(
             job_id=job_id,
             status=JobStatus.COMPLETED,
@@ -66,7 +67,7 @@ class JobResult(BaseModel):
         status: JobStatus = JobStatus.FAILED,
     ) -> JobResult:
         """Create a failed result."""
-        completed_at = datetime.now()
+        completed_at = utc_now()
         return cls(
             job_id=job_id,
             status=status,
@@ -126,7 +127,7 @@ class Job(BaseModel):
 
     id: str
     name: str
-    trigger: Any  # Trigger (can't use Protocol in Pydantic)
+    trigger: Trigger
     handler: Callable[[], Awaitable[Any]]
     enabled: bool = True
     max_retries: int = 3

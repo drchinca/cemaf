@@ -6,6 +6,8 @@ Provides cron, interval, and one-time triggers.
 
 from datetime import datetime, timedelta
 
+from cemaf.core.utils import utc_now
+
 
 class CronTrigger:
     """
@@ -201,7 +203,7 @@ class IntervalTrigger:
 
     def mark_run(self, at: datetime | None = None) -> None:
         """Mark that the job has run."""
-        self._last_run = at or datetime.now()
+        self._last_run = at or utc_now()
 
 
 class OnceTrigger:

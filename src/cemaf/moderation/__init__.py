@@ -20,6 +20,7 @@ from cemaf.moderation.mock import (
 )
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.moderation.protocols import (
+    ModerationContent,
     ModerationGate,
     ModerationResult,
     ModerationRule,
@@ -35,6 +36,7 @@ from cemaf.moderation.rules import (
 
 __all__ = [
     # Protocols and types
+    "ModerationContent",
     "ModerationGate",
     "ModerationResult",
     "ModerationRule",

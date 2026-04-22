@@ -36,6 +36,7 @@ class MemoryItem:
     updated_at: datetime = field(default_factory=utc_now)
     ttl: timedelta | None = None  # Time-to-live
     expires_at: datetime | None = None  # Explicit expiration time
+    scope_path: str | None = None  # Hierarchical scope path (e.g. "project/campaign/assets")
 
     def __post_init__(self) -> None:
         """Set expires_at from ttl if not provided."""
@@ -69,11 +70,12 @@ class MemoryItem:
             scope=self.scope,
             key=self.key,
             value=value,
-            confidence=confidence or self.confidence,
+            confidence=confidence if confidence is not None else self.confidence,
             created_at=self.created_at,
             updated_at=utc_now(),
             ttl=self.ttl,
             expires_at=self.expires_at,
+            scope_path=self.scope_path,
         )
 
     def with_ttl(self, ttl: timedelta) -> MemoryItem:
@@ -87,6 +89,7 @@ class MemoryItem:
             updated_at=self.updated_at,
             ttl=ttl,
             expires_at=utc_now() + ttl,
+            scope_path=self.scope_path,
         )
 
     def without_expiration(self) -> MemoryItem:
@@ -100,6 +103,7 @@ class MemoryItem:
             updated_at=self.updated_at,
             ttl=None,
             expires_at=None,
+            scope_path=self.scope_path,
         )
 
 

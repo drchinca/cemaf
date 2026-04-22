@@ -4,10 +4,10 @@ Event protocols and base types.
 Defines the contracts for event buses, handlers, and notifiers.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -63,6 +63,7 @@ class EventType(str, Enum):
     MEMORY_ITEM_SET = "memory.item.set"
     MEMORY_ITEM_EXPIRED = "memory.item.expired"
     MEMORY_CLEANUP = "memory.cleanup"
+    MEMORY_EXTRACTED = "memory.extracted"
 
     # Execution events
     EXECUTION_CANCELLED = "execution.cancelled"
@@ -85,6 +86,12 @@ class EventType(str, Enum):
     MCP_TOOL_CALLED = "mcp.tool.called"
     MCP_RESOURCE_READ = "mcp.resource.read"
     MCP_PROMPT_GET = "mcp.prompt.get"
+
+    # Evaluation events
+    EVAL_STARTED = "eval.started"
+    EVAL_COMPLETED = "eval.completed"
+    EVAL_FAILED = "eval.failed"
+    QUALITY_ALERT = "quality.alert"
 
     # Blueprint events
     BLUEPRINT_VALIDATED = "blueprint.validated"
@@ -138,6 +145,10 @@ class Event(BaseModel):
             correlation_id=correlation_id,
             metadata=metadata or {},
         )
+
+
+# Type alias for event handler functions (sync or async)
+EventHandlerFn = Callable[[Event], None | Awaitable[None]]
 
 
 class NotifyResult(BaseModel):
@@ -214,7 +225,7 @@ class EventBus(Protocol):
     def subscribe(
         self,
         event_type: str | EventType,
-        handler: EventHandler | Callable[[Event], Any],
+        handler: EventHandler | EventHandlerFn,
     ) -> Callable[[], None]:
         """
         Subscribe to events of a specific type.
@@ -230,7 +241,7 @@ class EventBus(Protocol):
 
     def subscribe_all(
         self,
-        handler: EventHandler | Callable[[Event], Any],
+        handler: EventHandler | EventHandlerFn,
     ) -> Callable[[], None]:
         """
         Subscribe to all events.

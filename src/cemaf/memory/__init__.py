@@ -58,12 +58,153 @@ CEMAF orchestration systems.
 See cemaf.memory.protocols.MemoryStore for the protocol definition.
 """
 
-# Built-in implementation
+# Built-in implementations
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.compaction import (
+    CompactedMemory,
+    CompactionLevel,
+    MemoryCompactor,
+    SimpleMemoryCompactor,
+)
+from cemaf.memory.context_provider import (
+    DefaultMemoryContextProvider,
+    MemoryContextProvider,
+)
+from cemaf.memory.deduplication import (
+    DeduplicationAction,
+    DeduplicationResult,
+    DuplicateMatch,
+    MatchType,
+    MemoryDeduplicator,
+    SemanticDeduplicator,
+)
+from cemaf.memory.episodic import (
+    Episode,
+    EpisodicEvent,
+    EpisodicStore,
+    InMemoryEpisodicStore,
+)
+from cemaf.memory.extraction import (
+    ExtractedMemory,
+    ExtractionCategory,
+    MemoryExtractor,
+    RuleBasedExtractor,
+)
+from cemaf.memory.extraction_pipeline import ExtractionPipeline, ExtractionReport
+from cemaf.memory.factories import (
+    create_extraction_pipeline,
+    create_memory_manager,
+    create_memory_store,
+    create_memory_store_from_config,
+    create_scope_scorer,
+    create_session_manager,
+    create_tiered_store,
+)
+from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
+from cemaf.memory.scope_hierarchy import (
+    PropagatingScorer,
+    ScopeNode,
+    ScopePath,
+    ScopeScorer,
+)
+from cemaf.memory.scoring import (
+    DecayFunction,
+    MemoryScorer,
+    ScoredMemoryItem,
+    ScoringWeights,
+    TemporalDecayScorer,
+)
+from cemaf.memory.semantic import (
+    DefaultSemanticMemoryStore,
+    MemoryQuery,
+    MemorySearchResult,
+    SemanticMemoryStore,
+)
+from cemaf.memory.session import (
+    DefaultSessionManager,
+    SessionManager,
+    SessionPhase,
+    SessionState,
+)
+from cemaf.memory.sqlite_store import SqliteMemoryStore
+from cemaf.memory.tiered import (
+    LoadingTier,
+    TieredMemoryItem,
+    TierGenerator,
+    TruncationTierGenerator,
+)
+from cemaf.memory.tiered_store import TieredMemoryStore
 
 __all__ = [
+    # Core
     "MemoryItem",
     "MemoryStore",
     "InMemoryStore",
+    "SqliteMemoryStore",
+    # Scoring
+    "DecayFunction",
+    "MemoryScorer",
+    "ScoredMemoryItem",
+    "ScoringWeights",
+    "TemporalDecayScorer",
+    # Episodic
+    "Episode",
+    "EpisodicEvent",
+    "EpisodicStore",
+    "InMemoryEpisodicStore",
+    # Extraction
+    "ExtractionCategory",
+    "ExtractedMemory",
+    "ExtractionPipeline",
+    "ExtractionReport",
+    "MemoryExtractor",
+    "RuleBasedExtractor",
+    # Semantic bridge
+    "DefaultSemanticMemoryStore",
+    "MemoryQuery",
+    "MemorySearchResult",
+    "SemanticMemoryStore",
+    # Manager
+    "DefaultMemoryManager",
+    "MemoryManager",
+    # Context bridge
+    "DefaultMemoryContextProvider",
+    "MemoryContextProvider",
+    # Compaction
+    "CompactedMemory",
+    "CompactionLevel",
+    "MemoryCompactor",
+    "SimpleMemoryCompactor",
+    # Session lifecycle
+    "DefaultSessionManager",
+    "SessionManager",
+    "SessionPhase",
+    "SessionState",
+    # Scope hierarchy
+    "PropagatingScorer",
+    "ScopeNode",
+    "ScopePath",
+    "ScopeScorer",
+    # Tiered loading
+    "LoadingTier",
+    "TierGenerator",
+    "TieredMemoryItem",
+    "TieredMemoryStore",
+    "TruncationTierGenerator",
+    # Deduplication
+    "DeduplicationAction",
+    "DeduplicationResult",
+    "DuplicateMatch",
+    "MatchType",
+    "MemoryDeduplicator",
+    "SemanticDeduplicator",
+    # Factories
+    "create_extraction_pipeline",
+    "create_memory_manager",
+    "create_memory_store",
+    "create_memory_store_from_config",
+    "create_scope_scorer",
+    "create_session_manager",
+    "create_tiered_store",
 ]

@@ -25,9 +25,9 @@ Example:
         pass
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Any
 
 from cemaf.core.types import JSON
 from cemaf.observability.protocols import MetricsCollector
@@ -38,7 +38,7 @@ def record_timing(
     metrics: MetricsCollector,
     name: str,
     tags: JSON | None = None,
-) -> Any:
+) -> Generator[None]:
     """
     Context manager for automatic timing metrics.
 
@@ -221,6 +221,85 @@ class MetricsHelper:
         error_tags = {**(tags or {}), "error_type": error_type}
         metrics.counter(f"{operation}.failed", tags=error_tags)
         metrics.counter(f"{operation}.errors.{error_type}", tags=error_tags)
+
+    @staticmethod
+    def record_context_compilation(
+        metrics: MetricsCollector,
+        sources_considered: int,
+        sources_included: int,
+        total_tokens: int,
+        budget_available: int,
+        selection_method: str,
+        tags: JSON | None = None,
+    ) -> None:
+        """Record context compilation metrics."""
+        all_tags = {
+            **(tags or {}),
+            "selection_method": selection_method,
+        }
+        metrics.counter("cemaf.context.compilation.total", tags=all_tags)
+        metrics.gauge(
+            "cemaf.context.sources.considered",
+            sources_considered,
+            tags=all_tags,
+        )
+        metrics.gauge(
+            "cemaf.context.sources.included",
+            sources_included,
+            tags=all_tags,
+        )
+        metrics.gauge("cemaf.context.tokens.used", total_tokens, tags=all_tags)
+        if budget_available > 0:
+            utilization = total_tokens / budget_available
+            metrics.histogram(
+                "cemaf.context.budget.utilization",
+                utilization,
+                tags=all_tags,
+            )
+
+    @staticmethod
+    def record_budget_utilization(
+        metrics: MetricsCollector,
+        cost_usd: float,
+        tokens_used: int,
+        max_cost_usd: float,
+        max_tokens: int,
+        halted: bool = False,
+        tags: JSON | None = None,
+    ) -> None:
+        """Record budget guard utilization metrics."""
+        all_tags = {**(tags or {}), "halted": str(halted)}
+        metrics.histogram("cemaf.budget.cost_usd", cost_usd, tags=all_tags)
+        metrics.gauge("cemaf.budget.tokens_used", tokens_used, tags=all_tags)
+        if max_cost_usd > 0:
+            metrics.histogram(
+                "cemaf.budget.cost_utilization",
+                cost_usd / max_cost_usd,
+                tags=all_tags,
+            )
+        if max_tokens > 0:
+            metrics.histogram(
+                "cemaf.budget.token_utilization",
+                tokens_used / max_tokens,
+                tags=all_tags,
+            )
+        if halted:
+            metrics.counter("cemaf.budget.halt", tags=all_tags)
+
+    @staticmethod
+    def record_citation_event(
+        metrics: MetricsCollector,
+        event_type: str,
+        citation_count: int = 1,
+        tags: JSON | None = None,
+    ) -> None:
+        """Record citation tracking event."""
+        all_tags = {**(tags or {}), "event_type": event_type}
+        metrics.counter(
+            "cemaf.citation.events",
+            value=citation_count,
+            tags=all_tags,
+        )
 
     @staticmethod
     def record_cache_operation(

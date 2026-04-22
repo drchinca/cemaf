@@ -49,17 +49,41 @@ class TokenBudget:
         """Create default budget."""
         return cls()
 
+    @property
+    def utilization(self) -> float:
+        """Fraction of available tokens allocated (0.0 - 1.0)."""
+        if self.available_tokens <= 0:
+            return 1.0
+        allocated = sum(a.max_tokens for a in self.allocations)
+        return min(allocated / self.available_tokens, 1.0)
+
+    @property
+    def headroom(self) -> int:
+        """Unallocated tokens remaining."""
+        allocated = sum(a.max_tokens for a in self.allocations)
+        return max(self.available_tokens - allocated, 0)
+
     @classmethod
     def for_model(cls, model: str) -> TokenBudget:
         """Create budget appropriate for a model."""
-        # Model-specific limits
         limits = {
-            "gpt-4": 8_192,
-            "gpt-4-turbo": 128_000,
-            "gpt-4o": 128_000,
+            # Claude 4.x
+            "claude-opus-4-6": 200_000,
+            "claude-sonnet-4-6": 200_000,
+            # Claude 4.5
+            "claude-opus-4-5": 200_000,
+            "claude-sonnet-4-5": 200_000,
+            "claude-haiku-4-5": 200_000,
+            # Claude 3
             "claude-3-opus": 200_000,
             "claude-3-sonnet": 200_000,
             "claude-3-haiku": 200_000,
+            # OpenAI
+            "gpt-4o": 128_000,
+            "o1": 200_000,
+            "o3": 200_000,
+            "gpt-4-turbo": 128_000,
+            "gpt-4": 8_192,
         }
 
         max_tokens = limits.get(model, DEFAULT_CONTEXT_BUDGET)

@@ -40,6 +40,7 @@ Example:
 
 from typing import Any, Protocol, runtime_checkable
 
+from cemaf.core.enums import ToolRiskLevel
 from cemaf.core.types import ToolID
 
 # Re-export data classes from base (these are not changed)
@@ -77,34 +78,34 @@ class Tool(Protocol):
     Example:
         >>> from pydantic import BaseModel
         >>>
-        >>> class CalculateTool:
+        >>> class AddTool:
         ...     @property
         ...     def id(self) -> ToolID:
-        ...         return ToolID("calculate")
+        ...         return ToolID("add")
         ...
         ...     @property
         ...     def schema(self) -> ToolSchema:
         ...         return ToolSchema(
-        ...             name="calculate",
-        ...             description="Perform arithmetic calculation",
+        ...             name="add",
+        ...             description="Add two numbers",
         ...             parameters={
         ...                 "type": "object",
         ...                 "properties": {
-        ...                     "expression": {"type": "string", "description": "Math expression"}
+        ...                     "a": {"type": "number", "description": "First number"},
+        ...                     "b": {"type": "number", "description": "Second number"},
         ...                 }
         ...             },
-        ...             required=("expression",)
+        ...             required=("a", "b")
         ...         )
         ...
-        ...     async def execute(self, expression: str) -> ToolResult:
+        ...     async def execute(self, a: float, b: float) -> ToolResult:
         ...         try:
-        ...             result = eval(expression)
-        ...             return Result.ok(result)
+        ...             return Result.ok(a + b)
         ...         except Exception as e:
         ...             return Result.fail(str(e))
         >>>
         >>> # Automatically compatible - no inheritance!
-        >>> tool = CalculateTool()
+        >>> tool = AddTool()
         >>> assert isinstance(tool, Tool)
         >>>
         >>> # Can be used in LLM function calling
@@ -232,6 +233,26 @@ class Tool(Protocol):
             ...         required=("city",)
             ...     )
         """
+        ...
+
+    @property
+    def is_concurrent_safe(self) -> bool:
+        """Whether this tool can run concurrently with other tools."""
+        ...
+
+    @property
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads data (no side effects)."""
+        ...
+
+    @property
+    def is_destructive(self) -> bool:
+        """Whether this tool performs destructive/irreversible operations."""
+        ...
+
+    @property
+    def risk_level(self) -> ToolRiskLevel:
+        """Risk classification for execution gating."""
         ...
 
     async def execute(self, **kwargs: Any) -> ToolResult:

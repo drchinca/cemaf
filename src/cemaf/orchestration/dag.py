@@ -145,6 +145,9 @@ class Node:
     # For ROUTER nodes: mapping of condition -> target node
     routes: JSON = field(default_factory=dict)
 
+    # Checkpoint marker — when True, executor fires DAG_CHECKPOINT after this node
+    checkpoint_enabled: bool = False
+
     @classmethod
     def tool(
         cls,
@@ -195,6 +198,7 @@ class Node:
         agent_id: str,
         description: str = "",
         config: JSON | None = None,
+        input_mapping: JSON | None = None,
         output_key: str = "",
     ) -> Node:
         """Create an agent node."""
@@ -205,7 +209,25 @@ class Node:
             description=description,
             ref_id=agent_id,
             config=config or {},
+            input_mapping=input_mapping or {},
             output_key=output_key,
+        )
+
+    @classmethod
+    def checkpoint(
+        cls,
+        id: str,
+        name: str = "Checkpoint",
+        description: str = "",
+        config: JSON | None = None,
+    ) -> Node:
+        """Create a checkpoint node — an explicit eval gate in the DAG."""
+        return cls(
+            id=NodeID(id),
+            type=NodeType.CHECKPOINT,
+            name=name,
+            description=description or "Quality checkpoint",
+            config=config or {},
         )
 
     @classmethod
@@ -265,6 +287,31 @@ class Node:
         )
 
     @classmethod
+    def loop(
+        cls,
+        id: str,
+        name: str,
+        body_node_ids: tuple[str, ...],
+        max_iterations: int = 10,
+        exit_condition: str = "",
+        description: str = "",
+        output_key: str = "",
+    ) -> Node:
+        """Create a loop node that iterates body nodes until exit condition or max iterations."""
+        return cls(
+            id=NodeID(id),
+            type=NodeType.LOOP,
+            name=name,
+            description=description,
+            config={
+                "max_iterations": max_iterations,
+                "exit_condition": exit_condition,
+                "body_node_ids": list(body_node_ids),
+            },
+            output_key=output_key,
+        )
+
+    @classmethod
     def parallel(
         cls,
         id: str,
@@ -281,6 +328,24 @@ class Node:
             description=description,
             parallel_nodes=tuple(NodeID(n) for n in parallel_nodes),
             output_key=output_key,  # Pass new parameter
+        )
+
+    def with_checkpoint(self, *, enabled: bool = True) -> Node:
+        """Return a copy of this node with checkpoint toggled."""
+        return Node(
+            id=self.id,
+            type=self.type,
+            name=self.name,
+            description=self.description,
+            ref_id=self.ref_id,
+            config=self.config,
+            input_mapping=self.input_mapping,
+            output_key=self.output_key,
+            max_retries=self.max_retries,
+            retry_on_failure=self.retry_on_failure,
+            parallel_nodes=self.parallel_nodes,
+            routes=self.routes,
+            checkpoint_enabled=enabled,
         )
 
 
@@ -323,6 +388,14 @@ class DAG(BaseModel):
         new_nodes = self.nodes + (node,)
         entry = self.entry_node or node.id
         return self.model_copy(update={"nodes": new_nodes, "entry_node": entry})
+
+    def with_checkpoint_policy(self, policy: Any) -> DAG:
+        """Apply a CheckpointPolicy — returns a new DAG with checkpoint flags set."""
+        checkpoint_ids = policy.select_checkpoints(nodes=self.nodes)
+        new_nodes = tuple(
+            n.with_checkpoint(enabled=True) if str(n.id) in checkpoint_ids else n for n in self.nodes
+        )
+        return self.model_copy(update={"nodes": new_nodes})
 
     def add_edge(self, edge: Edge) -> DAG:
         """Add an edge and return new DAG."""

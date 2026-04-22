@@ -1,8 +1,17 @@
 """WebSocket transport for remote MCP communication."""
 
-from typing import Any
+from typing import Protocol, runtime_checkable
 
 from cemaf.mcp.transport.base import BaseTransport
+
+
+@runtime_checkable
+class WebSocketConnection(Protocol):
+    """Protocol for WebSocket connections (e.g., websockets.WebSocketClientProtocol)."""
+
+    async def send(self, message: str) -> None: ...
+    async def recv(self) -> str | bytes: ...
+    async def close(self) -> None: ...
 
 
 class WebSocketTransport(BaseTransport):
@@ -15,7 +24,7 @@ class WebSocketTransport(BaseTransport):
     def __init__(self, url: str) -> None:
         super().__init__()
         self._url = url
-        self._ws: Any = None  # websockets.WebSocketClientProtocol
+        self._ws: WebSocketConnection | None = None
 
     async def _do_connect(self) -> None:
         try:

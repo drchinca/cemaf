@@ -67,9 +67,10 @@ class MindState(BaseModel):
         return cls(id=str(uuid.uuid4()), context=ctx)
 
     def to_prompt(self) -> str:
-        """
-        Convert the entire MindState into a structured prompt for an LLM.
-        Unifies blueprints and context.
-        """
-        # TODO: Implement unified prompt generation
-        return ""
+        """Convert MindState into a structured prompt for an LLM."""
+        if not self.context.data:
+            return f"[MindState:{self.id}] Empty context"
+        parts: list[str] = []
+        for key, value in self.context.data.items():
+            parts.append(f"[{key}]\n{value}")
+        return "\n\n".join(parts)

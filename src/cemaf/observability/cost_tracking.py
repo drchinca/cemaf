@@ -35,20 +35,25 @@ class ModelPricing:
     completion_price_per_million: float
     """USD cost per 1 million completion tokens"""
 
-    def calculate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        """
-        Calculate total cost in USD for given tokens.
+    cache_read_price_per_million: float = 0.0
+    """USD cost per 1 million cached prompt tokens (read)"""
 
-        Args:
-            prompt_tokens: Number of prompt tokens
-            completion_tokens: Number of completion tokens
+    cache_write_price_per_million: float = 0.0
+    """USD cost per 1 million cached prompt tokens (write)"""
 
-        Returns:
-            Total cost in USD (not rounded)
-        """
+    def calculate_cost(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+    ) -> float:
+        """Calculate total cost in USD for given tokens."""
         prompt_cost = (prompt_tokens / 1_000_000) * self.prompt_price_per_million
         completion_cost = (completion_tokens / 1_000_000) * self.completion_price_per_million
-        return prompt_cost + completion_cost
+        cache_read_cost = (cache_read_tokens / 1_000_000) * self.cache_read_price_per_million
+        cache_write_cost = (cache_write_tokens / 1_000_000) * self.cache_write_price_per_million
+        return prompt_cost + completion_cost + cache_read_cost + cache_write_cost
 
 
 class ModelPricingRegistry:
@@ -61,11 +66,53 @@ class ModelPricingRegistry:
 
     # Pricing information for known models (as of January 2026)
     PRICING: ClassVar[dict[str, ModelPricing]] = {
-        # Anthropic Claude
-        "claude-opus-4-5": ModelPricing("claude-opus-4-5", 15.0, 75.0),
-        "claude-sonnet-4-5": ModelPricing("claude-sonnet-4-5", 3.0, 15.0),
-        "claude-haiku-4-5": ModelPricing("claude-haiku-4-5", 0.8, 4.0),
+        # Anthropic Claude 4.x
+        "claude-opus-4-6": ModelPricing(
+            "claude-opus-4-6",
+            15.0,
+            75.0,
+            cache_read_price_per_million=1.5,
+            cache_write_price_per_million=18.75,
+        ),
+        "claude-sonnet-4-6": ModelPricing(
+            "claude-sonnet-4-6",
+            3.0,
+            15.0,
+            cache_read_price_per_million=0.3,
+            cache_write_price_per_million=3.75,
+        ),
+        # Anthropic Claude 4.5
+        "claude-opus-4-5": ModelPricing(
+            "claude-opus-4-5",
+            15.0,
+            75.0,
+            cache_read_price_per_million=1.5,
+            cache_write_price_per_million=18.75,
+        ),
+        "claude-sonnet-4-5": ModelPricing(
+            "claude-sonnet-4-5",
+            3.0,
+            15.0,
+            cache_read_price_per_million=0.3,
+            cache_write_price_per_million=3.75,
+        ),
+        "claude-haiku-4-5": ModelPricing(
+            "claude-haiku-4-5",
+            0.8,
+            4.0,
+            cache_read_price_per_million=0.08,
+            cache_write_price_per_million=1.0,
+        ),
         # OpenAI GPT
+        "gpt-4o": ModelPricing(
+            "gpt-4o",
+            2.5,
+            10.0,
+            cache_read_price_per_million=1.25,
+            cache_write_price_per_million=2.5,
+        ),
+        "o1": ModelPricing("o1", 15.0, 60.0),
+        "o3": ModelPricing("o3", 10.0, 40.0),
         "gpt-4-turbo": ModelPricing("gpt-4-turbo", 10.0, 30.0),
         "gpt-4": ModelPricing("gpt-4", 30.0, 60.0),
         "gpt-3.5-turbo": ModelPricing("gpt-3.5-turbo", 0.5, 1.5),

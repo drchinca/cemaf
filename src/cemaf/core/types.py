@@ -22,3 +22,8 @@ TokenCount = NewType("TokenCount", int)
 
 # Confidence scores (0.0 - 1.0)
 Confidence = NewType("Confidence", float)
+
+# Domain and provenance identifiers
+DomainID = NewType("DomainID", str)
+TenantID = NewType("TenantID", str)
+ProvenanceID = NewType("ProvenanceID", str)

@@ -31,7 +31,7 @@ Example:
     ...         return "My custom agent"
     ...
     ...     @property
-    ...     def skills(self) -> tuple[Any, ...]:
+    ...     def skills(self) -> tuple[()]:
     ...         return ()
     ...
     ...     async def run(self, goal: Any, context: AgentContext) -> AgentResult:
@@ -41,7 +41,7 @@ Example:
     >>> assert isinstance(MyCustomAgent(), Agent)
 """
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 # Re-export data classes from base (these are not changed)
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
@@ -158,7 +158,7 @@ class Agent[GoalT, ResultT](Protocol):
         ...
 
     @property
-    def skills(self) -> tuple[Any, ...]:
+    def skills(self) -> tuple[()]:
         """
         Skills available to this agent.
 

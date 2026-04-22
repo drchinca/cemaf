@@ -39,7 +39,7 @@ class ChildSpawn:
 
     child_id: AgentID
     parent_id: AgentID
-    goal: Any
+    goal: BaseModel
     depth: int
     spawned_at: datetime = field(default_factory=utc_now)
 
@@ -242,7 +242,7 @@ class DeepAgentOrchestrator:
     async def _execute_agent(
         self,
         agent: Agent[Any, Any],
-        goal: Any,
+        goal: BaseModel,
         context: AgentContext,
         depth: int,
         parent_id: AgentID | None,
@@ -279,7 +279,7 @@ class DeepAgentOrchestrator:
         self,
         parent_id: AgentID,
         child_agent_id: AgentID,
-        goal: Any,
+        goal: BaseModel,
         parent_context: AgentContext,
     ) -> AgentResult[Any]:
         """
@@ -401,9 +401,6 @@ class DeepAgentOrchestrator:
             return result
 
         except TimeoutError:
-            # Create failed result on timeout
-            from cemaf.orchestration.executor import ExecutionResult
-
             result = ExecutionResult(
                 run_id=RunID(generate_id("dag")),
                 dag_name=dag.name,

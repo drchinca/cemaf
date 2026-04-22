@@ -14,7 +14,7 @@ Uses fixtures from conftest.py:
 
 import pytest
 
-from cemaf.tools.base import ToolResult, ToolSchema, tool_decorator
+from cemaf.tools.base import ToolResult, ToolSchema, tool
 from cemaf.tools.protocols import Tool
 
 
@@ -165,13 +165,13 @@ class TestTool:
 
 
 class TestToolDecorator:
-    """Tests for tool_decorator."""
+    """Tests for tool."""
 
     @pytest.mark.asyncio
     async def test_decorator_creates_tool(self):
-        """tool_decorator creates a Tool from function."""
+        """tool creates a Tool from function."""
 
-        @tool_decorator(
+        @tool(
             name="add",
             description="Add numbers",
             parameters={

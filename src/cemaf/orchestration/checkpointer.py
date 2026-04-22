@@ -7,14 +7,18 @@ Simplified design:
 - CheckpointingDAGExecutor wraps execution with checkpointing
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from __future__ import annotations
 
-from cemaf.context.context import Context  # New import
+from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
+
+from cemaf.context.context import Context
 from cemaf.core.enums import RunStatus
 from cemaf.core.storage import InMemoryStorage
 from cemaf.core.types import NodeID, RunID
 from cemaf.core.utils import generate_id
+from cemaf.orchestration.dag import DAG
+from cemaf.orchestration.executor import DAGExecutor, ExecutionResult, NodeResult
 
 
 @dataclass(frozen=True)
@@ -91,7 +95,7 @@ class CheckpointingDAGExecutor:
 
     def __init__(
         self,
-        base_executor: Any,
+        base_executor: DAGExecutor,
         checkpointer: Checkpointer,
         checkpoint_interval: int = 1,
         checkpoint_on_failure: bool = True,
@@ -103,10 +107,10 @@ class CheckpointingDAGExecutor:
 
     async def run(
         self,
-        dag: Any,
-        initial_context: Context | None = None,  # Updated to Context
+        dag: DAG,
+        initial_context: Context | None = None,
         run_id: RunID | None = None,
-    ) -> Any:
+    ) -> ExecutionResult:
         """Run DAG with checkpointing."""
         dag.validate_structure()
         order = dag.topological_sort()
@@ -128,12 +132,12 @@ class CheckpointingDAGExecutor:
         return await self._execute_nodes(
             dag=dag,
             run_id=run_id,
-            nodes_to_execute=order,
-            initial_context=context,  # Pass Context object
+            nodes_to_execute=list(order),
+            initial_context=context,
             completed_nodes=[],
         )
 
-    async def resume(self, run_id: RunID, dag: Any) -> Any:
+    async def resume(self, run_id: RunID, dag: DAG) -> ExecutionResult:
         """Resume execution from a checkpoint."""
         checkpoint = await self._checkpointer.load(run_id)
 
@@ -164,20 +168,18 @@ class CheckpointingDAGExecutor:
 
     async def _execute_nodes(
         self,
-        dag: Any,
+        dag: DAG,
         run_id: RunID,
         nodes_to_execute: list[NodeID],
-        initial_context: Context,  # Updated to Context
+        initial_context: Context,
         completed_nodes: list[NodeID],
-    ) -> Any:
+    ) -> ExecutionResult:
         """
         Core execution loop - shared by run() and resume().
 
         This is the single source of truth for node execution with checkpointing.
         """
-        from cemaf.orchestration.executor import ExecutionResult, NodeResult
-
-        context = initial_context  # Use Context directly
+        context = initial_context
         node_results: list[NodeResult] = []
         nodes_since_checkpoint = 0
 

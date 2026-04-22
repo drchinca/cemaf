@@ -18,6 +18,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.source import ContextSource
+from cemaf.core.enums import ExclusionReason
 from cemaf.core.types import JSON
 
 
@@ -36,20 +37,17 @@ class SelectionResult:
     @property
     def excluded_count(self) -> int:
         """Number of sources that were excluded (if available in metadata)."""
-        value: Any = self.metadata.get("excluded_count", 0)
-        return int(value)
+        return int(self.metadata.get("excluded_count", 0))
 
     @property
     def excluded_keys(self) -> list[str]:
         """Keys of sources that were excluded (if available in metadata)."""
-        value: Any = self.metadata.get("excluded_keys", [])
-        return list(value)
+        return list(self.metadata.get("excluded_keys", []))
 
     @property
     def selection_method(self) -> str:
         """Algorithm method used (e.g., 'greedy', 'knapsack', 'optimal')."""
-        value: Any = self.metadata.get("selection_method", "unknown")
-        return str(value)
+        return str(self.metadata.get("selection_method", "unknown"))
 
 
 @runtime_checkable
@@ -124,6 +122,7 @@ class GreedySelectionAlgorithm:
         available_tokens = budget.available_tokens
 
         excluded_keys: list[str] = []
+        excluded_details: list[dict[str, Any]] = []
 
         for source in sources:
             source_tokens = source.token_count or 0
@@ -132,6 +131,15 @@ class GreedySelectionAlgorithm:
                 total_tokens += source_tokens
             else:
                 excluded_keys.append(source.key)
+                excluded_details.append(
+                    {
+                        "source_id": source.key,
+                        "token_count": source_tokens,
+                        "priority": source.priority,
+                        "reason": ExclusionReason.BUDGET_EXCEEDED.value,
+                        "compressible": source.compressible,
+                    }
+                )
 
         return SelectionResult(
             selected_sources=tuple(selected_sources),
@@ -140,6 +148,7 @@ class GreedySelectionAlgorithm:
                 "selection_method": "greedy",
                 "excluded_count": len(excluded_keys),
                 "excluded_keys": excluded_keys,
+                "excluded_details": excluded_details,
                 "sources_considered": len(sources),
                 "sources_included": len(selected_sources),
             },
@@ -230,6 +239,16 @@ class KnapsackSelectionAlgorithm:
         selected_sources = [sources[i] for i in selected_indices]
         excluded_indices = set(range(n)) - set(selected_indices)
         excluded_keys = [sources[i].key for i in excluded_indices]
+        excluded_details: list[dict[str, Any]] = [
+            {
+                "source_id": sources[i].key,
+                "token_count": sources[i].token_count or 0,
+                "priority": sources[i].priority,
+                "reason": ExclusionReason.LOW_PRIORITY.value,
+                "compressible": sources[i].compressible,
+            }
+            for i in sorted(excluded_indices)
+        ]
 
         total_tokens = sum(s.token_count or 0 for s in selected_sources)
 
@@ -240,6 +259,7 @@ class KnapsackSelectionAlgorithm:
                 "selection_method": "knapsack",
                 "excluded_count": len(excluded_keys),
                 "excluded_keys": excluded_keys,
+                "excluded_details": excluded_details,
                 "sources_considered": len(sources),
                 "sources_included": len(selected_sources),
                 "max_priority_sum": dp[best_weight],
@@ -328,10 +348,10 @@ class OptimalSelectionAlgorithm:
                         total_tokens += source_tokens
                         total_priority += source.priority
                     else:
-                        # This subset doesn't fit, skip it
-                        break
-            else:
-                # All selected items fit
+                        # Item doesn't fit, skip it but keep checking others
+                        continue
+
+                # Check if this subset is better than current best
                 if total_priority > best_priority:
                     best_priority = total_priority
                     best_selection = selected

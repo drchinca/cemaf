@@ -55,7 +55,7 @@ See cemaf.tools.protocols.Tool for the protocol definition.
 """
 
 # Decorator (quick tool creation)
-from cemaf.tools.base import tool, tool_decorator
+from cemaf.tools.base import tool
 from cemaf.tools.protocols import Tool, ToolResult, ToolSchema
 from cemaf.tools.registry import RegistryError, ToolRegistry
 
@@ -64,7 +64,6 @@ __all__ = [
     "ToolSchema",
     "ToolResult",
     "tool",
-    "tool_decorator",
     # Registry (new in Phase 1 Week 2)
     "ToolRegistry",
     "RegistryError",

@@ -30,6 +30,7 @@ from cemaf.observability.alerting_rules import (
     get_alert_by_name,
     get_alerts_by_severity,
 )
+from cemaf.observability.budget_guard import AlertLevel, BudgetAlert, BudgetGuard
 from cemaf.observability.config import (
     configure_logging,
     configure_metrics,
@@ -40,6 +41,17 @@ from cemaf.observability.config import (
     reset_observability,
 )
 from cemaf.observability.cost_tracking import ModelPricing, ModelPricingRegistry
+from cemaf.observability.factories import (
+    create_logger,
+    create_logger_from_config,
+    create_metrics_collector,
+    create_metrics_collector_from_config,
+    create_run_logger,
+    create_run_logger_from_config,
+    create_tracer,
+    create_tracer_from_config,
+)
+from cemaf.observability.glass_box import GlassBoxReport, GlassBoxReporter
 from cemaf.observability.health import (
     HealthCheck,
     HealthCheckResult,
@@ -48,6 +60,7 @@ from cemaf.observability.health import (
     get_health_monitor,
 )
 from cemaf.observability.metrics_helper import MetricsHelper, record_timing
+from cemaf.observability.prometheus_metrics import PrometheusMetrics
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
     InMemoryRunLogger,
@@ -58,6 +71,12 @@ from cemaf.observability.run_logger import (
     ToolCall,
 )
 from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
+from cemaf.observability.structured import StructuredLogger
+from cemaf.observability.token_telemetry import (
+    count_tokens,
+    extract_token_metadata,
+    merge_token_metadata,
+)
 
 __all__ = [
     # Configuration
@@ -77,6 +96,9 @@ __all__ = [
     "SimpleMetrics",
     "NoOpTracer",
     "NoOpMetrics",
+    # Production implementations
+    "StructuredLogger",
+    "PrometheusMetrics",
     # Health checks
     "HealthStatus",
     "HealthCheckResult",
@@ -93,9 +115,20 @@ __all__ = [
     # Cost tracking
     "ModelPricing",
     "ModelPricingRegistry",
+    # Token telemetry
+    "extract_token_metadata",
+    "count_tokens",
+    "merge_token_metadata",
     # Metrics helpers
     "MetricsHelper",
     "record_timing",
+    # Budget guard
+    "BudgetGuard",
+    "BudgetAlert",
+    "AlertLevel",
+    # Glass box
+    "GlassBoxReport",
+    "GlassBoxReporter",
     # Alerting rules
     "AlertRule",
     "Severity",
@@ -103,4 +136,13 @@ __all__ = [
     "export_prometheus_rules",
     "get_alert_by_name",
     "get_alerts_by_severity",
+    # Factories
+    "create_logger",
+    "create_logger_from_config",
+    "create_metrics_collector",
+    "create_metrics_collector_from_config",
+    "create_run_logger",
+    "create_run_logger_from_config",
+    "create_tracer",
+    "create_tracer_from_config",
 ]

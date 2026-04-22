@@ -355,6 +355,58 @@ compiled = await compiler.compile(
 | Analysis requiring complete context | Mode 1 | `algorithm=None` |
 | Performance-critical generation | Mode 2 | `algorithm=GreedySelectionAlgorithm()` |
 
+## Exclusion Tracking
+
+When sources are excluded from compilation, the algorithm records structured exclusion metadata:
+
+```python
+from cemaf.core.enums import ExclusionReason
+
+# Selection algorithms track why sources were excluded
+# Greedy: BUDGET_EXCEEDED when token budget runs out
+# Knapsack: LOW_PRIORITY when optimizing value/weight ratio
+
+compiled = await compiler.compile(
+    artifacts=artifacts,
+    memories=memories,
+    budget=budget,
+    priorities=priorities,
+)
+
+# Exclusion metadata in compiled result
+for excluded in compiled.metadata.get("excluded_sources", []):
+    print(f"Source {excluded['source_id']} excluded: {excluded['reason']}")
+    # e.g., "Source doc_5 excluded: ExclusionReason.BUDGET_EXCEEDED"
+```
+
+### ExclusionReason Enum
+
+| Reason | When Used |
+|--------|-----------|
+| `BUDGET_EXCEEDED` | Token budget ran out before this source could be included |
+| `LOW_PRIORITY` | Knapsack algorithm excluded for better value/weight ratio |
+| `STALE` | Source data is outdated |
+| `DUPLICATE` | Duplicate content detected |
+| `FILTERED` | Filtered by domain rules or moderation |
+
+### Integration with ProvenanceChain
+
+Exclusion metadata feeds into `SourceReference` for full audit:
+
+```python
+from cemaf.core.provenance import SourceReference
+
+# Each source in a ProvenanceLink records inclusion/exclusion
+ref = SourceReference(
+    source_id="doc_5",
+    source_type="artifact",
+    token_count=2000,
+    priority=3,
+    included=False,
+    exclusion_reason=ExclusionReason.BUDGET_EXCEEDED,
+)
+```
+
 ## Token Estimation
 
 Estimate tokens for content:
@@ -365,3 +417,138 @@ from cemaf.context.compiler import SimpleTokenEstimator
 estimator = SimpleTokenEstimator()
 tokens = estimator.estimate("Hello world")  # ~2 tokens
 ```
+
+### Smart Token Estimator Factory
+
+Use `create_token_estimator()` for the best available estimator — prefers tiktoken (accurate, model-specific) with automatic fallback to heuristic:
+
+```python
+from cemaf.context.factories import create_token_estimator
+
+# Accurate estimation for a known model (uses tiktoken if available)
+estimator = create_token_estimator(model="gpt-4")
+
+# Fallback to heuristic for unknown models
+estimator = create_token_estimator(model="custom-model")
+
+# Default heuristic (no model specified)
+estimator = create_token_estimator()
+```
+
+### Compressible Flag in Exclusion Details
+
+When sources are excluded from compilation, the algorithm tracks whether each excluded source is compressible — enabling downstream systems (e.g., `AdvancedContextCompiler`) to decide whether to summarize or drop:
+
+```python
+result = algorithm.select_sources(sources=sources, budget=budget)
+
+for detail in result.metadata.get("excluded_details", []):
+    if detail["compressible"]:
+        print(f"Source {detail['source_id']} can be summarized to fit budget")
+    else:
+        print(f"Source {detail['source_id']} must be dropped entirely")
+```
+
+## Context Compiler Registry
+
+Context compiler backends are extensible via `ProviderRegistry`:
+
+```python
+from cemaf.context.factories import context_compiler_registry, create_context_compiler_from_config
+
+# Built-in backends: greedy, knapsack, optimal
+compiler = create_context_compiler_from_config(algorithm_name="knapsack")
+
+# Register a custom backend
+context_compiler_registry.register(backend="custom", factory=my_compiler_factory)
+compiler = create_context_compiler_from_config(algorithm_name="custom")
+```
+
+## Context Type Classification
+
+Context sources are classified into three behavioral types that control caching, sharing, compression, and compaction behavior.
+
+### ContextType Enum
+
+| Type | Semantics | Default Priority |
+|------|-----------|------------------|
+| `RESOURCE` | External data (documents, tool outputs) | 3 |
+| `MEMORY` | Agent/session memory | 7 |
+| `SKILL` | System prompts, instructions | 5 |
+
+The `ContextType` is set on `ContextSource` via factory methods:
+
+```python
+from cemaf.context.source import ContextSource, ContextType
+
+# Automatically classified as RESOURCE
+source = ContextSource.from_tool_output(content="search results...", tool_name="web_search")
+assert source.context_type == ContextType.RESOURCE
+
+# Automatically classified as MEMORY
+source = ContextSource.from_memory(content="user prefers dark mode", memory_key="pref:theme")
+assert source.context_type == ContextType.MEMORY
+
+# Automatically classified as SKILL
+source = ContextSource.from_system_prompt(content="You are a helpful assistant.")
+assert source.context_type == ContextType.SKILL
+```
+
+### ContextTypeBehavior
+
+Each type has behavioral rules that downstream systems use to make decisions:
+
+```python
+from cemaf.context.classification import get_behavior, classify_source, ContextTypeBehavior
+from cemaf.context.source import ContextType
+
+behavior = get_behavior(context_type=ContextType.MEMORY)
+# ContextTypeBehavior(
+#     cacheable=False,
+#     shareable=False,
+#     compressible=True,
+#     default_ttl_seconds=86400.0,
+#     default_priority=7,
+#     preferred_compaction="metadata",
+# )
+```
+
+### Behavioral Rules by Type
+
+| Property | RESOURCE | MEMORY | SKILL |
+|----------|----------|--------|-------|
+| `cacheable` | True | False | True |
+| `shareable` | True | False | True |
+| `compressible` | True | True | False |
+| `default_ttl_seconds` | None | 86400 | None |
+| `preferred_compaction` | `"summary"` | `"metadata"` | `"full"` |
+
+### ContextTypeClassifier Protocol
+
+Implement the `ContextTypeClassifier` protocol for custom classification:
+
+```python
+from cemaf.context.classification import ContextTypeClassifier, DefaultContextTypeClassifier
+
+# Default classifier maps string source_types to ContextType
+classifier = DefaultContextTypeClassifier()
+ct = classifier.classify(source_type="document")   # ContextType.RESOURCE
+ct = classifier.classify(source_type="memory")     # ContextType.MEMORY
+ct = classifier.classify(source_type="system")     # ContextType.SKILL
+ct = classifier.classify(source_type="unknown")    # ContextType.RESOURCE (default)
+
+# Module-level convenience functions
+from cemaf.context.classification import classify_source, get_behavior
+ct = classify_source(source_type="tool_output")
+behavior = get_behavior(context_type=ct)
+```
+
+### Default Source Type Mapping
+
+| `source_type` string | `ContextType` |
+|---------------------|--------------|
+| `"document"` | `RESOURCE` |
+| `"tool_output"` | `RESOURCE` |
+| `"memory"` | `MEMORY` |
+| `"system"` | `SKILL` |
+| anything else | `RESOURCE` (fallback) |

@@ -9,7 +9,15 @@ Provides:
 - Composite evaluators
 """
 
-from cemaf.evals.composite import CompositeEvaluator, EvalSuite
+from cemaf.evals.agents import QualityGuardAgent, QualityGuardGoal, QualityGuardResult
+from cemaf.evals.composite import (
+    AggregationStrategy,
+    CompositeEvalResult,
+    CompositeEvaluator,
+    EvalCase,
+    EvalSuite,
+    EvalSuiteResult,
+)
 from cemaf.evals.evaluators import (
     ContainsEvaluator,
     ExactMatchEvaluator,
@@ -17,18 +25,35 @@ from cemaf.evals.evaluators import (
     LengthEvaluator,
     RegexEvaluator,
 )
+from cemaf.evals.factories import (
+    create_composite_evaluator,
+    create_composite_evaluator_from_config,
+    create_exact_match_evaluator,
+)
+from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig, TierResult
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
+from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
+from cemaf.evals.police import AlertLevel, QualityAlert, QualityPolice, QualityPoliceConfig
 from cemaf.evals.protocols import (
+    BaseEvaluator,
     EvalConfig,
     EvalMetric,
     EvalResult,
     Evaluator,
 )
-from cemaf.evals.semantic import SemanticSimilarityEvaluator
+from cemaf.evals.semantic import MultiReferenceSemanticEvaluator, SemanticSimilarityEvaluator
+from cemaf.evals.tools import (
+    BUILTIN_EVALUATORS,
+    CheckQualityTool,
+    RecordScoreTool,
+    RunEvalTool,
+    resolve_evaluators,
+)
 
 __all__ = [
     # Protocols
     "Evaluator",
+    "BaseEvaluator",
     "EvalResult",
     "EvalMetric",
     "EvalConfig",
@@ -42,7 +67,39 @@ __all__ = [
     "LLMJudgeEvaluator",
     "JudgeCriteria",
     "SemanticSimilarityEvaluator",
+    "MultiReferenceSemanticEvaluator",
     # Composite
     "CompositeEvaluator",
+    "CompositeEvalResult",
+    "AggregationStrategy",
+    "EvalCase",
     "EvalSuite",
+    "EvalSuiteResult",
+    # Hierarchical
+    "HierarchicalJudge",
+    "HierarchicalJudgeConfig",
+    "TierResult",
+    # Online eval
+    "OnlineEvalPipeline",
+    "NodeEvalBinding",
+    "EvalMode",
+    # Quality police
+    "QualityPolice",
+    "QualityPoliceConfig",
+    "QualityAlert",
+    "AlertLevel",
+    # Factories
+    "create_exact_match_evaluator",
+    "create_composite_evaluator",
+    "create_composite_evaluator_from_config",
+    # Eval tools (dogfooding)
+    "RunEvalTool",
+    "CheckQualityTool",
+    "RecordScoreTool",
+    "resolve_evaluators",
+    "BUILTIN_EVALUATORS",
+    # Quality guard agent
+    "QualityGuardAgent",
+    "QualityGuardGoal",
+    "QualityGuardResult",
 ]

@@ -11,6 +11,7 @@ and avoid circular imports.
 import os
 
 from cemaf.events.protocols import EventBus
+from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig, NodeExecutor
@@ -22,6 +23,7 @@ def create_dag_executor(
     run_logger: RunLogger | None = None,
     event_bus: EventBus | None = None,
     moderation_pipeline: ModerationPipeline | None = None,
+    session_manager: SessionManager | None = None,
 ) -> DAGExecutor:
     """
     Factory for DAGExecutor with sensible defaults.
@@ -61,6 +63,8 @@ def create_dag_executor(
         run_logger=run_logger if cfg.enable_logging else None,
         event_bus=event_bus if cfg.enable_events else None,
         moderation_pipeline=moderation_pipeline if cfg.enable_moderation else None,
+        session_manager=session_manager,
+        node_timeout_seconds=cfg.node_timeout_seconds,
     )
 
 
@@ -69,6 +73,7 @@ def create_dag_executor_from_config(
     run_logger: RunLogger | None = None,
     event_bus: EventBus | None = None,
     moderation_pipeline: ModerationPipeline | None = None,
+    session_manager: SessionManager | None = None,
 ) -> DAGExecutor:
     """
     Create DAGExecutor from environment configuration.
@@ -110,4 +115,5 @@ def create_dag_executor_from_config(
         run_logger=run_logger,
         event_bus=event_bus,
         moderation_pipeline=moderation_pipeline,
+        session_manager=session_manager,
     )

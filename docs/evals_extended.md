@@ -581,3 +581,241 @@ CORE_METRICS = {
     "length": "Appropriate length"
 }
 ```
+
+## HierarchicalJudge Deep Dive
+
+The `HierarchicalJudge` implements a three-tier evaluation strategy that minimizes cost by running expensive evaluators only when cheaper ones are inconclusive.
+
+**Source**: `evals/hierarchy.py`
+
+### Tier Execution Flow
+
+```
+Tier 1 (deterministic) ──[fail]──> Return failed result
+         │
+       [pass]
+         │
+         v
+Tier 2 (semantic) ──[ambiguous or sampled]──> Tier 3 (LLM judge) ──> Return tier 3 result
+         │
+       [clear]
+         │
+         v
+    Return tier 2 result
+```
+
+### Configuration
+
+```python
+from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig
+
+config = HierarchicalJudgeConfig(
+    tier1_pass_threshold=0.5,            # min score to pass tier 1
+    tier3_ambiguity_range=(0.4, 0.7),    # tier 2 scores in this range trigger tier 3
+    tier3_sample_rate=0.0,               # probability of sampling tier 3 even when clear
+)
+
+judge = HierarchicalJudge(
+    tier1_evaluators=(ExactMatchEvaluator(), LengthEvaluator(min_length=10)),
+    tier2_evaluator=SemanticSimilarityEvaluator(embedding_provider=embedder),
+    tier3_evaluator=LLMJudgeEvaluator(llm_client=client, criteria=JudgeCriteria.HELPFULNESS),
+    config=config,
+)
+
+result = await judge.evaluate(output="Hello world", expected="Hi there")
+# result.metadata contains {"tiers_run": [1, 2], "tier_scores": [0.75, 0.82]}
+```
+
+### Key Design Decisions
+
+- Tier 1 always runs. It wraps all tier-1 evaluators in a `CompositeEvaluator` with mean aggregation.
+- If tier 1 fails, higher tiers are skipped entirely (fast fail for obviously bad outputs).
+- Tier 3 triggers on ambiguity (score within `tier3_ambiguity_range`) OR random sampling (`tier3_sample_rate`). Sampling enables quality monitoring even for clear outputs.
+- The `metadata` field on `EvalResult` tracks which tiers ran and their individual scores, enabling cost analysis.
+
+## OnlineEvalPipeline Architecture
+
+The `OnlineEvalPipeline` runs evaluators on node outputs during DAG execution. It subscribes to `TASK_COMPLETED` events and evaluates outputs in real-time.
+
+**Source**: `evals/online.py`
+
+### Binding Evaluators to Nodes
+
+```python
+from cemaf.evals.online import OnlineEvalPipeline, NodeEvalBinding, EvalMode
+
+bindings = (
+    NodeEvalBinding(
+        node_pattern="summarizer",
+        evaluators=(LengthEvaluator(min_length=50), ContainsEvaluator()),
+        mode=EvalMode.GATE,     # blocks downstream on failure
+        expected="key findings",
+    ),
+    NodeEvalBinding(
+        node_pattern="*",       # matches all nodes
+        evaluators=(LengthEvaluator(min_length=1),),
+        mode=EvalMode.OBSERVE,  # log only
+    ),
+)
+
+pipeline = OnlineEvalPipeline(bindings=bindings, event_bus=event_bus)
+pipeline.subscribe()  # registers TASK_COMPLETED handler
+```
+
+### Event Flow
+
+1. `TASK_COMPLETED` event arrives with `node_id` and `output` in payload
+2. Pipeline finds matching bindings (exact node_id match or `*` wildcard)
+3. Emits `EVAL_STARTED` event
+4. Runs `CompositeEvaluator` with all evaluators from the binding
+5. Emits `EVAL_COMPLETED` with scores, or `EVAL_FAILED` on exception
+6. For `GATE` mode with failed eval, emits `QUALITY_ALERT` with `level=halt`
+
+### EvalMode
+
+| Mode | Behavior |
+|------|----------|
+| `GATE` | Failed eval publishes `QUALITY_ALERT` (halt level). Downstream consumers decide whether to stop. |
+| `OBSERVE` | Failed eval is logged but does not trigger alerts. For monitoring and analytics. |
+
+### Accumulated Results
+
+```python
+results = pipeline.results  # list of eval payload dicts
+for r in results:
+    print(f"Node: {r['node_id']}, Score: {r['overall_score']:.2f}, Passed: {r['overall_passed']}")
+```
+
+## QualityPolice Internals
+
+The `QualityPolice` monitors eval scores over a rolling window, detects anomalies, and can halt execution when quality degrades below thresholds.
+
+**Source**: `evals/police.py`
+
+### Threshold Levels
+
+| Level | Default Threshold | Behavior |
+|-------|-------------------|----------|
+| `WARN` | rolling mean < 0.7 | Alert emitted, execution continues |
+| `CRITICAL` | rolling mean < 0.5 | Alert emitted, anomaly also triggers this |
+| `HALT` | rolling mean < 0.3 | Sets `_halted = True`, orchestrator should stop |
+| Anomaly | single score drops > 0.3 below mean | CRITICAL alert regardless of mean |
+
+### Configuration
+
+```python
+from cemaf.evals.police import QualityPolice, QualityPoliceConfig
+
+police = QualityPolice(config=QualityPoliceConfig(
+    window_size=20,          # rolling window size
+    warn_threshold=0.7,
+    critical_threshold=0.5,
+    halt_threshold=0.3,
+    anomaly_drop=0.3,        # single-score drop from mean to trigger anomaly
+))
+```
+
+### Auto-Subscribe to EventBus
+
+```python
+police.subscribe(event_bus=event_bus)
+# Now EVAL_COMPLETED events auto-feed into record_score()
+```
+
+When subscribed, `QualityPolice` extracts `overall_score` and `node_id` from each `EVAL_COMPLETED` event payload and passes them to `record_score()`.
+
+### Alert Emission
+
+When an alert fires, the police attempts to publish a `QUALITY_ALERT` event via the bus (if subscribed). The publish is fire-and-forget via `asyncio.create_task` with a done callback that logs errors.
+
+### State Inspection
+
+```python
+police.rolling_mean        # current rolling mean
+police.should_halt()       # True if below halt threshold
+police.alerts              # tuple of all QualityAlert objects
+police.to_dict()           # serialized state for logging
+police.reset()             # clear all state for new run
+```
+
+## Eval Tools API
+
+Three CEMAF tools wrap the eval system for dogfooding within agent execution.
+
+**Source**: `evals/tools.py`
+
+### RunEvalTool
+
+Runs named evaluators on output text. Returns `CompositeEvalResult.to_dict()` via `Result.ok()`.
+
+```python
+tool = RunEvalTool()
+result = await tool.execute(
+    output="Generated text here",
+    expected="Reference text",
+    evaluator_names=["length", "exact_match", "contains", "json_valid"],
+)
+```
+
+Built-in evaluator names: `length`, `exact_match`, `contains`, `json_valid`.
+
+### CheckQualityTool
+
+Queries current `QualityPolice` state. Returns rolling mean, halt status, and last 5 alerts.
+
+```python
+tool = CheckQualityTool(quality_police=police)
+result = await tool.execute()
+# {"rolling_mean": 0.82, "halted": false, "alerts_count": 1, "recent_alerts": [...]}
+```
+
+### RecordScoreTool
+
+Records a score to the quality police. Returns alert info if a threshold was breached.
+
+```python
+tool = RecordScoreTool(quality_police=police)
+result = await tool.execute(score=0.45, node_id="summarizer")
+# {"score_recorded": 0.45, "rolling_mean": 0.65, "halted": false, "alert": {...}}
+```
+
+## QualityGuardAgent
+
+A full CEMAF agent that combines evaluation with quality monitoring. Registered in `AgentRegistry` as `QualityGuard`.
+
+**Source**: `evals/agents.py`
+
+### Goal and Result Models
+
+```python
+class QualityGuardGoal(BaseModel):
+    output: str                                         # text to evaluate
+    expected: str | None = None                         # reference text
+    evaluator_names: tuple[str, ...] = ("length", "json_valid")
+    record_to_police: bool = True                       # auto-record to QualityPolice
+
+class QualityGuardResult(BaseModel):
+    passed: bool
+    overall_score: float
+    quality_status: dict[str, Any]    # police.to_dict()
+    alert: dict[str, Any] | None      # alert if threshold breached
+```
+
+### Usage
+
+```python
+from cemaf.evals.agents import QualityGuardAgent, QualityGuardGoal
+
+agent = QualityGuardAgent(quality_police=police)
+result = await agent.run(
+    goal=QualityGuardGoal(output="Hello world", evaluator_names=("length", "contains")),
+    context=agent_context,
+)
+
+if result.output.passed:
+    print(f"Quality OK: {result.output.overall_score:.2f}")
+else:
+    print(f"Quality issue: {result.output.alert}")
+```
+
+The agent resolves evaluators by name, runs them via `CompositeEvaluator`, optionally records the score to `QualityPolice`, and returns both the eval result and the current quality state.

@@ -73,12 +73,15 @@ class AnalysisAgent(Agent):
 See examples/retrieval_dag_example.py for a complete working example.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
+from cemaf.core.domain import DomainContext
 from cemaf.core.enums import AgentStatus
 from cemaf.core.types import JSON, AgentID
 from cemaf.skills.base import Skill, SkillResult
@@ -121,8 +124,8 @@ class AgentResult[ResultT]:
         object.__setattr__(self, "skill_results", tuple(self.skill_results))
 
     @classmethod
-    def ok(cls, output: ResultT, state: AgentState) -> AgentResult[ResultT]:
-        return cls(success=True, output=output, final_state=state)
+    def ok(cls, output: ResultT, state: AgentState, metadata: JSON | None = None) -> AgentResult[ResultT]:
+        return cls(success=True, output=output, final_state=state, metadata=metadata or {})
 
     @classmethod
     def fail(cls, error: str, state: AgentState | None = None) -> AgentResult[ResultT]:
@@ -130,9 +133,9 @@ class AgentResult[ResultT]:
 
 
 class AgentContext(BaseModel):
-    """Isolated context for agent execution."""
+    """Isolated context for agent execution with optional domain scoping."""
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "arbitrary_types_allowed": True}
 
     run_id: str
     agent_id: str
@@ -140,6 +143,7 @@ class AgentContext(BaseModel):
     depth: int = 0
     global_memory: JSON = Field(default_factory=dict)
     artifacts: JSON = Field(default_factory=dict)
+    domain_context: DomainContext | None = None
 
 
 class Agent[GoalT: BaseModel, ResultT](ABC):

@@ -20,8 +20,29 @@ from cemaf.context.algorithm import (
     SelectionResult,
 )
 from cemaf.context.budget import BudgetAllocation, TokenBudget
-from cemaf.context.compiler import CompiledContext, ContextCompiler
+from cemaf.context.classification import (
+    DEFAULT_BEHAVIORS,
+    ContextTypeBehavior,
+    ContextTypeClassifier,
+    DefaultContextTypeClassifier,
+    classify_source,
+    get_behavior,
+)
+from cemaf.context.compiler import (
+    AdvancedCompilerConfig,
+    CompiledContext,
+    ContextCompiler,
+    PriorityContextCompiler,
+    SimpleTokenEstimator,
+    TokenEstimator,
+)
 from cemaf.context.context import Context
+from cemaf.context.factories import (
+    CompilerConfig,
+    create_context_compiler_from_config,
+    create_priority_compiler,
+    create_token_estimator,
+)
 from cemaf.context.merge import (
     DEFAULT_MERGE_STRATEGY,
     DeepMergeStrategy,
@@ -41,7 +62,7 @@ from cemaf.context.patch import (
     PatchSource,
 )
 from cemaf.context.paths import ContextPath, TypedContext, create_path_builder
-from cemaf.context.source import ContextSource
+from cemaf.context.source import ContextSource, ContextType
 
 __all__ = [
     "ContextCompiler",
@@ -78,4 +99,22 @@ __all__ = [
     "create_path_builder",
     # Source management (new in Phase 1)
     "ContextSource",
+    "ContextType",
+    # Classification
+    "ContextTypeBehavior",
+    "ContextTypeClassifier",
+    "DefaultContextTypeClassifier",
+    "DEFAULT_BEHAVIORS",
+    "classify_source",
+    "get_behavior",
+    # Compiler implementations & config
+    "PriorityContextCompiler",
+    "SimpleTokenEstimator",
+    "TokenEstimator",
+    "AdvancedCompilerConfig",
+    # Factories
+    "CompilerConfig",
+    "create_priority_compiler",
+    "create_context_compiler_from_config",
+    "create_token_estimator",
 ]

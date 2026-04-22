@@ -52,7 +52,10 @@ class TestReplayer:
         record.patches.append(ContextPatch.set("a", 1))
         record.patches.append(ContextPatch.set("b", 2))
 
-        Replayer(record)
+        replayer = Replayer(record)
+
+        assert replayer.get_tool_call("nonexistent", 0) is None
+        assert len(record.patches) == 2
 
     @pytest.mark.asyncio
     async def test_replay_produces_correct_context(self) -> None:

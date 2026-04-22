@@ -69,6 +69,33 @@ flowchart TB
     RESULT --> META
 ```
 
+## v0.2 Improvements
+
+### Parallel Chunk Processing
+
+Left and right branches of divide-and-conquer are now processed in parallel via `asyncio.gather`, significantly reducing latency for large contexts:
+
+```
+Sequential (v0.1):  Left(2s) → Right(2s) → Aggregate(1s) = 5s
+Parallel   (v0.2):  Left(2s) ‖ Right(2s) → Aggregate(1s) = 3s
+```
+
+### Partial Coverage Fallback
+
+When max depth is reached or a single chunk exceeds the budget, the engine now processes budget-sized batches and aggregates results instead of only querying the first chunk:
+
+```python
+# v0.1: Only first chunk processed → low coverage
+# v0.2: All chunks processed in batches → full coverage
+result = await engine.query(instruction="...", chunks=large_chunks, budget=small_budget)
+print(result.metadata["strategy"])       # "partial_coverage"
+print(result.metadata["coverage_ratio"]) # 1.0 (all chunks examined)
+```
+
+### Coverage Ratio Tracking
+
+`RecursiveQueryResult` now includes `coverage_ratio` (0.0-1.0) indicating what fraction of chunks were examined.
+
 ## Quick Start
 
 ### Basic Usage

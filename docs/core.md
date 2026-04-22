@@ -186,6 +186,59 @@ The `heal()` method uses a 4-level fallback strategy:
 
 This allows graceful degradation where not all errors need explicit strategies.
 
+## Provenance
+
+The provenance system provides a complete audit trail linking every LLM call to its context sources, citations, and costs.
+
+### ProvenanceChain & ProvenanceLink
+
+```python
+from cemaf.core.provenance import ProvenanceChain, ProvenanceLink, SourceReference
+
+# Each LLM call produces a ProvenanceLink
+link = ProvenanceLink(
+    id=ProvenanceChain.new_link_id(),
+    llm_call_id="llm_001",
+    node_id=NodeID("step_0"),
+    agent_id=AgentID("librarian"),
+    context_sources=(
+        SourceReference(source_id="doc_1", source_type="document", token_count=500, included=True),
+        SourceReference(source_id="doc_2", source_type="document", token_count=300, included=False,
+                        exclusion_reason=ExclusionReason.BUDGET_EXCEEDED),
+    ),
+    citation_ids=("cite_1", "cite_2"),
+    cost_usd=0.05,
+)
+
+# Chain accumulates links across a DAG run
+chain = ProvenanceChain(run_id=RunID("run_001"))
+chain = chain.append(link=link)
+
+# Query the chain
+chain.filter_by_node(NodeID("step_0"))  # Links for a node
+chain.filter_by_agent(AgentID("librarian"))  # Links for an agent
+chain.total_cost_usd  # Sum of all link costs
+chain.all_citation_ids  # All citation IDs across links
+chain.all_source_ids  # All unique source IDs
+```
+
+### DomainContext
+
+Domain-scoped business rules for multi-tenant deployments:
+
+```python
+from cemaf.core.domain import DomainContext
+
+domain = DomainContext(
+    domain_id=DomainID("healthcare"),
+    tenant_id=TenantID("hospital_a"),
+    business_rules=("HIPAA compliant", "No patient names in output"),
+    vocabulary_constraints=("Use ICD-10 codes",),
+    required_citation_style="APA",
+    quality_thresholds={"min_confidence": 0.9},
+)
+```
+
 ## Types
 
 Core type aliases for type safety:
@@ -198,8 +251,35 @@ from cemaf.core.types import (
     RunID,          # Execution run identifier
     SkillID,        # Skill identifier
     ToolID,         # Tool identifier
+    ProvenanceID,   # Provenance link identifier
+    DomainID,       # Domain scope identifier
+    TenantID,       # Multi-tenant identifier
 )
 ```
+
+## Provider Registry
+
+Generic extensible factory registry — eliminates `if/elif` chains for backend selection:
+
+```python
+from cemaf.core.provider_registry import ProviderRegistry
+
+# Create a typed registry
+registry = ProviderRegistry[MyProtocol](name="my_backends")
+
+# Register backends
+registry.register(backend="fast", factory=lambda **kw: FastImpl(**kw))
+registry.register(backend="accurate", factory=lambda **kw: AccurateImpl(**kw))
+
+# Create instances
+impl = registry.create(backend="fast", timeout=30)
+
+# Inspect
+registry.list_backends()  # ["fast", "accurate"]
+registry.has(backend="fast")  # True
+```
+
+Used internally by LLM, context compiler, and retrieval factory systems. Users can register custom backends without modifying framework source.
 
 ## Enums
 
@@ -207,10 +287,12 @@ Common enumerations:
 
 ```python
 from cemaf.core.enums import (
-    AgentStatus,    # Agent execution status
-    MemoryScope,    # Memory persistence scope
-    NodeType,       # DAG node type
-    RunStatus,      # Execution run status
+    AgentStatus,        # Agent execution status
+    MemoryScope,        # Memory persistence scope
+    NodeType,           # DAG node type (tool, skill, agent, router, parallel, conditional, loop)
+    RunStatus,          # Execution run status
+    VerificationStatus, # UNVERIFIED, VERIFIED, DISPUTED, RETRACTED
+    ExclusionReason,    # BUDGET_EXCEEDED, LOW_PRIORITY, STALE, DUPLICATE, FILTERED
 )
 ```
 

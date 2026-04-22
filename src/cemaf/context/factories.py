@@ -26,6 +26,8 @@ Example:
     compiler = create_context_compiler_from_config()
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,11 +39,14 @@ from cemaf.context.algorithm import (
     OptimalSelectionAlgorithm,
 )
 from cemaf.context.compiler import (
+    AdvancedCompilerConfig,
     ContextCompiler,
     PriorityContextCompiler,
     SimpleTokenEstimator,
     TokenEstimator,
 )
+from cemaf.core.provider_registry import ProviderRegistry
+from cemaf.llm.protocols import LLMClient
 
 
 @dataclass
@@ -64,7 +69,7 @@ class FactoryOverrides:
 
     token_estimator: TokenEstimator | None = None
     algorithm: ContextSelectionAlgorithm | None = None
-    llm_client: Any | None = None
+    llm_client: LLMClient | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -128,9 +133,9 @@ def create_priority_compiler(
 
 
 def create_advanced_compiler(
-    llm_client: Any,  # LLMClient type (avoid circular import)
+    llm_client: LLMClient,
     token_estimator: TokenEstimator | None = None,
-    config: Any = None,  # AdvancedCompilerConfig type (avoid circular import)
+    config: AdvancedCompilerConfig | None = None,
     algorithm: ContextSelectionAlgorithm | None = None,
 ) -> ContextCompiler:
     """
@@ -232,40 +237,53 @@ def create_optimal_compiler(
     return PriorityContextCompiler(estimator, algorithm=OptimalSelectionAlgorithm(max_sources=max_sources))
 
 
+# Global context compiler registry — extend with your own algorithms
+context_compiler_registry: ProviderRegistry[ContextCompiler] = ProviderRegistry(name="context_compiler")
+
+context_compiler_registry.register(
+    backend="greedy",
+    factory=lambda **kw: create_greedy_compiler(token_estimator=kw.get("token_estimator")),
+)
+context_compiler_registry.register(
+    backend="knapsack",
+    factory=lambda **kw: create_knapsack_compiler(token_estimator=kw.get("token_estimator")),
+)
+context_compiler_registry.register(
+    backend="optimal",
+    factory=lambda **kw: create_optimal_compiler(
+        token_estimator=kw.get("token_estimator"),
+        max_sources=int(kw.get("max_sources", 20)),
+    ),
+)
+
+
 def create_context_compiler_from_config(
     algorithm_name: str | None = None,
     token_estimator: TokenEstimator | None = None,
 ) -> ContextCompiler:
-    """
-    Create context compiler from environment configuration.
-
-    Reads from environment variables:
-    - CEMAF_CONTEXT_SELECTION_ALGORITHM: Algorithm type (greedy, knapsack, optimal)
-
-    Args:
-        algorithm_name: Algorithm type (overrides env var)
-        token_estimator: Custom token estimator (optional)
-
-    Returns:
-        Configured ContextCompiler instance
-
-    Example:
-        # From environment
-        compiler = create_context_compiler_from_config()
-
-        # Explicit algorithm
-        compiler = create_context_compiler_from_config(algorithm_name="knapsack")
-    """
+    """Create context compiler from environment configuration."""
     algorithm = algorithm_name or os.getenv("CEMAF_CONTEXT_SELECTION_ALGORITHM", "greedy")
+    assert algorithm is not None  # always set by getenv default
 
-    if algorithm == "greedy":
-        return create_greedy_compiler(token_estimator=token_estimator)
-    elif algorithm == "knapsack":
-        return create_knapsack_compiler(token_estimator=token_estimator)
-    elif algorithm == "optimal":
-        max_sources = int(os.getenv("CEMAF_CONTEXT_OPTIMAL_MAX_SOURCES", "20"))
-        return create_optimal_compiler(token_estimator=token_estimator, max_sources=max_sources)
-    else:
-        raise ValueError(
-            f"Unsupported context selection algorithm: {algorithm}. Supported: greedy, knapsack, optimal"
-        )
+    return context_compiler_registry.create(
+        backend=algorithm,
+        token_estimator=token_estimator,
+        max_sources=int(os.getenv("CEMAF_CONTEXT_OPTIMAL_MAX_SOURCES", "20")),
+    )
+
+
+def create_token_estimator(
+    model: str | None = None,
+    chars_per_token: float = 4.0,
+) -> TokenEstimator:
+    """Create the best available token estimator, preferring tiktoken when available."""
+    if model:
+        try:
+            from cemaf.llm.tiktoken_estimator import TiktokenEstimator
+
+            estimator = TiktokenEstimator(model=model)
+            if estimator.is_accurate:
+                return estimator
+        except (ImportError, Exception):
+            pass
+    return SimpleTokenEstimator(chars_per_token=chars_per_token)

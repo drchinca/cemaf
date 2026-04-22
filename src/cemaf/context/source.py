@@ -10,8 +10,7 @@ Usage:
     source1 = ContextSource(
         content="User profile data...",
         priority=10,  # High priority
-        timestamp=datetime.now(),
-        source_type="user_data"
+        source_type="user_data",
     )
 
     source2 = ContextSource(
@@ -26,9 +25,20 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
+from enum import Enum
 
 from cemaf.core.types import JSON, TokenCount
+from cemaf.core.utils import utc_now
+
+
+class ContextType(str, Enum):
+    """Classification of context sources by behavioral semantics."""
+
+    RESOURCE = "resource"
+    MEMORY = "memory"
+    SKILL = "skill"
+    SPEC = "spec"
 
 
 @dataclass(frozen=True)
@@ -58,12 +68,13 @@ class ContextSource:
     content: str
     token_count: TokenCount | None = None  # Optional, can be computed later
     priority: int = 0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    timestamp: datetime = field(default_factory=lambda: utc_now())
     source_type: str = "unknown"
     source_id: str = ""
     compressible: bool = True
     min_tokens: int = 0
     metadata: JSON = field(default_factory=dict)
+    context_type: ContextType | None = None
 
     # Legacy field aliases for backward compatibility
     @property
@@ -90,6 +101,7 @@ class ContextSource:
         # Legacy parameters for backward compatibility
         type: str | None = None,  # noqa: A002
         key: str | None = None,
+        context_type: ContextType | None = None,
     ) -> None:
         """Initialize ContextSource with backward compatibility for old parameters."""
         # Handle legacy parameters
@@ -101,12 +113,13 @@ class ContextSource:
         object.__setattr__(self, "content", content)
         object.__setattr__(self, "token_count", token_count)
         object.__setattr__(self, "priority", priority)
-        object.__setattr__(self, "timestamp", timestamp or datetime.now(UTC))
+        object.__setattr__(self, "timestamp", timestamp or utc_now())
         object.__setattr__(self, "source_type", source_type)
         object.__setattr__(self, "source_id", source_id)
         object.__setattr__(self, "compressible", compressible)
         object.__setattr__(self, "min_tokens", min_tokens)
         object.__setattr__(self, "metadata", metadata or {})
+        object.__setattr__(self, "context_type", context_type)
 
     @classmethod
     def from_tool_output(
@@ -135,11 +148,12 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             source_type="tool_output",
             source_id=tool_name,
             compressible=compressible,
             metadata={"tool": tool_name},
+            context_type=ContextType.RESOURCE,
         )
 
     @classmethod
@@ -171,11 +185,12 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=timestamp or datetime.now(UTC),
+            timestamp=timestamp or utc_now(),
             source_type="document",
             source_id=document_id,
             compressible=compressible,
             metadata={"document_id": document_id},
+            context_type=ContextType.RESOURCE,
         )
 
     @classmethod
@@ -207,11 +222,12 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=timestamp or datetime.now(UTC),
+            timestamp=timestamp or utc_now(),
             source_type="memory",
             source_id=memory_key,
             compressible=compressible,
             metadata={"memory_key": memory_key},
+            context_type=ContextType.MEMORY,
         )
 
     @classmethod
@@ -243,24 +259,50 @@ class ContextSource:
             content=content,
             token_count=token_count,
             priority=priority,
-            timestamp=datetime.now(UTC),
+            timestamp=utc_now(),
             source_type="system",
             source_id="system_prompt",
             compressible=compressible,
             min_tokens=min_tokens,
             metadata={"critical": True},
+            context_type=ContextType.SKILL,
+        )
+
+    @classmethod
+    def from_spec(
+        cls,
+        content: str,
+        spec_id: str,
+        *,
+        token_count: TokenCount | None = None,
+        priority: int = 8,
+        timestamp: datetime | None = None,
+        change_id: str = "",
+        capability: str = "",
+    ) -> ContextSource:
+        """Create a ContextSource from an OpenSpec proposal or archived spec.
+
+        Specs are never lossy-compacted — scenarios are load-bearing.
+        """
+        metadata: JSON = {"spec_id": spec_id}
+        if change_id:
+            metadata["change_id"] = change_id
+        if capability:
+            metadata["capability"] = capability
+        return cls(
+            content=content,
+            token_count=token_count,
+            priority=priority,
+            timestamp=timestamp or utc_now(),
+            source_type="spec",
+            source_id=spec_id,
+            compressible=False,
+            metadata=metadata,
+            context_type=ContextType.SPEC,
         )
 
     def with_priority(self, priority: int) -> ContextSource:
-        """
-        Create a new source with updated priority.
-
-        Args:
-            priority: New priority value
-
-        Returns:
-            New ContextSource instance
-        """
+        """Create a new source with updated priority."""
         return ContextSource(
             content=self.content,
             priority=priority,
@@ -271,18 +313,11 @@ class ContextSource:
             compressible=self.compressible,
             min_tokens=self.min_tokens,
             metadata=self.metadata,
+            context_type=self.context_type,
         )
 
     def with_token_count(self, token_count: TokenCount) -> ContextSource:
-        """
-        Create a new source with pre-computed token count.
-
-        Args:
-            token_count: Number of tokens in content
-
-        Returns:
-            New ContextSource instance
-        """
+        """Create a new source with pre-computed token count."""
         return ContextSource(
             content=self.content,
             priority=self.priority,
@@ -293,6 +328,7 @@ class ContextSource:
             compressible=self.compressible,
             min_tokens=self.min_tokens,
             metadata=self.metadata,
+            context_type=self.context_type,
         )
 
     def age_seconds(self, reference_time: datetime | None = None) -> float:
@@ -305,7 +341,7 @@ class ContextSource:
         Returns:
             Age in seconds
         """
-        ref = reference_time or datetime.now(UTC)
+        ref = reference_time or utc_now()
         return (ref - self.timestamp).total_seconds()
 
     def __lt__(self, other: ContextSource) -> bool:

@@ -21,17 +21,7 @@ from cemaf.core.utils import generate_id, utc_now
 
 @dataclass(frozen=True)
 class ToolCall:
-    """
-    Record of a single tool invocation.
-
-    Captures:
-    - What tool was called (tool_id)
-    - What input it received (input)
-    - What output it produced (output)
-    - How long it took (duration_ms)
-    - When it happened (timestamp)
-    - Tracing info (correlation_id)
-    """
+    """Record of a single tool invocation."""
 
     tool_id: str
     input: JSON
@@ -41,13 +31,15 @@ class ToolCall:
     correlation_id: str = ""
     success: bool = True
     error: str | None = None
+    node_id: str | None = None
+    agent_id: str | None = None
 
     # Auto-generated
     id: str = field(default_factory=lambda: generate_id("call"))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "id": self.id,
             "tool_id": self.tool_id,
             "input": self.input,
@@ -58,6 +50,11 @@ class ToolCall:
             "success": self.success,
             "error": self.error,
         }
+        if self.node_id is not None:
+            result["node_id"] = self.node_id
+        if self.agent_id is not None:
+            result["agent_id"] = self.agent_id
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ToolCall:
@@ -72,21 +69,14 @@ class ToolCall:
             correlation_id=data.get("correlation_id", ""),
             success=data.get("success", True),
             error=data.get("error"),
+            node_id=data.get("node_id"),
+            agent_id=data.get("agent_id"),
         )
 
 
 @dataclass(frozen=True)
 class LLMCall:
-    """
-    Record of a single LLM invocation.
-
-    Captures:
-    - Model used
-    - Input messages/prompt
-    - Output response
-    - Token usage
-    - Duration
-    """
+    """Record of a single LLM invocation with provenance tracking."""
 
     model: str
     input_messages: list[dict[str, Any]]
@@ -96,13 +86,21 @@ class LLMCall:
     duration_ms: float = 0.0
     timestamp: datetime = field(default_factory=utc_now)
     correlation_id: str = ""
+    node_id: str | None = None
+    agent_id: str | None = None
+    context_sources_used: tuple[str, ...] = ()
+    context_hash: str = ""
+    budget_utilization: float = 0.0
+    cost_usd: float = 0.0
+    provenance_link_id: str | None = None
+    error: str | None = None
 
     # Auto-generated
     id: str = field(default_factory=lambda: generate_id("llm"))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "id": self.id,
             "model": self.model,
             "input_messages": self.input_messages,
@@ -113,6 +111,21 @@ class LLMCall:
             "timestamp": self.timestamp.isoformat(),
             "correlation_id": self.correlation_id,
         }
+        if self.node_id is not None:
+            result["node_id"] = self.node_id
+        if self.agent_id is not None:
+            result["agent_id"] = self.agent_id
+        if self.context_sources_used:
+            result["context_sources_used"] = list(self.context_sources_used)
+        if self.context_hash:
+            result["context_hash"] = self.context_hash
+        if self.budget_utilization > 0:
+            result["budget_utilization"] = self.budget_utilization
+        if self.cost_usd > 0:
+            result["cost_usd"] = self.cost_usd
+        if self.provenance_link_id is not None:
+            result["provenance_link_id"] = self.provenance_link_id
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> LLMCall:
@@ -127,21 +140,19 @@ class LLMCall:
             duration_ms=data.get("duration_ms", 0.0),
             timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else utc_now(),
             correlation_id=data.get("correlation_id", ""),
+            node_id=data.get("node_id"),
+            agent_id=data.get("agent_id"),
+            context_sources_used=tuple(data.get("context_sources_used", [])),
+            context_hash=data.get("context_hash", ""),
+            budget_utilization=data.get("budget_utilization", 0.0),
+            cost_usd=data.get("cost_usd", 0.0),
+            provenance_link_id=data.get("provenance_link_id"),
         )
 
 
 @dataclass
 class RunRecord:
-    """
-    Complete record of an agent run.
-
-    Contains:
-    - Run metadata (run_id, dag_name, started_at, completed_at)
-    - Initial and final context
-    - All patches applied
-    - All tool calls made
-    - All LLM calls made
-    """
+    """Complete record of an agent run with provenance tracking."""
 
     run_id: str
     dag_name: str = ""
@@ -155,6 +166,9 @@ class RunRecord:
     success: bool = True
     error: str | None = None
     metadata: JSON = field(default_factory=dict)
+    total_cost_usd: float = 0.0
+    provenance_chain: ProvenanceChain | None = None  # type: ignore[name-defined]  # noqa: F821
+    selection_summaries: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def duration_ms(self) -> float:
@@ -186,7 +200,7 @@ class RunRecord:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        result = {
             "run_id": self.run_id,
             "dag_name": self.dag_name,
             "initial_context": self.initial_context.to_dict() if self.initial_context else None,
@@ -199,13 +213,20 @@ class RunRecord:
             "success": self.success,
             "error": self.error,
             "metadata": self.metadata,
+            "total_cost_usd": self.total_cost_usd,
         }
+        if self.provenance_chain is not None:
+            result["provenance_chain"] = self.provenance_chain.to_dict()
+        if self.selection_summaries:
+            result["selection_summaries"] = self.selection_summaries
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RunRecord:
         """Create RunRecord from dictionary."""
         from cemaf.context.context import Context
         from cemaf.context.patch import ContextPatch
+        from cemaf.core.provenance import ProvenanceChain
 
         initial_ctx = None
         if data.get("initial_context"):
@@ -214,6 +235,10 @@ class RunRecord:
         final_ctx = None
         if data.get("final_context"):
             final_ctx = Context.from_dict(data["final_context"])
+
+        prov_chain = None
+        if data.get("provenance_chain"):
+            prov_chain = ProvenanceChain.from_dict(data["provenance_chain"])
 
         return cls(
             run_id=data["run_id"],
@@ -228,6 +253,9 @@ class RunRecord:
             success=data.get("success", True),
             error=data.get("error"),
             metadata=data.get("metadata", {}),
+            total_cost_usd=data.get("total_cost_usd", 0.0),
+            provenance_chain=prov_chain,
+            selection_summaries=data.get("selection_summaries", []),
         )
 
     def get_patch_log(self) -> PatchLog:  # type: ignore[name-defined]  # noqa: F821
@@ -267,6 +295,10 @@ class RunLogger(Protocol):
 
     def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
         """Record a context patch."""
+        ...
+
+    def record_provenance_link(self, link: ProvenanceLink) -> None:  # type: ignore[name-defined]  # noqa: F821
+        """Record a provenance link for the current run."""
         ...
 
     def end_run(
@@ -321,6 +353,19 @@ class InMemoryRunLogger:
         """Record a context patch."""
         if self._current:
             self._current.patches.append(patch)
+
+    def record_provenance_link(self, link: ProvenanceLink) -> None:  # type: ignore[name-defined]  # noqa: F821
+        """Record a provenance link, appending to the chain."""
+        if self._current:
+            from cemaf.core.provenance import ProvenanceChain
+            from cemaf.core.types import RunID
+
+            if self._current.provenance_chain is None:
+                self._current.provenance_chain = ProvenanceChain(
+                    run_id=RunID(self._current.run_id),
+                )
+            self._current.provenance_chain = self._current.provenance_chain.append(link=link)
+            self._current.total_cost_usd += link.cost_usd
 
     def end_run(
         self,
@@ -387,6 +432,10 @@ class NoOpRunLogger:
         pass
 
     def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
+        """No-op."""
+        pass
+
+    def record_provenance_link(self, link: ProvenanceLink) -> None:  # type: ignore[name-defined]  # noqa: F821
         """No-op."""
         pass
 

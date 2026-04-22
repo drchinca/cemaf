@@ -5,14 +5,16 @@ Simple, focused pub/sub for CEMAF events.
 """
 
 import asyncio
+import logging
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
 
-from cemaf.events.protocols import Event, EventHandler, EventType
+from cemaf.events.protocols import Event, EventHandler, EventHandlerFn, EventType
+
+logger = logging.getLogger(__name__)
 
 # Type alias for handler functions
-Handler = Callable[[Event], Any]
+Handler = EventHandlerFn
 
 
 class _BaseEventBus:
@@ -78,7 +80,12 @@ class AsyncEventBus(_BaseEventBus):
         """Publish event, executing handlers concurrently."""
         handlers = self._get_handlers(event)
         if handlers:
-            await asyncio.gather(*[self._execute(h, event) for h in handlers], return_exceptions=True)
+            results = await asyncio.gather(
+                *[self._execute(h, event) for h in handlers], return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error("Event handler failed: %s", result, exc_info=result)
 
     async def publish_batch(self, events: list[Event]) -> None:
         """Publish multiple events concurrently."""

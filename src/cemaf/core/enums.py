@@ -36,6 +36,8 @@ class NodeType(str, Enum):
     ROUTER = "router"
     PARALLEL = "parallel"
     CONDITIONAL = "conditional"
+    LOOP = "loop"
+    CHECKPOINT = "checkpoint"
 
 
 class MemoryScope(str, Enum):
@@ -70,3 +72,30 @@ class Priority(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class VerificationStatus(str, Enum):
+    """Verification state of a cited fact."""
+
+    UNVERIFIED = "unverified"
+    VERIFIED = "verified"
+    DISPUTED = "disputed"
+    RETRACTED = "retracted"
+
+
+class ExclusionReason(str, Enum):
+    """Reason a context source was excluded from compilation."""
+
+    BUDGET_EXCEEDED = "budget_exceeded"
+    LOW_PRIORITY = "low_priority"
+    STALE = "stale"
+    DUPLICATE = "duplicate"
+    FILTERED = "filtered"
+
+
+class ToolRiskLevel(str, Enum):
+    """Risk classification for tool actions — gates execution policy."""
+
+    LOW = "low"  # Read-only, no side effects (e.g., search, introspect)
+    MEDIUM = "medium"  # Writes data, reversible (e.g., add entity, update config)
+    HIGH = "high"  # Destructive or irreversible (e.g., delete, deploy, send)

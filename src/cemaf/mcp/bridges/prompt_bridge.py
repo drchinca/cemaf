@@ -1,88 +1,48 @@
 """Bridge CEMAF Blueprints to MCP prompt format."""
 
-from typing import Any
+import re
 
 from cemaf.blueprint.core import Blueprint
+from cemaf.core.types import JSON
 from cemaf.mcp.types import MCPPrompt, MCPPromptArgument
 
 
 class PromptBridge:
-    """
-    Bridge between CEMAF Blueprint and MCP prompt format.
-    """
+    """Bridge between CEMAF Blueprint and MCP prompt format."""
 
     @staticmethod
     def to_mcp(blueprint: Blueprint) -> MCPPrompt:
-        """
-        Convert CEMAF Blueprint to MCP prompt.
+        """Convert CEMAF Blueprint to MCP prompt."""
+        arguments: list[MCPPromptArgument] = []
 
-        Blueprint fields become prompt arguments.
-        """
-        # Extract arguments from blueprint structure
-        arguments = []
-
-        # The instruction is a key input
-        if blueprint.instruction:
-            arguments.append(
-                MCPPromptArgument(
-                    name="instruction",
-                    description="Override the default instruction",
-                    required=False,
+        instruction = blueprint.instruction
+        if instruction:
+            placeholders = re.findall(r"\{(\w+)\}", instruction)
+            for name in set(placeholders):
+                arguments.append(
+                    MCPPromptArgument(
+                        name=name,
+                        description=f"Value for {{{name}}}",
+                        required=True,
+                    )
                 )
-            )
-
-        # Entities can be customized
-        if blueprint.entities:
-            arguments.append(
-                MCPPromptArgument(
-                    name="entities",
-                    description="Custom entity definitions",
-                    required=False,
-                )
-            )
-
-        # Context is always available
-        arguments.append(
-            MCPPromptArgument(
-                name="context",
-                description="Additional context for the prompt",
-                required=False,
-            )
-        )
 
         return MCPPrompt(
             name=blueprint.id,
-            description=blueprint.description or f"Blueprint: {blueprint.name}",
+            description=blueprint.description or blueprint.name,
             arguments=tuple(arguments),
         )
 
     @staticmethod
-    def get_prompt_text(blueprint: Blueprint, arguments: dict[str, Any] | None = None) -> str:
-        """
-        Generate prompt text from blueprint with optional argument overrides.
+    def get_prompt_text(
+        blueprint: Blueprint,
+        arguments: JSON,
+    ) -> str:
+        """Render blueprint as prompt text with arguments."""
+        text = blueprint.to_prompt()
 
-        Args:
-            blueprint: The Blueprint to convert
-            arguments: Optional argument overrides
+        for key, value in arguments.items():
+            placeholder = "{" + key + "}"
+            text = text.replace(placeholder, str(value))
 
-        Returns:
-            Formatted prompt string
-        """
-        args = arguments or {}
-
-        # Start with the base prompt
-        prompt = blueprint.to_prompt()
-
-        # Apply any context override
-        if "context" in args:
-            prompt = f"{prompt}\n\n## Additional Context\n{args['context']}"
-
-        # Apply instruction override
-        if "instruction" in args:
-            # Replace instruction section
-            prompt = prompt.replace(
-                f"## Instructions\n{blueprint.instruction}",
-                f"## Instructions\n{args['instruction']}",
-            )
-
-        return prompt
+        return text

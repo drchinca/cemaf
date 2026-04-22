@@ -1,6 +1,6 @@
 # CEMAF Module Reference Guide
 
-**Last Updated**: December 2024
+**Last Updated**: March 2026
 
 > **Note**: This is a technical reference guide providing a comprehensive module-by-module breakdown of the CEMAF framework. For learning-oriented documentation with tutorials and examples, see the [official documentation](./README.md).
 
@@ -11,7 +11,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 ### `types.py`
 
 - **Purpose**: Type-safe identifiers using `NewType`
-- **Exports**: `AgentID`, `ToolID`, `SkillID`, `NodeID`, `RunID`, `ProjectID`, `TokenCount`, `Confidence`, `JSON`
+- **Exports**: `AgentID`, `ToolID`, `SkillID`, `NodeID`, `RunID`, `ProjectID`, `TokenCount`, `Confidence`, `JSON`, `ProvenanceID`, `DomainID`, `TenantID`
 - **Key Feature**: Prevents mixing different ID types at compile time
 
 ### `enums.py`
@@ -20,10 +20,24 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Exports**:
   - `AgentStatus` (idle, running, waiting, completed, failed)
   - `RunStatus` (pending, running, completed, failed, cancelled)
-  - `NodeType` (tool, skill, agent, router, parallel, conditional)
+  - `NodeType` (tool, skill, agent, router, parallel, conditional, loop)
   - `MemoryScope` (brand, project, audience_segment, platform, personae, session)
   - `ContextArtifactType` (brand_constitution, style_guide, symbol_canon, etc.)
   - `Priority` (low, medium, high, critical)
+  - `VerificationStatus` (unverified, verified, disputed, retracted)
+  - `ExclusionReason` (budget_exceeded, low_priority, stale, duplicate, filtered)
+
+### `provenance.py`
+
+- **Purpose**: Glass box audit trail for DAG runs
+- **Exports**: `SourceReference`, `ProvenanceLink`, `ProvenanceChain`
+- **Key Feature**: Cross-references every LLM call with its context sources, citations, patches, and costs
+
+### `domain.py`
+
+- **Purpose**: Domain-scoped business rules for multi-tenant deployments
+- **Exports**: `DomainContext`
+- **Key Feature**: Carries business rules, vocabulary constraints, citation style requirements through agent execution
 
 ### `result.py`
 
@@ -49,10 +63,26 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Categories**: Execution, Agent, DeepAgent, Context/Token limits, Memory, Confidence thresholds, DAG execution
 - **Philosophy**: NO hardcoded values elsewhere in codebase
 
+### `provider_registry.py`
+
+- **Purpose**: Generic extensible factory registry replacing if/elif chains
+- **Exports**: `ProviderRegistry[T]`
+- **Key Methods**: `register(backend, factory)`, `create(backend, **kwargs)`, `has(backend)`, `list_backends()`
+- **Used By**: LLM factories (`llm_registry`), context factories (`context_compiler_registry`), retrieval factories (`vector_store_registry`)
+
 ### `execution.py` & `storage.py`
 
 - **Purpose**: Execution context and storage abstractions
-- **Status**: Core components for execution management
+- **Key Classes**:
+  - `CancellationToken`: Cooperative cancellation with parent-child hierarchy
+  - `ExecutionContext`: Context manager for timeout and cancellation
+  - `CancelledException`, `TimeoutException`: Execution exceptions
+
+### `recovery.py`
+
+- **Purpose**: Autonomous recovery and self-healing for infrastructure errors
+- **Key Classes**: `AutoHealManager`
+- **Features**: Registered as optional dependency in `RuntimeServices`
 
 ---
 
@@ -62,7 +92,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 - **Purpose**: Atomic, stateless functions
 - **Key Classes**:
-  - `ToolSchema`: JSON Schema for tool parameters (OpenAI/Anthropic format conversion)
+  - `ToolSchema`: JSON Schema for tool parameters (OpenAI/Anthropic format conversion, `to_definition()` bridge to LLM protocols)
   - `Tool`: Abstract base class
   - `@tool()` decorator: Convert functions to tools
 - **Features**:
@@ -90,6 +120,26 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `AgentResult`: Result with state trace and skill results
 - **Features**: Agents orchestrate skills, maintain state, make decisions
 
+### `agents/registry.py`
+
+- **Purpose**: Dynamic, domain-scoped agent registry
+- **Key Classes**:
+  - `AgentRegistry(BaseRegistry[Agent])`: Dynamic agent registration and discovery
+- **Features**:
+  - `register_agent(agent_class, domain_id)` for domain-scoped registration
+  - `get_for_domain(domain_id)` for domain-scoped lookup
+  - `get_capabilities_description()` auto-generated from registered agents
+  - Factory `create_default_registry()` replaces singleton pattern
+
+### `agents/context_agents.py`
+
+- **Purpose**: Built-in context engineering agents
+- **Key Agents**:
+  - `LibrarianAgent`: Context retrieval and organization
+  - `ResearcherAgent`: Multi-source research and synthesis
+  - `SummarizerAgent`: Intelligent content compression
+  - `WriterAgent`: Context-aware content generation
+
 ---
 
 ## Orchestration (`cemaf/orchestration/`)
@@ -98,13 +148,15 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 - **Purpose**: Dynamic DAG (Directed Acyclic Graph) for workflow definition
 - **Key Classes**:
-  - `Node`: Workflow node (tool/skill/agent/router/parallel/conditional)
+  - `Node`: Workflow node (tool/skill/agent/router/parallel/conditional/loop)
   - `Edge`: Connection with conditions (ALWAYS, ON_SUCCESS, ON_FAILURE, JSON_RULE)
   - `Condition`: Serializable condition with operators (equals, contains, etc.)
   - `DAG`: Graph with nodes, edges, validation, cycle detection
+- **Factory Methods**: `Node.tool()`, `Node.skill()`, `Node.agent()`, `Node.router()`, `Node.parallel()`, `Node.conditional()`, `Node.loop()`
 - **Features**:
   - Dynamic construction at runtime
   - Composable (nests DAGs)
+  - Loop nodes for iterative subgraph execution (max_iterations, exit_condition)
   - Mermaid export
   - JSON serialization
 
@@ -113,16 +165,34 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Purpose**: Executes DAGs with dependency resolution
 - **Key Classes**:
   - `DAGExecutor`: Main executor
+  - `ExecutorConfig`: Configuration (max_parallel, enable_logging, enable_events, enable_moderation, node_timeout_seconds)
   - `NodeResult`: Result of single node execution
   - `ExecutionResult`: Complete DAG execution result
 - **Features**:
   - Topological sort for dependency resolution
-  - Parallel execution for PARALLEL nodes
-  - Conditional routing for ROUTER nodes
+  - Delegates node-type-specific logic to `node_handlers.py`
+  - Cooperative cancellation via `CancellationToken` parameter in `run()`
   - Context propagation
   - Checkpointing for resume
   - Context patch emission
   - Run logging integration
+  - Session lifecycle management (bootstrap/dispose via `SessionManager`)
+  - Quality police halt gate integration
+
+### `node_handlers.py`
+
+- **Purpose**: Node-type-specific execution handlers extracted from DAGExecutor
+- **Key Classes**:
+  - `NodeHandlerContext`: Shared context (route_choices, apply_output, execute_with_retry, merge_strategy, max_parallel, run_logger, correlation_id)
+- **Key Functions**: Handlers for ROUTER, CONDITIONAL, LOOP, and PARALLEL node types
+- **Benefits**: Keeps DAGExecutor focused on orchestration flow; handlers are independently testable
+
+### `services.py`
+
+- **Purpose**: Runtime services bundle (DI container) for orchestration
+- **Key Classes**:
+  - `RuntimeServices`: Frozen dataclass bundling 16 optional dependencies across observability, quality, memory, content safety, context, LLM/retrieval, and recovery categories
+- **Features**: All fields optional (default `None`), used by `bootstrap.create_executor()`
 
 ### `deep_agent.py`
 
@@ -137,10 +207,63 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - Dynamic DAG creation from goals
   - Context isolation between levels
 
+### `node_handlers.py`
+
+- **Purpose**: Node-type-specific execution handlers extracted from DAGExecutor
+- **Key Classes**:
+  - `NodeHandlerContext`: Frozen slots dataclass bundling route_choices, apply_output, execute_with_retry, merge_strategy, max_parallel, run_logger, correlation_id
+- **Key Functions**:
+  - `execute_router_node()`: Execute ROUTER node and select allowed downstream targets
+  - `execute_conditional_node()`: Evaluate condition and select branch
+  - `execute_loop_node()`: Iterative subgraph execution with exit conditions
+  - `execute_parallel_node()`: Concurrent execution of parallel branches
+- **Benefits**: Clean separation of node type logic from core executor
+
+### `services.py`
+
+- **Purpose**: Runtime services bundle for orchestration components
+- **Key Classes**:
+  - `RuntimeServices`: Frozen dataclass bundling 15+ optional dependencies grouped by concern:
+    - Observability: `run_logger`, `event_bus`, `health_monitor`, `budget_guard`
+    - Quality: `online_eval_pipeline`, `quality_police`
+    - Memory: `memory_manager`, `session_manager`
+    - Content safety: `moderation_pipeline`
+    - Context: `context_compiler`, `token_budget`, `domain_context`
+    - LLM + Retrieval: `llm_client`, `vector_store`
+    - Recovery: `auto_heal_manager`
+- **Used By**: `bootstrap.create_executor()` composition root
+
 ### `checkpointer.py`
 
 - **Purpose**: Save/restore execution state for resumability
 - **Key Components**: Checkpoint protocol and implementations
+
+### `context_node_executor.py`
+
+- **Purpose**: Bridge between DAG nodes and agents via dynamic registry
+- **Key Classes**:
+  - `ContextNodeExecutor(NodeExecutor)`: Resolves node ref_id to agent via registry
+- **Features**:
+  - Builds GoalT from resolved inputs
+  - Threads DomainContext + provenance through AgentContext
+  - Records LLMCall/ContextPatch/Citation via RunLogger
+  - Builds ProvenanceLink per execution
+  - Accepts optional `MemoryManager` + `SessionManager` (recall before node, ingest after)
+
+### `planner.py`
+
+- **Purpose**: Dynamic DAG planning with domain-aware capabilities
+- **Key Classes**:
+  - `DynamicPlanner`: Generates DAG plans from goals using LLM
+- **Features**:
+  - Accepts `domain_context: DomainContext` for domain-scoped planning
+  - Dynamic capabilities description from AgentRegistry
+  - Injects domain info into planning prompt
+
+### `dependency_resolver.py`
+
+- **Purpose**: Resolve node dependencies for parallel execution
+- **Key Components**: Topological sort, dependency graph analysis
 
 ### `factories.py`
 
@@ -152,6 +275,15 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 ---
 
+## Bootstrap (`cemaf/bootstrap.py`)
+
+- **Purpose**: Composition root for creating a fully-wired executor
+- **Key Functions**:
+  - `create_executor(agent_registry, config, services)` - Wires `ContextNodeExecutor`, subscribes `OnlineEvalPipeline` and `QualityPolice` to EventBus, creates `DAGExecutor` with all optional services
+- **Features**: Single entry point that replaces manual wiring of 15+ components
+
+---
+
 ## Context Engine (`cemaf/context/`)
 
 ### `context.py`
@@ -160,6 +292,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Key Class**: `Context`
 - **Features**:
   - Immutable (all mutations return new instance)
+  - `set()` uses `copy.deepcopy()` for nested dict immutability
   - Dot-notation access (`context.get("user.preferences.theme")`)
   - `set()`, `merge()`, `delete()` operations
   - JSON-serializable
@@ -174,18 +307,34 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `PatchLog`: Append-only log of patches
 - **Features**: Full audit trail of who changed what and when
 
+### `source.py`
+
+- **Purpose**: Context source abstraction with metadata and type classification
+- **Key Classes**:
+  - `ContextType`: Enum (RESOURCE, MEMORY, SKILL) for behavioral classification
+  - `ContextSource`: Source of context with priority, recency, token count, and optional `context_type`
+- **Features**: Unified representation for documents, API responses, tool outputs, and memory items
+
+### `classification.py`
+
+- **Purpose**: Context type classification and behavioral rules
+- **Key Classes**:
+  - `ContextTypeBehavior`: Rules per type (cacheable, shareable, compressible, default_ttl, default_priority, preferred_compaction)
+  - `ContextTypeClassifier`: Protocol for classifying sources
+  - `DefaultContextTypeClassifier`: Default implementation with sensible mappings
+- **Features**: Determines compaction, caching, and sharing behavior based on source type
+
 ### `compiler.py`
 
 - **Purpose**: Assembles context for LLM calls
 - **Key Classes**:
-  - `ContextSource`: Source of context (artifact, memory, message, tool_result)
   - `CompiledContext`: Compiled context with deterministic hash
   - `ContextCompiler`: Protocol for compiling context
   - `PriorityContextCompiler`: Priority-based selection with pluggable algorithms
 - **Features**:
   - Gathers artifacts and memories
   - Respects token budget
-  - Deterministic output (same inputs → same hash)
+  - Deterministic output (same inputs -> same hash)
   - Converts to LLM message format
   - Pluggable selection algorithms
 
@@ -196,7 +345,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `ContextSelectionAlgorithm`: Protocol for selection strategies
   - `SelectionResult`: Immutable result with selected sources and metadata
   - `GreedySelectionAlgorithm`: O(n) fast selection by priority (default)
-  - `KnapsackSelectionAlgorithm`: O(n × budget) optimal priority maximization via dynamic programming
+  - `KnapsackSelectionAlgorithm`: O(n x budget) optimal priority maximization via dynamic programming
   - `OptimalSelectionAlgorithm`: Brute force for small sets (<20 sources), knapsack fallback for larger sets
 - **Features**:
   - Pluggable algorithm implementations via protocol
@@ -212,6 +361,17 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `TokenBudget`: Defines max tokens, reserved output, allocations
   - `BudgetAllocation`: Allocation per section with priority
 - **Features**: Model-specific budgets, section allocation, output reservation
+
+### `classification.py`
+
+- **Purpose**: Behavioral semantics for context sources based on type
+- **Key Classes**:
+  - `ContextTypeBehavior`: Frozen dataclass encoding cacheable, shareable, compressible, default_ttl, default_priority, preferred_compaction
+  - `ContextTypeClassifier`: Protocol for classifying sources and resolving behavior
+  - `DefaultContextTypeClassifier`: Default classifier with configurable behavior registry and source_type_map
+- **Exports**: `classify_source()`, `get_behavior()` module-level convenience functions
+- **Types**: Maps to `ContextType` enum (RESOURCE, MEMORY, SKILL) from `context/source.py`
+- **Features**: Per-type compaction rules, caching/sharing policies, TTL defaults
 
 ### `advanced_compiler.py`
 
@@ -236,6 +396,9 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `create_greedy_compiler()` - Explicit greedy algorithm selection
   - `create_knapsack_compiler()` - Explicit knapsack algorithm selection
   - `create_optimal_compiler()` - Explicit optimal algorithm selection
+  - `create_token_estimator(model)` - Smart factory preferring tiktoken when available
+  - `create_context_compiler_from_config()` - Environment-based compiler creation via `ProviderRegistry`
+- **Registry**: `context_compiler_registry` -- extensible `ProviderRegistry[ContextCompiler]` with greedy/knapsack/optimal built-in
 - **Benefits**: Provides sensible defaults while maintaining dependency injection principles
 
 ---
@@ -264,16 +427,15 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - Configurable chunk size (default 500 tokens)
   - Uses `TokenEstimator` for accurate sizing
   - Creates flat chunk structure (depth=0)
-  - Future: hierarchical summarization support
 
 ### `engine.py`
 
 - **Purpose**: Recursive query engine with divide-and-conquer strategy
 - **Key Class**: `DivideAndConquerQueryEngine`
 - **Algorithm**:
-  1. Base case: If chunks fit in budget → single LLM call
+  1. Base case: If chunks fit in budget, single LLM call
   2. Recursive case: Split chunks, query each, aggregate results
-  3. Fallback: Max depth reached or single large chunk → query first chunk only
+  3. Fallback: Max depth reached or single large chunk, query first chunk only
 - **Features**:
   - Uses `PriorityContextCompiler` for budget enforcement
   - Respects max_depth to prevent infinite recursion
@@ -335,7 +497,7 @@ result = await rlm_tool.execute(
 
 print(f"Answer: {result.data}")
 print(f"Metadata: {result.metadata}")
-# → depth_reached, chunks_examined, llm_calls_made, total_tokens_used
+# depth_reached, chunks_examined, llm_calls_made, total_tokens_used
 ```
 
 ---
@@ -344,17 +506,72 @@ print(f"Metadata: {result.metadata}")
 
 ### `run_logger.py`
 
-- **Purpose**: Recording and replaying agent runs
+- **Purpose**: Recording and replaying agent runs with provenance tracking
 - **Key Classes**:
-  - `ToolCall`: Record of tool invocation (input, output, duration, timestamp, correlation_id)
-  - `LLMCall`: Record of LLM call (messages, response, tokens, latency)
-  - `RunRecord`: Complete run record (run_id, patches, tool_calls, llm_calls, final_context)
-  - `RunLogger`: Protocol for recording
+  - `ToolCall`: Record of tool invocation (input, output, duration, timestamp, correlation_id, node_id, agent_id)
+  - `LLMCall`: Record of LLM call (messages, response, tokens, latency, context_sources_used, context_hash, budget_utilization, cost_usd, provenance_link_id)
+  - `RunRecord`: Complete run record (run_id, patches, tool_calls, llm_calls, final_context, total_cost_usd, provenance_chain, selection_summaries)
+  - `RunLogger`: Protocol for recording (includes `record_provenance_link()`)
   - `InMemoryRunLogger`: In-memory implementation
 - **Features**:
   - Replay-friendly (deterministic)
-  - Full trace of execution
+  - Full trace of execution with provenance
   - Correlation IDs for tracing
+  - Cost tracking per LLM call
+
+### `budget_guard.py`
+
+- **Purpose**: Cost and token limit enforcement across DAG runs
+- **Key Classes**:
+  - `AlertLevel`: Enum (INFO, WARNING, CRITICAL, HALT)
+  - `BudgetAlert`: Immutable alert record (level, utilization, message)
+  - `BudgetGuard`: Configurable guard with `record_usage()`, `check_budget()`, `should_halt()`
+- **Features**:
+  - Configurable warning/critical/halt thresholds
+  - Tracks accumulated cost and tokens
+  - Integrated with DAGExecutor
+
+### `glass_box.py`
+
+- **Purpose**: Complete audit report generation from RunRecords
+- **Key Classes**:
+  - `CostBreakdown`: Per-model, per-node, per-agent cost breakdown
+  - `TokenAudit`: Per-source, per-node, per-agent token breakdown with exclusion reasons
+  - `DecisionStep`: What an LLM saw vs decided (sources seen/excluded, citations, output)
+  - `CitationCoverage`: Verification that citations reference sources the LLM actually saw
+  - `GlassBoxReport`: Complete audit trail (provenance, citations, tokens, costs, decisions, quality)
+  - `GlassBoxReporter`: Generates reports from RunRecords
+- **Features**:
+  - Decision trace: full transparency into each LLM call
+  - Citation coverage verification
+  - Serializable via `to_dict()`
+
+### `structured.py`
+
+- **Purpose**: Production-grade structured logging
+- **Key Classes**:
+  - `StructuredLogger`: JSON-lines logger satisfying the `Logger` protocol
+- **Features**:
+  - Outputs structured JSON records to stdout
+  - Timestamps, log levels, injectable context fields
+  - Drop-in replacement for the default logger in production
+
+### `prometheus_metrics.py`
+
+- **Purpose**: Production metrics collection for monitoring and alerting
+- **Key Classes**:
+  - `PrometheusMetrics`: `MetricsCollector` backed by `prometheus_client`
+- **Features**:
+  - Lazy metric registration (counters, gauges, histograms)
+  - Configurable prefix (default: `cemaf`)
+  - `generate_metrics()` for Prometheus scraping endpoint
+  - Requires `prometheus-client` package (`cemaf[prometheus]`)
+
+### `health.py`
+
+- **Purpose**: Health monitoring for runtime components
+- **Key Classes**: `HealthMonitor`
+- **Features**: Registered as optional dependency in `RuntimeServices`
 
 ### `protocols.py` & `simple.py`
 
@@ -368,7 +585,7 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Memory storage with scoping and TTL
 - **Key Classes**:
-  - `MemoryItem`: Immutable memory item (scope, key, value, confidence, TTL, expires_at)
+  - `MemoryItem`: Immutable memory item (scope, key, value, confidence, TTL, expires_at, scope_path)
   - `MemoryStore`: Abstract store with redaction/serialization hooks
   - `InMemoryStore`: In-memory implementation
 - **Features**:
@@ -377,6 +594,141 @@ print(f"Metadata: {result.metadata}")
   - Redaction hooks for PII
   - Serialization hooks
   - Expiration cleanup
+
+### `memory/protocols.py`
+
+- **Purpose**: Memory store protocol definitions
+- **Key Protocols**: `MemoryStore`
+
+### `memory/semantic.py`
+
+- **Purpose**: Semantic (embedding-based) memory storage and search
+- **Key Classes**:
+  - `MemoryQuery`: Query parameters (text, scope, limit, min_confidence, scope_path)
+  - `MemorySearchResult`: Result with item, score, rank
+  - `SemanticMemoryStore`: Protocol for semantic memory stores
+  - `DefaultSemanticMemoryStore`: Implementation backed by `VectorStore` + `EmbeddingProvider`
+- **Features**: Embedding-based similarity search over memory items
+
+### `memory/scoring.py`
+
+- **Purpose**: Memory relevance scoring
+- **Key Classes**: `TemporalDecayScorer`
+- **Features**: Time-based decay for memory relevance ranking
+
+### `memory/episodic.py`
+
+- **Purpose**: Episodic memory (event-based) storage
+- **Key Classes**:
+  - `Episode`, `EpisodicEvent`: Episodic memory structures
+  - `InMemoryEpisodicStore`: In-memory implementation
+
+### `memory/manager.py`
+
+- **Purpose**: High-level memory management facade
+- **Key Classes**:
+  - `MemoryManager`: Protocol for memory management
+  - `DefaultMemoryManager`: Default implementation coordinating store, scoring, and events
+
+### `memory/compaction.py`
+
+- **Purpose**: Memory compaction (summarization and deduplication)
+- **Key Classes**: `MemoryCompactor`, `SimpleMemoryCompactor`
+
+### `memory/session.py`
+
+- **Purpose**: Session lifecycle management
+- **Key Classes**:
+  - `SessionManager`: Protocol
+  - `DefaultSessionManager`: Manages bootstrap/dispose, runs `ExtractionPipeline` on dispose
+- **Features**: Scoped session cleanup, extraction pipeline integration
+
+### `memory/context_provider.py`
+
+- **Purpose**: Bridge between memory system and context compiler pipeline
+- **Key Classes**:
+  - `MemoryContextProvider`: Protocol that pulls memories and formats them as `ContextSource` items for compilation
+- **Features**: Closes the memory -> retrieval -> context loop
+
+### `memory/deduplication.py`
+
+- **Purpose**: Detect and resolve near-duplicate memory items
+- **Key Classes**:
+  - `MatchType`: Enum (EXACT_KEY, SEMANTIC, PARTIAL_KEY)
+  - `DeduplicationAction`: Enum (STORE_NEW, SKIP, MERGE)
+  - `DuplicateMatch`: Detected duplicate with match type, similarity score, existing item
+  - `MemoryDeduplicator`: Protocol for deduplication
+  - `SemanticDeduplicator`: Implementation using exact key match + embedding similarity threshold
+- **Features**: Prevents duplicate memories from accumulating across sessions
+
+### `memory/tiered.py`
+
+- **Purpose**: Three-tier memory item representation
+- **Key Classes**:
+  - `TieredMemoryItem`: L0 (metadata), L1 (summary), L2 (full content)
+  - `TierGenerator`: Protocol for generating tiers from a MemoryItem
+  - `TruncationTierGenerator`: Default implementation using value truncation
+
+### `memory/tiered_store.py`
+
+- **Purpose**: Tier-aware memory store with progressive retrieval
+- **Key Classes**:
+  - `TieredMemoryStore`: Wraps `SemanticMemoryStore` with L0/L1/L2 progressive search
+- **Features**:
+  - `store_with_tiers()` generates and caches tier representations
+  - `progressive_search()` retrieves L0 candidates, promotes relevant ones to L1/L2
+  - Stays within token budget by loading detail on demand
+
+### `memory/scope_hierarchy.py`
+
+- **Purpose**: Hierarchical scope propagation for memory retrieval
+- **Key Classes**:
+  - `ScopePath`: Slash-separated hierarchical path (`project/campaign/assets`)
+  - `PropagatingScorer`: Queries ancestor scopes with distance-decayed relevance
+- **Features**:
+  - `ScopePath.parent`, `ScopePath.is_ancestor_of()`, `ScopePath.depth`
+  - Memory items carry `scope_path` for fine-grained retrieval
+  - Ancestor queries enable inheritance of project-level memories into child scopes
+
+### `memory/extraction.py`
+
+- **Purpose**: Memory extraction from session episodes
+- **Key Classes**:
+  - `ExtractedMemory`: Extracted fact with confidence and source episode
+  - `MemoryExtractor`: Protocol for extraction
+  - `RuleBasedExtractor`: Default implementation using configurable rules
+
+### `memory/extraction_pipeline.py`
+
+- **Purpose**: Extract -> deduplicate -> store pipeline
+- **Key Classes**:
+  - `ExtractionReport`: Summary (extracted_count, stored_count, deduplicated_count, skipped_count)
+  - `ExtractionPipeline`: Orchestrates extractor -> deduplicator -> memory manager
+- **Features**: Runs during `SessionManager.dispose()`, promotes SESSION to PROJECT scope, emits `MEMORY_EXTRACTED` event
+
+### `memory/sqlite_store.py`
+
+- **Purpose**: SQLite-backed persistent MemoryStore
+- **Key Classes**:
+  - `SqliteMemoryStore`: Persistent store using `aiosqlite`
+- **Features**:
+  - Single table with scope/key primary key
+  - JSON-serialized values, TTL/expiry columns
+  - Supports `scope_path` for hierarchical scoping
+  - Production-ready alternative to `InMemoryStore`
+
+### `memory/factories.py`
+
+- **Purpose**: Factory functions for memory components
+- **Key Functions**:
+  - `create_memory_store(backend)` - Factory with `"memory"` and `"sqlite"` backends
+  - `create_semantic_memory_store()` - Wires VectorStore + EmbeddingProvider
+  - `create_memory_manager(embedding_provider)` - Full manager with optional embedding provider
+  - `create_tiered_memory_store()` - TieredMemoryStore with tier generator
+  - `create_extraction_pipeline()` - ExtractionPipeline with extractor + deduplicator
+  - `create_scope_scorer()` - PropagatingScorer with configurable decay
+  - `create_session_manager(extraction_pipeline)` - SessionManager with optional extraction
+- **Benefits**: BYO-X pattern -- every component is injectable
 
 ### `retrieval/protocols.py`
 
@@ -399,6 +751,17 @@ print(f"Metadata: {result.metadata}")
 - **Purpose**: In-memory vector store implementation
 - **Key Classes**: `InMemoryVectorStore`, `MockEmbeddingProvider`
 - **Features**: Fast in-memory storage for development and testing
+
+### `retrieval/openai_embeddings.py`
+
+- **Purpose**: Production embedding provider using OpenAI API
+- **Key Classes**:
+  - `OpenAIEmbeddingProvider`: `EmbeddingProvider` backed by OpenAI `text-embedding-3-small`
+- **Features**:
+  - Configurable model and dimension (default: 1536)
+  - Handles empty text gracefully (returns zero vectors)
+  - `embed_batch()` sends all non-empty texts in a single API call
+  - Requires `openai` package (`cemaf[openai]`)
 
 ### `retrieval/factories.py`
 
@@ -429,13 +792,136 @@ print(f"Metadata: {result.metadata}")
   - Streaming support
   - Token counting
 
+### `instrumented.py`
+
+- **Purpose**: Transparent LLM call recording for glass box audit
+- **Key Classes**:
+  - `InstrumentedLLMClient`: Wraps any `LLMClient`, auto-records every `complete()`/`stream()` call into a `RunLogger`
+- **Features**:
+  - Records model, input/output tokens, duration, cost, node_id, agent_id per call
+  - Transparent -- callers see a standard `LLMClient` interface
+  - Automatically applied by `ContextNodeExecutor` when `RunLogger` is present
+  - Records failures as well as successes
+
+### `resilient.py`
+
+- **Purpose**: Resilient LLM client with fault tolerance
+- **Key Classes**:
+  - `ResilientLLMClient`: Wraps any `LLMClient` with retry, circuit breaker, and rate limiting
+- **Features**:
+  - `RetryPolicy` with configurable backoff (constant/linear/exponential/fibonacci)
+  - `CircuitBreaker` with failure window and recovery timeout
+  - `RateLimiter` with token bucket algorithm
+  - Optional `MetricsCollector` for observability integration
+  - Transparent -- delegates to inner client, adds resilience layers
+
 ### `tiktoken_estimator.py`
 
 - **Purpose**: Precise token counting for OpenAI models using tiktoken
+- **Key Classes**:
+  - `TiktokenEstimator`: Model-specific tokenizer with `is_accurate` property
+- **Used By**: `create_token_estimator()` factory (preferred when available)
 
 ### `mock.py`
 
 - **Purpose**: Mock LLM client for testing
+
+---
+
+## Evals (`cemaf/evals/`)
+
+### `protocols.py`
+
+- **Purpose**: Output evaluation abstraction
+- **Key Classes**:
+  - `EvalMetric`: PASS_FAIL, EXACT_MATCH, SEMANTIC_SIMILARITY, COHERENCE, RELEVANCE, TOXICITY, etc.
+  - `EvalConfig`: Configuration (pass_threshold, metrics)
+  - `EvalResult`: Result with score (0.0-1.0), passed, reason, expected/actual, confidence
+  - `Evaluator`: Protocol for evaluators
+  - `BaseEvaluator`: Abstract base with shared logic
+- **Features**: Multi-metric evaluation, confidence scores
+
+### `evaluators.py`
+
+- **Purpose**: Built-in deterministic evaluators
+- **Key Classes**: `ExactMatchEvaluator`, `ContainsEvaluator`, `LengthEvaluator`, `JSONSchemaEvaluator`
+
+### `semantic.py`
+
+- **Purpose**: Semantic similarity evaluator using embeddings
+
+### `llm_judge.py`
+
+- **Purpose**: LLM-based evaluation (LLM-as-judge)
+
+### `composite.py`
+
+- **Purpose**: Composite evaluator that runs multiple evaluators and aggregates results
+- **Key Classes**: `CompositeEvaluator`
+
+### `hierarchy.py`
+
+- **Purpose**: Hierarchical multi-tier evaluation -- fast checks first, expensive judges last
+- **Key Classes**:
+  - `TierResult`: Result from a single tier (tier, score, passed, escalated)
+  - `HierarchicalJudgeConfig`: Thresholds (tier1_pass_threshold, tier3_ambiguity_range, tier3_sample_rate)
+  - `HierarchicalJudge(BaseEvaluator)`: Three-tier cascade
+- **Algorithm**:
+  1. **Tier 1** (deterministic): Runs fast evaluators (exact match, length, JSON schema)
+  2. **Tier 2** (semantic): Runs if tier 1 score falls in ambiguity range
+  3. **Tier 3** (LLM judge): Runs if tier 2 is ambiguous or via configurable sample rate
+- **Features**: Minimizes LLM judge calls while maintaining evaluation quality
+
+### `online.py`
+
+- **Purpose**: Online evaluation pipeline for runtime quality monitoring
+- **Key Classes**:
+  - `EvalMode`: Enum (GATE, OBSERVE)
+  - `NodeEvalBinding`: Binds evaluators to node patterns (specific node_id or `"*"` wildcard)
+  - `OnlineEvalPipeline`: Subscribes to `TASK_COMPLETED` events via `EventBus`
+- **Features**:
+  - Event-driven evaluation on node outputs during execution
+  - GATE mode blocks downstream nodes on eval failure
+  - OBSERVE mode logs results without blocking
+  - Wired automatically by `bootstrap.create_executor()`
+
+### `police.py`
+
+- **Purpose**: Rolling quality monitor with anomaly detection and halt logic
+- **Key Classes**:
+  - `AlertLevel`: Enum (WARN, CRITICAL, HALT)
+  - `QualityAlert`: Alert with level, score, rolling_mean, message
+  - `QualityPoliceConfig`: Thresholds (window_size, warn_threshold, critical_threshold, halt_threshold)
+  - `QualityPolice`: Rolling window quality monitor
+- **Features**:
+  - Maintains rolling window of recent scores
+  - Emits alerts when quality degrades below thresholds
+  - `should_halt()` gate integrated with `DAGExecutor`
+  - Subscribes to EventBus for automatic score ingestion
+
+### `tools.py`
+
+- **Purpose**: Eval system exposed as CEMAF tools for agent self-evaluation
+- **Key Classes**:
+  - `RunEvalTool`: Run evaluators against output text
+  - `CheckQualityTool`: Check current quality police status
+  - `RecordScoreTool`: Record a score to quality police
+- **Features**: Built-in evaluator registry (`BUILTIN_EVALUATORS`), `resolve_evaluators(names)` helper
+
+### `agents.py`
+
+- **Purpose**: Quality guard agent that dogfoods the CEMAF agent framework
+- **Key Classes**:
+  - `QualityGuardGoal`: Goal model (output, expected, evaluator_names, record_to_police)
+  - `QualityGuardAgent`: Registered CEMAF agent that evaluates outputs using eval tools and records scores to QualityPolice
+
+### `factories.py`
+
+- **Purpose**: Factory functions for evaluation components
+- **Key Functions**:
+  - `create_exact_match_evaluator()` - ExactMatchEvaluator with defaults
+  - `create_composite_evaluator()` - CompositeEvaluator from evaluator list
+  - `create_composite_evaluator_from_config()` - Environment-based creation
 
 ---
 
@@ -616,27 +1102,6 @@ print(f"Metadata: {result.metadata}")
 
 ---
 
-## Evals (`cemaf/evals/`)
-
-### `protocols.py`
-
-- **Purpose**: Output evaluation abstraction
-- **Key Classes**:
-  - `EvalMetric`: PASS_FAIL, EXACT_MATCH, SEMANTIC_SIMILARITY, COHERENCE, RELEVANCE, TOXICITY, etc.
-  - `EvalResult`: Result with score (0.0-1.0), passed, reason, expected/actual, confidence
-  - `Evaluator`: Protocol for evaluators
-- **Features**: Multi-metric evaluation, confidence scores
-
-### `semantic.py` & `llm_judge.py`
-
-- **Purpose**: Semantic similarity and LLM-based evaluators
-
-### `composite.py` & `evaluators.py`
-
-- **Purpose**: Composite evaluators and implementations
-
----
-
 ## Events/Bus/Notifiers (`cemaf/events/`)
 
 ### `protocols.py`
@@ -756,6 +1221,9 @@ print(f"Metadata: {result.metadata}")
 
 CEMAF uses factory functions throughout the codebase to provide convenient creation of complex objects while maintaining dependency injection principles:
 
+**Bootstrap** (`bootstrap.py`):
+- `create_executor()` -- composition root wiring all services
+
 **Context Factories** (`context/factories.py`):
 - Compiler creation with sensible defaults
 - Algorithm selection helpers
@@ -765,9 +1233,18 @@ CEMAF uses factory functions throughout the codebase to provide convenient creat
 - DAG executor setup
 - Orchestrator configuration
 
+**Memory Factories** (`memory/factories.py`):
+- Memory store creation (`"memory"`, `"sqlite"` backends)
+- Semantic memory store, tiered store, session manager
+- Extraction pipeline, scope scorer, deduplicator
+
 **Retrieval Factories** (`retrieval/factories.py`):
 - Vector store initialization
 - Hybrid retriever setup
+
+**Evals Factories** (`evals/factories.py`):
+- Evaluator creation with defaults
+- Composite evaluator from config
 
 **Replay Factories** (`replay/factories.py`):
 - Replayer mode configuration
@@ -787,14 +1264,17 @@ CEMAF is a comprehensive, modular framework for building AI agent systems with:
 
 1. **Type Safety**: Strong typing with NewType IDs and enums
 2. **Result Pattern**: Consistent error handling via `Result[T]`
-3. **Hierarchy**: Tools → Skills → Agents → DeepAgent
-4. **Orchestration**: Dynamic DAGs with parallel execution and routing
-5. **Context Engineering**: Immutable context with provenance tracking and pluggable selection algorithms
-6. **Observability**: Full run logging for replay and debugging
-7. **Resilience**: Retry, circuit breaker, rate limiting
-8. **Pluggability**: Protocol-based design for all major components
-9. **Immutability**: Most models are frozen for reproducibility
-10. **Modularity**: Each module is independent and composable
+3. **Hierarchy**: Tools -> Skills -> Agents -> DeepAgent
+4. **Orchestration**: Dynamic DAGs with parallel execution, routing, and node handlers
+5. **Context Engineering**: Immutable context with provenance tracking, pluggable selection algorithms, and type classification
+6. **Online Evals**: Three-tier hierarchical evaluation with quality police and halt gates
+7. **Memory**: Semantic, tiered, deduplicated memory with scope propagation and post-session extraction
+8. **Observability**: Structured logging, Prometheus metrics, full run logging for replay and debugging
+9. **Resilience**: Retry, circuit breaker, rate limiting, resilient LLM client
+10. **Pluggability**: Protocol-based design for all major components (BYO-X)
+11. **Production Backends**: SQLite memory, OpenAI embeddings, Prometheus metrics
+12. **Immutability**: Most models are frozen for reproducibility
+13. **Modularity**: Each module is independent and composable
 
 The framework emphasizes:
 
@@ -802,7 +1282,7 @@ The framework emphasizes:
 - **Provenance**: Full audit trail of context changes
 - **Type Safety**: Compile-time checks prevent bugs
 - **Extensibility**: Protocol-based design allows custom implementations (e.g., custom selection algorithms)
-- **Observability**: Comprehensive logging and event system
+- **Observability**: Comprehensive logging, metrics, and event system
 - **Best Practices**: Factory functions encode framework patterns and sensible defaults
 
 ---

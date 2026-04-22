@@ -192,6 +192,11 @@ class RetryPolicy:
     async def __aenter__(self) -> RetryPolicy:
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
         # Don't suppress exceptions
         return False
