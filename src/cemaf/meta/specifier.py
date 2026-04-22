@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Mapping
@@ -196,7 +197,9 @@ class MetaSpecifier(Agent[SpecGoal, SpecResult]):
                 runtime=self._runtime.display_name if self._runtime is not None else "",
             )
             return AgentResult.ok(output=result, state=state)
-        except Exception as exc:  # noqa: BLE001 — boundary between agent + framework
+        except asyncio.CancelledError:
+            raise
+        except (RuntimeError, ValueError, OSError, TimeoutError, ValidationError) as exc:
             logger.exception("[MetaSpecifier] failed")
             return AgentResult.fail(error=str(exc), state=state)
 
@@ -244,11 +247,18 @@ class MetaSpecifier(Agent[SpecGoal, SpecResult]):
         files = render_proposal(doc=proposal)
         await self._workspace.write_change(change_id=proposal.change_id, files=files)
         if self._runtime is None:
+            # Honest signal: we wrote files but cannot prove they validate.
             return ValidationReport(
                 change_id=proposal.change_id,
                 strict=True,
-                exit_code=0,
-                diagnostics=(),
+                exit_code=-1,
+                diagnostics=(
+                    OpenSpecDiagnostic(
+                        severity=DiagnosticSeverity.ERROR,
+                        message="No OpenSpecRuntime configured — validation skipped",
+                        code="runtime-missing",
+                    ),
+                ),
                 raw_output="",
             )
         sub = await self._runtime.execute(

@@ -83,6 +83,18 @@ def test_tasks_fallback_when_empty() -> None:
         title="Empty",
         why="x",
         tasks=(),
+        deltas=(
+            CapabilityDelta(
+                capability="x",
+                added_requirements=(
+                    Requirement(
+                        name="r",
+                        statement="The system SHALL.",
+                        scenarios=(Scenario(name="s", given=("g",), when=("w",), then=("t",)),),
+                    ),
+                ),
+            ),
+        ),
     )
     files = render_proposal(doc=doc)
     assert "- [ ] Define concrete tasks" in files["tasks.md"]
@@ -116,3 +128,30 @@ def test_template_proposal_renders_to_valid_openspec_shape() -> None:
     assert "## ADDED Requirements" in spec
     assert "### Requirement:" in spec
     assert "#### Scenario:" in spec
+
+
+def test_template_proposal_with_multiple_capabilities_renders_one_file_each() -> None:
+    """Coverage gap from QA review: multi-cap rendering wasn't asserted on the file map."""
+    goal = SpecGoal(
+        feature_description="rebuild cache layer",
+        change_id="rebuild-cache",
+        capabilities=("cache", "http", "metrics"),
+    )
+    files = render_proposal(doc=template_proposal(goal=goal))
+    assert "specs/cache/spec.md" in files
+    assert "specs/http/spec.md" in files
+    assert "specs/metrics/spec.md" in files
+    assert files["specs/cache/spec.md"].startswith("# cache capability")
+    assert files["specs/http/spec.md"].startswith("# http capability")
+    assert files["specs/metrics/spec.md"].startswith("# metrics capability")
+
+
+def test_template_proposal_with_empty_capabilities_falls_back() -> None:
+    """When capabilities tuple is empty, template uses 'unspecified'."""
+    goal = SpecGoal(
+        feature_description="something",
+        change_id="add-something",
+        capabilities=(),
+    )
+    doc = template_proposal(goal=goal)
+    assert {d.capability for d in doc.deltas} == {"unspecified"}

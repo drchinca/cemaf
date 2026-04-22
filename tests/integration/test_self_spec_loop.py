@@ -13,6 +13,8 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.core.enums import RunStatus
+from cemaf.core.types import NodeID
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.mcp.bridges.openspec.protocols import SubprocessResult
@@ -21,6 +23,7 @@ from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
 from cemaf.meta.dags import create_self_spec_dag
 from cemaf.meta.goals import SpecGoal
+from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
 from cemaf.tools.registry import ToolRegistry
@@ -139,6 +142,84 @@ async def test_specifier_end_to_end_writes_and_validates(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_self_spec_dag_runs_through_executor(tmp_path: Path) -> None:
+    """Full DAG execution — proves Specifier output propagates and audit trail records."""
+    event_bus = InMemoryEventBus()
+    memory_manager = FakeMemoryManager()
+    audit_log, audit_trail = create_audit_system(event_bus=event_bus)
+    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+
+    workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
+    runtime = FakeOpenSpecRuntime()
+    runtime.register_result(
+        ("validate",),
+        SubprocessResult(returncode=0, stdout=b"info: validated\n", stderr=b""),
+    )
+
+    agent_registry = AgentRegistry()
+    tool_registry = ToolRegistry()
+    services = RuntimeServices(
+        event_bus=event_bus,
+        memory_manager=memory_manager,  # type: ignore[arg-type]
+        openspec_runtime=runtime,
+        openspec_workspace=workspace,
+    )
+    meta_services = MetaServices(
+        audit_log=audit_log,
+        audit_trail=audit_trail,
+        knowledge_graph=kg,
+    )
+    executor = create_meta_executor(
+        agent_registry=agent_registry,
+        tool_registry=tool_registry,
+        config=ExecutorConfig(enable_events=True),
+        services=services,
+        meta_services=meta_services,
+    )
+
+    # Parameterize the DAG with concrete inputs for Specifier.
+    dag = (
+        DAG(name="self_spec_e2e", description="End-to-end test")
+        .add_node(
+            node=Node.agent(
+                id="specify",
+                name="Specifier",
+                agent_id="MetaSpecifier",
+                input_mapping={
+                    "feature_description": "Add audit trail viewer",
+                    "change_id": "add-audit-viewer",
+                    "capabilities": ["audit"],
+                },
+                output_key="spec_result",
+            )
+        )
+        .add_node(
+            node=Node.agent(
+                id="audit_spec",
+                name="Audit Spec",
+                agent_id="MetaAuditor",
+                input_mapping={"analysis_type": "quality"},
+                output_key="audit_report",
+            )
+        )
+        .add_edge(edge=Edge(source=NodeID("specify"), target=NodeID("audit_spec")))
+    )
+
+    result = await executor.run(dag=dag)
+
+    assert result.status == RunStatus.COMPLETED
+    spec_output = result.final_context.get("spec_result", default=None)
+    assert spec_output is not None, "spec_result should be in final context"
+    audit_output = result.final_context.get("audit_report", default=None)
+    assert audit_output is not None, "audit_report should be in final context"
+
+    # Audit log received the TASK_COMPLETED events from both nodes
+    audit_count = await audit_log.count()
+    assert audit_count >= 1, "audit log should record at least the spec node completion"
+
+
+@pytest.mark.asyncio
+@pytest.mark.real_cli
 @pytest.mark.skipif(
     shutil.which("openspec") is None,
     reason="Real openspec CLI not on PATH — skip binary-dependent smoke",

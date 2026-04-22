@@ -49,21 +49,25 @@ The system SHALL provide `render_proposal(doc: ProposalDoc) -> Mapping[str, str]
 
 ### Requirement: self_spec DAG closes the generate → validate → audit loop
 
-The system SHALL provide `create_self_spec_dag()` returning a DAG that executes MetaSpecifier, `openspec_validate`, and MetaAuditor in sequence with context propagation.
+The system SHALL provide `create_self_spec_dag()` returning a DAG that executes MetaSpecifier (which authors AND validates) followed by MetaAuditor with context propagation.
 
-#### Scenario: End-to-end execution produces an audit entry
+Validation is intentionally folded into the MetaSpecifier agent rather than a separate DAG node — the agent owns the "generate, write, validate, repair" cycle as one transactional unit. The DAG records only the inter-agent boundary.
+
+#### Scenario: End-to-end execution produces a spec_result and an audit entry
 
 - **GIVEN** a meta-executor built with an `OpenSpecRuntime`, `OpenSpecWorkspace`, `AuditTrail`, and a MetaSpecifier
 - **WHEN** the self_spec DAG runs with a valid SpecGoal
-- **THEN** the final context contains a `validation_report` key with `passed=True`
-- **AND** the audit trail contains at least one `AuditEntry` produced by MetaAuditor
+- **THEN** the final context contains a `spec_result` key whose `validation_passed` is `True`
+- **AND** the audit trail records at least one `AuditEntry` covering the run
 
 ## Invariants
 
 - `ProposalDoc.capabilities` is non-empty; every capability has at least one requirement; every requirement has at least one scenario.
 - The workspace writes performed by MetaSpecifier go through `OpenSpecWorkspace.write_change`; MetaSpecifier never touches the filesystem directly.
 - MetaSpecifier never writes outside the configured workspace root.
-- The repair loop executes at most `max_retries` attempts (default 1); unbounded retries are forbidden.
+- The repair loop executes at most `max_repairs` attempts (default 1); unbounded retries are forbidden.
+- When `OpenSpecRuntime` is `None`, MetaSpecifier MUST report `validation_passed=False` with an explanatory diagnostic — never a fake pass.
+- `asyncio.CancelledError` MUST propagate; the agent boundary catches concrete exceptions, not `BaseException`.
 
 ## Out of Scope
 

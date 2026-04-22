@@ -186,9 +186,14 @@ async def test_specifier_runs_repair_once_then_gives_up(workspace: OpenSpecWorks
         context=_agent_context(),
     )
     assert result.success
-    assert result.output.validation_passed is False  # type: ignore[union-attr]
+    spec_result: SpecResult = result.output  # type: ignore[assignment]
+    assert spec_result.validation_passed is False
     # 1 authoring + 1 repair attempt = 2 LLM calls
     assert len(llm.calls) == 2
+    # Diagnostics must surface — spec scenario explicitly requires it
+    assert spec_result.diagnostics, "diagnostics must be non-empty on failure"
+    error_diags = [d for d in spec_result.diagnostics if d["severity"] == "error"]
+    assert error_diags, "at least one ERROR severity diagnostic expected"
 
 
 @pytest.mark.asyncio
@@ -217,11 +222,31 @@ async def test_specifier_succeeds_after_repair(workspace: OpenSpecWorkspace) -> 
 
 
 @pytest.mark.asyncio
-async def test_specifier_without_runtime_skips_validation(workspace: OpenSpecWorkspace) -> None:
+async def test_specifier_rejects_path_traversal_change_id(workspace: OpenSpecWorkspace) -> None:
+    """Invariant: never writes outside the configured workspace root."""
+    agent = MetaSpecifier(workspace=workspace, runtime=None, llm_client=None)
+    result = await agent.run(
+        goal=SpecGoal(
+            feature_description="malicious",
+            change_id="../escape",
+            capabilities=("evil",),
+        ),
+        context=_agent_context(),
+    )
+    assert not result.success
+    assert "Invalid change_id" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_specifier_without_runtime_reports_failed_validation(workspace: OpenSpecWorkspace) -> None:
+    """Honest signal: with no runtime, we wrote files but cannot prove they validate."""
     agent = MetaSpecifier(workspace=workspace, runtime=None, llm_client=None)
     result = await agent.run(
         goal=SpecGoal(feature_description="x", change_id="no-runtime", capabilities=("foo",)),
         context=_agent_context(),
     )
     assert result.success
-    assert result.output.validation_passed is True  # type: ignore[union-attr]
+    spec_result: SpecResult = result.output  # type: ignore[assignment]
+    assert spec_result.validation_passed is False
+    diagnostic_codes = {d["code"] for d in spec_result.diagnostics}
+    assert "runtime-missing" in diagnostic_codes

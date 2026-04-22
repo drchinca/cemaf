@@ -132,10 +132,10 @@ class Scenario(BaseModel):
 
     model_config = {"frozen": True}
 
-    name: str = Field(description="Scenario name, rendered as '#### Scenario: <name>'")
-    given: tuple[str, ...] = Field(default_factory=tuple, description="GIVEN clauses")
-    when: tuple[str, ...] = Field(default_factory=tuple, description="WHEN clauses")
-    then: tuple[str, ...] = Field(default_factory=tuple, description="THEN clauses")
+    name: str = Field(min_length=1, description="Scenario name, rendered as '#### Scenario: <name>'")
+    given: tuple[str, ...] = Field(min_length=1, description="GIVEN clauses (at least one)")
+    when: tuple[str, ...] = Field(min_length=1, description="WHEN clauses (at least one)")
+    then: tuple[str, ...] = Field(min_length=1, description="THEN clauses (at least one)")
 
 
 class Requirement(BaseModel):
@@ -143,9 +143,9 @@ class Requirement(BaseModel):
 
     model_config = {"frozen": True}
 
-    name: str = Field(description="Requirement name, rendered as '### Requirement: <name>'")
-    statement: str = Field(description="The SHALL statement")
-    scenarios: tuple[Scenario, ...] = Field(default_factory=tuple)
+    name: str = Field(min_length=1, description="Requirement name, rendered as '### Requirement: <name>'")
+    statement: str = Field(min_length=1, description="The SHALL statement")
+    scenarios: tuple[Scenario, ...] = Field(min_length=1, description="At least one scenario")
 
 
 class CapabilityDelta(BaseModel):
@@ -153,8 +153,10 @@ class CapabilityDelta(BaseModel):
 
     model_config = {"frozen": True}
 
-    capability: str = Field(description="Capability directory name (specs/<capability>/spec.md)")
-    added_requirements: tuple[Requirement, ...] = Field(default_factory=tuple)
+    capability: str = Field(
+        min_length=1, description="Capability directory name (specs/<capability>/spec.md)"
+    )
+    added_requirements: tuple[Requirement, ...] = Field(min_length=1, description="At least one requirement")
 
 
 class ProposalDoc(BaseModel):
@@ -162,17 +164,15 @@ class ProposalDoc(BaseModel):
 
     model_config = {"frozen": True}
 
-    change_id: str = Field(description="Change directory name under openspec/changes/")
-    title: str = Field(description="Human-readable title for the proposal")
-    why: str = Field(description="Motivation paragraph(s)")
+    change_id: str = Field(min_length=1, description="Change directory name under openspec/changes/")
+    title: str = Field(min_length=1, description="Human-readable title for the proposal")
+    why: str = Field(min_length=1, description="Motivation paragraph(s)")
     what_changes: tuple[str, ...] = Field(
         default_factory=tuple, description="Bulleted summary of what changes"
     )
     impact: tuple[str, ...] = Field(default_factory=tuple, description="Bulleted impact notes")
     tasks: tuple[str, ...] = Field(default_factory=tuple, description="Flat task list")
-    deltas: tuple[CapabilityDelta, ...] = Field(
-        default_factory=tuple, description="Per-capability spec changes"
-    )
+    deltas: tuple[CapabilityDelta, ...] = Field(min_length=1, description="At least one capability delta")
 
 
 class SpecGoal(BaseModel):
