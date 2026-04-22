@@ -18,20 +18,26 @@ def main() -> None:
 
     docs_parser = subparsers.add_parser(
         "docs",
-        help="Search CEMAF's own docs + docstrings (for LLMs and humans)",
+        help="Query CEMAF's own docs + docstrings (for LLMs and humans)",
     )
-    docs_parser.add_argument("query", nargs="+", help="Search query")
-    docs_parser.add_argument("-k", type=int, default=5, help="Max results (default 5)")
-    docs_parser.add_argument(
+    docs_sub = docs_parser.add_subparsers(dest="docs_command")
+
+    docs_search = docs_sub.add_parser("search", help="Keyword search the docs index")
+    docs_search.add_argument("query", nargs="+", help="Search query")
+    docs_search.add_argument("-k", type=int, default=5, help="Max results (default 5)")
+    docs_search.add_argument(
         "--kind",
         choices=["guide", "package", "module", "pattern", "spec"],
         action="append",
         help="Filter by kind (repeatable)",
     )
-    docs_parser.add_argument(
-        "--show",
-        metavar="ID",
-        help="Print full body for a specific entry id (skips search)",
+
+    docs_show = docs_sub.add_parser("show", help="Print the full body of one entry")
+    docs_show.add_argument("entry_id", help="Entry id (e.g. docs/architecture.md)")
+
+    docs_sub.add_parser(
+        "serve",
+        help="Run an MCP stdio server exposing the docs to any MCP client",
     )
 
     args = parser.parse_args()
@@ -39,12 +45,19 @@ def main() -> None:
     if args.command == "inspect":
         _inspect()
     elif args.command == "docs":
-        _docs(
-            query=" ".join(args.query) if args.query else "",
-            k=args.k,
-            kinds=tuple(args.kind) if args.kind else None,
-            show=args.show,
-        )
+        sub = getattr(args, "docs_command", None)
+        if sub == "search":
+            _docs_search(
+                query=" ".join(args.query),
+                k=args.k,
+                kinds=tuple(args.kind) if args.kind else None,
+            )
+        elif sub == "show":
+            _docs_show(entry_id=args.entry_id)
+        elif sub == "serve":
+            _docs_serve()
+        else:
+            docs_parser.print_help()
     else:
         parser.print_help()
 
@@ -91,40 +104,17 @@ def _inspect() -> None:
     print("  See: examples/hello_world.py")
 
 
-def _docs(
+def _docs_search(
     *,
     query: str,
     k: int,
     kinds: tuple[str, ...] | None,
-    show: str | None,
 ) -> None:
-    """Search CEMAF docs or show a specific entry."""
+    """Search CEMAF docs and print ranked results."""
     from cemaf.docs_api import build_default_index
     from cemaf.docs_api.index import DocEntryKind
 
     index = build_default_index()
-
-    if show:
-        entry = index.get(show)
-        if entry is None:
-            print(f"No entry with id: {show}")
-            return
-        print(f"# {entry.title}")
-        print(f"id:     {entry.id}")
-        print(f"kind:   {entry.kind.value}")
-        print(f"source: {entry.source}")
-        if entry.path:
-            print(f"path:   {entry.path}")
-        print()
-        print(entry.body)
-        return
-
-    if not query:
-        print("Usage: cemaf docs <query> [-k N] [--kind guide|package|module|pattern]")
-        print("       cemaf docs --show <entry-id>")
-        print(f"\nIndex size: {len(index)} entries")
-        return
-
     kind_filter: tuple[DocEntryKind, ...] | None = None
     if kinds:
         kind_filter = tuple(DocEntryKind(k) for k in kinds)
@@ -140,7 +130,39 @@ def _docs(
         if entry.anchors:
             print(f"            anchors: {', '.join(entry.anchors[:3])}")
         print()
-    print("Show full body:  cemaf docs --show <id>")
+    print("Show full body:  cemaf docs show <id>")
+
+
+def _docs_show(*, entry_id: str) -> None:
+    """Print one entry's full body."""
+    from cemaf.docs_api import build_default_index
+
+    index = build_default_index()
+    entry = index.get(entry_id)
+    if entry is None:
+        print(f"No entry with id: {entry_id}")
+        return
+    print(f"# {entry.title}")
+    print(f"id:     {entry.id}")
+    print(f"kind:   {entry.kind.value}")
+    print(f"source: {entry.source}")
+    if entry.path:
+        print(f"path:   {entry.path}")
+    print()
+    print(entry.body)
+
+
+def _docs_serve() -> None:
+    """Run an MCP stdio server exposing the CEMAF docs index."""
+    import asyncio
+
+    from cemaf.docs_api import build_default_index
+    from cemaf.docs_api.mcp_server import create_docs_mcp_server
+    from cemaf.mcp.transport.stdio import StdioTransport
+
+    index = build_default_index()
+    server = create_docs_mcp_server(index=index, transport=StdioTransport())
+    asyncio.run(server.serve())
 
 
 def _list_protocols() -> None:

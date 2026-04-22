@@ -332,6 +332,50 @@ CEMAF is its own first client — opt-in modules where the framework uses its ow
 
 ---
 
+## Docs for LLMs (`cemaf.docs_api`)
+
+CEMAF exposes its own documentation as a first-class queryable index — so
+agents reasoning about *how to use CEMAF* can look up CEMAF. The index
+covers `docs/**/*.md`, each `cemaf.*` package docstring, each module
+docstring, and individual design-pattern sections — 340+ entries built
+automatically from the repo at startup.
+
+```bash
+# Humans — CLI search
+uv run cemaf docs search "composition root runtime services" -k 3
+uv run cemaf docs show pattern:4-composition-root
+```
+
+```python
+# Agents — register as CEMAF tools
+from cemaf.docs_api import build_default_index, CemafDocsSearchTool, DocsRetrievalTool
+
+index = build_default_index()
+tool_registry.register_instance(item=CemafDocsSearchTool(index=index))
+tool_registry.register_instance(item=DocsRetrievalTool(index=index))
+```
+
+```bash
+# MCP clients (Claude Desktop, IDE plugins) — run as stdio MCP server
+uv run cemaf docs serve
+```
+
+In `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "cemaf-docs": {
+      "command": "uv",
+      "args": ["run", "cemaf", "docs", "serve"]
+    }
+  }
+}
+```
+
+See [`src/cemaf/docs_api/`](src/cemaf/docs_api/) for the indexer, source
+protocols, and search tools.
+
 ## Documentation
 
 **[Full Documentation →](docs/README.md)**
