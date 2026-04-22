@@ -176,20 +176,27 @@ class TestLLMJudgeEvaluator:
 
     @pytest.mark.asyncio
     async def test_passes_context_and_expected(self) -> None:
-        """Context and expected values are passed to the LLM prompt."""
+        """Context and expected values are actually embedded in the LLM prompt.
+
+        Regression: previously this test only asserted 'answer' (the output)
+        appeared — which it does trivially. The expected and context values
+        were not actually verified. A regression that dropped expected=/
+        context= from the prompt template would have passed.
+        """
         mock = MockLLMClient(responses=["Score: 5\nReason: ok"])
         evaluator = LLMJudgeEvaluator(llm_client=mock, criteria=JudgeCriteria.HELPFULNESS)
         await evaluator.evaluate(
-            output="answer",
-            expected="correct answer",
-            context={"query": "test question"},
+            output="my-output-text",
+            expected="my-expected-value",
+            context={"query": "my-context-query"},
         )
 
-        # Verify the LLM received messages containing the context
         assert mock.call_count == 1
         last_call = mock.calls[0]
-        user_msg_content = last_call[-1].content
-        assert "answer" in str(user_msg_content)
+        full_prompt = "\n".join(str(m.content) for m in last_call)
+        assert "my-output-text" in full_prompt, "output must appear in prompt"
+        assert "my-expected-value" in full_prompt, "expected value must appear in prompt"
+        assert "my-context-query" in full_prompt, "context must appear in prompt"
 
 
 class TestDefaultJudgePrompts:

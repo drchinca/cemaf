@@ -17,6 +17,7 @@ Type imports happen at runtime within methods that need them.
 """
 
 import asyncio
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -58,6 +59,58 @@ from cemaf.orchestration.node_handlers import (
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
+
+
+# Per-run state lives in ContextVars so a single DAGExecutor instance is
+# safe under concurrent run() calls — each async task sees its own run's
+# route choices and correlation id without clobbering siblings. Defaults
+# are None; run() seeds both on entry via .set() with fresh values.
+_route_choices_var: ContextVar[dict[NodeID, set[NodeID]] | None] = ContextVar(
+    "cemaf_route_choices",
+    default=None,
+)
+_correlation_id_var: ContextVar[str] = ContextVar(
+    "cemaf_correlation_id",
+    default="",
+)
+
+
+def _current_route_choices() -> dict[NodeID, set[NodeID]]:
+    """Read-accessor with defensive empty-dict fallback for pre-run reads."""
+    choices = _route_choices_var.get()
+    if choices is None:
+        return {}
+    return choices
+
+
+def _flatten_for_moderation(*, output: Any, max_depth: int = 10) -> str:
+    """Extract concatenated string leaves from a possibly nested output.
+
+    str(dict) produces Python repr (`{'key': 'val'}`) which moderation gates
+    can't meaningfully parse — the separators and quotes drown out semantic
+    content. This walker pulls every string leaf out and joins them with
+    newlines so moderation sees the actual language, not the container.
+    """
+    parts: list[str] = []
+
+    def _walk(value: Any, depth: int) -> None:
+        if depth > max_depth:
+            return
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                _walk(v, depth + 1)
+        elif isinstance(value, (list, tuple, set)):
+            for v in value:
+                _walk(v, depth + 1)
+        elif value is None or isinstance(value, bool):
+            return
+        else:
+            parts.append(str(value))
+
+    _walk(output, 0)
+    return "\n".join(parts)
 
 
 class ExecutorConfig(BaseModel):
@@ -195,13 +248,21 @@ class DAGExecutor:
         self._moderation_pipeline = moderation_pipeline
         self._quality_police = quality_police
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
-        self._route_choices: dict[NodeID, set[NodeID]] = {}
-        self._correlation_id: str = ""
         self._health_registry = health_registry
         self._require_healthy = require_healthy
         self._auto_heal_manager = auto_heal_manager
         self._budget_guard = budget_guard
         self._session_manager = session_manager
+
+    def _should_halt(self) -> bool:
+        """Aggregate check of all outer halt signals.
+
+        Called by inner handlers (LOOP, etc.) between cooperative iterations
+        so they don't waste work after an outer signal fires.
+        """
+        quality_halted = self._quality_police is not None and self._quality_police.should_halt()
+        budget_halted = self._budget_guard is not None and self._budget_guard.should_halt()
+        return quality_halted or budget_halted
 
     async def _emit_event(self, event_type: EventType, payload: JSON) -> None:
         """Emit event if bus is configured."""
@@ -211,11 +272,36 @@ class DAGExecutor:
             type=event_type,
             payload=payload,
             source="dag_executor",
-            correlation_id=self._correlation_id,
+            correlation_id=_correlation_id_var.get(),
         )
         await self._event_bus.publish(event=event)
 
     async def run(
+        self,
+        dag: DAG,
+        initial_context: Context | None = None,
+        run_id: RunID | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
+        """Public entry point. Wraps _run_impl in ContextVar reset guard."""
+        effective_run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        route_token = _route_choices_var.set({})
+        correlation_token = _correlation_id_var.set(str(effective_run_id))
+        try:
+            return await self._run_impl(
+                dag=dag,
+                initial_context=initial_context,
+                run_id=effective_run_id,
+                cancellation_token=cancellation_token,
+            )
+        finally:
+            # Reset ContextVars so sequential awaits in the same task don't
+            # inherit stale state from this run. Task-copy semantics protect
+            # concurrent runs; this protects sequential ones.
+            _route_choices_var.reset(route_token)
+            _correlation_id_var.reset(correlation_token)
+
+    async def _run_impl(
         self,
         dag: DAG,
         initial_context: Context | None = None,
@@ -233,12 +319,12 @@ class DAGExecutor:
         Returns:
             ExecutionResult with all node results and final context
         """
+        # ContextVars were set by the public run() wrapper and will be
+        # reset in its finally block. We just read them here.
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
-        self._route_choices = {}
-        self._correlation_id = str(run_id)
         health_check_metadata: JSON = {}
 
         # Record DAG execution start
@@ -320,15 +406,21 @@ class DAGExecutor:
             # Track completed nodes for edge conditions
             completed: dict[NodeID, NodeResult] = {}
 
-            # Build handler context for node-type dispatchers
+            # Build handler context for node-type dispatchers. route_choices
+            # is a dict reference shared with the ContextVar's view; mutations
+            # by handlers propagate to readers via the same object.
+            # `should_halt` lets inner LOOP handlers poll for outer halts
+            # (QualityPolice, BudgetGuard) between iterations so they don't
+            # waste N-1 LLM calls after halt fires.
             handler_ctx = NodeHandlerContext(
-                route_choices=self._route_choices,
+                route_choices=_current_route_choices(),
                 apply_output=self._apply_node_output,
                 execute_with_retry=self._execute_with_retry,
                 merge_strategy=self._merge_strategy,
                 max_parallel=self._max_parallel,
                 run_logger=self._run_logger,
-                correlation_id=self._correlation_id,
+                correlation_id=_correlation_id_var.get(),
+                should_halt=self._should_halt,
             )
 
             for node_id in order:
@@ -447,10 +539,14 @@ class DAGExecutor:
                     node_results.append(result)
                     completed[node_id] = result
 
-                # Record per-node metrics
+                # Record per-node metrics.
+                # We deliberately do NOT include node_id or run_id in tags —
+                # those are unbounded cardinality dimensions and will OOM a
+                # Prometheus registry within hours of real traffic. node_id and
+                # run_id live in structured logs and audit entries where they
+                # belong; metrics stay aggregable.
                 node_type_name = node.type.value if hasattr(node.type, "value") else str(node.type)
                 node_tags = {
-                    "node_id": str(node_id),
                     "node_type": node_type_name,
                     "dag_name": dag.name,
                     "status": "success" if result.success else "failed",
@@ -486,38 +582,76 @@ class DAGExecutor:
                         },
                     )
 
-                # Budget guard check after each node
-                if self._budget_guard and result.success:
-                    cost = result.metadata.get("cost_usd", 0.0) if result.metadata else 0.0
-                    tokens = result.metadata.get("tokens_used", 0) if result.metadata else 0
-                    self._budget_guard.record_usage(cost_usd=float(cost), tokens=int(tokens))
-                    if self._budget_guard.should_halt():
-                        completed_at = utc_now()
-                        duration_ms = (completed_at - started_at).total_seconds() * 1000
-                        halt_msg = "Budget exhausted - execution halted"
+                # Post-flight moderation on the node's output. The executor
+                # holds the pipeline (previously plumbed but never invoked);
+                # if it blocks, the node is rewritten to failed with an
+                # explicit violation error, and the DAG cannot pass the tainted
+                # output to downstream nodes.
+                if self._moderation_pipeline is not None and result.success and result.output is not None:
+                    # Flatten structured output to its text leaves before
+                    # moderation. str({"summary": "..."}) produces Python repr
+                    # which gates read as noise; semantic content lives inside.
+                    moderation_result = await self._moderation_pipeline.check_output(
+                        content=_flatten_for_moderation(output=result.output),
+                        context=context,
+                    )
+                    if not moderation_result.allowed:
+                        violation_codes = [v.code for v in moderation_result.violations]
+                        error_msg = (
+                            f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})"
+                        )
                         logger.warning(
-                            halt_msg,
-                            dag_name=dag.name,
-                            budget_state=self._budget_guard.to_dict(),
+                            "Node output blocked by moderation",
+                            node_id=str(node_id),
+                            violations=violation_codes,
                         )
-                        if self._run_logger:
-                            self._run_logger.end_run(
-                                final_context=context,
-                                success=False,
-                                error=halt_msg,
-                            )
-                        return ExecutionResult(
-                            run_id=run_id,
-                            dag_name=dag.name,
-                            status=RunStatus.FAILED,
-                            node_results=tuple(node_results),
+                        blocked_metadata = dict(result.metadata or {})
+                        blocked_metadata["moderation_blocked"] = True
+                        blocked_metadata["moderation_violations"] = violation_codes
+                        result = NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            output=None,
+                            error=error_msg,
+                            duration_ms=result.duration_ms,
+                            metadata=blocked_metadata,
+                        )
+                        # Replace the recorded result so downstream checks see failure.
+                        node_results[-1] = result
+                        completed[node_id] = result
+
+                # Budget guard halt check after each node. Cost recording
+                # itself happens inside _execute_with_retry (see there), so
+                # LOOP body iterations also count toward the cap — otherwise
+                # a runaway loop could burn its entire cost budget before the
+                # outer halt check sees anything.
+                if self._budget_guard and result.success and self._budget_guard.should_halt():
+                    completed_at = utc_now()
+                    duration_ms = (completed_at - started_at).total_seconds() * 1000
+                    halt_msg = "Budget exhausted - execution halted"
+                    logger.warning(
+                        halt_msg,
+                        dag_name=dag.name,
+                        budget_state=self._budget_guard.to_dict(),
+                    )
+                    if self._run_logger:
+                        self._run_logger.end_run(
                             final_context=context,
+                            success=False,
                             error=halt_msg,
-                            started_at=started_at,
-                            completed_at=completed_at,
-                            health_check_metadata=health_check_metadata,
-                            metadata={"budget_guard": self._budget_guard.to_dict()},
                         )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=halt_msg,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        health_check_metadata=health_check_metadata,
+                        metadata={"budget_guard": self._budget_guard.to_dict()},
+                    )
 
                 # Quality police check after each node
                 if self._quality_police and self._quality_police.should_halt():
@@ -744,7 +878,7 @@ class DAGExecutor:
         if not source_result:
             return False
 
-        allowed_targets = self._route_choices.get(edge.source)
+        allowed_targets = _current_route_choices().get(edge.source)
         if allowed_targets is not None and edge.target not in allowed_targets:
             return False
 
@@ -788,7 +922,7 @@ class DAGExecutor:
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
                 reason=f"Output from node '{node.id}'",
-                correlation_id=self._correlation_id,
+                correlation_id=_correlation_id_var.get(),
             )
 
             # Record patch
@@ -860,6 +994,31 @@ class DAGExecutor:
                 # as intermediate results might be needed for subsequent retries
                 # Use _apply_node_output to emit patches with correlation IDs
                 current_context = self._apply_node_output(node, result, current_context)
+
+                # Record cost to BudgetGuard on every execution that carries
+                # telemetry, regardless of success. A failed-but-billed call
+                # (e.g. LLM returned content-policy refusal after burning 10k
+                # tokens) MUST still count against the cap — that's the exact
+                # runaway-spend scenario a budget guard exists to catch.
+                # We record unconditionally when metadata carries numbers,
+                # NaN-safe so hostile agents can't corrupt accounting.
+                if self._budget_guard is not None:
+                    meta = result.metadata or {}
+                    cost_raw = meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0))
+                    tokens_raw = meta.get("tokens_total", meta.get("tokens_used", 0))
+                    try:
+                        cost = float(cost_raw)
+                        tokens = int(tokens_raw)
+                    except (TypeError, ValueError):
+                        cost, tokens = 0.0, 0
+                    # NaN/inf guard — they're float values that pass isinstance
+                    # but corrupt the accumulator.
+                    import math
+
+                    if math.isnan(cost) or math.isinf(cost):
+                        cost = 0.0
+                    if cost > 0 or tokens > 0:
+                        self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
 
                 if result.success:
                     return result, current_context
@@ -966,13 +1125,13 @@ class DAGExecutor:
     ) -> tuple[tuple[NodeResult, ...], Context]:
         """Execute multiple nodes in parallel with context merging."""
         handler_ctx = NodeHandlerContext(
-            route_choices=self._route_choices,
+            route_choices=_current_route_choices(),
             apply_output=self._apply_node_output,
             execute_with_retry=self._execute_with_retry,
             merge_strategy=self._merge_strategy,
             max_parallel=self._max_parallel,
             run_logger=self._run_logger,
-            correlation_id=self._correlation_id,
+            correlation_id=_correlation_id_var.get(),
         )
         return await _run_parallel_nodes(
             nodes=nodes,

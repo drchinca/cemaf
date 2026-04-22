@@ -121,8 +121,14 @@ class TestExecutorWithBudgetGuard:
         assert guard.accumulated_tokens == 5000  # 5 * 1000
 
     @pytest.mark.asyncio
-    async def test_failed_nodes_dont_update_budget(self) -> None:
-        """Budget guard only records usage for successful nodes."""
+    async def test_failed_nodes_still_update_budget_when_billed(self) -> None:
+        """Budget guard records usage for every billed call, success or failure.
+
+        Regression: previously the guard only counted successful nodes. But a
+        failed-but-billed call (LLM returned a content-policy refusal after
+        burning 10k tokens) is the exact runaway-spend scenario the guard
+        exists to catch. Recording only successes lets those escape the cap.
+        """
         results = {
             "step_0": NodeResult(
                 node_id=NodeID("step_0"),
@@ -144,6 +150,10 @@ class TestExecutorWithBudgetGuard:
         )
         dag = _build_linear_dag(num_nodes=2)
         await executor.run(dag=dag)
-        # Only the successful node's cost should be tracked
-        assert guard.accumulated_cost_usd == 0.1
-        assert guard.accumulated_tokens == 1000
+        # Both nodes' cost is recorded; step_1 retries under default policy
+        # (3 attempts), each attempt burns its metadata cost. Accounting the
+        # retry cost is correct — the LLM was called and the user was billed
+        # for each attempt, so the budget guard must see them all.
+        # Expected: 0.1 (step_0 success) + 0.5 * 3 (step_1 × 3 attempts) = 1.6
+        assert guard.accumulated_cost_usd == pytest.approx(1.6)
+        assert guard.accumulated_tokens == 1000 + 5000 * 3

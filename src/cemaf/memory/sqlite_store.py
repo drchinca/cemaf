@@ -1,5 +1,14 @@
-"""SQLite-backed persistent MemoryStore implementation."""
+"""SQLite-backed persistent MemoryStore implementation.
 
+Production-grade persistence for single-host deployments:
+- One long-lived aiosqlite connection per store instance (opened lazily)
+- WAL journal mode for concurrent readers + one writer without blocking
+- busy_timeout so SQLITE_BUSY turns into a bounded wait instead of an error
+- asyncio.Lock serializes in-process writes to the connection
+- explicit close() for graceful shutdown
+"""
+
+import asyncio
 import json
 from datetime import datetime, timedelta
 
@@ -25,6 +34,11 @@ CREATE TABLE IF NOT EXISTS memory_items (
 )
 """
 
+_CREATE_INDEX_EXPIRES = (
+    "CREATE INDEX IF NOT EXISTS idx_memory_items_expires_at "
+    "ON memory_items(expires_at) WHERE expires_at IS NOT NULL"
+)
+
 
 def _row_to_item(row: aiosqlite.Row) -> MemoryItem:
     """Deserialize a database row into a MemoryItem."""
@@ -46,42 +60,73 @@ def _row_to_item(row: aiosqlite.Row) -> MemoryItem:
 class SqliteMemoryStore:
     """Persistent memory store backed by SQLite via aiosqlite."""
 
-    def __init__(self, *, db_path: str = "cemaf_memory.db") -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "cemaf_memory.db",
+        busy_timeout_ms: int = 5000,
+        journal_mode: str = "WAL",
+    ) -> None:
         self._db_path = db_path
-        self._initialized = False
+        self._busy_timeout_ms = busy_timeout_ms
+        self._journal_mode = journal_mode
+        self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
 
-    async def _ensure_table(self) -> None:
-        """Create the table if it doesn't exist yet."""
-        if self._initialized:
-            return
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(_CREATE_TABLE)
-            await db.commit()
-        self._initialized = True
+    async def _connection(self) -> aiosqlite.Connection:
+        """Return the lazy-initialized, pragma-tuned connection."""
+        if self._conn is not None:
+            return self._conn
+        async with self._lock:
+            if self._conn is not None:  # double-check after acquire
+                return self._conn
+            conn = await aiosqlite.connect(self._db_path)
+            # WAL gives us concurrent readers + a single writer without
+            # locking the whole file — essential under any concurrent load.
+            await conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
+            # busy_timeout turns SQLITE_BUSY into a bounded wait instead of
+            # an immediate error. 5s is enough to ride out any in-process
+            # writer contention.
+            await conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
+            # synchronous=NORMAL is the WAL-recommended level — durable on
+            # crash but doesn't fsync on every commit.
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            await conn.execute(_CREATE_TABLE)
+            await conn.execute(_CREATE_INDEX_EXPIRES)
+            await conn.commit()
+            self._conn = conn
+        return self._conn
+
+    async def close(self) -> None:
+        """Close the underlying connection. Idempotent."""
+        async with self._lock:
+            if self._conn is not None:
+                await self._conn.close()
+                self._conn = None
 
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
         """Retrieve a memory item by scope and key."""
-        await self._ensure_table()
-        async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                "SELECT scope, key, value_json, confidence, created_at, updated_at, "
-                "ttl_seconds, expires_at, scope_path FROM memory_items WHERE scope = ? AND key = ?",
-                (scope.value, key),
-            )
+        conn = await self._connection()
+        async with conn.execute(
+            "SELECT scope, key, value_json, confidence, created_at, updated_at, "
+            "ttl_seconds, expires_at, scope_path FROM memory_items "
+            "WHERE scope = ? AND key = ?",
+            (scope.value, key),
+        ) as cursor:
             row = await cursor.fetchone()
-            if row is None:
-                return None
-            item = _row_to_item(row)
-            if item.is_expired:
-                await self.delete(scope=scope, key=key)
-                return None
-            return item
+        if row is None:
+            return None
+        item = _row_to_item(row)
+        if item.is_expired:
+            await self.delete(scope=scope, key=key)
+            return None
+        return item
 
     async def set(self, item: MemoryItem) -> None:
         """Store or replace a memory item."""
-        await self._ensure_table()
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.execute(
+        conn = await self._connection()
+        async with self._lock:
+            await conn.execute(
                 "INSERT OR REPLACE INTO memory_items "
                 "(scope, key, value_json, confidence, created_at, "
                 "updated_at, ttl_seconds, expires_at, scope_path) "
@@ -98,41 +143,40 @@ class SqliteMemoryStore:
                     item.scope_path,
                 ),
             )
-            await db.commit()
+            await conn.commit()
 
     async def delete(self, scope: MemoryScope, key: str) -> bool:
         """Delete a memory item, returning True if it existed."""
-        await self._ensure_table()
-        async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
+        conn = await self._connection()
+        async with self._lock:
+            cursor = await conn.execute(
                 "DELETE FROM memory_items WHERE scope = ? AND key = ?",
                 (scope.value, key),
             )
-            await db.commit()
+            await conn.commit()
             return bool(cursor.rowcount > 0)
 
     async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]:
         """List all non-expired items in a scope."""
-        await self._ensure_table()
+        conn = await self._connection()
         now_iso = utc_now().isoformat()
-        async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                "SELECT scope, key, value_json, confidence, created_at, updated_at, "
-                "ttl_seconds, expires_at, scope_path FROM memory_items "
-                "WHERE scope = ? AND (expires_at IS NULL OR expires_at > ?)",
-                (scope.value, now_iso),
-            )
+        async with conn.execute(
+            "SELECT scope, key, value_json, confidence, created_at, updated_at, "
+            "ttl_seconds, expires_at, scope_path FROM memory_items "
+            "WHERE scope = ? AND (expires_at IS NULL OR expires_at > ?)",
+            (scope.value, now_iso),
+        ) as cursor:
             rows = await cursor.fetchall()
-            return tuple(_row_to_item(row) for row in rows)
+        return tuple(_row_to_item(row) for row in rows)
 
     async def cleanup_expired(self) -> int:
         """Remove all expired items, returning count removed."""
-        await self._ensure_table()
+        conn = await self._connection()
         now_iso = utc_now().isoformat()
-        async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
+        async with self._lock:
+            cursor = await conn.execute(
                 "DELETE FROM memory_items WHERE expires_at IS NOT NULL AND expires_at < ?",
                 (now_iso,),
             )
-            await db.commit()
+            await conn.commit()
             return int(cursor.rowcount)

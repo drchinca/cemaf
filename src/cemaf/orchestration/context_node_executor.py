@@ -105,10 +105,21 @@ class ContextNodeExecutor:
                 error=f"Failed to build goal for agent '{agent_name}'",
             )
 
-        # Populate global_memory from memory system if available
+        # Populate global_memory from memory system if available.
+        # context_warnings accumulates non-fatal failures in memory recall,
+        # context compilation, and session ingest. The node still runs, but
+        # the warnings surface in NodeResult.metadata so downstream consumers
+        # (run_logger, eval pipeline, audit trail) can see when the agent ran
+        # with degraded context — before this list existed, those failures were
+        # logged-then-dropped and agents hallucinated on empty memory silently.
+        context_warnings: list[dict[str, str]] = []
         run_id = str(context.get("_run_id", default=""))
         goal_text = str(resolved_inputs) if resolved_inputs else agent_name
-        global_memory = await self._recall_global_memory(agent_name=agent_name, goal_text=goal_text)
+        global_memory = await self._recall_global_memory(
+            agent_name=agent_name,
+            goal_text=goal_text,
+            warnings=context_warnings,
+        )
 
         # Compile context if compiler is available
         artifacts: dict[str, Any] = {}
@@ -117,6 +128,7 @@ class ContextNodeExecutor:
                 agent_name=agent_name,
                 inputs=resolved_inputs,
                 memories=global_memory,
+                warnings=context_warnings,
             )
             if compiled:
                 artifacts = {"compiled_context": compiled.to_messages()}
@@ -159,17 +171,24 @@ class ContextNodeExecutor:
                     agent_name=agent_name,
                     output=output,
                     run_id=run_id,
+                    warnings=context_warnings,
                 )
 
+                # Merge the agent's telemetry metadata (cost_estimate_usd,
+                # tokens_total, model, etc.) into the NodeResult so downstream
+                # BudgetGuard / online eval / run logger can see it. Our
+                # framing keys (agent_id, context_hash) win on collision.
+                merged_metadata: dict[str, Any] = dict(result.metadata or {})
+                merged_metadata["agent_id"] = agent_name
+                merged_metadata["context_hash"] = context_hash
+                if context_warnings:
+                    merged_metadata["context_warnings"] = tuple(context_warnings)
                 return NodeResult(
                     node_id=node.id,
                     success=True,
                     output=output,
                     duration_ms=duration_ms,
-                    metadata={
-                        "agent_id": agent_name,
-                        "context_hash": context_hash,
-                    },
+                    metadata=merged_metadata,
                 )
             else:
                 return NodeResult(
@@ -257,8 +276,14 @@ class ContextNodeExecutor:
             )
         return tuple(refs)
 
-    async def _recall_global_memory(self, *, agent_name: str, goal_text: str) -> dict[str, Any]:
-        """Load relevant memories for the agent from the memory system."""
+    async def _recall_global_memory(
+        self,
+        *,
+        agent_name: str,
+        goal_text: str,
+        warnings: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Load relevant memories for the agent; record any failure to `warnings`."""
         if self._memory_manager is None:
             return {}
         try:
@@ -267,8 +292,16 @@ class ContextNodeExecutor:
                 query=MemoryQuery(text=query_text, limit=10),
             )
             return {r.item.key: r.item.value for r in results}
-        except Exception:
+        except Exception as exc:
             logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)
+            if warnings is not None:
+                warnings.append(
+                    {
+                        "stage": "memory_recall",
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    }
+                )
             return {}
 
     async def _compile_context(
@@ -277,8 +310,9 @@ class ContextNodeExecutor:
         agent_name: str,
         inputs: dict[str, Any] | Any,
         memories: dict[str, Any],
+        warnings: list[dict[str, str]] | None = None,
     ) -> CompiledContext | None:
-        """Compile resolved inputs and memories into budgeted context."""
+        """Compile resolved inputs and memories into budgeted context; record failures."""
         if self._context_compiler is None or self._token_budget is None:
             return None
         try:
@@ -296,12 +330,20 @@ class ContextNodeExecutor:
                 memories=tuple(memory_pairs),
                 budget=self._token_budget,
             )
-        except Exception:
+        except Exception as exc:
             logger.warning(
                 "Context compilation failed for '%s'",
                 agent_name,
                 exc_info=True,
             )
+            if warnings is not None:
+                warnings.append(
+                    {
+                        "stage": "context_compile",
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    }
+                )
             return None
 
     async def _ingest_result(
@@ -310,8 +352,9 @@ class ContextNodeExecutor:
         agent_name: str,
         output: str | None,
         run_id: str,
+        warnings: list[dict[str, str]] | None = None,
     ) -> None:
-        """Store agent result in session memory."""
+        """Store agent result in session memory; record any failure to `warnings`."""
         if self._session_manager is None or not output:
             return
         try:
@@ -320,5 +363,13 @@ class ContextNodeExecutor:
                 key=f"{agent_name}_output",
                 value={"output": output, "agent": agent_name},
             )
-        except Exception:
+        except Exception as exc:
             logger.warning("Failed to ingest result for '%s'", agent_name, exc_info=True)
+            if warnings is not None:
+                warnings.append(
+                    {
+                        "stage": "session_ingest",
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                    }
+                )

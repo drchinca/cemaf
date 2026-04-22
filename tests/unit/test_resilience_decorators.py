@@ -34,7 +34,7 @@ class TestWithRetry:
             nonlocal call_count
             call_count += 1
             if call_count < 3:
-                raise ValueError("not yet")
+                raise ConnectionError("not yet")
             return "ok"
 
         result = await fail_then_succeed()
@@ -44,9 +44,9 @@ class TestWithRetry:
     async def test_exhausts_retries(self):
         @with_retry(max_attempts=2, initial_delay=0.01)
         async def always_fail():
-            raise ValueError("always fails")
+            raise ConnectionError("always fails")
 
-        with pytest.raises((ValueError, Exception)):
+        with pytest.raises((ConnectionError, Exception)):
             await always_fail()
 
 

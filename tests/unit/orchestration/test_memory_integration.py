@@ -114,13 +114,49 @@ class TestContextNodeExecutorWithMemory:
     async def test_result_ingested_to_session(
         self, registry: AgentRegistry, memory_manager, session_manager
     ) -> None:
-        """Successful agent result gets ingested into session memory."""
-        vector_store = create_in_memory_vector_store()
-        agent = registry.create_agent("Librarian", vector_store=vector_store)
-        assert agent is not None
-        registry.register_agent(agent_instance=agent)
+        """Successful agent result gets ingested into session memory.
 
-        # Bootstrap a session first (required for ingest)
+        Regression: the previous version of this test had an `else` branch
+        that passed whenever the Librarian agent failed (which it does in CI
+        without an LLM). The test was green but proved nothing about ingest.
+        This version registers a deterministic test agent that always
+        succeeds, so the ingest path MUST fire.
+        """
+        from pydantic import BaseModel
+
+        from cemaf.agents.base import Agent, AgentResult, AgentState
+        from cemaf.core.types import AgentID
+
+        class _DeterministicGoal(BaseModel):
+            query: str = "x"
+
+        class _DeterministicResult(BaseModel):
+            text: str
+
+        class _DeterministicAgent(Agent[_DeterministicGoal, _DeterministicResult]):
+            @property
+            def id(self) -> AgentID:
+                return AgentID("DeterministicAgent")
+
+            @property
+            def description(self) -> str:
+                return "Always succeeds with a fixed output"
+
+            @property
+            def skills(self) -> tuple[()]:
+                return ()
+
+            async def run(self, goal, context):
+                return AgentResult.ok(
+                    output=_DeterministicResult(text=f"processed:{goal.query}"),
+                    state=AgentState(),
+                )
+
+        registry.register_agent(
+            agent_instance=_DeterministicAgent(),
+            goal_type=_DeterministicGoal,
+        )
+
         await session_manager.bootstrap(session_id="test-run")
 
         executor = ContextNodeExecutor(
@@ -131,29 +167,24 @@ class TestContextNodeExecutorWithMemory:
         node = Node(
             id=NodeID("step_1"),
             type=NodeType.AGENT,
-            name="Librarian",
-            ref_id="Librarian",
-            input_mapping={"intent_query": "test query"},
+            name="DeterministicAgent",
+            ref_id="DeterministicAgent",
+            input_mapping={"query": "test"},
         )
         context = Context(
             data={
                 "_run_id": "test-run",
-                "_resolved_inputs": {"intent_query": "test query"},
+                "_resolved_inputs": {"query": "test"},
             }
         )
 
         result = await executor.execute_node(node=node, context=context)
 
-        # Result must exist regardless of agent success/failure
         assert result is not None
-        # If the agent succeeded, verify ingestion occurred
-        if result.success:
-            session_state = await session_manager.get_state(session_id="test-run")
-            assert session_state is not None
-            assert session_state.memory_count >= 1
-        else:
-            # Agent failed (e.g. no LLM configured) -- still verify no crash
-            assert result.error is not None or not result.success
+        assert result.success, f"agent must succeed: {result.error}"
+        session_state = await session_manager.get_state(session_id="test-run")
+        assert session_state is not None
+        assert session_state.memory_count >= 1, "result should have been ingested into session"
 
     @pytest.mark.asyncio
     async def test_session_ingest_failure_is_graceful(self, registry: AgentRegistry) -> None:
