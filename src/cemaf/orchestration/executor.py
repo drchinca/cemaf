@@ -17,8 +17,10 @@ Type imports happen at runtime within methods that need them.
 """
 
 import asyncio
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -55,9 +57,98 @@ from cemaf.orchestration.node_handlers import (
 from cemaf.orchestration.node_handlers import (
     run_parallel_nodes as _run_parallel_nodes,
 )
+from cemaf.orchestration.services import RuntimeServices
 
 logger = get_logger("orchestration.executor")
 metrics = get_metrics()
+
+
+# Per-run state lives in ContextVars so a single DAGExecutor instance is
+# safe under concurrent run() calls — each async task sees its own run's
+# route choices and correlation id without clobbering siblings. Defaults
+# are None; run() seeds both on entry via .set() with fresh values.
+_route_choices_var: ContextVar[dict[NodeID, set[NodeID]] | None] = ContextVar(
+    "cemaf_route_choices",
+    default=None,
+)
+_correlation_id_var: ContextVar[str] = ContextVar(
+    "cemaf_correlation_id",
+    default="",
+)
+
+
+class HaltReason(str, Enum):
+    """Why a DAG execution was halted mid-flight.
+
+    Enum-typed so on-call engineers reading logs at 3am know immediately
+    which gate fired — a bare `should_halt=True` with no reason is
+    debuggable-pain.
+    """
+
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    QUALITY_DEGRADED = "quality_degraded"
+
+
+@dataclass(slots=True)
+class _HealState:
+    """Mutable per-attempt state for autonomous healing inside _execute_with_retry."""
+
+    max_attempts: int
+    count: int = 0
+    attempted_keys: set[str] = field(default_factory=set)
+    exhausted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class HaltSignal:
+    """Signal raised by an outer controller to stop mid-flight execution.
+
+    `reason` drives alerting/routing; `detail` is a free-form human hint
+    (budget state dict, quality window, etc.) for logs. `source` names
+    the component that raised — BudgetGuard, QualityPolice, etc.
+    """
+
+    reason: HaltReason
+    source: str
+    detail: str = ""
+
+
+def _current_route_choices() -> dict[NodeID, set[NodeID]]:
+    """Read-accessor with defensive empty-dict fallback for pre-run reads."""
+    choices = _route_choices_var.get()
+    if choices is None:
+        return {}
+    return choices
+
+
+def _flatten_for_moderation(*, output: Any, max_depth: int = 10) -> str:
+    """Extract concatenated string leaves from a possibly nested output.
+
+    str(dict) produces Python repr (`{'key': 'val'}`) which moderation gates
+    can't meaningfully parse — the separators and quotes drown out semantic
+    content. This walker pulls every string leaf out and joins them with
+    newlines so moderation sees the actual language, not the container.
+    """
+    parts: list[str] = []
+
+    def _walk(value: Any, depth: int) -> None:
+        if depth > max_depth:
+            return
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                _walk(v, depth + 1)
+        elif isinstance(value, (list, tuple, set)):
+            for v in value:
+                _walk(v, depth + 1)
+        elif value is None or isinstance(value, bool):
+            return
+        else:
+            parts.append(str(value))
+
+    _walk(output, 0)
+    return "\n".join(parts)
 
 
 class ExecutorConfig(BaseModel):
@@ -174,34 +265,107 @@ class DAGExecutor:
     def __init__(
         self,
         node_executor: NodeExecutor,
-        max_parallel: int = MAX_PARALLEL_NODES,
+        *,
+        services: RuntimeServices | None = None,
+        config: ExecutorConfig | None = None,
+        require_healthy: bool = True,
+        # --- legacy kwargs (removed in 0.4) ---
+        max_parallel: int | None = None,
         run_logger: RunLogger | None = None,
         event_bus: EventBus | None = None,
         moderation_pipeline: ModerationPipeline | None = None,
         merge_strategy: MergeStrategy | None = None,
         health_registry: HealthMonitor | None = None,
-        require_healthy: bool = True,
         auto_heal_manager: AutoHealManager | None = None,
         budget_guard: BudgetGuard | None = None,
         session_manager: SessionManager | None = None,
-        node_timeout_seconds: float = 300.0,
+        node_timeout_seconds: float | None = None,
         quality_police: QualityPolice | None = None,
     ) -> None:
+        """Construct a DAGExecutor from bundled services + config.
+
+        Canonical form:
+            DAGExecutor(
+                node_executor=x,
+                services=RuntimeServices(...),
+                config=ExecutorConfig(...),
+            )
+
+        The legacy individual kwargs (run_logger, event_bus, …) are accepted
+        during the 0.3.x line for migration ease but will be removed in 0.4.
+        Mixing `services=` with a legacy kwarg is a ValueError — pick one.
+        """
+        if services is not None and any(
+            v is not None
+            for v in (
+                run_logger,
+                event_bus,
+                moderation_pipeline,
+                health_registry,
+                auto_heal_manager,
+                budget_guard,
+                session_manager,
+                quality_police,
+            )
+        ):
+            raise ValueError(
+                "Cannot mix `services=RuntimeServices(...)` with legacy per-field "
+                "kwargs. Pass either a services bundle or the legacy kwargs — not both."
+            )
+        if services is None:
+            services = RuntimeServices(
+                run_logger=run_logger,
+                event_bus=event_bus,
+                moderation_pipeline=moderation_pipeline,
+                health_monitor=health_registry,
+                auto_heal_manager=auto_heal_manager,
+                budget_guard=budget_guard,
+                session_manager=session_manager,
+                quality_police=quality_police,
+            )
+        cfg = config or ExecutorConfig()
         self._node_executor = node_executor
-        self._max_parallel = max_parallel
-        self._node_timeout = node_timeout_seconds
-        self._run_logger = run_logger
-        self._event_bus = event_bus
-        self._moderation_pipeline = moderation_pipeline
-        self._quality_police = quality_police
+        self._max_parallel = max_parallel if max_parallel is not None else cfg.max_parallel
+        self._node_timeout = (
+            node_timeout_seconds if node_timeout_seconds is not None else cfg.node_timeout_seconds
+        )
+        self._run_logger = services.run_logger
+        self._event_bus = services.event_bus
+        self._moderation_pipeline = services.moderation_pipeline
+        self._quality_police = services.quality_police
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
-        self._route_choices: dict[NodeID, set[NodeID]] = {}
-        self._correlation_id: str = ""
-        self._health_registry = health_registry
+        self._health_registry = services.health_monitor
         self._require_healthy = require_healthy
-        self._auto_heal_manager = auto_heal_manager
-        self._budget_guard = budget_guard
-        self._session_manager = session_manager
+        self._auto_heal_manager = services.auto_heal_manager
+        self._budget_guard = services.budget_guard
+        self._session_manager = services.session_manager
+
+    def _halt_signal(self) -> HaltSignal | None:
+        """Aggregate halt check across all outer controllers.
+
+        Returns the first-firing signal with structured reason + source, so
+        logs and alerts carry WHY the DAG stopped. None = keep running.
+
+        Priority: budget (harder stop — you literally can't afford more)
+        over quality (soft stop — outputs are degraded).
+        """
+        if self._budget_guard is not None and self._budget_guard.should_halt():
+            return HaltSignal(
+                reason=HaltReason.BUDGET_EXHAUSTED,
+                source="BudgetGuard",
+                detail=str(self._budget_guard.to_dict()),
+            )
+        if self._quality_police is not None and self._quality_police.should_halt():
+            return HaltSignal(
+                reason=HaltReason.QUALITY_DEGRADED,
+                source="QualityPolice",
+                detail=str(self._quality_police.to_dict()),
+            )
+        return None
+
+    def _should_halt(self) -> bool:
+        """Bool adapter over _halt_signal() for the NodeHandlerContext.should_halt callback."""
+        return self._halt_signal() is not None
 
     async def _emit_event(self, event_type: EventType, payload: JSON) -> None:
         """Emit event if bus is configured."""
@@ -211,11 +375,36 @@ class DAGExecutor:
             type=event_type,
             payload=payload,
             source="dag_executor",
-            correlation_id=self._correlation_id,
+            correlation_id=_correlation_id_var.get(),
         )
         await self._event_bus.publish(event=event)
 
     async def run(
+        self,
+        dag: DAG,
+        initial_context: Context | None = None,
+        run_id: RunID | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
+        """Public entry point. Wraps _run_impl in ContextVar reset guard."""
+        effective_run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        route_token = _route_choices_var.set({})
+        correlation_token = _correlation_id_var.set(str(effective_run_id))
+        try:
+            return await self._run_impl(
+                dag=dag,
+                initial_context=initial_context,
+                run_id=effective_run_id,
+                cancellation_token=cancellation_token,
+            )
+        finally:
+            # Reset ContextVars so sequential awaits in the same task don't
+            # inherit stale state from this run. Task-copy semantics protect
+            # concurrent runs; this protects sequential ones.
+            _route_choices_var.reset(route_token)
+            _correlation_id_var.reset(correlation_token)
+
+    async def _run_impl(
         self,
         dag: DAG,
         initial_context: Context | None = None,
@@ -233,12 +422,12 @@ class DAGExecutor:
         Returns:
             ExecutionResult with all node results and final context
         """
+        # ContextVars were set by the public run() wrapper and will be
+        # reset in its finally block. We just read them here.
         run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
-        self._route_choices = {}
-        self._correlation_id = str(run_id)
         health_check_metadata: JSON = {}
 
         # Record DAG execution start
@@ -320,15 +509,21 @@ class DAGExecutor:
             # Track completed nodes for edge conditions
             completed: dict[NodeID, NodeResult] = {}
 
-            # Build handler context for node-type dispatchers
+            # Build handler context for node-type dispatchers. route_choices
+            # is a dict reference shared with the ContextVar's view; mutations
+            # by handlers propagate to readers via the same object.
+            # `should_halt` lets inner LOOP handlers poll for outer halts
+            # (QualityPolice, BudgetGuard) between iterations so they don't
+            # waste N-1 LLM calls after halt fires.
             handler_ctx = NodeHandlerContext(
-                route_choices=self._route_choices,
+                route_choices=_current_route_choices(),
                 apply_output=self._apply_node_output,
                 execute_with_retry=self._execute_with_retry,
                 merge_strategy=self._merge_strategy,
                 max_parallel=self._max_parallel,
                 run_logger=self._run_logger,
-                correlation_id=self._correlation_id,
+                correlation_id=_correlation_id_var.get(),
+                should_halt=self._should_halt,
             )
 
             for node_id in order:
@@ -447,10 +642,14 @@ class DAGExecutor:
                     node_results.append(result)
                     completed[node_id] = result
 
-                # Record per-node metrics
+                # Record per-node metrics.
+                # We deliberately do NOT include node_id or run_id in tags —
+                # those are unbounded cardinality dimensions and will OOM a
+                # Prometheus registry within hours of real traffic. node_id and
+                # run_id live in structured logs and audit entries where they
+                # belong; metrics stay aggregable.
                 node_type_name = node.type.value if hasattr(node.type, "value") else str(node.type)
                 node_tags = {
-                    "node_id": str(node_id),
                     "node_type": node_type_name,
                     "dag_name": dag.name,
                     "status": "success" if result.success else "failed",
@@ -486,38 +685,76 @@ class DAGExecutor:
                         },
                     )
 
-                # Budget guard check after each node
-                if self._budget_guard and result.success:
-                    cost = result.metadata.get("cost_usd", 0.0) if result.metadata else 0.0
-                    tokens = result.metadata.get("tokens_used", 0) if result.metadata else 0
-                    self._budget_guard.record_usage(cost_usd=float(cost), tokens=int(tokens))
-                    if self._budget_guard.should_halt():
-                        completed_at = utc_now()
-                        duration_ms = (completed_at - started_at).total_seconds() * 1000
-                        halt_msg = "Budget exhausted - execution halted"
+                # Post-flight moderation on the node's output. The executor
+                # holds the pipeline (previously plumbed but never invoked);
+                # if it blocks, the node is rewritten to failed with an
+                # explicit violation error, and the DAG cannot pass the tainted
+                # output to downstream nodes.
+                if self._moderation_pipeline is not None and result.success and result.output is not None:
+                    # Flatten structured output to its text leaves before
+                    # moderation. str({"summary": "..."}) produces Python repr
+                    # which gates read as noise; semantic content lives inside.
+                    moderation_result = await self._moderation_pipeline.check_output(
+                        content=_flatten_for_moderation(output=result.output),
+                        context=context,
+                    )
+                    if not moderation_result.allowed:
+                        violation_codes = [v.code for v in moderation_result.violations]
+                        error_msg = (
+                            f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})"
+                        )
                         logger.warning(
-                            halt_msg,
-                            dag_name=dag.name,
-                            budget_state=self._budget_guard.to_dict(),
+                            "Node output blocked by moderation",
+                            node_id=str(node_id),
+                            violations=violation_codes,
                         )
-                        if self._run_logger:
-                            self._run_logger.end_run(
-                                final_context=context,
-                                success=False,
-                                error=halt_msg,
-                            )
-                        return ExecutionResult(
-                            run_id=run_id,
-                            dag_name=dag.name,
-                            status=RunStatus.FAILED,
-                            node_results=tuple(node_results),
+                        blocked_metadata = dict(result.metadata or {})
+                        blocked_metadata["moderation_blocked"] = True
+                        blocked_metadata["moderation_violations"] = violation_codes
+                        result = NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            output=None,
+                            error=error_msg,
+                            duration_ms=result.duration_ms,
+                            metadata=blocked_metadata,
+                        )
+                        # Replace the recorded result so downstream checks see failure.
+                        node_results[-1] = result
+                        completed[node_id] = result
+
+                # Budget guard halt check after each node. Cost recording
+                # itself happens inside _execute_with_retry (see there), so
+                # LOOP body iterations also count toward the cap — otherwise
+                # a runaway loop could burn its entire cost budget before the
+                # outer halt check sees anything.
+                if self._budget_guard and result.success and self._budget_guard.should_halt():
+                    completed_at = utc_now()
+                    duration_ms = (completed_at - started_at).total_seconds() * 1000
+                    halt_msg = "Budget exhausted - execution halted"
+                    logger.warning(
+                        halt_msg,
+                        dag_name=dag.name,
+                        budget_state=self._budget_guard.to_dict(),
+                    )
+                    if self._run_logger:
+                        self._run_logger.end_run(
                             final_context=context,
+                            success=False,
                             error=halt_msg,
-                            started_at=started_at,
-                            completed_at=completed_at,
-                            health_check_metadata=health_check_metadata,
-                            metadata={"budget_guard": self._budget_guard.to_dict()},
                         )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=halt_msg,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        health_check_metadata=health_check_metadata,
+                        metadata={"budget_guard": self._budget_guard.to_dict()},
+                    )
 
                 # Quality police check after each node
                 if self._quality_police and self._quality_police.should_halt():
@@ -744,7 +981,7 @@ class DAGExecutor:
         if not source_result:
             return False
 
-        allowed_targets = self._route_choices.get(edge.source)
+        allowed_targets = _current_route_choices().get(edge.source)
         if allowed_targets is not None and edge.target not in allowed_targets:
             return False
 
@@ -788,7 +1025,7 @@ class DAGExecutor:
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
                 reason=f"Output from node '{node.id}'",
-                correlation_id=self._correlation_id,
+                correlation_id=_correlation_id_var.get(),
             )
 
             # Record patch
@@ -814,150 +1051,187 @@ class DAGExecutor:
     async def _execute_with_retry(
         self,
         node: Node,
-        context: Context,  # Updated to Context
-    ) -> tuple[NodeResult, Context]:  # Returns new Context
-        """Execute a node with retry logic and autonomous healing."""
-        # Handle max_retries=0 case - still try once
+        context: Context,
+    ) -> tuple[NodeResult, Context]:
+        """Execute a node with retry + autonomous healing.
+
+        Refactored from a 158-line god-method into a driver loop + two
+        helpers: `_try_once` (run + budget record) and `_try_heal` (attempt
+        autonomous recovery). Behavior is unchanged — same tests pass — but
+        each failure mode is now independently readable and testable.
+        """
         max_attempts = max(1, node.max_retries) if node.retry_on_failure else 1
+        heal = _HealState(max_attempts=2)
+        current_context = context
         last_error: str | None = None
         start_time = utc_now()
-        current_context = context  # Keep track of context
-
-        # Track heal attempts for this specific node execution run
-        heal_attempts: set[str] = set()
-        heal_count = 0  # Hard limit on healing attempts
-        max_heal_attempts_per_node = 2  # Maximum healing attempts before giving up
 
         for attempt in range(max_attempts):
             try:
-                # Resolve input_mapping dependencies before execution
-                # This enables regex-based context chaining ($$STEP_N_OUTPUT$$)
-                resolved_context = current_context
-                if node.input_mapping:
-                    # Resolve placeholders in input_mapping and create a context with resolved inputs
-                    resolved_inputs = resolve_node_input(node.input_mapping, current_context)
-                    # Store resolved inputs in context for the node executor to use
-                    # Node executors can access these via context.get("_resolved_inputs")
-                    resolved_context = current_context.set("_resolved_inputs", resolved_inputs)
-
-                try:
-                    result = await asyncio.wait_for(
-                        self._node_executor.execute_node(node, resolved_context),
-                        timeout=self._node_timeout,
-                    )
-                except TimeoutError:
-                    result = NodeResult(
-                        node_id=node.id,
-                        success=False,
-                        error=f"Node timed out after {self._node_timeout}s",
-                    )
-
-                # Enhance result metadata with token telemetry if available from agent results
-                # NodeExecutors that execute agents should include agent metadata in NodeResult.metadata
-                # This ensures token tracking flows through the execution pipeline
-
-                # Apply output to context here, even if it's not a final success,
-                # as intermediate results might be needed for subsequent retries
-                # Use _apply_node_output to emit patches with correlation IDs
-                current_context = self._apply_node_output(node, result, current_context)
-
+                result, current_context = await self._try_once(node=node, context=current_context)
                 if result.success:
                     return result, current_context
-
                 last_error = result.error
 
-                # Attempt Auto-Heal if manager is available
-                if self._auto_heal_manager and not result.success:
-                    from cemaf.core.result import Result
-
-                    error_res: Result[None] = Result.fail(
-                        result.error or "Node failed", metadata=result.metadata
-                    )
-
-                    # Check heal attempt limit (safeguard against infinite healing loops)
-                    if heal_count >= max_heal_attempts_per_node:
-                        logger.warning(
-                            "Maximum healing attempts exceeded for node, giving up",
-                            node_id=str(node.id),
-                            max_heal_attempts=max_heal_attempts_per_node,
-                            heal_count=heal_count,
-                        )
-                        # Stop retrying after healing has been exhausted without progress
-                        # This prevents wasting resources on a problem healing can't solve
-                        break
-                    else:
-                        # Track history before heal
-                        history_before = current_context.get_timeline()
-                        context_hash_before = current_context.state_hash()
-                        heal_result = self._auto_heal_manager.heal(error_res, current_context)
-
-                        if heal_result.success:
-                            # Increment heal count ONCE healing is attempted (whether it helps or not)
-                            heal_count += 1
-
-                            # Prevent retrying same error state multiple times
-                            state_hash = context_hash_before
-                            heal_key = f"{state_hash}:{result.error}"
-
-                            if heal_key in heal_attempts:
-                                logger.warning(
-                                    "Auto-heal already attempted for this state, giving up to prevent loop",
-                                    node_id=str(node.id),
-                                    state_hash=state_hash,
-                                )
-                                # If we give up on healing, we MUST NOT 'continue'.
-                                # We let the loop proceed to the retry logic or exit.
-                            elif heal_result.data is not None:
-                                # Verify that healing actually changed the context state
-                                context_hash_after = heal_result.data.state_hash()
-
-                                if context_hash_after == context_hash_before:
-                                    # Healing succeeded but didn't change context - likely won't help
-                                    logger.warning(
-                                        "Healing succeeded but didn't change context state, not retrying",
-                                        node_id=str(node.id),
-                                        state_hash=context_hash_before,
-                                    )
-                                else:
-                                    # Healing succeeded AND changed context - proceed with retry
-                                    heal_attempts.add(heal_key)
-                                    logger.info(
-                                        "Autonomous recovery successful for node",
-                                        node_id=str(node.id),
-                                        attempt=attempt + 1,
-                                        heal_count=heal_count,
-                                    )
-                                    current_context = heal_result.data
-
-                                    # Record any new patches created during healing
-                                    if self._run_logger:
-                                        history_after = current_context.get_timeline()
-                                        new_patches = history_after[len(history_before) :]
-                                        for patch in new_patches:
-                                            self._run_logger.record_patch(patch)
-
-                                    # We healed! We can now retry the node with the healed context.
-                                    continue
-
-                # Don't retry if retry_on_failure is False
+                # Try autonomous heal. Returns a new context iff heal succeeded
+                # AND produced a different state — in that case we retry with
+                # the healed context immediately (skip the sleep).
+                healed_context = await self._try_heal(
+                    node=node,
+                    result=result,
+                    context=current_context,
+                    heal=heal,
+                )
+                if healed_context is not None:
+                    current_context = healed_context
+                    continue
+                if heal.exhausted:
+                    break
                 if not node.retry_on_failure:
                     break
+            except Exception as exc:
+                last_error = str(exc)
 
-            except Exception as e:
-                last_error = str(e)
-
-            # Don't sleep on last attempt
             if attempt < max_attempts - 1:
-                await asyncio.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                await asyncio.sleep(0.1 * (attempt + 1))
 
         end_time = utc_now()
-        final_result = NodeResult(
-            node_id=node.id,
-            success=False,
-            error=last_error or "Max retries exceeded",
-            duration_ms=(end_time - start_time).total_seconds() * 1000,
+        return (
+            NodeResult(
+                node_id=node.id,
+                success=False,
+                error=last_error or "Max retries exceeded",
+                duration_ms=(end_time - start_time).total_seconds() * 1000,
+            ),
+            current_context,
         )
-        return final_result, current_context
+
+    async def _try_once(
+        self,
+        *,
+        node: Node,
+        context: Context,
+    ) -> tuple[NodeResult, Context]:
+        """Resolve inputs, execute the node once, apply output, record budget cost.
+
+        The one-attempt unit that _execute_with_retry drives. Extracted so the
+        per-attempt bookkeeping is readable in isolation and the retry loop
+        is just `try once → decide → maybe heal → maybe retry`.
+        """
+        resolved_context = context
+        if node.input_mapping:
+            resolved_inputs = resolve_node_input(node.input_mapping, context)
+            resolved_context = context.set("_resolved_inputs", resolved_inputs)
+
+        try:
+            result = await asyncio.wait_for(
+                self._node_executor.execute_node(node, resolved_context),
+                timeout=self._node_timeout,
+            )
+        except TimeoutError:
+            result = NodeResult(
+                node_id=node.id,
+                success=False,
+                error=f"Node timed out after {self._node_timeout}s",
+            )
+
+        new_context = self._apply_node_output(node, result, context)
+        self._record_budget_usage(result=result)
+        return result, new_context
+
+    def _record_budget_usage(self, *, result: NodeResult) -> None:
+        """Record per-node cost against BudgetGuard, NaN-safe.
+
+        Failed-but-billed calls count — the runaway-spend scenario the guard
+        exists for is exactly the agent that burns tokens then fails.
+        """
+        if self._budget_guard is None:
+            return
+        meta = result.metadata or {}
+        try:
+            cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)))
+            tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)))
+        except (TypeError, ValueError):
+            cost, tokens = 0.0, 0
+        import math
+
+        if math.isnan(cost) or math.isinf(cost):
+            cost = 0.0
+        if cost > 0 or tokens > 0:
+            self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
+
+    async def _try_heal(
+        self,
+        *,
+        node: Node,
+        result: NodeResult,
+        context: Context,
+        heal: _HealState,
+    ) -> Context | None:
+        """Attempt autonomous healing; return a new context iff progress was made.
+
+        Returns None when:
+        - no heal manager configured
+        - heal attempt budget exhausted (heal.exhausted becomes True)
+        - heal.heal() itself failed
+        - heal returned but didn't change the context state (dead-end)
+        - we already tried healing this same (state, error) pair
+        """
+        if self._auto_heal_manager is None:
+            return None
+
+        if heal.count >= heal.max_attempts:
+            logger.warning(
+                "Maximum healing attempts exceeded for node, giving up",
+                node_id=str(node.id),
+                max_heal_attempts=heal.max_attempts,
+                heal_count=heal.count,
+            )
+            heal.exhausted = True
+            return None
+
+        from cemaf.core.result import Result
+
+        error_res: Result[None] = Result.fail(result.error or "Node failed", metadata=result.metadata)
+        history_before = context.get_timeline()
+        context_hash_before = context.state_hash()
+        heal_result = self._auto_heal_manager.heal(error_res, context)
+        if not heal_result.success:
+            return None
+
+        # Count every heal ATTEMPT even if it doesn't land.
+        heal.count += 1
+        heal_key = f"{context_hash_before}:{result.error}"
+
+        if heal_key in heal.attempted_keys:
+            logger.warning(
+                "Auto-heal already attempted for this state, giving up to prevent loop",
+                node_id=str(node.id),
+                state_hash=context_hash_before,
+            )
+            return None
+        if heal_result.data is None:
+            return None
+        if heal_result.data.state_hash() == context_hash_before:
+            logger.warning(
+                "Healing succeeded but didn't change context state, not retrying",
+                node_id=str(node.id),
+                state_hash=context_hash_before,
+            )
+            return None
+
+        # Healing succeeded AND changed context — the retry has a chance now.
+        heal.attempted_keys.add(heal_key)
+        logger.info(
+            "Autonomous recovery successful for node",
+            node_id=str(node.id),
+            heal_count=heal.count,
+        )
+        if self._run_logger:
+            history_after = heal_result.data.get_timeline()
+            for patch in history_after[len(history_before) :]:
+                self._run_logger.record_patch(patch)
+        return heal_result.data
 
     async def run_parallel_nodes(
         self,
@@ -966,13 +1240,13 @@ class DAGExecutor:
     ) -> tuple[tuple[NodeResult, ...], Context]:
         """Execute multiple nodes in parallel with context merging."""
         handler_ctx = NodeHandlerContext(
-            route_choices=self._route_choices,
+            route_choices=_current_route_choices(),
             apply_output=self._apply_node_output,
             execute_with_retry=self._execute_with_retry,
             merge_strategy=self._merge_strategy,
             max_parallel=self._max_parallel,
             run_logger=self._run_logger,
-            correlation_id=self._correlation_id,
+            correlation_id=_correlation_id_var.get(),
         )
         return await _run_parallel_nodes(
             nodes=nodes,

@@ -161,9 +161,45 @@ class InMemoryVectorStore:
         self._documents.clear()
 
     def _matches_filter(self, doc: Document, filter: JSON) -> bool:
-        """Check if document matches filter."""
-        for key, value in filter.items():
-            doc_value = doc.metadata.get(key)
-            if doc_value != value:
+        """Check if document metadata satisfies filter expressions.
+
+        Supports two shapes:
+          - scalar equality: `{"scope": "project"}`
+          - operator objects: `{"scope": {"$in": ["project", "session"]}}`
+
+        The `$in` / `$nin` / `$ne` operators mirror the semantic store's filter
+        language (see memory/semantic.py). Unknown operators raise ValueError
+        loudly — silent rejection was the original bug.
+        """
+        for key, expected in filter.items():
+            actual = doc.metadata.get(key)
+            if isinstance(expected, dict):
+                if not _matches_operator(actual=actual, expression=expected):
+                    return False
+            elif actual != expected:
                 return False
         return True
+
+
+def _matches_operator(*, actual: object, expression: dict[str, object]) -> bool:
+    """Evaluate a {operator: operand} expression against a metadata value."""
+    for operator, operand in expression.items():
+        if operator == "$in":
+            if not isinstance(operand, (list, tuple, set)):
+                raise ValueError(f"$in operand must be iterable, got {type(operand).__name__}")
+            if actual not in operand:
+                return False
+        elif operator == "$nin":
+            if not isinstance(operand, (list, tuple, set)):
+                raise ValueError(f"$nin operand must be iterable, got {type(operand).__name__}")
+            if actual in operand:
+                return False
+        elif operator == "$ne":
+            if actual == operand:
+                return False
+        elif operator == "$eq":
+            if actual != operand:
+                return False
+        else:
+            raise ValueError(f"Unsupported filter operator: {operator}")
+    return True

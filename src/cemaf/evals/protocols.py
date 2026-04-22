@@ -36,6 +36,8 @@ class EvalMetric(str, Enum):
     RELEVANCE = "relevance"
     FACTUALITY = "factuality"
     HELPFULNESS = "helpfulness"
+    GROUNDEDNESS = "groundedness"  # Fraction of output tokens/sentences supported by context
+    TOOL_USE_SUCCESS = "tool_use_success"  # Did tool calls succeed and get used?
 
     # Safety
     TOXICITY = "toxicity"

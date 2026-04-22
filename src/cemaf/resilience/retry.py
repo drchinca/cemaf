@@ -30,10 +30,22 @@ class BackoffStrategy(str, Enum):
     FIBONACCI = "fibonacci"  # Fibonacci sequence
 
 
+# Default set of transient errors worth retrying. Deliberately narrow — 400s,
+# authentication failures, and content-policy rejections are NOT in this list
+# because retrying them wastes budget and flags the caller's intent was wrong.
+# Callers can override via RetryConfig(retry_on_exceptions=(...)).
+DEFAULT_TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    ConnectionError,
+    TimeoutError,
+    asyncio.TimeoutError,
+    OSError,
+)
+
+
 class RetryConfig(BaseModel):
     """Configuration for retry policy."""
 
-    model_config = {"frozen": True}
+    model_config = {"frozen": True, "arbitrary_types_allowed": True}
 
     max_attempts: int = 3
     initial_delay_seconds: float = 1.0
@@ -43,8 +55,10 @@ class RetryConfig(BaseModel):
     jitter: bool = True  # Add randomness to prevent thundering herd
     jitter_factor: float = 0.1  # +/- 10% of delay
 
-    # Retry conditions
-    retry_on_exceptions: tuple[type, ...] = (Exception,)
+    # Retry conditions — transient errors only by default. Retrying every
+    # exception masks non-retryable failures (400s, content policy, auth)
+    # and burns budget on deterministic errors.
+    retry_on_exceptions: tuple[type[BaseException], ...] = DEFAULT_TRANSIENT_EXCEPTIONS
     retry_on_result: Callable[[Any], bool] | None = None  # Retry if returns True
 
 

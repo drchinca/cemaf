@@ -177,6 +177,14 @@ class InstrumentedLLMClient:
         """Delegate to inner client."""
         return self._client.count_messages_tokens(messages=messages)
 
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """Delegate to inner client's exact counter."""
+        return await self._client.count_tokens_exact(messages=messages, tools=tools)
+
 
 def _message_to_dict(msg: Message) -> dict[str, Any]:
     """Serialize a Message for the LLMCall record."""

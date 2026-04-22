@@ -18,7 +18,14 @@ logger = get_logger("orchestration.node_handlers")
 
 @dataclass(frozen=True, slots=True)
 class NodeHandlerContext:
-    """Shared context for node type handlers."""
+    """Shared context for node type handlers.
+
+    `should_halt` lets handlers (especially LOOP) opt into cooperative
+    cancellation from outer-scope signals like QualityPolice. The outer
+    executor only gets a chance to check halt state BETWEEN nodes, so
+    LOOP's inner iterations must poll themselves — otherwise a degenerate
+    loop wastes N-1 LLM calls after halt fires.
+    """
 
     route_choices: dict[NodeID, set[NodeID]]
     apply_output: Callable[..., Context]
@@ -27,6 +34,7 @@ class NodeHandlerContext:
     max_parallel: int
     run_logger: RunLogger | None
     correlation_id: str
+    should_halt: Callable[[], bool] | None = None
 
 
 def execute_router_node(
@@ -175,7 +183,21 @@ async def execute_loop_node(
         return loop_result, all_body_results, current_context
 
     iteration = 0
+    halted = False
     for iteration in range(max_iterations):
+        # Cooperative halt — before each iteration check whether an outer
+        # signal (QualityPolice, budget guard, cancellation) has been raised.
+        # The outer executor only checks between nodes; without this poll, a
+        # LOOP body burns N-1 iterations of real LLM calls after halt fires.
+        if handler_ctx.should_halt is not None and handler_ctx.should_halt():
+            halted = True
+            logger.warning(
+                "Loop halted by outer signal",
+                loop_id=str(node.id),
+                iteration=iteration,
+            )
+            break
+
         # Check exit condition (context key that evaluates truthy)
         if exit_condition and current_context.get(exit_condition, default=None):
             logger.info(
@@ -188,6 +210,12 @@ async def execute_loop_node(
 
         # Execute each body node in sequence
         for body_id in body_node_ids:
+            # Halt check between body nodes too — don't continue after the
+            # first node in an iteration if halt fired mid-iteration.
+            if handler_ctx.should_halt is not None and handler_ctx.should_halt():
+                halted = True
+                break
+
             body_node = dag.get_node(NodeID(body_id))
             if body_node is None:
                 continue
@@ -205,12 +233,23 @@ async def execute_loop_node(
                 )
                 return loop_result, all_body_results, current_context
 
-    loop_result = NodeResult(
-        node_id=node.id,
-        success=True,
-        output=f"completed {min(iteration + 1, max_iterations)} iterations",
-        metadata={"iterations_completed": min(iteration + 1, max_iterations)},
-    )
+        if halted:
+            break
+
+    if halted:
+        loop_result = NodeResult(
+            node_id=node.id,
+            success=False,
+            error=f"Loop halted by external signal after {iteration} iterations",
+            metadata={"iterations_completed": iteration, "halted": True},
+        )
+    else:
+        loop_result = NodeResult(
+            node_id=node.id,
+            success=True,
+            output=f"completed {min(iteration + 1, max_iterations)} iterations",
+            metadata={"iterations_completed": min(iteration + 1, max_iterations)},
+        )
     return loop_result, all_body_results, current_context
 
 
