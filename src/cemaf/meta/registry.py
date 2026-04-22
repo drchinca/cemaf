@@ -5,6 +5,10 @@ from __future__ import annotations
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.protocols import AuditTrail
 from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.llm.protocols import LLMClient
+from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
+from cemaf.mcp.bridges.openspec.tools import create_openspec_tools
+from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.agents import (
     AgentSynthesizer,
     ArchitectAgent,
@@ -16,9 +20,13 @@ from cemaf.meta.goals import (
     ArchitectGoal,
     AuditGoal,
     KnowledgeGraphGoal,
+    ScaffoldGoal,
     SolutionGoal,
+    SpecGoal,
     SynthesizerGoal,
 )
+from cemaf.meta.scaffolder import MetaScaffolder
+from cemaf.meta.specifier import MetaSpecifier
 from cemaf.meta.tools import (
     GenerateDAGTool,
     IntrospectRegistryTool,
@@ -75,3 +83,39 @@ def register_meta_agents(
         agent_instance=solution_designer,
         goal_type=SolutionGoal,
     )
+
+
+def register_meta_specifier(
+    agent_registry: AgentRegistry,
+    *,
+    tool_registry: ToolRegistry,
+    workspace: OpenSpecWorkspace,
+    runtime: OpenSpecRuntime | None = None,
+    llm_client: LLMClient | None = None,
+) -> None:
+    """Register MetaSpecifier + the OpenSpec tool surface.
+
+    Separate from register_meta_agents so callers without OpenSpec can opt out
+    entirely. Both are composable: register_meta_agents first, then this when
+    you have a workspace.
+    """
+    if runtime is not None:
+        for tool in create_openspec_tools(runtime=runtime, workspace=workspace):
+            tool_registry.register_instance(item=tool)
+
+    specifier = MetaSpecifier(
+        workspace=workspace,
+        runtime=runtime,
+        llm_client=llm_client,
+    )
+    agent_registry.register_agent(agent_instance=specifier, goal_type=SpecGoal)
+
+
+def register_meta_scaffolder(agent_registry: AgentRegistry) -> None:
+    """Register MetaScaffolder — always safe, stateless.
+
+    The agent reads target_dir from each ScaffoldGoal; there's no per-runtime
+    configuration to inject. Callers who never synthesize apps simply never
+    dispatch the agent.
+    """
+    agent_registry.register_agent(agent_instance=MetaScaffolder(), goal_type=ScaffoldGoal)

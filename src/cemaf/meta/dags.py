@@ -137,6 +137,82 @@ def create_solution_engine_dag() -> DAG:
     return dag
 
 
+def create_app_synthesis_dag() -> DAG:
+    """DAG: MetaSpecifier → MetaArchitect → MetaSynthesizer → MetaScaffolder.
+
+    CEMAF building a CEMAF-based app from a feature description. Each node
+    consumes its predecessor's output via context propagation; the final
+    Scaffolder writes a runnable project to disk.
+    """
+    dag = DAG(
+        name="app_synthesis",
+        description="Synthesize a runnable CEMAF-based app from a feature description",
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="specify",
+            name="Specifier",
+            agent_id="MetaSpecifier",
+            output_key="spec_result",
+        )
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="design",
+            name="Architect",
+            agent_id="MetaArchitect",
+            output_key="dag_spec",
+        )
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="synthesize",
+            name="Synthesizer",
+            agent_id="MetaSynthesizer",
+            output_key="agent_code",
+        )
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="scaffold",
+            name="Scaffolder",
+            agent_id="MetaScaffolder",
+            output_key="scaffold_result",
+        )
+    )
+    dag = dag.add_edge(edge=Edge(source=NodeID("specify"), target=NodeID("design")))
+    dag = dag.add_edge(edge=Edge(source=NodeID("design"), target=NodeID("synthesize")))
+    dag = dag.add_edge(edge=Edge(source=NodeID("synthesize"), target=NodeID("scaffold")))
+    return dag
+
+
+def create_self_spec_dag() -> DAG:
+    """DAG: MetaSpecifier authors + validates a proposal, MetaAuditor records outcome.
+
+    Closes the self-spec loop: feature description in, audit entry out.
+    """
+    dag = DAG(name="self_spec", description="Author, validate, and audit an OpenSpec proposal")
+    dag = dag.add_node(
+        node=Node.agent(
+            id="specify",
+            name="Specifier",
+            agent_id="MetaSpecifier",
+            output_key="spec_result",
+        )
+    )
+    dag = dag.add_node(
+        node=Node.agent(
+            id="audit_spec",
+            name="Audit Spec",
+            agent_id="MetaAuditor",
+            input_mapping={"analysis_type": "quality"},
+            output_key="audit_report",
+        )
+    )
+    dag = dag.add_edge(edge=Edge(source=NodeID("specify"), target=NodeID("audit_spec")))
+    return dag
+
+
 def create_knowledge_refresh_dag() -> DAG:
     """DAG: Audit recent runs then update knowledge graph."""
     dag = DAG(name="knowledge_refresh", description="Refresh CEMAF knowledge graph from execution history")
