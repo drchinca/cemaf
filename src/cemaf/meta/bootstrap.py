@@ -10,6 +10,8 @@ from cemaf.audit.protocols import AuditLog, AuditTrail
 from cemaf.bootstrap import create_executor
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
+from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.registry import register_meta_agents, register_meta_specifier
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
@@ -18,11 +20,17 @@ from cemaf.tools.registry import ToolRegistry
 
 @dataclass(frozen=True)
 class MetaServices:
-    """Additional services for meta-mode, extending RuntimeServices."""
+    """Additional services for meta-mode, extending RuntimeServices.
+
+    OpenSpec deps live here, not in RuntimeServices, so the orchestration core
+    has no static dependency on the mcp.bridges.openspec module.
+    """
 
     audit_log: AuditLog | None = None
     audit_trail: AuditTrail | None = None
     knowledge_graph: KnowledgeGraph | None = None
+    openspec_runtime: OpenSpecRuntime | None = None
+    openspec_workspace: OpenSpecWorkspace | None = None
 
 
 def create_meta_executor(
@@ -63,12 +71,12 @@ def create_meta_executor(
         )
 
     # Register MetaSpecifier when an OpenSpec workspace is available
-    if svc.openspec_workspace is not None:
+    if meta_services is not None and meta_services.openspec_workspace is not None:
         register_meta_specifier(
             agent_registry,
             tool_registry=tool_reg,
-            workspace=svc.openspec_workspace,
-            runtime=svc.openspec_runtime,
+            workspace=meta_services.openspec_workspace,
+            runtime=meta_services.openspec_runtime,
             llm_client=svc.llm_client,
         )
 

@@ -46,13 +46,13 @@ async def test_specifier_registered_when_workspace_present(tmp_path: Path) -> No
     services = RuntimeServices(
         event_bus=event_bus,
         memory_manager=memory_manager,  # type: ignore[arg-type]
-        openspec_runtime=runtime,
-        openspec_workspace=workspace,
     )
     meta_services = MetaServices(
         audit_log=audit_log,
         audit_trail=audit_trail,
         knowledge_graph=kg,
+        openspec_runtime=runtime,
+        openspec_workspace=workspace,
     )
     create_meta_executor(
         agent_registry=agent_registry,
@@ -110,7 +110,8 @@ async def test_specifier_end_to_end_writes_and_validates(tmp_path: Path) -> None
         agent_registry=agent_registry,
         tool_registry=tool_registry,
         config=ExecutorConfig(enable_events=False),
-        services=RuntimeServices(
+        services=RuntimeServices(),
+        meta_services=MetaServices(
             openspec_runtime=runtime,
             openspec_workspace=workspace,
         ),
@@ -161,13 +162,13 @@ async def test_self_spec_dag_runs_through_executor(tmp_path: Path) -> None:
     services = RuntimeServices(
         event_bus=event_bus,
         memory_manager=memory_manager,  # type: ignore[arg-type]
-        openspec_runtime=runtime,
-        openspec_workspace=workspace,
     )
     meta_services = MetaServices(
         audit_log=audit_log,
         audit_trail=audit_trail,
         knowledge_graph=kg,
+        openspec_runtime=runtime,
+        openspec_workspace=workspace,
     )
     executor = create_meta_executor(
         agent_registry=agent_registry,
@@ -238,7 +239,8 @@ async def test_specifier_against_real_openspec_cli(tmp_path: Path) -> None:
         agent_registry=agent_registry,
         tool_registry=tool_registry,
         config=ExecutorConfig(enable_events=False),
-        services=RuntimeServices(
+        services=RuntimeServices(),
+        meta_services=MetaServices(
             openspec_runtime=runtime,
             openspec_workspace=workspace,
         ),
