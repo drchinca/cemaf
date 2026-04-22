@@ -180,10 +180,15 @@ async def test_self_audit_loop() -> None:
     assert len(trend) == 5
     assert all(0.7 < score < 1.0 for score in trend)
 
-    # 9. Verify the self-audit DAG is structurally valid
+    # 9. Verify the self-audit DAG is structurally valid AND actually runs
+    # (regression: previously this test only called validate_structure without
+    # ever invoking executor.run, so a broken executor would pass silently)
     dag = create_self_audit_dag()
     assert dag.validate_structure() is True
     assert dag.nodes[0].ref_id == "MetaAuditor"
+    run_result = await _executor.run(dag=dag)
+    assert run_result is not None
+    assert len(run_result.node_results) >= 1, "self_audit DAG must execute the MetaAuditor node"
 
 
 @pytest.mark.asyncio

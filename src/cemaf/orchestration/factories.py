@@ -15,6 +15,7 @@ from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig, NodeExecutor
+from cemaf.orchestration.services import RuntimeServices
 
 
 def create_dag_executor(
@@ -25,46 +26,22 @@ def create_dag_executor(
     moderation_pipeline: ModerationPipeline | None = None,
     session_manager: SessionManager | None = None,
 ) -> DAGExecutor:
-    """
-    Factory for DAGExecutor with sensible defaults.
+    """Factory for DAGExecutor with sensible defaults.
 
-    Args:
-        node_executor: Required node execution strategy
-        config: Executor configuration (optional)
-        run_logger: Run logging for replay (optional)
-        event_bus: Event bus integration (optional)
-        moderation_pipeline: Content moderation (optional)
-
-    Returns:
-        Configured DAGExecutor instance
-
-    Example:
-        # Minimal setup
-        executor = create_dag_executor(node_executor=my_executor)
-
-        # With logging
-        executor = create_dag_executor(
-            node_executor=my_executor,
-            run_logger=InMemoryRunLogger(),
-        )
-
-        # With custom config
-        config = ExecutorConfig(max_parallel=20)
-        executor = create_dag_executor(
-            node_executor=my_executor,
-            config=config,
-        )
+    Bundles the per-executor services into a RuntimeServices then hands
+    the executor a single services parameter — mirrors bootstrap.create_executor.
     """
     cfg = config or ExecutorConfig()
-
-    return DAGExecutor(
-        node_executor=node_executor,
-        max_parallel=cfg.max_parallel,
+    services = RuntimeServices(
         run_logger=run_logger if cfg.enable_logging else None,
         event_bus=event_bus if cfg.enable_events else None,
         moderation_pipeline=moderation_pipeline if cfg.enable_moderation else None,
         session_manager=session_manager,
-        node_timeout_seconds=cfg.node_timeout_seconds,
+    )
+    return DAGExecutor(
+        node_executor=node_executor,
+        services=services,
+        config=cfg,
     )
 
 

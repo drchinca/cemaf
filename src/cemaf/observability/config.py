@@ -92,34 +92,33 @@ def configure_metrics(metrics: MetricsCollector | None = None) -> None:
 
 def get_logger(name: str | None = None, **context: Any) -> Logger:
     """
-    Get logger instance with optional context.
+    Get a scoped logger without mutating the global.
+
+    Returns a new logger with the requested context/component attached. The
+    root logger is not modified — previous versions reassigned the global
+    `_logger` on every call, which caused tenant context to bleed across
+    callers and produced an unbounded context accumulator under load. Each
+    call now yields an independent view.
 
     Args:
-        name: Logger name (appended to root name)
-        **context: Additional context fields
+        name: Component name (appended to root name).
+        **context: Additional context fields (tenant_id, run_id, etc.).
 
     Returns:
-        Logger instance with context
-
-    Example:
-        logger = get_logger("dag.executor", run_id="123")
-        logger.info("Starting execution")  # Includes run_id in output
+        Scoped Logger instance. Safe under concurrent multi-tenant use.
     """
-    global _logger
-
     if _logger is None:
         configure_logging()
 
-    assert _logger is not None  # For type checker
+    if _logger is None:  # defensive: configure_logging must have set _logger
+        raise RuntimeError("Logger not configured")
 
+    scoped: Logger = _logger
     if name:
-        # Create child logger with hierarchical name
-        _logger = _logger.with_context(component=name)
-
+        scoped = scoped.with_context(component=name)
     if context:
-        _logger = _logger.with_context(**context)
-
-    return _logger
+        scoped = scoped.with_context(**context)
+    return scoped
 
 
 def get_tracer() -> Tracer:

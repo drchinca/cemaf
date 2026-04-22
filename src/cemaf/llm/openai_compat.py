@@ -217,13 +217,62 @@ class OpenAICompatClient:
                     continue
 
     def count_tokens(self, text: str) -> TokenCount:
-        """Estimate tokens (4 chars per token heuristic)."""
-        return TokenCount(max(1, len(text) // 4))
+        """Heuristic token count (3.5 chars/token, calibrated for OpenAI tokenizers)."""
+        if not text:
+            return TokenCount(0)
+        return TokenCount(max(1, round(len(text) / 3.5)))
 
     def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
-        """Estimate tokens for message list."""
-        total = sum(len(str(m.content)) // 4 + 4 for m in messages)
+        """Heuristic total for a message list (adds 4 tokens per message for role overhead)."""
+        total = sum(self.count_tokens(text=str(m.content)) + 4 for m in messages)
         return TokenCount(max(1, total))
+
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """Exact token count via tiktoken.
+
+        OpenAI-compatible providers (OpenAI, Groq, Together, Fireworks, many
+        open-model gateways following the OpenAI schema: Qwen, DeepSeek,
+        Llama-family) all use a tiktoken-compatible BPE. When tiktoken is
+        installed we compute exact counts; otherwise we fall back to the
+        heuristic with a log warning so the caller knows the number is
+        approximate.
+        """
+        try:
+            import tiktoken
+        except ImportError:
+            # No tiktoken → heuristic fallback. Caller sees a real number,
+            # not a crash — and accepts the ~5% under-count as the cost of
+            # not installing an extra.
+            total = 0
+            for msg in messages:
+                total += self.count_tokens(text=str(msg.content)) + 4
+            if tools:
+                total += sum(self.count_tokens(text=str(t.parameters)) + len(t.name) for t in tools)
+            return TokenCount(max(1, total))
+
+        # Pick the right encoder for the model; fall back to cl100k_base.
+        try:
+            encoder = tiktoken.encoding_for_model(self._config.model)
+        except (KeyError, Exception):
+            encoder = tiktoken.get_encoding("cl100k_base")
+
+        total = 0
+        for msg in messages:
+            total += 4  # OpenAI's per-message overhead
+            content_str = msg.content if isinstance(msg.content, str) else str(msg.content)
+            total += len(encoder.encode(content_str))
+            if msg.name:
+                total += len(encoder.encode(msg.name))
+        total += 2  # Priming tokens
+        if tools:
+            for tool in tools:
+                tool_text = f"{tool.name}\n{tool.description}\n{tool.parameters}"
+                total += len(encoder.encode(tool_text))
+        return TokenCount(total)
 
 
 # ---------------------------------------------------------------------------

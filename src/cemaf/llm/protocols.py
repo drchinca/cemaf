@@ -345,16 +345,32 @@ class LLMClient(Protocol):
 
     def count_tokens(self, text: str) -> TokenCount:
         """
-        Count tokens in text.
+        Estimate tokens in text (sync, heuristic — may be inaccurate).
 
-        Used for context budget management.
+        Use for hot paths (context compilation, budget checks per node).
+        For pre-flight pricing of a full request, use count_tokens_exact.
         """
         ...
 
     def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
         """
-        Count tokens in a list of messages.
+        Estimate tokens in a list of messages (sync, heuristic).
 
         Includes message overhead (role tokens, etc).
+        """
+        ...
+
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        """
+        Exact token count via the provider's API.
+
+        Use this before a long-context request (e.g. 100k+ context) where a
+        30% heuristic under-estimate causes a 400 `context_length_exceeded`.
+        Implementations that cannot provide an exact count raise
+        NotImplementedError; callers should fall back to count_tokens.
         """
         ...
