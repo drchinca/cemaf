@@ -46,6 +46,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import re
 from collections.abc import Iterable, Iterator
@@ -332,16 +333,32 @@ class BlueprintLibrary:
 
     def __init__(self, entries: Iterable[BlueprintEntry] = ()) -> None:
         self._entries: dict[str, BlueprintEntry] = {}
+        self._write_lock = asyncio.Lock()
         for entry in entries:
             self.register(entry=entry)
 
     def register(self, *, entry: BlueprintEntry, overwrite: bool = False) -> None:
-        """Add `entry` to the library. Rejects id collisions by default."""
+        """Add `entry` synchronously (boot-time wiring; use `register_async` at runtime)."""
         if entry.id in self._entries and not overwrite:
             raise BlueprintIdCollision(
                 f"Entry id {entry.id!r} already registered. Pass overwrite=True to replace."
             )
         self._entries[entry.id] = entry
+
+    async def register_async(self, *, entry: BlueprintEntry, overwrite: bool = False) -> None:
+        """Add `entry` under an asyncio lock; safe under concurrent runtime appends.
+
+        Use this from subscribers, harvesters, and any other code that writes to
+        the library after the composition root has handed it off. Boot-time wiring
+        should continue to use the sync `register` — all sync registration must
+        complete before concurrent callers start writing.
+        """
+        async with self._write_lock:
+            if entry.id in self._entries and not overwrite:
+                raise BlueprintIdCollision(
+                    f"Entry id {entry.id!r} already registered. Pass overwrite=True to replace."
+                )
+            self._entries[entry.id] = entry
 
     def register_from(self, *, sources: Iterable[BlueprintSource], overwrite: bool = False) -> None:
         """Ingest every entry from each source in order."""
@@ -432,4 +449,35 @@ class BlueprintSource(Protocol):
 
     def load(self) -> Iterable[BlueprintEntry]:
         """Yield every entry this source produces."""
+        ...
+
+
+@runtime_checkable
+class WritableBlueprintSource(Protocol):
+    """A `BlueprintSource` that also accepts new entries at runtime.
+
+    Read-only sources (in-memory tuple, JSON file) remain valid `BlueprintSource`s
+    without any changes. `WritableBlueprintSource` is a **sibling** protocol, not
+    a subclass — callers that need write access should type against this directly.
+
+    The async `append`/`close` shape mirrors `SqliteMemoryStore` — writes happen
+    under asyncio supervision. `load` stays sync so libraries can be built at
+    import time without ceremony.
+    """
+
+    @property
+    def name(self) -> str:
+        """Short identifier written to `BlueprintEntry.source` for provenance."""
+        ...
+
+    def load(self) -> Iterable[BlueprintEntry]:
+        """Yield every entry this source produces."""
+        ...
+
+    async def append(self, *, entry: BlueprintEntry) -> None:
+        """Persist `entry` so subsequent `load()` calls will include it."""
+        ...
+
+    async def close(self) -> None:
+        """Release any underlying resources (open files, DB connections)."""
         ...

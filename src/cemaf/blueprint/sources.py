@@ -1,24 +1,20 @@
 """Concrete `BlueprintSource` implementations.
 
 `BlueprintLibrary` is substrate-agnostic — it ingests whatever a
-`BlueprintSource` yields. This module ships two sources that cover the
+`BlueprintSource` yields. This module ships three sources that cover the
 common cases:
 
-    InMemoryBlueprintSource  — hand-authored entries, usually for tests
-                               or programmatic bootstrapping.
+    InMemoryBlueprintSource          — hand-authored entries, read-only.
+    JSONFileBlueprintSource          — a single JSON catalog file, read-only.
+    InMemoryWritableBlueprintSource  — list-backed, supports async append
+                                       (for tests + harvester wiring).
 
-    JSONFileBlueprintSource  — a single JSON file containing a list of
-                               entry records. Good fit for a checked-in
-                               `blueprints/catalog.json` that teams edit
-                               by hand and version-control alongside code.
-
-Both are sync iterators; implementations that need I/O-heavy or
-network-backed ingestion should wrap the protocol themselves and return a
-plain list (or a generator) from `load()`.
+See `cemaf.blueprint.sqlite_source` for the production writable source.
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 from collections.abc import Iterable
@@ -134,4 +130,43 @@ class JSONFileBlueprintSource:
             raise ValueError(f"{self._path}[{index}]: missing required field {exc.args[0]!r}") from exc
 
 
-__all__ = ["InMemoryBlueprintSource", "JSONFileBlueprintSource"]
+class InMemoryWritableBlueprintSource:
+    """A list-backed `WritableBlueprintSource` — tests, harvester wiring, fakes.
+
+    `load()` yields the current snapshot; `append()` mutates under an
+    asyncio lock so concurrent harvester calls serialize safely. `close()`
+    is a no-op — no external resources to release.
+    """
+
+    def __init__(self, *, name: str = "in-memory-writable") -> None:
+        self._name = name
+        self._entries: list[BlueprintEntry] = []
+        self._lock = asyncio.Lock()
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def load(self) -> Iterable[BlueprintEntry]:
+        # Yield from a stable snapshot so load() is safe while appends are in flight.
+        yield from tuple(self._entries)
+
+    async def append(self, *, entry: BlueprintEntry) -> None:
+        stamped = entry if entry.source else dataclasses.replace(entry, source=self._name)
+        async with self._lock:
+            # Idempotent by id — same id replaces, matching SQLite upsert semantics.
+            for i, existing in enumerate(self._entries):
+                if existing.id == stamped.id:
+                    self._entries[i] = stamped
+                    return
+            self._entries.append(stamped)
+
+    async def close(self) -> None:
+        return
+
+
+__all__ = [
+    "InMemoryBlueprintSource",
+    "InMemoryWritableBlueprintSource",
+    "JSONFileBlueprintSource",
+]
