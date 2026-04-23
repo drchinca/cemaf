@@ -40,6 +40,44 @@ def main() -> None:
         help="Run an MCP stdio server exposing the docs to any MCP client",
     )
 
+    bp_parser = subparsers.add_parser(
+        "blueprint",
+        help="Inspect the curated blueprint library (from CEMAF_BLUEPRINT_CATALOG)",
+        description=(
+            "Query the curated BlueprintLibrary. "
+            "Catalog path is read from the CEMAF_BLUEPRINT_CATALOG environment variable "
+            "(a JSON file; see docs/blueprints.md for format). "
+            "An unset variable yields an empty library — commands still run, with a hint."
+        ),
+    )
+    bp_sub = bp_parser.add_subparsers(dest="blueprint_command")
+
+    bp_list = bp_sub.add_parser("list", help="List all entries in the library")
+    bp_list.add_argument(
+        "--kind",
+        choices=["snapshot", "factory", "recipe"],
+        action="append",
+        help="Filter by entry kind (repeatable)",
+    )
+
+    bp_search = bp_sub.add_parser("search", help="Keyword search the blueprint library")
+    bp_search.add_argument("query", nargs="+", help="Search query")
+    bp_search.add_argument("-k", type=int, default=5, help="Max results (default 5)")
+    bp_search.add_argument(
+        "--kind",
+        choices=["snapshot", "factory", "recipe"],
+        action="append",
+        help="Filter by entry kind (repeatable)",
+    )
+    bp_search.add_argument(
+        "--tag",
+        action="append",
+        help="Require at least one of the given tags (repeatable)",
+    )
+
+    bp_show = bp_sub.add_parser("show", help="Resolve an entry and print its prompt")
+    bp_show.add_argument("entry_id", help="Blueprint entry id")
+
     args = parser.parse_args()
 
     if args.command == "inspect":
@@ -58,6 +96,21 @@ def main() -> None:
             _docs_serve()
         else:
             docs_parser.print_help()
+    elif args.command == "blueprint":
+        sub = getattr(args, "blueprint_command", None)
+        if sub == "list":
+            _blueprint_list(kinds=tuple(args.kind) if args.kind else None)
+        elif sub == "search":
+            _blueprint_search(
+                query=" ".join(args.query),
+                k=args.k,
+                kinds=tuple(args.kind) if args.kind else None,
+                tags=tuple(args.tag) if args.tag else None,
+            )
+        elif sub == "show":
+            _blueprint_show(entry_id=args.entry_id)
+        else:
+            bp_parser.print_help()
     else:
         parser.print_help()
 
@@ -150,6 +203,91 @@ def _docs_show(*, entry_id: str) -> None:
         print(f"path:   {entry.path}")
     print()
     print(entry.body)
+
+
+def _blueprint_list(*, kinds: tuple[str, ...] | None) -> None:
+    """Print every entry in the env-configured library."""
+    from cemaf.blueprint.factories import create_blueprint_library_from_env
+    from cemaf.blueprint.library import BlueprintEntryKind
+
+    library = create_blueprint_library_from_env()
+    if len(library) == 0:
+        print("Library is empty. Set CEMAF_BLUEPRINT_CATALOG to a JSON catalog path.")
+        return
+
+    kind_filter: set[BlueprintEntryKind] | None = None
+    if kinds:
+        kind_filter = {BlueprintEntryKind(k) for k in kinds}
+
+    shown = 0
+    for entry in library:
+        if kind_filter is not None and entry.kind not in kind_filter:
+            continue
+        print(f"  [{entry.kind.value:<8}]  {entry.title}")
+        print(f"              id: {entry.id}")
+        if entry.tags:
+            print(f"              tags: {', '.join(entry.tags)}")
+        print()
+        shown += 1
+    print(f"{shown} shown, {len(library)} total")
+
+
+def _blueprint_search(
+    *,
+    query: str,
+    k: int,
+    kinds: tuple[str, ...] | None,
+    tags: tuple[str, ...] | None,
+) -> None:
+    """Search the env-configured library."""
+    from cemaf.blueprint.factories import create_blueprint_library_from_env
+    from cemaf.blueprint.library import BlueprintEntryKind
+
+    library = create_blueprint_library_from_env()
+    kind_filter: tuple[BlueprintEntryKind, ...] | None = None
+    if kinds:
+        kind_filter = tuple(BlueprintEntryKind(k) for k in kinds)
+
+    results = library.search(query=query, k=k, kinds=kind_filter, tags=tags)
+    if not results:
+        print(f"No matches for: {query}")
+        return
+    print(f"Query: {query}   ({len(results)} result(s), library size {len(library)})\n")
+    for entry, score in results:
+        print(f"  [{score:5.1f}]  {entry.kind.value:<8}  {entry.title}")
+        print(f"            id: {entry.id}")
+        if entry.tags:
+            print(f"            tags: {', '.join(entry.tags)}")
+        print()
+    print("Show prompt:  cemaf blueprint show <id>")
+
+
+def _blueprint_show(*, entry_id: str) -> None:
+    """Resolve an entry and print its rendered prompt."""
+    from cemaf.blueprint.factories import create_blueprint_library_from_env
+    from cemaf.blueprint.library import BlueprintNotFound, BlueprintResolutionError
+
+    library = create_blueprint_library_from_env()
+    try:
+        blueprint = library.resolve(entry_id=entry_id)
+    except BlueprintNotFound:
+        print(f"No entry with id: {entry_id}")
+        return
+    except BlueprintResolutionError as exc:
+        print(f"Entry {entry_id!r} failed to resolve: {exc}")
+        return
+
+    entry = library.get(entry_id)
+    assert entry is not None
+    print(f"# {entry.title}")
+    print(f"id:     {entry.id}")
+    print(f"kind:   {entry.kind.value}")
+    print(f"source: {entry.source}")
+    if entry.tags:
+        print(f"tags:   {', '.join(entry.tags)}")
+    print()
+    print("--- Rendered Prompt ---")
+    print(blueprint.to_prompt())
 
 
 def _docs_serve() -> None:

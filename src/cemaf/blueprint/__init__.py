@@ -1,14 +1,38 @@
 """
-Blueprint module for defining scene blueprints.
+Blueprint module — semantic prompt engineering + a reusable blueprint library.
 
-Blueprints describe the structure and requirements for content generation scenes.
+`Blueprint` (see `cemaf.blueprint.core`) is CEMAF's unit of structured
+prompt engineering: scene goal + style + entities + policies, rendered
+to a prompt via `to_prompt()`.
+
+`BlueprintLibrary` (see `cemaf.blueprint.library`) is the curated,
+searchable index over reusable `Blueprint`s. Entries come in three
+representational kinds — SNAPSHOT (serialized inline), FACTORY (Python
+import path), RECIPE (declarative dict) — and all resolve to the same
+`Blueprint` type so consumers don't care how the entry was stored.
+
+Pluggable ingestion via the `BlueprintSource` protocol
+(`cemaf.blueprint.protocols`); concrete implementations for in-memory
+and JSON-file sources live in `cemaf.blueprint.sources`.
 """
 
 from cemaf.blueprint.builder import BlueprintBuilder
 from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
 from cemaf.blueprint.entities import ContextEntity, EntityType
+from cemaf.blueprint.library import (
+    BlueprintEntry,
+    BlueprintEntryKind,
+    BlueprintIdCollision,
+    BlueprintLibrary,
+    BlueprintLibraryError,
+    BlueprintNotFound,
+    BlueprintResolutionError,
+)
 from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
+from cemaf.blueprint.protocols import BlueprintSource  # noqa: F401 re-export
+from cemaf.blueprint.recipe import RecipeValidationError, parse_recipe
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
+from cemaf.blueprint.sources import InMemoryBlueprintSource, JSONFileBlueprintSource
 
 __all__ = [
     # Schema models
@@ -19,6 +43,21 @@ __all__ = [
     "StyleGuide",
     # Builder
     "BlueprintBuilder",
+    # Library
+    "BlueprintEntry",
+    "BlueprintEntryKind",
+    "BlueprintLibrary",
+    "BlueprintSource",
+    "InMemoryBlueprintSource",
+    "JSONFileBlueprintSource",
+    # Library errors
+    "BlueprintIdCollision",
+    "BlueprintLibraryError",
+    "BlueprintNotFound",
+    "BlueprintResolutionError",
+    # Recipe parser
+    "RecipeValidationError",
+    "parse_recipe",
     # Validation rules
     "BlueprintContentRule",
     "BlueprintSchemaRule",
