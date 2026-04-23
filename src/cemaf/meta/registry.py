@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.protocols import AuditTrail
+from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.llm.protocols import LLMClient
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
@@ -16,6 +17,8 @@ from cemaf.meta.agents import (
     KnowledgeGraphAgent,
     SolutionDesignerAgent,
 )
+from cemaf.meta.blueprint_goals import SelectionGoal
+from cemaf.meta.blueprint_selector import BlueprintSelectorAgent
 from cemaf.meta.goals import (
     ArchitectGoal,
     AuditGoal,
@@ -119,3 +122,15 @@ def register_meta_scaffolder(agent_registry: AgentRegistry) -> None:
     dispatch the agent.
     """
     agent_registry.register_agent(agent_instance=MetaScaffolder(), goal_type=ScaffoldGoal)
+
+
+def register_blueprint_selector(
+    agent_registry: AgentRegistry,
+    *,
+    library: BlueprintLibrary,
+) -> None:
+    """Register `BlueprintSelectorAgent` so `SelectionGoal` can be dispatched as a DAG node."""
+    agent_registry.register_agent(
+        agent_instance=BlueprintSelectorAgent(library=library),
+        goal_type=SelectionGoal,
+    )
