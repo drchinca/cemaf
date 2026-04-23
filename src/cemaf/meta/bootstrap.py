@@ -14,6 +14,7 @@ from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.registry import (
+    register_blueprint_selector,
     register_meta_agents,
     register_meta_scaffolder,
     register_meta_specifier,
@@ -90,6 +91,13 @@ def create_meta_executor(
     # register even when no target dir is configured. Callers who want to
     # synthesize apps pass target_dir via ScaffoldGoal.
     register_meta_scaffolder(agent_registry)
+
+    # Register BlueprintSelectorAgent when a library is available.
+    if svc.blueprint_library is not None:
+        register_blueprint_selector(
+            agent_registry,
+            library=svc.blueprint_library,
+        )
 
     # Delegate to standard bootstrap
     return create_executor(
