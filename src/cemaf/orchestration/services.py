@@ -53,6 +53,7 @@ OpenSpec deps. See `cemaf.meta.bootstrap`.
 
 from dataclasses import dataclass
 
+from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
@@ -99,6 +100,9 @@ class RuntimeServices:
     # LLM + Retrieval
     llm_client: LLMClient | None = None
     vector_store: VectorStore | None = None
+
+    # Blueprints (consumer lands in PR-2; field here so downstream PRs stack cleanly)
+    blueprint_library: BlueprintLibrary | None = None
 
     # Recovery
     auto_heal_manager: AutoHealManager | None = None

@@ -27,12 +27,18 @@ from cemaf.blueprint.library import (
     BlueprintLibraryError,
     BlueprintNotFound,
     BlueprintResolutionError,
+    WritableBlueprintSource,
 )
 from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
 from cemaf.blueprint.protocols import BlueprintSource  # noqa: F401 re-export
 from cemaf.blueprint.recipe import RecipeValidationError, parse_recipe
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
-from cemaf.blueprint.sources import InMemoryBlueprintSource, JSONFileBlueprintSource
+from cemaf.blueprint.sources import (
+    InMemoryBlueprintSource,
+    InMemoryWritableBlueprintSource,
+    JSONFileBlueprintSource,
+)
+from cemaf.blueprint.sqlite_source import SqliteBlueprintSource
 
 __all__ = [
     # Schema models
@@ -48,8 +54,11 @@ __all__ = [
     "BlueprintEntryKind",
     "BlueprintLibrary",
     "BlueprintSource",
+    "WritableBlueprintSource",
     "InMemoryBlueprintSource",
+    "InMemoryWritableBlueprintSource",
     "JSONFileBlueprintSource",
+    "SqliteBlueprintSource",
     # Library errors
     "BlueprintIdCollision",
     "BlueprintLibraryError",
