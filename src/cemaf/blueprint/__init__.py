@@ -29,7 +29,7 @@ from cemaf.blueprint.library import (
     BlueprintResolutionError,
 )
 from cemaf.blueprint.mock import MockBlueprintRegistry, create_mock_blueprint
-from cemaf.blueprint.protocols import BlueprintSource
+from cemaf.blueprint.protocols import BlueprintSource  # noqa: F401 re-export
 from cemaf.blueprint.recipe import RecipeValidationError, parse_recipe
 from cemaf.blueprint.rules import BlueprintContentRule, BlueprintSchemaRule
 from cemaf.blueprint.sources import InMemoryBlueprintSource, JSONFileBlueprintSource

@@ -28,6 +28,7 @@ from cemaf.blueprint import (
     BlueprintEntryKind,
     BlueprintIdCollision,
     BlueprintLibrary,
+    BlueprintLibraryError,
     BlueprintNotFound,
     BlueprintResolutionError,
     InMemoryBlueprintSource,
@@ -105,7 +106,7 @@ class TestSnapshotEntryKind:
 
     def test_snapshot_invariant_rejects_foreign_payload(self) -> None:
         # Can't claim SNAPSHOT but populate factory_ref.
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(BlueprintLibraryError) as exc_info:
             BlueprintEntry(
                 id="bad",
                 kind=BlueprintEntryKind.SNAPSHOT,
@@ -195,7 +196,7 @@ class TestFactoryEntryKind:
         assert "Sing a test signal" in prompt
 
     def test_factory_ref_must_use_colon_separator(self) -> None:
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(BlueprintLibraryError) as exc_info:
             BlueprintEntry.factory_entry(
                 id="x",
                 title="X",
@@ -421,7 +422,7 @@ class TestMixedLibrary:
         return library
 
     def test_all_kinds_resolve_to_blueprint(self, mixed_library: BlueprintLibrary) -> None:
-        for entry in mixed_library.all():
+        for entry in mixed_library.entries():
             resolved = mixed_library.resolve(entry_id=entry.id)
             assert isinstance(resolved, Blueprint), f"kind={entry.kind} failed"
             # Every Blueprint can render a prompt — sanity check the real artifact.
@@ -434,10 +435,11 @@ class TestMixedLibrary:
 
     def test_search_filters_by_kind(self, mixed_library: BlueprintLibrary) -> None:
         results = mixed_library.search(
-            query="content",
+            query="content canary",
             kinds=(BlueprintEntryKind.FACTORY,),
         )
-        # Only the factory-kind entry should appear, and only if its title/tags match.
+        # Guard against trivial-pass on empty: filter must actually match something.
+        assert results, "factory-kind filter returned no results; query is too narrow"
         for entry, _ in results:
             assert entry.kind == BlueprintEntryKind.FACTORY
 
@@ -448,7 +450,7 @@ class TestMixedLibrary:
         assert "content/announcement" not in ids
 
     def test_collision_rejected_by_default(self, mixed_library: BlueprintLibrary) -> None:
-        with pytest.raises(BlueprintIdCollision):
+        with pytest.raises(BlueprintIdCollision) as exc_info:
             mixed_library.register(
                 entry=BlueprintEntry.recipe_entry(
                     id="content/announcement",
@@ -456,6 +458,8 @@ class TestMixedLibrary:
                     recipe={"name": "Dup", "goal": "x"},
                 )
             )
+        assert "content/announcement" in str(exc_info.value)
+        assert "overwrite=True" in str(exc_info.value)
 
     def test_overwrite_flag_replaces_entry(self, mixed_library: BlueprintLibrary) -> None:
         original = mixed_library.get("content/announcement")
@@ -576,3 +580,139 @@ class TestSourceIngestion:
         source = JSONFileBlueprintSource(path=path)
         with pytest.raises(ValueError, match="kind"):
             list(source.load())
+
+    def test_duplicate_ids_within_one_file_are_rejected(
+        self, tmp_path: Path, announcement_blueprint: Blueprint
+    ) -> None:
+        """Two entries with the same id in one JSON catalog → second raises on register."""
+        path = tmp_path / "dup.json"
+        snap = announcement_blueprint.to_dict()
+        path.write_text(
+            json.dumps(
+                [
+                    {"id": "dup", "kind": "snapshot", "title": "First", "snapshot": snap},
+                    {"id": "dup", "kind": "snapshot", "title": "Second", "snapshot": snap},
+                ]
+            )
+        )
+        library = BlueprintLibrary()
+        with pytest.raises(BlueprintIdCollision):
+            library.register_from(sources=(JSONFileBlueprintSource(path=path),))
+
+    def test_multiple_sources_second_collides_without_overwrite(
+        self, announcement_blueprint: Blueprint
+    ) -> None:
+        """Two sources carrying the same id → second raises unless overwrite=True."""
+        entry = BlueprintEntry.snapshot_entry(id="shared", title="Shared", blueprint=announcement_blueprint)
+        library = BlueprintLibrary()
+        with pytest.raises(BlueprintIdCollision):
+            library.register_from(
+                sources=(
+                    InMemoryBlueprintSource(entries=(entry,), name="src-a"),
+                    InMemoryBlueprintSource(entries=(entry,), name="src-b"),
+                ),
+            )
+
+
+# =============================================================================
+# Policy round-trip — all three policy objects survive SNAPSHOT and RECIPE
+# =============================================================================
+
+
+@pytest.fixture
+def policy_blueprint() -> Blueprint:
+    """Blueprint carrying output_contract + execution_policy + security_policy."""
+    from cemaf.blueprint.policies import ExecutionPolicy, OutputContract, SecurityPolicy
+
+    return Blueprint(
+        id="policy-rich",
+        name="Policy Rich",
+        scene_goal=SceneGoal(objective="test policies"),
+        output_contract=OutputContract(
+            format="json",
+            required_sections=("summary", "details"),
+            must_include=("source_id",),
+            forbidden=("raw_html",),
+        ),
+        execution_policy=ExecutionPolicy(
+            incremental_strategy="watermark",
+            incremental_field="updated_at",
+            max_retries=5,
+            exactly_once=True,
+        ),
+        security_policy=SecurityPolicy(
+            pii_fields=("email", "phone"),
+            encryption="at_rest_and_in_transit",
+            compliance_frameworks=("GDPR", "SOC2"),
+        ),
+    )
+
+
+class TestPolicyRoundTrip:
+    """Policies must survive SNAPSHOT serialization and show up in the rendered prompt."""
+
+    def test_snapshot_preserves_all_policies(self, policy_blueprint: Blueprint) -> None:
+        library = BlueprintLibrary()
+        library.register(
+            entry=BlueprintEntry.snapshot_entry(
+                id="p",
+                title="P",
+                blueprint=policy_blueprint,
+            )
+        )
+        resolved = library.resolve(entry_id="p")
+        assert resolved.output_contract == policy_blueprint.output_contract
+        assert resolved.execution_policy == policy_blueprint.execution_policy
+        assert resolved.security_policy == policy_blueprint.security_policy
+
+    def test_snapshot_policies_render_in_prompt(self, policy_blueprint: Blueprint) -> None:
+        library = BlueprintLibrary()
+        library.register(
+            entry=BlueprintEntry.snapshot_entry(
+                id="p",
+                title="P",
+                blueprint=policy_blueprint,
+            )
+        )
+        prompt = library.resolve(entry_id="p").to_prompt()
+        assert "Output Contract" in prompt
+        assert "Execution Policy" in prompt
+        assert "Security Policy" in prompt
+        assert "GDPR" in prompt
+        assert "watermark" in prompt
+
+
+# =============================================================================
+# Recipe id / name precedence — the recipe wins over the library's default
+# =============================================================================
+
+
+class TestRecipeIdPrecedence:
+    """Recipe-declared id/name always win over the library's default fallback."""
+
+    def test_recipe_id_wins_over_entry_id(self) -> None:
+        library = BlueprintLibrary()
+        library.register(
+            entry=BlueprintEntry.recipe_entry(
+                id="entry-level-id",
+                title="Entry Title",
+                recipe={"id": "recipe-level-id", "name": "Recipe Name", "goal": "g"},
+            )
+        )
+        resolved = library.resolve(entry_id="entry-level-id")
+        # Resolved Blueprint carries the id from the recipe, not the entry.
+        assert resolved.id == "recipe-level-id"
+        assert resolved.name == "Recipe Name"
+
+    def test_entry_defaults_fill_missing_recipe_fields(self) -> None:
+        library = BlueprintLibrary()
+        library.register(
+            entry=BlueprintEntry.recipe_entry(
+                id="fallback-id",
+                title="Fallback Title",
+                recipe={"goal": "g"},  # no id, no name
+            )
+        )
+        resolved = library.resolve(entry_id="fallback-id")
+        assert resolved.id == "fallback-id"
+        assert resolved.name == "Fallback Title"

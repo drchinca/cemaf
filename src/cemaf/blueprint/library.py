@@ -54,6 +54,7 @@ from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.blueprint.core import Blueprint
+from cemaf.blueprint.recipe import parse_recipe
 
 
 class BlueprintEntryKind(str, Enum):
@@ -234,7 +235,8 @@ class BlueprintEntry:
 
 
 def _resolve_snapshot(entry: BlueprintEntry) -> Blueprint:
-    assert entry.snapshot is not None  # enforced by __post_init__
+    if entry.snapshot is None:
+        raise BlueprintResolutionError(f"SNAPSHOT entry {entry.id!r}: payload missing (invariant violation).")
     try:
         return Blueprint.from_dict(data=entry.snapshot)
     except Exception as exc:
@@ -244,7 +246,10 @@ def _resolve_snapshot(entry: BlueprintEntry) -> Blueprint:
 
 
 def _resolve_factory(entry: BlueprintEntry) -> Blueprint:
-    assert entry.factory_ref is not None
+    # SECURITY: `factory_ref` is evaluated via importlib.import_module — loading a
+    # catalog is equivalent to executing Python. Trust your catalog source.
+    if entry.factory_ref is None:
+        raise BlueprintResolutionError(f"FACTORY entry {entry.id!r}: payload missing (invariant violation).")
     ref = entry.factory_ref
     module_path, _, attr = ref.partition(":")
     try:
@@ -279,13 +284,10 @@ def _resolve_factory(entry: BlueprintEntry) -> Blueprint:
 
 
 def _resolve_recipe(entry: BlueprintEntry) -> Blueprint:
-    assert entry.recipe is not None
-    from cemaf.blueprint.recipe import parse_recipe
-
+    if entry.recipe is None:
+        raise BlueprintResolutionError(f"RECIPE entry {entry.id!r}: payload missing (invariant violation).")
     try:
         return parse_recipe(recipe=entry.recipe, default_id=entry.id, default_name=entry.title)
-    except BlueprintResolutionError:
-        raise
     except Exception as exc:
         raise BlueprintResolutionError(
             f"RECIPE entry {entry.id!r}: parser failed with {type(exc).__name__}: {exc}"
@@ -350,7 +352,8 @@ class BlueprintLibrary:
     def get(self, entry_id: str) -> BlueprintEntry | None:
         return self._entries.get(entry_id)
 
-    def all(self) -> tuple[BlueprintEntry, ...]:
+    def entries(self) -> tuple[BlueprintEntry, ...]:
+        """Return every registered entry as an immutable tuple."""
         return tuple(self._entries.values())
 
     def __len__(self) -> int:

@@ -114,13 +114,13 @@ class TestLibraryBasics:
         ids_via_iter = {e.id for e in library}
         assert ids_via_iter == {"a", "b"}
 
-    def test_all_returns_tuple(self, tiny_blueprint: Blueprint) -> None:
+    def test_entries_returns_tuple(self, tiny_blueprint: Blueprint) -> None:
         library = BlueprintLibrary(
             entries=(BlueprintEntry.snapshot_entry(id="a", title="A", blueprint=tiny_blueprint),),
         )
-        all_entries = library.all()
-        assert isinstance(all_entries, tuple)
-        assert len(all_entries) == 1
+        snapshot = library.entries()
+        assert isinstance(snapshot, tuple)
+        assert len(snapshot) == 1
 
     def test_collision_without_overwrite(self, tiny_blueprint: Blueprint) -> None:
         library = BlueprintLibrary()

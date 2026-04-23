@@ -43,6 +43,12 @@ def main() -> None:
     bp_parser = subparsers.add_parser(
         "blueprint",
         help="Inspect the curated blueprint library (from CEMAF_BLUEPRINT_CATALOG)",
+        description=(
+            "Query the curated BlueprintLibrary. "
+            "Catalog path is read from the CEMAF_BLUEPRINT_CATALOG environment variable "
+            "(a JSON file; see docs/blueprints.md for format). "
+            "An unset variable yields an empty library — commands still run, with a hint."
+        ),
     )
     bp_sub = bp_parser.add_subparsers(dest="blueprint_command")
 

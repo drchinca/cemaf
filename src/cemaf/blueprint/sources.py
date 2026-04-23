@@ -19,6 +19,7 @@ plain list (or a generator) from `load()`.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Iterable
 from pathlib import Path
@@ -50,20 +51,7 @@ class InMemoryBlueprintSource:
             if entry.source:
                 yield entry
             else:
-                yield BlueprintEntry(
-                    id=entry.id,
-                    kind=entry.kind,
-                    title=entry.title,
-                    description=entry.description,
-                    tags=entry.tags,
-                    source=self._name,
-                    path=entry.path,
-                    version=entry.version,
-                    snapshot=entry.snapshot,
-                    factory_ref=entry.factory_ref,
-                    recipe=entry.recipe,
-                    metadata=entry.metadata,
-                )
+                yield dataclasses.replace(entry, source=self._name)
 
 
 class JSONFileBlueprintSource:
