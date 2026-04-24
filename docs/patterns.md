@@ -19,6 +19,7 @@ Related docs: [**Architecture**](architecture.md) · [**Module Layout**](modules
 10. [Factory pattern for config-driven wiring](#10-factory-pattern-for-config-driven-wiring)
 11. [Event-driven cross-module communication](#11-event-driven-cross-module-communication)
 12. [Decorator/wrapper LLM clients](#12-decoratorwrapper-llm-clients)
+13. [Protocol-gated growing asset (blueprint triad)](#13-protocol-gated-growing-asset-blueprint-triad)
 
 ---
 
@@ -419,6 +420,49 @@ Order matters:
 - `instrumented` innermost: records the actual bytes on the wire.
 
 All three satisfy `LLMClient` protocol; `RuntimeServices` sees one opaque `LLMClient` object.
+
+---
+
+## 13. Protocol-gated growing asset (blueprint triad)
+
+A **catalog that grows itself** without becoming a magic black box — every decision that would normally be hardcoded ("what's good enough?", "how do we derive the next entry?", "where does it land?") is a pluggable `@runtime_checkable` Protocol. The engine is pure orchestration; the judgment lives behind protocol seams the caller controls.
+
+The canonical instance is the blueprint triad (`cemaf.blueprint`):
+
+- **Read surface**: `BlueprintLibrary` — one searchable index over developer-authored (BYO) entries and autonomously harvested entries. Same `search()`, same resolution.
+- **Retrieve surface**: `BlueprintSelectorHook` — one-method protocol. `ContextNodeExecutor` imports only this, not any blueprint type.
+- **Write surface**: `BlueprintHarvesterEngine` orchestrates three pluggable decisions behind protocols:
+  - `HarvestPolicy` — is this run good enough to harvest?
+  - `RunCorrelator` — what do we know about this run?
+  - `BlueprintDistiller` — what blueprint does this run yield?
+
+Default implementations ship in `cemaf.meta.harvest_defaults`:
+
+```python
+engine = BlueprintHarvesterEngine(
+    writable_source=source,
+    library=library,
+    policy=ScoreThresholdHarvestPolicy(threshold=0.8),
+    correlator=InMemoryRunCorrelator(),
+    distiller=RecipeBlueprintDistiller(),
+)
+```
+
+BYO any or all:
+
+```python
+class MyPolicy:
+    def should_harvest(self, *, event): ...  # domain logic
+
+engine = BlueprintHarvesterEngine(
+    writable_source=source,
+    policy=MyPolicy(),
+    correlator=InMemoryRunCorrelator(),
+    distiller=RecipeBlueprintDistiller(),
+)
+```
+
+**Why this is a pattern, not just a feature**: the same shape can produce a growing skill catalog, a growing pattern library, a growing eval-criteria index. The substrate — protocol orchestrator + BYO decision protocols + writable source behind a pluggable read surface — is reusable. See [`docs/blueprints.md`](blueprints.md) for the full API and the race-handling contract (bounded `lookup` retries + require-both-signals correlation).
 
 ---
 
