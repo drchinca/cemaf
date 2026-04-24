@@ -49,6 +49,7 @@ class MemoryScope(str, Enum):
     PLATFORM = "platform"
     PERSONAE = "personae"
     SESSION = "session"  # Short-term, single run
+    STRATEGY = "strategy"  # Cross-run learned strategies
 
 
 class ContextArtifactType(str, Enum):
@@ -99,3 +100,12 @@ class ToolRiskLevel(str, Enum):
     LOW = "low"  # Read-only, no side effects (e.g., search, introspect)
     MEDIUM = "medium"  # Writes data, reversible (e.g., add entity, update config)
     HIGH = "high"  # Destructive or irreversible (e.g., delete, deploy, send)
+
+
+class TrustLevel(str, Enum):
+    """Trust state for dynamic tools and skills."""
+
+    UNTRUSTED = "untrusted"    # Brand new, not yet verified
+    SANDBOXED = "sandboxed"    # Some history, still runs in sandbox
+    TRUSTED = "trusted"        # Proven reliable, runs natively
+    DEPRECATED = "deprecated"  # Too many failures, no longer used

@@ -27,3 +27,7 @@ Confidence = NewType("Confidence", float)
 DomainID = NewType("DomainID", str)
 TenantID = NewType("TenantID", str)
 ProvenanceID = NewType("ProvenanceID", str)
+
+# Trust and strategy identifiers
+StrategyID = NewType("StrategyID", str)
+TrustScore = NewType("TrustScore", float)
