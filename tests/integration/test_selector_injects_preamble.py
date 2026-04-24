@@ -80,6 +80,9 @@ class TestHookReachesCompiledContext:
         assert compiled is not None
         source_keys = [s.key for s in compiled.sources]
         assert "blueprint:selected" in source_keys
+        # Blueprint must be at index 0 (highest priority) so it survives
+        # truncation when the token budget is tight — not just present somewhere.
+        assert source_keys[0] == "blueprint:selected"
         # Selected blueprint's prompt content must be present.
         blueprint_source = next(s for s in compiled.sources if s.key == "blueprint:selected")
         assert "Write a launch announcement" in blueprint_source.content
@@ -134,12 +137,18 @@ class TestHookReachesCompiledContext:
         assert all(s.key != "blueprint:selected" for s in compiled.sources)
 
     @pytest.mark.asyncio
-    async def test_query_falls_back_to_agent_name(
+    async def test_query_empty_when_no_goal_field(
         self,
         compiler: PriorityContextCompiler,
         token_budget: TokenBudget,
     ) -> None:
-        """When inputs lack a goal-like field, the agent name is used as the query."""
+        """When inputs lack a goal-like field, no blueprint is injected.
+
+        Previous behavior fell back to the agent name as the query — but
+        that yielded false positives (every "Writer" node getting any
+        blueprint with "writer" in the title). The new contract is empty
+        query → no preamble, which is correct.
+        """
         library = BlueprintLibrary()
         from cemaf.blueprint.core import Blueprint, SceneGoal
 
@@ -159,7 +168,7 @@ class TestHookReachesCompiledContext:
             blueprint_selector=hook,
         )
 
-        # Inputs carry no recognized goal field — selector should fall back to "Writer".
+        # Inputs carry no recognized goal field — selector must NOT fire.
         compiled = await executor._compile_context(
             agent_name="Writer",
             inputs={"random_field": "foo"},
@@ -168,4 +177,4 @@ class TestHookReachesCompiledContext:
 
         assert compiled is not None
         source_keys = [s.key for s in compiled.sources]
-        assert "blueprint:selected" in source_keys
+        assert "blueprint:selected" not in source_keys
