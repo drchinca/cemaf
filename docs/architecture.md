@@ -58,6 +58,13 @@ CEMAF is a **protocol-first, composable framework for running multi-agent LLM wo
 │   • TieredStore        • ModeratingLLMClient     • Citation          │
 │   • VectorStore        • InstrumentedLLMClient   • Validation        │
 │                                                                      │
+│   Blueprint Triad                                                    │
+│   • BlueprintLibrary (3 entry kinds: SNAPSHOT / FACTORY / RECIPE)    │
+│   • WritableBlueprintSource protocol + SqliteBlueprintSource         │
+│   • BlueprintSelectorHook (wired into ContextNodeExecutor)           │
+│   • BlueprintHarvesterEngine + 3 decision protocols (HarvestPolicy, │
+│     RunCorrelator, BlueprintDistiller) — see docs/blueprints.md     │
+│                                                                      │
 │   Infrastructure                                                     │
 │   • EventBus  •  Resilience  •  Persistence  •  Replay              │
 │   • Observability (structured logger, prometheus metrics, budget    │
@@ -125,6 +132,8 @@ executor = create_executor(
         health_monitor=health,
         auto_heal_manager=heal,
         domain_context=domain,
+        blueprint_library=library,       # searchable Blueprint catalog
+        blueprint_selector=selector,     # runtime retrieval hook (optional)
     ),
     config=ExecutorConfig(
         max_parallel=10,
