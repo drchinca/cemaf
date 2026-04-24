@@ -11,6 +11,7 @@ Extension Point:
 """
 
 import os
+from typing import TYPE_CHECKING
 
 from cemaf.config.protocols import Settings
 from cemaf.events.protocols import EventBus
@@ -32,6 +33,10 @@ from cemaf.memory.tiered_store import TieredMemoryStore
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
 
+if TYPE_CHECKING:
+    from cemaf.memory.postgres_session_manager import DistributedSessionManager
+    from cemaf.memory.postgres_store import PostgresMemoryStore
+
 
 def create_memory_store(
     backend: str = "memory",
@@ -42,7 +47,7 @@ def create_memory_store(
     Factory for MemoryStore with sensible defaults.
 
     Args:
-        backend: Memory store backend (memory, redis, postgres, etc.)
+        backend: Memory store backend (memory, sqlite, postgres)
         max_items: Maximum memory items to store
         default_ttl_seconds: Default TTL for memory items
 
@@ -63,6 +68,8 @@ def create_memory_store(
     elif backend == "sqlite":
         db_path = os.getenv("CEMAF_MEMORY_SQLITE_PATH", "cemaf_memory.db")
         return SqliteMemoryStore(db_path=db_path)
+    elif backend == "postgres":
+        return create_postgres_memory_store()
     else:
         raise ValueError(f"Unsupported memory backend: {backend}")
 
@@ -89,7 +96,7 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
     default_ttl = float(os.getenv("CEMAF_MEMORY_DEFAULT_TTL_SECONDS", "3600.0"))
 
     # BUILT-IN IMPLEMENTATIONS
-    if backend in ("memory", "sqlite"):
+    if backend in ("memory", "sqlite", "postgres"):
         return create_memory_store(
             backend=backend,
             max_items=max_items,
@@ -117,16 +124,6 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
     #           default_ttl_seconds=default_ttl,
     #       )
     #
-    # Example (PostgreSQL):
-    #   elif backend == "postgres":
-    #       from your_package import PostgresMemoryStore
-    #
-    #       db_url = os.getenv("DATABASE_URL")
-    #       return PostgresMemoryStore(
-    #           connection_string=db_url,
-    #           table_name="cemaf_memory",
-    #       )
-    #
     # Example (DynamoDB):
     #   elif backend == "dynamodb":
     #       from your_package import DynamoDBMemoryStore
@@ -142,7 +139,7 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
 
     raise ValueError(
         f"Unsupported memory backend: {backend}. "
-        f"Supported: memory, sqlite. "
+        f"Supported: memory, sqlite, postgres. "
         f"To add your own, extend create_memory_store_from_config() "
         f"in cemaf/memory/factories.py"
     )
@@ -242,4 +239,55 @@ def create_scope_scorer(
     return PropagatingScorer(
         semantic_store=semantic_store,
         propagation_factor=propagation_factor,
+    )
+
+
+def create_postgres_memory_store(
+    *,
+    dsn: str | None = None,
+    tenant_id: str = "default",
+    pool_min: int = 2,
+    pool_max: int = 10,
+    schema: str = "cemaf",
+) -> "PostgresMemoryStore":
+    """Create a PostgresMemoryStore, reading DSN from env if not provided.
+
+    Reads CEMAF_POSTGRES_DSN when dsn is None.
+    Pool is initialized lazily on first I/O call.
+    """
+    resolved_dsn = dsn or os.getenv("CEMAF_POSTGRES_DSN", "postgresql://localhost/cemaf")
+    from cemaf.memory.postgres_store import PostgresMemoryStore
+
+    return PostgresMemoryStore(
+        dsn=resolved_dsn,
+        tenant_id=tenant_id,
+        pool_min=pool_min,
+        pool_max=pool_max,
+        schema=schema,
+    )
+
+
+def create_distributed_session_manager(
+    *,
+    redis_url: str | None = None,
+    memory_manager: DefaultMemoryManager | None = None,
+    extraction_pipeline: ExtractionPipeline | None = None,
+) -> "DistributedSessionManager":
+    """Create a DistributedSessionManager with Redis-backed session state.
+
+    Reads CEMAF_REDIS_URL from env when redis_url is None.
+    """
+    resolved_url = redis_url or os.getenv("CEMAF_REDIS_URL", "redis://localhost:6379")
+    from cemaf.memory.postgres_session_manager import DistributedSessionManager
+    from cemaf.memory.redis_session_store import RedisSessionStore
+
+    manager = memory_manager or create_memory_manager()
+    scorer = TemporalDecayScorer()
+    compactor = SimpleMemoryCompactor(scorer=scorer)
+    session_store = RedisSessionStore(redis_url=resolved_url)
+    return DistributedSessionManager(
+        memory_manager=manager,
+        compactor=compactor,
+        session_store=session_store,
+        extraction_pipeline=extraction_pipeline,
     )

@@ -65,6 +65,7 @@ dev = [
     "ruff>=0.3",
     "bandit[toml]>=1.7",
     "pre-commit>=4.0",
+    "fakeredis>=2.0",
 ]
 
 # HTTP client for OpenAI-compat, Gemini, Groq, Together adapters
@@ -119,6 +120,15 @@ web = [
     "uvicorn[standard]>=0.34",
     "sse-starlette>=2.0",
 ]
+
+# PostgreSQL memory store + pgvector
+postgres = ["asyncpg>=0.30", "pgvector>=0.3"]
+
+# Redis session store
+redis = ["redis[asyncio]>=5.0"]
+
+# Convenience meta-extra: postgres + redis
+enterprise = ["cemaf[postgres,redis]"]
 
 # All optional integrations
 all = [
@@ -197,6 +207,14 @@ module = [
     "openai.*",
     "pinecone",
     "pinecone.*",
+    "asyncpg",
+    "asyncpg.*",
+    "pgvector",
+    "pgvector.*",
+    "redis",
+    "redis.*",
+    "fakeredis",
+    "fakeredis.*",
 ]
 ignore_missing_imports = true
 
