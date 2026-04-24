@@ -39,7 +39,7 @@ DEFAULT_DEEP_AGENT_TIMEOUT_SECONDS: Final[float] = 600.0
 # Context/Token limits
 # =============================================================================
 MAX_CONTEXT_TOKENS: Final[int] = 128_000
-DEFAULT_CONTEXT_BUDGET: Final[int] = 8_000
+DEFAULT_CONTEXT_BUDGET: Final[int] = 200_000
 RESERVED_OUTPUT_TOKENS: Final[int] = 4_000
 SUMMARIZATION_PROMPT_TEMPLATE: Final[str] = (
     "Summarize the following text to approximately {target_summary_tokens} tokens, "

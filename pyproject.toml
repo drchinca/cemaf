@@ -127,8 +127,14 @@ postgres = ["asyncpg>=0.30", "pgvector>=0.3"]
 # Redis session store
 redis = ["redis[asyncio]>=5.0"]
 
-# Convenience meta-extra: postgres + redis
-enterprise = ["cemaf[postgres,redis]"]
+# Security layer: Ed25519 audit signing
+security = ["cryptography>=42.0"]
+
+# Security layer with YAML mapping support
+security-yaml = ["cemaf[security]", "pyyaml>=6.0"]
+
+# Convenience meta-extra: postgres + redis + security
+enterprise = ["cemaf[postgres,redis,security]"]
 
 # All optional integrations
 all = [
@@ -215,6 +221,9 @@ module = [
     "redis.*",
     "fakeredis",
     "fakeredis.*",
+    "cryptography",
+    "cryptography.*",
+    "yaml",
 ]
 ignore_missing_imports = true
 

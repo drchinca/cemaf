@@ -20,6 +20,8 @@ class AuditEntryType(str, Enum):
     QUALITY_ALERT = "quality.alert"
     DAG_COMPLETED = "dag.completed"
     MEMORY_EXTRACTED = "memory.extracted"
+    ACCESS_DENIED = "access.denied"
+    KEY_ROTATION = "security.key_rotation"
 
 
 @dataclass(frozen=True, slots=True)

@@ -144,3 +144,79 @@ def create_llm_client_from_config(
     cfg = settings or load_settings_from_env_sync()
     provider = provider or cfg.llm.provider
     return llm_registry.create(backend=provider)
+
+
+def create_model_router(
+    routes: "list[Any]",
+    estimator: "Any | None" = None,
+    logger: "Any | None" = None,
+) -> "Any":
+    """Create a ModelRouter from a list of ModelRoute objects."""
+    from cemaf.llm.model_router import ModelRouter
+
+    return ModelRouter(routes=routes, estimator=estimator, logger=logger)
+
+
+def create_batch_client(
+    api_key: str,
+    model: str = "claude-sonnet-4-6",
+) -> "Any":
+    """Create a BatchLLMClient for offline high-volume processing."""
+    from cemaf.llm.batch_client import BatchLLMClient
+
+    return BatchLLMClient(api_key=api_key, model=model)
+
+
+def create_resilient_client(
+    *,
+    client: LLMClient,
+    metrics: "Any | None" = None,
+    fallback_model: str | None = None,
+    enable_caching: bool = False,
+    cache_threshold_tokens: int = 1_000,
+) -> LLMClient:
+    """Create ResilientLLMClient with sensible defaults.
+
+    Args:
+        client: The inner LLMClient to wrap.
+        metrics: Optional MetricsCollector for observability.
+        fallback_model: Model name to fall back to after repeated failures.
+        enable_caching: Wrap with CachedAnthropicLLMClient for prompt caching.
+        cache_threshold_tokens: Minimum token count to mark a block cacheable.
+
+    Returns:
+        LLMClient (ResilientLLMClient, optionally wrapped in CachedAnthropicLLMClient).
+    """
+    from cemaf.llm.resilient import ResilientLLMClient
+    from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
+    from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiter
+    from cemaf.resilience.retry import BackoffStrategy, RetryConfig, RetryPolicy
+
+    inner: LLMClient = client
+    if enable_caching:
+        from cemaf.llm.anthropic_cached import CachedAnthropicLLMClient
+
+        inner = CachedAnthropicLLMClient(
+            client=inner,
+            cache_threshold_tokens=cache_threshold_tokens,
+            metrics=metrics,
+        )
+
+    return ResilientLLMClient(
+        client=inner,
+        retry=RetryPolicy(
+            config=RetryConfig(
+                max_attempts=3,
+                initial_delay_seconds=1.0,
+                backoff_strategy=BackoffStrategy.EXPONENTIAL,
+            ),
+        ),
+        circuit_breaker=CircuitBreaker(
+            config=CircuitConfig(failure_threshold=5),
+        ),
+        rate_limiter=RateLimiter(
+            config=RateLimitConfig(rate=10.0, burst=20),
+        ),
+        metrics=metrics,
+        fallback_model=fallback_model,
+    )
