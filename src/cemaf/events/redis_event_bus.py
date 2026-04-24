@@ -13,10 +13,9 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
-from typing import Any
 from uuid import uuid4
 
-from cemaf.events.protocols import Event, EventBus, EventHandler, EventHandlerFn, EventType
+from cemaf.events.protocols import Event, EventHandler, EventHandlerFn, EventType
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,6 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-from cemaf.core.types import JSON
-
 
 class OTelLogger:
     """
@@ -87,7 +85,7 @@ class OTelLogger:
     def error(self, message: str, *args: Any, **kwargs: Any) -> None:
         self._emit("ERROR", message, args, kwargs)
 
-    def with_context(self, **kwargs: Any) -> "OTelLogger":
+    def with_context(self, **kwargs: Any) -> OTelLogger:
         return OTelLogger(
             name=self._name,
             otel_logger=self._otel_logger,

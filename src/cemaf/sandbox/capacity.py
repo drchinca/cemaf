@@ -15,7 +15,7 @@ class SystemCapacity:
     disk_free_mb: float         # Free disk in MB (for temp files)
 
     @classmethod
-    def snapshot(cls) -> "SystemCapacity":
+    def snapshot(cls) -> SystemCapacity:
         """Take a live snapshot of available system resources."""
         import platform
 

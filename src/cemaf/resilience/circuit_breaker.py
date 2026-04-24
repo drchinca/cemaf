@@ -11,7 +11,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from cemaf.core.utils import utc_now
 
 
-class CircuitState(str, Enum):
+class CircuitState(StrEnum):
     """State of the circuit breaker."""
 
     CLOSED = "closed"  # Normal operation

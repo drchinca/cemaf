@@ -41,7 +41,11 @@ def _row_to_item(row: Any) -> MemoryItem:
     return MemoryItem(
         scope=MemoryScope(row["scope"]),
         key=row["key"],
-        value=json.loads(row["value_json"]) if isinstance(row["value_json"], str) else dict(row["value_json"]),
+        value=(
+            json.loads(row["value_json"])
+            if isinstance(row["value_json"], str)
+            else dict(row["value_json"])
+        ),
         confidence=Confidence(float(row["confidence"])),
         created_at=created_at,
         updated_at=updated_at,
@@ -210,9 +214,9 @@ class PostgresMemoryStore(MemoryStore):
 
         params: list[Any] = [self._tenant_id, scope.value, now]
         where_clauses = [
-            f"tenant_id = $1",
-            f"scope = $2",
-            f"(expires_at IS NULL OR expires_at > $3)",
+            "tenant_id = $1",
+            "scope = $2",
+            "(expires_at IS NULL OR expires_at > $3)",
         ]
 
         if exclude_filter:

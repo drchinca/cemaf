@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.core.enums import MemoryScope
@@ -18,7 +18,7 @@ from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 
 
-class SessionPhase(str, Enum):
+class SessionPhase(StrEnum):
     """Lifecycle phases for a memory session."""
 
     CREATED = "created"

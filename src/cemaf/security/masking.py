@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ assert len(_DEFAULT_CORPUS) == 1024, f"corpus size {len(_DEFAULT_CORPUS)} != 102
 # Strategy enum
 # ---------------------------------------------------------------------------
 
-class MaskingStrategy(str, Enum):
+class MaskingStrategy(StrEnum):
     """How to transform a matched field value."""
 
     MASK = "mask"
@@ -134,7 +134,7 @@ class MaskingPipeline:
         self._rules = list(rules)
         self._vault = vault
 
-    def apply(self, item: "MemoryItem") -> "MemoryItem":
+    def apply(self, item: MemoryItem) -> MemoryItem:
         """Return a new MemoryItem with transformed values per the rules."""
         # Import here to avoid module-level circular during TYPE_CHECKING
         new_value: dict[str, Any] = dict(item.value)
@@ -164,7 +164,7 @@ class MaskingPipeline:
 # Factory helper
 # ---------------------------------------------------------------------------
 
-def create_masking_hook(pipeline: MaskingPipeline) -> "RedactionHook":
+def create_masking_hook(pipeline: MaskingPipeline) -> RedactionHook:
     """
     Wrap *pipeline* as a RedactionHook compatible with
     ``MemoryStore.set_redaction_hook()``.
@@ -177,7 +177,7 @@ def create_masking_hook(pipeline: MaskingPipeline) -> "RedactionHook":
         hook = create_masking_hook(pipeline)
         store.set_redaction_hook(hook)
     """
-    def _hook(item: "MemoryItem") -> "MemoryItem":
+    def _hook(item: MemoryItem) -> MemoryItem:
         return pipeline.apply(item)
 
     return _hook
@@ -209,6 +209,6 @@ class ExclusionFilter:
     field: str
     excluded_values: tuple[Any, ...]
 
-    def matches(self, item: "MemoryItem") -> bool:
+    def matches(self, item: MemoryItem) -> bool:
         """Return True if *item* should be excluded (i.e. its field value is disallowed)."""
         return item.value.get(self.field) in self.excluded_values

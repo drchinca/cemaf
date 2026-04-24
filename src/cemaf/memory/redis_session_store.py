@@ -10,9 +10,9 @@ Replaces the in-process dict in DefaultSessionManager with a Redis backend:
 """
 
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncIterator
 
 from cemaf.core.utils import utc_now
 from cemaf.memory.session import SessionPhase, SessionState
@@ -85,7 +85,6 @@ class RedisSessionStore:
 
         Returns True if the key was set (new session), False if it already existed.
         """
-        from redis.asyncio import Redis
 
         client = await self._client()
         key = self._session_key(session_id)

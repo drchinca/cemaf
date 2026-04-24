@@ -7,12 +7,12 @@ Provides health checks for monitoring application status.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from cemaf.core.types import JSON
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     """Health check status."""
 
     HEALTHY = "healthy"

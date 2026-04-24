@@ -37,7 +37,6 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from cemaf.core.enums import MemoryScope
 
-
 # ---------------------------------------------------------------------------
 # Value objects
 # ---------------------------------------------------------------------------

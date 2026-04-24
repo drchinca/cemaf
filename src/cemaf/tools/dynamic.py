@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import ast
 import logging
-import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +21,7 @@ from typing import Any
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, ToolID
 from cemaf.llm.protocols import LLMClient, Message
-from cemaf.sandbox.sandbox import LocalSandbox, SandboxConfig
+from cemaf.sandbox.sandbox import LocalSandbox
 from cemaf.tools.base import Tool, ToolResult, ToolSchema
 from cemaf.tools.registry import ToolRegistry
 
@@ -201,7 +200,7 @@ class DynamicToolFactory:
         _tool_schema = tool_schema
         _execute_fn = execute_fn
 
-        from cemaf.core.result import Result as R
+        from cemaf.core.result import Result
 
         class _DynamicTool(Tool):
             @property
@@ -214,10 +213,10 @@ class DynamicToolFactory:
 
             async def execute(self, **kwargs: Any) -> ToolResult:
                 try:
-                    result = await _execute_fn(**kwargs)
-                    return R.ok(result)
+                    output = await _execute_fn(**kwargs)
+                    return Result.ok(output)
                 except Exception as e:
-                    return R.fail(str(e))
+                    return Result.fail(str(e))
 
         return _DynamicTool()
 

@@ -6,7 +6,7 @@ Defines the contracts for schedulers, jobs, and triggers.
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -15,7 +15,7 @@ from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Status of a job execution."""
 
     PENDING = "pending"

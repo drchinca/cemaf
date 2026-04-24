@@ -27,6 +27,8 @@ ROLE_WRITER = "WRITER"
 ROLE_SCOPE_ADMIN = "SCOPE_ADMIN"
 ROLE_SYSTEM = "SYSTEM"
 
+_ITEM_LEVEL_ACTIONS: frozenset[str] = frozenset({"read", "write", "delete"})
+
 _ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     ROLE_READER: frozenset({"read"}),
     ROLE_WRITER: frozenset({"read", "write", "delete"}),
@@ -151,10 +153,12 @@ class RBACEnforcer:
             return False
 
         # Scope-path prefix check — only enforced for item-level actions
-        _ITEM_LEVEL_ACTIONS = frozenset({"read", "write", "delete"})
-        if grant.scope_path_prefix is not None and action in _ITEM_LEVEL_ACTIONS:
-            if scope_path is None or not scope_path.startswith(grant.scope_path_prefix):
-                return False
+        if (
+            grant.scope_path_prefix is not None
+            and action in _ITEM_LEVEL_ACTIONS
+            and (scope_path is None or not scope_path.startswith(grant.scope_path_prefix))
+        ):
+            return False
 
         # ABAC conditions
         for attr_key, expected in grant.abac_conditions.items():
@@ -194,7 +198,7 @@ class RBACMemoryStore(MemoryStore):
         inner: MemoryStore,
         enforcer: RBACEnforcer,
         principal_id: str,
-        audit_log: "AuditLog | None" = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__()
         self._inner = inner

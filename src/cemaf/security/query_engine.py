@@ -37,7 +37,6 @@ from cemaf.core.enums import MemoryScope
 from cemaf.memory.base import MemoryItem
 from cemaf.security.mappings import MappingProvider
 
-
 # ---------------------------------------------------------------------------
 # Predicate + PredicateSet value objects
 # ---------------------------------------------------------------------------
@@ -77,7 +76,7 @@ class PredicateSet:
 
     predicates: tuple[Predicate, ...] = field(default_factory=tuple)
 
-    def append(self, predicate: Predicate) -> "PredicateSet":
+    def append(self, predicate: Predicate) -> PredicateSet:
         """Return a new PredicateSet with *predicate* appended (immutable)."""
         return PredicateSet(predicates=(*self.predicates, predicate))
 
@@ -98,7 +97,7 @@ class PredicateSet:
             sql = pred.sql
             # Count how many $N appear in this predicate's sql
             local_placeholders = sorted(
-                set(int(m) for m in re.findall(r"\$(\d+)", sql)),
+                {int(m) for m in re.findall(r"\$(\d+)", sql)},
                 reverse=True,  # replace largest first to avoid e.g. $1 hitting $10
             )
             for local_n in local_placeholders:
@@ -264,8 +263,7 @@ class QueryEngine:
 
         roles = self._provider.get_roles(principal_id)
         direct_accesses = self._provider.get_direct_access(principal_id)
-        principal = self._provider.get_principal(principal_id)
-        attributes: dict[str, Any] = principal.attributes if principal else {}
+        self._provider.get_principal(principal_id)
 
         pset = PredicateSet()
 

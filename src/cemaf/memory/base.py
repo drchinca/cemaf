@@ -317,7 +317,11 @@ class JsonFileMemoryStore(MemoryStore):
                     created_at=datetime.fromisoformat(str(record["created_at"])),
                     updated_at=datetime.fromisoformat(str(record["updated_at"])),
                     ttl=timedelta(seconds=float(ttl_seconds)) if ttl_seconds is not None else None,
-                    expires_at=datetime.fromisoformat(str(expires_at_str)) if expires_at_str is not None else None,
+                    expires_at=(
+                        datetime.fromisoformat(str(expires_at_str))
+                        if expires_at_str is not None
+                        else None
+                    ),
                     scope_path=str(record["scope_path"]) if record.get("scope_path") is not None else None,
                 )
                 if not item.is_expired:

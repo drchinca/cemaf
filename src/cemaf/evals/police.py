@@ -2,7 +2,7 @@
 
 from collections import deque
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from cemaf.events.protocols import Event, EventBus, EventType
@@ -11,7 +11,7 @@ from cemaf.observability import get_logger
 logger = get_logger("evals.police")
 
 
-class AlertLevel(str, Enum):
+class AlertLevel(StrEnum):
     """Quality alert severity levels."""
 
     WARN = "warn"

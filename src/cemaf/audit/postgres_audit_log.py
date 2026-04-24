@@ -15,7 +15,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from cemaf.audit.models import AuditEntry, AuditEntryType
-from cemaf.core.utils import utc_now
 
 if TYPE_CHECKING:
     from cemaf.audit.signing import SigningKeyRegistry
@@ -45,7 +44,7 @@ class PostgresAuditLog:
     def __init__(
         self,
         dsn: str,
-        signing_registry: "SigningKeyRegistry | None" = None,
+        signing_registry: SigningKeyRegistry | None = None,
         schema: str = "cemaf",
         pool_min: int = 2,
         pool_max: int = 5,

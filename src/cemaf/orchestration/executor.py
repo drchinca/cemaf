@@ -20,7 +20,7 @@ import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -77,7 +77,7 @@ _correlation_id_var: ContextVar[str] = ContextVar(
 )
 
 
-class HaltReason(str, Enum):
+class HaltReason(StrEnum):
     """Why a DAG execution was halted mid-flight.
 
     Enum-typed so on-call engineers reading logs at 3am know immediately

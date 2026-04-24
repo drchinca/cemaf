@@ -19,7 +19,7 @@ from cemaf.memory.extraction_pipeline import ExtractionPipeline
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.redis_session_store import RedisSessionStore
 from cemaf.memory.semantic import MemoryQuery
-from cemaf.memory.session import SessionPhase, SessionState, _VALID_TRANSITIONS
+from cemaf.memory.session import SessionPhase, SessionState
 
 
 class DistributedSessionManager:

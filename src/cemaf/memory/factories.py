@@ -249,7 +249,7 @@ def create_postgres_memory_store(
     pool_min: int = 2,
     pool_max: int = 10,
     schema: str = "cemaf",
-) -> "PostgresMemoryStore":
+) -> PostgresMemoryStore:
     """Create a PostgresMemoryStore, reading DSN from env if not provided.
 
     Reads CEMAF_POSTGRES_DSN when dsn is None.
@@ -272,7 +272,7 @@ def create_distributed_session_manager(
     redis_url: str | None = None,
     memory_manager: DefaultMemoryManager | None = None,
     extraction_pipeline: ExtractionPipeline | None = None,
-) -> "DistributedSessionManager":
+) -> DistributedSessionManager:
     """Create a DistributedSessionManager with Redis-backed session state.
 
     Reads CEMAF_REDIS_URL from env when redis_url is None.

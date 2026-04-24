@@ -9,7 +9,7 @@ Useful for subjective qualities like:
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from cemaf.core.types import JSON
@@ -22,7 +22,7 @@ from cemaf.evals.protocols import (
 from cemaf.llm.protocols import LLMClient, Message
 
 
-class JudgeCriteria(str, Enum):
+class JudgeCriteria(StrEnum):
     """Standard judging criteria."""
 
     HELPFULNESS = "helpfulness"

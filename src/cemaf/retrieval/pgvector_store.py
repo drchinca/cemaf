@@ -270,7 +270,7 @@ class PgVectorStore:
         params: list[Any] = [list(query_embedding), self._tenant_id, k]
         filter_sql = self._build_filter_sql(filter, params)
 
-        where = f"tenant_id = $2"
+        where = "tenant_id = $2"
         if filter_sql:
             where += f" AND {filter_sql}"
 

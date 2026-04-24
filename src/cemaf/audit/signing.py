@@ -88,7 +88,7 @@ class EnvKeyProvider:
         env_var = f"CEMAF_SIGNING_KEY_{key_id.upper()}"
         raw_b64 = os.environ.get(env_var)
         if not raw_b64:
-            raise EnvironmentError(
+            raise OSError(
                 f"Environment variable '{env_var}' is not set. "
                 "Provide a base64-encoded 32-byte Ed25519 seed."
             )
@@ -137,7 +137,7 @@ class EnvKeyProvider:
 # ---------------------------------------------------------------------------
 
 
-def _canonical_payload(entry: "AuditEntry") -> bytes:
+def _canonical_payload(entry: AuditEntry) -> bytes:
     """
     Produce a deterministic bytes representation of *entry* for signing.
 
@@ -208,7 +208,7 @@ class SigningKeyRegistry:
         """Key ID of the default signing provider."""
         return self._current_key_id
 
-    def sign(self, entry: "AuditEntry") -> "SignedAuditEntry":
+    def sign(self, entry: AuditEntry) -> SignedAuditEntry:
         """
         Sign *entry* with the current signing key and return a SignedAuditEntry.
 
@@ -225,7 +225,7 @@ class SigningKeyRegistry:
             signer_key_id=self._current_key_id,
         )
 
-    def verify(self, entry: "SignedAuditEntry") -> bool:
+    def verify(self, entry: SignedAuditEntry) -> bool:
         """
         Verify *entry*'s signature using the provider matching its signer_key_id.
 
@@ -237,7 +237,7 @@ class SigningKeyRegistry:
         payload = _canonical_payload(entry.to_audit_entry())
         return provider.verify(payload, entry.signature)
 
-    def verify_any(self, entry: "SignedAuditEntry") -> bool:
+    def verify_any(self, entry: SignedAuditEntry) -> bool:
         """
         Try every registered provider to verify *entry*.
 

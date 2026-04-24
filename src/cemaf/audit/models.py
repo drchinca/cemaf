@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import generate_id, utc_now
 
 
-class AuditEntryType(str, Enum):
+class AuditEntryType(StrEnum):
     """Categories of auditable events in the framework."""
 
     NODE_EXECUTED = "node.executed"

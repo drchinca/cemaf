@@ -6,11 +6,10 @@ workloads — batch processing reduces cost by ~50% vs real-time API.
 """
 
 import asyncio
-import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from cemaf.core.types import TokenCount
@@ -19,7 +18,6 @@ from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
     Message,
-    MessageRole,
     StreamChunk,
     ToolCall,
     ToolDefinition,
@@ -36,7 +34,7 @@ class BatchRequest:
     config_override: LLMConfig | None = None
 
 
-class BatchStatus(str, Enum):
+class BatchStatus(StrEnum):
     """Lifecycle state of a submitted batch."""
 
     QUEUED = "queued"

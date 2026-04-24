@@ -147,10 +147,10 @@ def create_llm_client_from_config(
 
 
 def create_model_router(
-    routes: "list[Any]",
-    estimator: "Any | None" = None,
-    logger: "Any | None" = None,
-) -> "Any":
+    routes: list[Any],
+    estimator: Any | None = None,
+    logger: Any | None = None,
+) -> Any:
     """Create a ModelRouter from a list of ModelRoute objects."""
     from cemaf.llm.model_router import ModelRouter
 
@@ -160,7 +160,7 @@ def create_model_router(
 def create_batch_client(
     api_key: str,
     model: str = "claude-sonnet-4-6",
-) -> "Any":
+) -> Any:
     """Create a BatchLLMClient for offline high-volume processing."""
     from cemaf.llm.batch_client import BatchLLMClient
 
@@ -170,7 +170,7 @@ def create_batch_client(
 def create_resilient_client(
     *,
     client: LLMClient,
-    metrics: "Any | None" = None,
+    metrics: Any | None = None,
     fallback_model: str | None = None,
     enable_caching: bool = False,
     cache_threshold_tokens: int = 1_000,

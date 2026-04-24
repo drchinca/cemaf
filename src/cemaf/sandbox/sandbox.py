@@ -10,8 +10,7 @@ import os
 import sys
 import tempfile
 import textwrap
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 from cemaf.core.types import JSON
@@ -110,7 +109,7 @@ class LocalSandbox:
                     proc.communicate(),
                     timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await proc.communicate()
                 return SandboxResult(

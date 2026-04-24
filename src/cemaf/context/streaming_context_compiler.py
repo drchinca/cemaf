@@ -10,7 +10,6 @@ import heapq
 from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, TokenEstimator
@@ -36,7 +35,7 @@ class _HeapItem:
     timestamp: datetime  # tiebreak: older = lower in heap (evicted first)
     source: ContextSource
 
-    def __lt__(self, other: "_HeapItem") -> bool:
+    def __lt__(self, other: _HeapItem) -> bool:
         if self.neg_priority != other.neg_priority:
             return self.neg_priority < other.neg_priority
         # Earlier timestamp = lower priority when priorities tie
@@ -148,7 +147,11 @@ class StreamingContextCompiler:
         for item in candidates:
             source = item.source
             # Ensure token_count is populated.
-            src_tokens = source.token_count if source.token_count is not None else self._estimator.estimate(source.content)
+            src_tokens = (
+                source.token_count
+                if source.token_count is not None
+                else self._estimator.estimate(source.content)
+            )
             if total_tokens + src_tokens <= available:
                 selected.append(source)
                 total_tokens += src_tokens

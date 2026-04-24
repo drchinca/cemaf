@@ -1,7 +1,7 @@
 """Online evaluation pipeline — runs evaluators at DAG checkpoints during execution."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from cemaf.evals.composite import CompositeEvaluator
@@ -12,14 +12,14 @@ from cemaf.observability import get_logger
 logger = get_logger("evals.online")
 
 
-class EvalMode(str, Enum):
+class EvalMode(StrEnum):
     """How to handle eval failures."""
 
     GATE = "gate"  # Failed eval blocks downstream
     OBSERVE = "observe"  # Log only, don't block
 
 
-class EvalTrigger(str, Enum):
+class EvalTrigger(StrEnum):
     """When eval fires."""
 
     EVERY_NODE = "every_node"  # Legacy: fire after every node

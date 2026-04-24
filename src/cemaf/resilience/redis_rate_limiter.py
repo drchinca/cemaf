@@ -9,10 +9,9 @@ atomically (Redis is single-threaded for command execution).
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimitExceeded, RateLimiterMetrics
+from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiterMetrics, RateLimitExceeded
 
 T = TypeVar("T")
 

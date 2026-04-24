@@ -7,13 +7,16 @@ RedisCircuitBreaker and RedisRateLimiter for cross-process coordination.
 """
 
 import asyncio
-from typing import Any
 
 from cemaf.context.context import Context
 from cemaf.core.execution import CancellationToken
 from cemaf.core.types import RunID
 from cemaf.orchestration.dag import DAG
 from cemaf.orchestration.executor import DAGExecutor, ExecutionResult
+
+_QueueItem = tuple[
+    DAG, Context | None, RunID | None, CancellationToken | None, "asyncio.Future[ExecutionResult]"
+]
 
 
 class DistributedDAGExecutor:
@@ -36,9 +39,7 @@ class DistributedDAGExecutor:
         self._inner = inner
         self._n_workers = n_workers
         self._redis_url = redis_url  # Reserved for future cross-pod coordination.
-        self._queue: asyncio.Queue[
-            tuple[DAG, Context | None, RunID | None, CancellationToken | None, asyncio.Future[ExecutionResult]]
-        ] = asyncio.Queue()
+        self._queue: asyncio.Queue[_QueueItem] = asyncio.Queue()
         self._worker_tasks: list[asyncio.Task[None]] = []
 
     async def run(
@@ -62,7 +63,7 @@ class DistributedDAGExecutor:
         initial_context: Context | None = None,
         run_id: RunID | None = None,
         cancellation_token: CancellationToken | None = None,
-    ) -> "asyncio.Future[ExecutionResult]":
+    ) -> asyncio.Future[ExecutionResult]:
         """
         Enqueue a DAG for execution by the worker pool.
 

@@ -127,7 +127,7 @@ class OpenAILLMClient:
 
         try:
             stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
-        except Exception as exc:
+        except Exception:
             yield StreamChunk(
                 content="",
                 accumulated_content="",

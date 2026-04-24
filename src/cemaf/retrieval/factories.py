@@ -33,7 +33,7 @@ def _create_memory_vector_store(**kwargs: Any) -> InMemoryVectorStore:
     )
 
 
-def _create_pgvector_store(**kwargs: Any) -> "PgVectorStore":
+def _create_pgvector_store(**kwargs: Any) -> PgVectorStore:
     """Registry-compatible factory for pgvector store."""
     return create_pg_vector_store(
         dsn=kwargs.get("dsn"),
@@ -70,7 +70,7 @@ def create_pg_vector_store(
     dimension: int = 3072,
     tenant_id: str = "default",
     embedding_provider: EmbeddingProvider | None = None,
-) -> "PgVectorStore":
+) -> PgVectorStore:
     """Create a PgVectorStore, reading DSN from env when dsn is None.
 
     embedding_provider is accepted for API compatibility but not used internally —

@@ -5,7 +5,6 @@ Call configure_otel() at application startup before creating any
 CEMAF components. Sets global TracerProvider, MeterProvider, LoggerProvider.
 """
 
-from typing import Any
 
 
 def configure_otel(

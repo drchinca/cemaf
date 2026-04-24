@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
-from enum import Enum
+from enum import StrEnum
 from time import perf_counter
 
 from cemaf.core.types import TokenCount
@@ -23,7 +23,7 @@ from cemaf.resilience.retry import BackoffStrategy, RetryConfig, RetryPolicy
 logger = logging.getLogger(__name__)
 
 
-class QuerySource(str, Enum):
+class QuerySource(StrEnum):
     """Controls retry budget based on call criticality."""
 
     FOREGROUND = "foreground"
