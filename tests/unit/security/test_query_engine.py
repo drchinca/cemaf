@@ -212,9 +212,7 @@ def test_build_predicates_with_base_scope_restriction() -> None:
 def test_build_predicates_direct_access_adds_path_predicate() -> None:
     engine = _make_engine(
         roles=[],
-        direct_access=[
-            {"scope": "project", "scope_path_prefix": "/intel/", "actions": ["read"]}
-        ],
+        direct_access=[{"scope": "project", "scope_path_prefix": "/intel/", "actions": ["read"]}],
     )
     pset = engine.build_predicates("user", intent="read")
     path_preds = [p for p in pset.predicates if "scope_path LIKE" in p.sql]

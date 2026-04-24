@@ -23,9 +23,7 @@ class OpenAILLMClient:
         try:
             import openai
         except ImportError as exc:
-            raise ImportError(
-                "openai package required. Install with: pip install openai"
-            ) from exc
+            raise ImportError("openai package required. Install with: pip install openai") from exc
         self._client = openai.AsyncOpenAI(api_key=api_key)
         self._model = model
         self._config = LLMConfig(model=model)
@@ -231,6 +229,7 @@ def _check_tiktoken() -> bool:
     """Return True if tiktoken is importable."""
     try:
         import tiktoken  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -267,9 +266,7 @@ def _convert_messages(messages: list[Message]) -> list[dict[str, object]]:
                 {
                     "role": "tool",
                     "tool_call_id": msg.tool_call_id or "",
-                    "content": (
-                        msg.content if isinstance(msg.content, str) else str(msg.content)
-                    ),
+                    "content": (msg.content if isinstance(msg.content, str) else str(msg.content)),
                 }
             )
 
@@ -291,9 +288,7 @@ def _convert_messages(messages: list[Message]) -> list[dict[str, object]]:
                 "tool_calls": tool_calls_payload,
             }
             if msg.content:
-                api_msg["content"] = (
-                    msg.content if isinstance(msg.content, str) else str(msg.content)
-                )
+                api_msg["content"] = msg.content if isinstance(msg.content, str) else str(msg.content)
             api_messages.append(api_msg)
 
         else:

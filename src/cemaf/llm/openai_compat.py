@@ -257,7 +257,7 @@ class OpenAICompatClient:
         # Pick the right encoder for the model; fall back to cl100k_base.
         try:
             encoder = tiktoken.encoding_for_model(self._config.model)
-        except (KeyError, Exception):
+        except KeyError, Exception:
             encoder = tiktoken.get_encoding("cl100k_base")
 
         total = 0
@@ -299,5 +299,5 @@ def _parse_arguments(args: str | dict[str, Any]) -> dict[str, Any]:
     try:
         parsed: dict[str, Any] = json.loads(args)
         return parsed
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return {"raw": args}

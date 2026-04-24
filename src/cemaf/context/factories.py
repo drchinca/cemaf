@@ -284,6 +284,6 @@ def create_token_estimator(
             estimator = TiktokenEstimator(model=model)
             if estimator.is_accurate:
                 return estimator
-        except (ImportError, Exception):
+        except ImportError, Exception:
             pass
     return SimpleTokenEstimator(chars_per_token=chars_per_token)

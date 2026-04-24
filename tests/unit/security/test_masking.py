@@ -113,12 +113,14 @@ def test_pipeline_applies_multiple_rules() -> None:
         MaskingRule(field="internal_id", strategy=MaskingStrategy.REDACT),
     ]
     pipeline = MaskingPipeline(rules=rules, vault=vault)
-    item = make_item({
-        "ssn": "123-45-6789",
-        "name": "Bob",
-        "internal_id": "EMP-99",
-        "department": "Engineering",
-    })
+    item = make_item(
+        {
+            "ssn": "123-45-6789",
+            "name": "Bob",
+            "internal_id": "EMP-99",
+            "department": "Engineering",
+        }
+    )
     result = pipeline.apply(item)
 
     assert result.value["ssn"] == "*****"
@@ -135,12 +137,14 @@ def test_pipeline_applies_multiple_rules() -> None:
 def test_unaffected_fields_unchanged() -> None:
     rule = MaskingRule(field="secret_token", strategy=MaskingStrategy.MASK)
     pipeline = MaskingPipeline(rules=[rule])
-    item = make_item({
-        "secret_token": "abc123",
-        "username": "carol",
-        "role": "admin",
-        "score": 42,
-    })
+    item = make_item(
+        {
+            "secret_token": "abc123",
+            "username": "carol",
+            "role": "admin",
+            "score": 42,
+        }
+    )
     result = pipeline.apply(item)
 
     # Only 'secret_token' should change

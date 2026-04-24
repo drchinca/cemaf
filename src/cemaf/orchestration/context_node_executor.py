@@ -239,7 +239,7 @@ class ContextNodeExecutor:
         """Compute deterministic hash of context inputs."""
         try:
             serialized = json.dumps(inputs, sort_keys=True, default=str)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             serialized = str(inputs)
         return hashlib.sha256(serialized.encode()).hexdigest()[:16]
 

@@ -88,14 +88,13 @@ class CachedAnthropicLLMClient:
             second_to_last = api_messages[-2]
             content = second_to_last.get("content", "")
             content_text = content if isinstance(content, str) else json.dumps(content)
-            if (
-                self._client.count_tokens(content_text) >= self._cache_threshold_tokens
-                and isinstance(content, str)
+            if self._client.count_tokens(content_text) >= self._cache_threshold_tokens and isinstance(
+                content, str
             ):
-                    api_messages[-2] = {
-                        **second_to_last,
-                        "content": [{"type": "text", "text": content, "cache_control": _CACHE_CONTROL}],
-                    }
+                api_messages[-2] = {
+                    **second_to_last,
+                    "content": [{"type": "text", "text": content, "cache_control": _CACHE_CONTROL}],
+                }
 
         kwargs: dict[str, object] = {
             "model": cfg.model,

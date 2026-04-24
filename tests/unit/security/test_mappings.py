@@ -106,7 +106,7 @@ def test_dict_provider_user_roles(provider: DictMappingProvider) -> None:
 def test_dict_provider_team_roles_inherited(provider: DictMappingProvider) -> None:
     """Alice inherits SCOPE_ADMIN from intel_ops team membership."""
     roles = provider.get_roles("alice")
-    assert "WRITER" in roles       # direct role
+    assert "WRITER" in roles  # direct role
     assert "SCOPE_ADMIN" in roles  # inherited from intel_ops
 
 

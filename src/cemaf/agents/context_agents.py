@@ -146,7 +146,7 @@ class LibrarianAgent(Agent[LibrarianGoal, LibrarianResult]):
                     try:
                         blueprint_data = json.loads(match.document.content)
                         blueprint_json = json.dumps(blueprint_data)
-                    except (json.JSONDecodeError, TypeError):
+                    except json.JSONDecodeError, TypeError:
                         blueprint_json = json.dumps({"instruction": match.document.content})
 
                 result = LibrarianResult(blueprint_json=blueprint_json)

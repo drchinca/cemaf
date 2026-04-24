@@ -132,7 +132,7 @@ class Citation:
         if page is not None:
             try:
                 page = int(page)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 page = None
 
         section = doc_metadata.get("section")

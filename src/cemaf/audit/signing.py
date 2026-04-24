@@ -89,21 +89,17 @@ class EnvKeyProvider:
         raw_b64 = os.environ.get(env_var)
         if not raw_b64:
             raise OSError(
-                f"Environment variable '{env_var}' is not set. "
-                "Provide a base64-encoded 32-byte Ed25519 seed."
+                f"Environment variable '{env_var}' is not set. Provide a base64-encoded 32-byte Ed25519 seed."
             )
 
         try:
             seed = base64.b64decode(raw_b64)
         except Exception as exc:
-            raise ValueError(
-                f"Environment variable '{env_var}' is not valid base64."
-            ) from exc
+            raise ValueError(f"Environment variable '{env_var}' is not valid base64.") from exc
 
         if len(seed) != 32:
             raise ValueError(
-                f"Ed25519 seed must be exactly 32 bytes; got {len(seed)} bytes "
-                f"from '{env_var}'."
+                f"Ed25519 seed must be exactly 32 bytes; got {len(seed)} bytes from '{env_var}'."
             )
 
         self._private_key = Ed25519PrivateKey.from_private_bytes(seed)
@@ -196,9 +192,7 @@ class SigningKeyRegistry:
         self._providers = dict(providers)
         if current_key_id is not None:
             if current_key_id not in self._providers:
-                raise KeyError(
-                    f"current_key_id='{current_key_id}' not found in providers"
-                )
+                raise KeyError(f"current_key_id='{current_key_id}' not found in providers")
             self._current_key_id = current_key_id
         else:
             self._current_key_id = next(iter(self._providers))
@@ -247,7 +241,4 @@ class SigningKeyRegistry:
         Returns True if any provider can verify the signature.
         """
         payload = _canonical_payload(entry.to_audit_entry())
-        return any(
-            provider.verify(payload, entry.signature)
-            for provider in self._providers.values()
-        )
+        return any(provider.verify(payload, entry.signature) for provider in self._providers.values())

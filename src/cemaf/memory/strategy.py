@@ -25,8 +25,8 @@ class StrategyRecord:
     """Immutable record of an observed approach to a class of task."""
 
     strategy_id: StrategyID
-    task_pattern: str           # Regex or free-text description of when to apply
-    approach: str               # What to do
+    task_pattern: str  # Regex or free-text description of when to apply
+    approach: str  # What to do
     success_count: int = 0
     failure_count: int = 0
     avg_quality_score: float = 0.0

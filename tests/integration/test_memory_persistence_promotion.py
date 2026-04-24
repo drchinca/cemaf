@@ -84,9 +84,7 @@ class TestFileBackedPersistenceRoundTrip:
         store2 = JsonFileMemoryStore(path=path)
         manager2, _ = _wire_stack(store2)
 
-        results = await manager2.recall(
-            query=MemoryQuery(scope=MemoryScope.PROJECT, limit=10)
-        )
+        results = await manager2.recall(query=MemoryQuery(scope=MemoryScope.PROJECT, limit=10))
         keys = {r.item.key for r in results}
         assert "style_guide" in keys
         assert "target_audience" in keys
@@ -105,9 +103,7 @@ class TestFileBackedPersistenceRoundTrip:
         # Reload
         store2 = create_memory_store(backend="json_file", file_path=str(path))
         manager2, _ = _wire_stack(store2)
-        result = await manager2.recall(
-            query=MemoryQuery(scope=MemoryScope.BRAND, limit=10)
-        )
+        result = await manager2.recall(query=MemoryQuery(scope=MemoryScope.BRAND, limit=10))
         assert len(result) == 1
         assert result[0].item.key == "brand"
 
@@ -143,9 +139,7 @@ class TestCrossSessionPromotion:
         await session_mgr.dispose("s1", promote_to=MemoryScope.PROJECT)
 
         # PROJECT scope should contain the promoted item
-        project_items = await manager.recall(
-            query=MemoryQuery(scope=MemoryScope.PROJECT, limit=100)
-        )
+        project_items = await manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT, limit=100))
         promoted_keys = {r.item.key for r in project_items}
         assert "user_preference" in promoted_keys
         assert "speculative_guess" not in promoted_keys
@@ -169,9 +163,7 @@ class TestCrossSessionPromotion:
         # New process — reload from file
         store2 = JsonFileMemoryStore(path=path)
         manager2, _ = _wire_stack(store2)
-        results = await manager2.recall(
-            query=MemoryQuery(scope=MemoryScope.PROJECT, limit=10)
-        )
+        results = await manager2.recall(query=MemoryQuery(scope=MemoryScope.PROJECT, limit=10))
         keys = {r.item.key for r in results}
         assert "campaign_insight" in keys
 
@@ -180,15 +172,11 @@ class TestCrossSessionPromotion:
         manager, session_mgr = _wire_stack()
 
         await session_mgr.bootstrap(session_id="s1")
-        await session_mgr.ingest(
-            "s1", key="ephemeral", value={"x": 1}, confidence=1.0
-        )
+        await session_mgr.ingest("s1", key="ephemeral", value={"x": 1}, confidence=1.0)
         # Dispose without promotion
         await session_mgr.dispose("s1")
 
-        project_items = await manager.recall(
-            query=MemoryQuery(scope=MemoryScope.PROJECT, limit=100)
-        )
+        project_items = await manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT, limit=100))
         assert all(r.item.key != "ephemeral" for r in project_items)
 
     @pytest.mark.asyncio
@@ -200,13 +188,9 @@ class TestCrossSessionPromotion:
         await session_mgr.ingest("s1", key="high", value={}, confidence=0.95)
 
         # Only items >= 0.7 should be promoted
-        await session_mgr.dispose(
-            "s1", promote_to=MemoryScope.PROJECT, promotion_min_confidence=0.7
-        )
+        await session_mgr.dispose("s1", promote_to=MemoryScope.PROJECT, promotion_min_confidence=0.7)
 
-        project_items = await manager.recall(
-            query=MemoryQuery(scope=MemoryScope.PROJECT, limit=100)
-        )
+        project_items = await manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT, limit=100))
         promoted_keys = {r.item.key for r in project_items}
         assert "high" in promoted_keys
         assert "medium" not in promoted_keys

@@ -51,15 +51,13 @@ class PgVectorStore:
             import asyncpg
         except ImportError as exc:
             raise ImportError(
-                "asyncpg is required for PgVectorStore. "
-                "Install it with: pip install 'cemaf[postgres]'"
+                "asyncpg is required for PgVectorStore. Install it with: pip install 'cemaf[postgres]'"
             ) from exc
         try:
             import pgvector.asyncpg  # noqa: F401
         except ImportError as exc:
             raise ImportError(
-                "pgvector is required for PgVectorStore. "
-                "Install it with: pip install 'cemaf[postgres]'"
+                "pgvector is required for PgVectorStore. Install it with: pip install 'cemaf[postgres]'"
             ) from exc
 
         import pgvector.asyncpg as pgv_asyncpg
@@ -217,8 +215,7 @@ class PgVectorStore:
             # Upsert: delete existing rows for these ids then bulk copy
             ids = [r[0] for r in records]
             await conn.execute(
-                f"DELETE FROM {s}.vector_documents "
-                f"WHERE tenant_id = $1 AND id = ANY($2::text[])",
+                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1 AND id = ANY($2::text[])",
                 self._tenant_id,
                 ids,
             )
@@ -250,8 +247,7 @@ class PgVectorStore:
         s = self._schema
         async with pool.acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {s}.vector_documents "
-                f"WHERE tenant_id = $1 AND id = $2",
+                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1 AND id = $2",
                 self._tenant_id,
                 document_id,
             )

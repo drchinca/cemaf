@@ -50,9 +50,7 @@ class TestJsonFileStoreContract:
         assert deleted is False
 
     @pytest.mark.asyncio
-    async def test_list_by_scope_only_returns_matching_scope(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_list_by_scope_only_returns_matching_scope(self, tmp_path: Path) -> None:
         store = JsonFileMemoryStore(path=tmp_path / "mem.json")
         await store.set(MemoryItem(scope=MemoryScope.PROJECT, key="p1", value={}))
         await store.set(MemoryItem(scope=MemoryScope.BRAND, key="b1", value={}))
@@ -73,9 +71,7 @@ class TestJsonFileStorePersistence:
     async def test_data_persists_across_store_instances(self, tmp_path: Path) -> None:
         path = tmp_path / "mem.json"
         store1 = JsonFileMemoryStore(path=path)
-        await store1.set(
-            MemoryItem(scope=MemoryScope.BRAND, key="company", value={"name": "Acme"})
-        )
+        await store1.set(MemoryItem(scope=MemoryScope.BRAND, key="company", value={"name": "Acme"}))
 
         # New instance reads from the same file
         store2 = JsonFileMemoryStore(path=path)
@@ -114,9 +110,7 @@ class TestJsonFileStorePersistence:
         assert record["confidence"] == pytest.approx(0.9)
 
     @pytest.mark.asyncio
-    async def test_parent_directories_created_automatically(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_parent_directories_created_automatically(self, tmp_path: Path) -> None:
         path = tmp_path / "nested" / "deep" / "mem.json"
         store = JsonFileMemoryStore(path=path)
         await store.set(MemoryItem(scope=MemoryScope.BRAND, key="k", value={}))

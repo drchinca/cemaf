@@ -22,9 +22,9 @@ class SandboxConfig:
     """Configuration knobs for the local sandbox."""
 
     timeout_seconds: float = 30.0
-    memory_fraction: float = 0.25      # fraction of available RAM to allow
-    allow_network: bool = False        # future: use seccomp/sandbox-exec
-    allow_filesystem: bool = True      # reads allowed; writes to tmp only
+    memory_fraction: float = 0.25  # fraction of available RAM to allow
+    allow_network: bool = False  # future: use seccomp/sandbox-exec
+    allow_filesystem: bool = True  # reads allowed; writes to tmp only
     max_output_bytes: int = 1024 * 64  # 64 KiB stdout cap
 
 
@@ -128,7 +128,7 @@ class LocalSandbox:
                 import json
 
                 try:
-                    return_value = json.loads(lines[-1][len("__RESULT__:"):])
+                    return_value = json.loads(lines[-1][len("__RESULT__:") :])
                     stdout = "\n".join(lines[:-1])
                 except Exception:
                     pass

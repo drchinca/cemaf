@@ -6,7 +6,6 @@ CEMAF components. Sets global TracerProvider, MeterProvider, LoggerProvider.
 """
 
 
-
 def configure_otel(
     service_name: str,
     otlp_endpoint: str = "http://localhost:4317",
@@ -64,13 +63,9 @@ def configure_otel(
     sampler = ParentBasedSampler(root=TraceIdRatioBased(sampling_ratio))
 
     tracer_provider = TracerProvider(resource=resource, sampler=sampler)
-    tracer_provider.add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint))
-    )
+    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
     trace.set_tracer_provider(tracer_provider)
 
-    metric_reader = PeriodicExportingMetricReader(
-        OTLPMetricExporter(endpoint=otlp_endpoint)
-    )
+    metric_reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=otlp_endpoint))
     meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
     metrics.set_meter_provider(meter_provider)

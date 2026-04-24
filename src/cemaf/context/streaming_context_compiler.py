@@ -198,9 +198,7 @@ class StreamingContextCompiler:
         to_summarize = candidates[:-preserve_recent]
         to_preserve.extend(candidates[-preserve_recent:])
 
-        combined_text = "\n\n".join(
-            f"[{s.source_type}:{s.source_id}] {s.content}" for s in to_summarize
-        )
+        combined_text = "\n\n".join(f"[{s.source_type}:{s.source_id}] {s.content}" for s in to_summarize)
 
         if summarizer is not None:
             summary_content = await summarizer(combined_text)

@@ -160,12 +160,8 @@ class PredicateSet:
 
 _RE_SCOPE_ANY = re.compile(r"^scope\s*=\s*ANY\(\$\d+\)$", re.IGNORECASE)
 _RE_SCOPE_PATH_LIKE = re.compile(r"^scope_path\s+LIKE\s+\$\d+$", re.IGNORECASE)
-_RE_VALUE_NEQ_ALL = re.compile(
-    r"^value_json->>'(\w+)'\s*!=\s*ALL\(\$\d+::text\[\]\)$", re.IGNORECASE
-)
-_RE_VALUE_EQ = re.compile(
-    r"^value_json->>'(\w+)'\s*=\s*\$\d+$", re.IGNORECASE
-)
+_RE_VALUE_NEQ_ALL = re.compile(r"^value_json->>'(\w+)'\s*!=\s*ALL\(\$\d+::text\[\]\)$", re.IGNORECASE)
+_RE_VALUE_EQ = re.compile(r"^value_json->>'(\w+)'\s*=\s*\$\d+$", re.IGNORECASE)
 
 
 def _eval_predicate(sql: str, params: tuple[Any, ...], item: MemoryItem) -> bool:
@@ -278,10 +274,7 @@ class QueryEngine:
             granted_scopes: set[str] = set()
 
             # Role-level: if the role has the action, any scope is allowed
-            has_global_role_perm = any(
-                intent in _ROLE_PERMISSIONS.get(role, frozenset())
-                for role in roles
-            )
+            has_global_role_perm = any(intent in _ROLE_PERMISSIONS.get(role, frozenset()) for role in roles)
             if has_global_role_perm:
                 granted_scopes.update(s.value for s in MemoryScope)
 

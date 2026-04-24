@@ -53,8 +53,7 @@ class PostgresAuditLog:
             import asyncpg  # noqa: PLC0415, F401
         except ImportError as exc:
             raise ImportError(
-                "asyncpg is required for PostgresAuditLog. "
-                "Install it with: pip install 'cemaf[postgres]'"
+                "asyncpg is required for PostgresAuditLog. Install it with: pip install 'cemaf[postgres]'"
             ) from exc
 
         self._dsn = dsn

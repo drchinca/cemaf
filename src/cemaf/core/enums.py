@@ -105,7 +105,7 @@ class ToolRiskLevel(StrEnum):
 class TrustLevel(StrEnum):
     """Trust state for dynamic tools and skills."""
 
-    UNTRUSTED = "untrusted"    # Brand new, not yet verified
-    SANDBOXED = "sandboxed"    # Some history, still runs in sandbox
-    TRUSTED = "trusted"        # Proven reliable, runs natively
+    UNTRUSTED = "untrusted"  # Brand new, not yet verified
+    SANDBOXED = "sandboxed"  # Some history, still runs in sandbox
+    TRUSTED = "trusted"  # Proven reliable, runs natively
     DEPRECATED = "deprecated"  # Too many failures, no longer used

@@ -28,28 +28,83 @@ if TYPE_CHECKING:
 # 1024 distinct fantasy/unique name entries.
 # ---------------------------------------------------------------------------
 _PREFIX_STEMS = (
-    "Ag", "Al", "Am", "An", "Ar", "As", "At", "Az",
-    "Ba", "Be", "Bi", "Bo", "Br", "Bu", "By", "Ca",
-    "Ce", "Ch", "Ci", "Cl", "Co", "Cr", "Cu", "Cy",
-    "Da", "De", "Di", "Do", "Dr", "Du", "Dy", "El",
+    "Ag",
+    "Al",
+    "Am",
+    "An",
+    "Ar",
+    "As",
+    "At",
+    "Az",
+    "Ba",
+    "Be",
+    "Bi",
+    "Bo",
+    "Br",
+    "Bu",
+    "By",
+    "Ca",
+    "Ce",
+    "Ch",
+    "Ci",
+    "Cl",
+    "Co",
+    "Cr",
+    "Cu",
+    "Cy",
+    "Da",
+    "De",
+    "Di",
+    "Do",
+    "Dr",
+    "Du",
+    "Dy",
+    "El",
 )
 
 _SUFFIX_ENDINGS = (
-    "ael", "ain", "alis", "alos", "alur", "amis", "anor", "anus",
-    "aros", "arth", "atus", "axen", "axor", "azel", "azis", "azor",
-    "chen", "chor", "cius", "cion", "cira", "cith", "civr", "clar",
-    "clis", "clor", "clyx", "coar", "coel", "coin", "coix", "corb",
+    "ael",
+    "ain",
+    "alis",
+    "alos",
+    "alur",
+    "amis",
+    "anor",
+    "anus",
+    "aros",
+    "arth",
+    "atus",
+    "axen",
+    "axor",
+    "azel",
+    "azis",
+    "azor",
+    "chen",
+    "chor",
+    "cius",
+    "cion",
+    "cira",
+    "cith",
+    "civr",
+    "clar",
+    "clis",
+    "clor",
+    "clyx",
+    "coar",
+    "coel",
+    "coin",
+    "coix",
+    "corb",
 )
 
-_DEFAULT_CORPUS: tuple[str, ...] = tuple(
-    p + s for p in _PREFIX_STEMS for s in _SUFFIX_ENDINGS
-)
+_DEFAULT_CORPUS: tuple[str, ...] = tuple(p + s for p in _PREFIX_STEMS for s in _SUFFIX_ENDINGS)
 assert len(_DEFAULT_CORPUS) == 1024, f"corpus size {len(_DEFAULT_CORPUS)} != 1024"
 
 
 # ---------------------------------------------------------------------------
 # Strategy enum
 # ---------------------------------------------------------------------------
+
 
 class MaskingStrategy(StrEnum):
     """How to transform a matched field value."""
@@ -63,6 +118,7 @@ class MaskingStrategy(StrEnum):
 # MaskingRule — one field + one strategy
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class MaskingRule:
     """Declares how a single field in MemoryItem.value should be transformed."""
@@ -74,6 +130,7 @@ class MaskingRule:
 # ---------------------------------------------------------------------------
 # PseudonymVault — deterministic, non-reversible pseudonyms via HMAC
 # ---------------------------------------------------------------------------
+
 
 class PseudonymVault:
     """
@@ -117,6 +174,7 @@ class PseudonymVault:
 # ---------------------------------------------------------------------------
 # MaskingPipeline — applies ordered rules to a MemoryItem
 # ---------------------------------------------------------------------------
+
 
 class MaskingPipeline:
     """
@@ -164,6 +222,7 @@ class MaskingPipeline:
 # Factory helper
 # ---------------------------------------------------------------------------
 
+
 def create_masking_hook(pipeline: MaskingPipeline) -> RedactionHook:
     """
     Wrap *pipeline* as a RedactionHook compatible with
@@ -177,6 +236,7 @@ def create_masking_hook(pipeline: MaskingPipeline) -> RedactionHook:
         hook = create_masking_hook(pipeline)
         store.set_redaction_hook(hook)
     """
+
     def _hook(item: MemoryItem) -> MemoryItem:
         return pipeline.apply(item)
 
@@ -186,6 +246,7 @@ def create_masking_hook(pipeline: MaskingPipeline) -> RedactionHook:
 # ---------------------------------------------------------------------------
 # ExclusionFilter — post-filter helper for list_by_scope()
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ExclusionFilter:

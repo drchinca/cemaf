@@ -72,8 +72,7 @@ class BatchLLMClient:
             import anthropic
         except ImportError as exc:
             raise ImportError(
-                "anthropic package required for BatchLLMClient. "
-                "Install with: uv add anthropic"
+                "anthropic package required for BatchLLMClient. Install with: uv add anthropic"
             ) from exc
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         self._model = model
@@ -119,9 +118,7 @@ class BatchLLMClient:
         return BatchJob(
             id=response.id,
             status=BatchStatus(response.processing_status),
-            request_counts=dict(vars(response.request_counts))
-            if hasattr(response, "request_counts")
-            else {},
+            request_counts=dict(vars(response.request_counts)) if hasattr(response, "request_counts") else {},
             created_at=utc_now(),
         )
 

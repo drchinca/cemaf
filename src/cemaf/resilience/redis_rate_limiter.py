@@ -55,8 +55,7 @@ class RedisRateLimiter:
             import redis.asyncio as aioredis
         except ImportError as exc:
             raise ImportError(
-                "redis package required for RedisRateLimiter. "
-                "Install with: uv add redis"
+                "redis package required for RedisRateLimiter. Install with: uv add redis"
             ) from exc
 
         self._redis = aioredis.from_url(redis_url)

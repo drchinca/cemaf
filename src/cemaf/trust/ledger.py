@@ -20,8 +20,8 @@ from cemaf.core.types import TrustScore
 class TrustEntry:
     """Immutable record of a tool or skill's trust state."""
 
-    entity_id: str              # ToolID or SkillID (stored as str for generality)
-    entity_type: str            # "tool" | "skill"
+    entity_id: str  # ToolID or SkillID (stored as str for generality)
+    entity_type: str  # "tool" | "skill"
     trust_level: TrustLevel = TrustLevel.UNTRUSTED
     trust_score: TrustScore = TrustScore(0.5)
     executions: int = 0
@@ -43,9 +43,7 @@ class TrustEntry:
         new_succ = self.successes + (1 if success else 0)
         new_fail = self.failures + (0 if success else 1)
         new_score = TrustScore(new_succ / new_exec)
-        new_latency = (
-            (self.avg_latency_ms * self.executions + latency_ms) / new_exec
-        )
+        new_latency = (self.avg_latency_ms * self.executions + latency_ms) / new_exec
         new_level = self._compute_level(new_score, new_exec, new_fail)
         return TrustEntry(
             entity_id=self.entity_id,

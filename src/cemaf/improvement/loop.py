@@ -27,7 +27,7 @@ class ImprovementOutcome:
     """Summary of what the self-improvement loop did on a single run."""
 
     run_id: str
-    quality_score: float            # 0.0 – 1.0
+    quality_score: float  # 0.0 – 1.0
     strategies_updated: int
     tools_promoted: int
     tools_deprecated: int
@@ -44,7 +44,7 @@ class ExecutionSummary:
 
     run_id: str
     task_description: str
-    approach: str                   # Which strategy / plan was used
+    approach: str  # Which strategy / plan was used
     success: bool
     total_tokens: int = 0
     total_cost_usd: float = 0.0
@@ -73,9 +73,7 @@ class SelfImprovementLoop:
         self._trust_ledger = trust_ledger
         self._quality_threshold = quality_threshold
 
-    async def process(
-        self, summary: ExecutionSummary
-    ) -> Result[ImprovementOutcome]:
+    async def process(self, summary: ExecutionSummary) -> Result[ImprovementOutcome]:
         """Process a completed execution and update all learning systems."""
         try:
             quality = self._score_quality(summary)
@@ -112,9 +110,7 @@ class SelfImprovementLoop:
                         insights.append(f"Tool {tool_id} promoted to TRUSTED")
                     elif entry.trust_level.value == "deprecated":
                         deprecated += 1
-                        insights.append(
-                            f"Tool {tool_id} DEPRECATED after failures"
-                        )
+                        insights.append(f"Tool {tool_id} DEPRECATED after failures")
 
             # 3. Log quality warnings
             if quality < self._quality_threshold and summary.success:
@@ -125,8 +121,7 @@ class SelfImprovementLoop:
 
             if not summary.success:
                 insights.append(
-                    f"Execution failed. Approach '{summary.approach}' "
-                    "penalised in strategy memory."
+                    f"Execution failed. Approach '{summary.approach}' penalised in strategy memory."
                 )
 
             outcome = ImprovementOutcome(

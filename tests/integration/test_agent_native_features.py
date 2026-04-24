@@ -34,7 +34,7 @@ class SimpleEmbeddingProvider(EmbeddingProvider):
         try:
             data = json.loads(text)
             stable_text = json.dumps(data, sort_keys=True)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             stable_text = text
 
         dimension = 384

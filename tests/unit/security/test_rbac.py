@@ -103,9 +103,7 @@ def test_unknown_principal_denied() -> None:
 def test_direct_access_grant_allows_action() -> None:
     provider = _make_provider(
         roles=[],
-        direct_access=[
-            {"scope": "session", "actions": ["read"]}
-        ],
+        direct_access=[{"scope": "session", "actions": ["read"]}],
     )
     enforcer = RBACEnforcer(provider)
     assert enforcer.can("principal", "read", MemoryScope.SESSION) is True
@@ -175,9 +173,7 @@ async def test_scope_path_prefix_filters_list() -> None:
 
     provider = _make_provider(
         roles=[],
-        direct_access=[
-            {"scope": "project", "scope_path_prefix": "/intel/", "actions": ["read", "list"]}
-        ],
+        direct_access=[{"scope": "project", "scope_path_prefix": "/intel/", "actions": ["read", "list"]}],
     )
     enforcer = RBACEnforcer(provider)
     store = RBACMemoryStore(inner=inner, enforcer=enforcer, principal_id="principal")

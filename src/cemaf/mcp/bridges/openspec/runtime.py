@@ -43,7 +43,7 @@ async def _run_subprocess(
     try:
         async with asyncio.timeout(timeout):
             stdout, stderr = await proc.communicate(input=stdin_data)
-    except (TimeoutError, asyncio.CancelledError):
+    except TimeoutError, asyncio.CancelledError:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(proc.pid, signal.SIGTERM)
         try:

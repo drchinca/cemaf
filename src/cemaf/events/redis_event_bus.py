@@ -43,10 +43,7 @@ class RedisEventBus:
         try:
             import redis.asyncio as aioredis
         except ImportError as exc:
-            raise ImportError(
-                "redis package required for RedisEventBus. "
-                "Install with: uv add redis"
-            ) from exc
+            raise ImportError("redis package required for RedisEventBus. Install with: uv add redis") from exc
 
         self._redis = aioredis.from_url(redis_url)
         self._worker_id = worker_id or f"worker-{uuid4().hex[:8]}"
@@ -191,9 +188,7 @@ class RedisEventBus:
         # XPENDING gives delivery count; use XCLAIM approach: if pending
         # delivery count ≥ threshold, move to DLQ and ACK to clear PEL.
         try:
-            pending_info = await self._redis.xpending_range(
-                stream, group, min=msg_id, max=msg_id, count=1
-            )
+            pending_info = await self._redis.xpending_range(stream, group, min=msg_id, max=msg_id, count=1)
         except Exception:
             pending_info = []
 

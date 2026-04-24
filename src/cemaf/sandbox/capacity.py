@@ -10,9 +10,9 @@ class SystemCapacity:
     """Point-in-time snapshot of available system resources."""
 
     available_memory_mb: float  # Available RAM in MB
-    cpu_count: int              # Logical CPU cores
-    cpu_load_avg: float         # 1-min load average (0.0-1.0 per core)
-    disk_free_mb: float         # Free disk in MB (for temp files)
+    cpu_count: int  # Logical CPU cores
+    cpu_load_avg: float  # 1-min load average (0.0-1.0 per core)
+    disk_free_mb: float  # Free disk in MB (for temp files)
 
     @classmethod
     def snapshot(cls) -> SystemCapacity:
@@ -47,7 +47,7 @@ class SystemCapacity:
                     if len(parts) == 2:
                         try:
                             page_size = int(parts[1].split()[0])
-                        except (ValueError, IndexError):
+                        except ValueError, IndexError:
                             pass
                 if "Pages free" in line or "Pages inactive" in line:
                     raw = line.split(":")[1].strip().rstrip(".")
@@ -79,7 +79,7 @@ class SystemCapacity:
         try:
             stat = os.statvfs("/tmp")
             disk_free_mb = (stat.f_bavail * stat.f_frsize) / (1024 * 1024)
-        except (OSError, AttributeError):
+        except OSError, AttributeError:
             disk_free_mb = 1024.0  # safe fallback
 
         return cls(

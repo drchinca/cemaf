@@ -42,9 +42,7 @@ def _row_to_item(row: Any) -> MemoryItem:
         scope=MemoryScope(row["scope"]),
         key=row["key"],
         value=(
-            json.loads(row["value_json"])
-            if isinstance(row["value_json"], str)
-            else dict(row["value_json"])
+            json.loads(row["value_json"]) if isinstance(row["value_json"], str) else dict(row["value_json"])
         ),
         confidence=Confidence(float(row["confidence"])),
         created_at=created_at,
@@ -86,8 +84,7 @@ class PostgresMemoryStore(MemoryStore):
             import asyncpg
         except ImportError as exc:
             raise ImportError(
-                "asyncpg is required for PostgresMemoryStore. "
-                "Install it with: pip install 'cemaf[postgres]'"
+                "asyncpg is required for PostgresMemoryStore. Install it with: pip install 'cemaf[postgres]'"
             ) from exc
 
         self._pool = await asyncpg.create_pool(
@@ -188,8 +185,7 @@ class PostgresMemoryStore(MemoryStore):
         s = self._schema
         async with pool.acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {s}.memory_items "
-                f"WHERE tenant_id = $1 AND scope = $2 AND key = $3",
+                f"DELETE FROM {s}.memory_items WHERE tenant_id = $1 AND scope = $2 AND key = $3",
                 self._tenant_id,
                 scope.value,
                 key,

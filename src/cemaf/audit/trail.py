@@ -31,7 +31,7 @@ class InMemoryAuditTrail:
             if score is not None:
                 try:
                     scores.append(float(score))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
         return tuple(scores[-window:])
 
@@ -53,7 +53,7 @@ class InMemoryAuditTrail:
             if score is not None:
                 try:
                     scores_with_entries.append((float(score), entry))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
 
         if len(scores_with_entries) >= 2:

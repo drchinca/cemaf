@@ -68,9 +68,7 @@ class RedisSessionStore:
         data = json.loads(raw)
         started_at_raw = data["started_at"]
         started_at = (
-            datetime.fromisoformat(started_at_raw)
-            if isinstance(started_at_raw, str)
-            else started_at_raw
+            datetime.fromisoformat(started_at_raw) if isinstance(started_at_raw, str) else started_at_raw
         )
         return SessionState(
             session_id=data["session_id"],

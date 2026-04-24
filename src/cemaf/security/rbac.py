@@ -244,11 +244,7 @@ class RBACMemoryStore(MemoryStore):
         # whose scope_path does not start with that prefix.
         allowed_prefixes = self._collect_path_prefixes(scope)
         if allowed_prefixes:
-            redacted = [
-                item
-                for item in redacted
-                if self._item_within_prefixes(item, allowed_prefixes)
-            ]
+            redacted = [item for item in redacted if self._item_within_prefixes(item, allowed_prefixes)]
 
         return tuple(redacted)
 

@@ -92,9 +92,7 @@ class DynamicToolFactory:
         self._sandbox = sandbox or LocalSandbox()
         self._persist_dir = persist_dir
 
-    async def generate_and_register(
-        self, spec: GeneratedToolSpec
-    ) -> Result[GenerationResult]:
+    async def generate_and_register(self, spec: GeneratedToolSpec) -> Result[GenerationResult]:
         """Full pipeline: generate code → validate syntax → sandbox-test → register."""
         # 1. Generate code via LLM
         code_result = await self._generate_code(spec)
@@ -112,18 +110,14 @@ class DynamicToolFactory:
         # 3. Sandbox test with example inputs (if provided)
         if spec.example_inputs:
             test_snippet = (
-                code
-                + f"\n\nimport asyncio\n_result = asyncio.run(execute(**{spec.example_inputs!r}))"
+                code + f"\n\nimport asyncio\n_result = asyncio.run(execute(**{spec.example_inputs!r}))"
             )
             test_result = await self._sandbox.run_code(
                 test_snippet,
                 inputs=spec.example_inputs,
             )
             if not test_result.success:
-                return Result.fail(
-                    f"Sandbox validation failed: "
-                    f"{test_result.error or test_result.stderr}"
-                )
+                return Result.fail(f"Sandbox validation failed: {test_result.error or test_result.stderr}")
 
         # 4. Build and register Tool
         tool_id = ToolID(f"dynamic_{spec.name}_{uuid.uuid4().hex[:8]}")

@@ -22,6 +22,7 @@ def _meter() -> tuple[OTelMetricsCollector, MagicMock]:
 
     # Patch the guard so it does not raise ImportError without OTel installed
     import cemaf.observability.otel_metrics as _mod
+
     orig = _mod._require_otel_metrics
 
     def _noop() -> None:
