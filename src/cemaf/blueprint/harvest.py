@@ -35,6 +35,7 @@ it grows itself, and the **shape of the growth is pluggable**.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -156,6 +157,8 @@ class BlueprintHarvesterEngine:
             EventType.TASK_COMPLETED,
         ),
         on_outcome: Callable[[HarvestOutcome], None] | None = None,
+        correlation_retry_attempts: int = 3,
+        correlation_retry_delay_s: float = 0.05,
     ) -> None:
         self._source = writable_source
         self._policy = policy
@@ -165,6 +168,17 @@ class BlueprintHarvesterEngine:
         self._trigger_events = trigger_events
         self._observe_events = observe_events
         self._on_outcome = on_outcome
+        # Correlation retry guards the race where a TRIGGER event (EVAL_COMPLETED)
+        # reaches this handler before the final OBSERVE event (TASK_COMPLETED)
+        # under bus subscription-order or concurrent-dispatch scheduling.
+        # We re-poll the correlator up to N times with a short delay — bounded,
+        # so a genuinely orphaned eval still fails fast.
+        if correlation_retry_attempts < 0:
+            raise ValueError(f"correlation_retry_attempts must be >= 0; got {correlation_retry_attempts}")
+        if correlation_retry_delay_s < 0:
+            raise ValueError(f"correlation_retry_delay_s must be >= 0; got {correlation_retry_delay_s}")
+        self._retry_attempts = correlation_retry_attempts
+        self._retry_delay = correlation_retry_delay_s
         self._unsubscribers: list[Callable[[], None]] = []
 
     def subscribe(self, *, event_bus: EventBus) -> None:
@@ -206,6 +220,29 @@ class BlueprintHarvesterEngine:
             except Exception:
                 logger.debug("on_outcome callback raised", exc_info=True)
 
+    async def _lookup_with_retry(
+        self,
+        *,
+        run_id: str,
+        node_id: str,
+    ) -> HarvestContext | None:
+        """Poll the correlator up to N times with a short delay between attempts.
+
+        Guards the race where EVAL_COMPLETED reaches the engine before the
+        correlator has finished observing the originating run's
+        TASK_COMPLETED. The first attempt happens immediately — retries
+        only kick in when the correlator genuinely doesn't have the data
+        yet. Bounded by `correlation_retry_attempts` so orphaned evals
+        fail fast.
+        """
+        for attempt in range(self._retry_attempts + 1):
+            context = await self._correlator.lookup(run_id=run_id, node_id=node_id)
+            if context is not None:
+                return context
+            if attempt < self._retry_attempts:
+                await asyncio.sleep(self._retry_delay)
+        return None
+
     async def _maybe_harvest(self, *, event: Event) -> HarvestOutcome:
         if not self._policy.should_harvest(event=event):
             return HarvestOutcome(accepted=False, reason="policy_rejected")
@@ -214,8 +251,16 @@ class BlueprintHarvesterEngine:
         if not run_id or not node_id:
             return HarvestOutcome(accepted=False, reason="missing_run_or_node_id")
 
-        context = await self._correlator.lookup(run_id=run_id, node_id=node_id)
+        context = await self._lookup_with_retry(run_id=run_id, node_id=node_id)
         if context is None:
+            logger.warning(
+                "Harvest dropped — no correlation after %d attempt(s) for run=%s node=%s. "
+                "Likely cause: EVAL_COMPLETED arrived before TASK_COMPLETED (subscription-order "
+                "race) or the correlator was never fed goal/output for this run.",
+                self._retry_attempts + 1,
+                run_id,
+                node_id,
+            )
             return HarvestOutcome(accepted=False, reason="no_correlation")
 
         try:

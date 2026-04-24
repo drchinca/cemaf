@@ -165,6 +165,53 @@ class TestSqliteConcurrency:
         assert ids == {f"bp-{i:02d}" for i in range(20)}
 
 
+class TestSqliteConcurrentReaderWriter:
+    @pytest.mark.asyncio
+    async def test_load_during_active_writer_succeeds(
+        self, tmp_path: Path, tiny_blueprint: Blueprint
+    ) -> None:
+        """Sync `load()` sets busy_timeout — concurrent writer must not cause SQLITE_BUSY.
+
+        Under WAL, readers don't block writers and vice versa, but schema
+        statements (CREATE IF NOT EXISTS) briefly take a write lock. Without
+        `busy_timeout` on the sync reader's connection, a tight race where
+        the aiosqlite writer holds the lock causes `OperationalError: database
+        is locked`. With `busy_timeout`, the reader retries for up to 5s.
+        """
+        db = _db(tmp_path)
+        writer = SqliteBlueprintSource(db_path=db)
+
+        async def _hammer_writes() -> None:
+            for i in range(20):
+                await writer.append(
+                    entry=BlueprintEntry.snapshot_entry(
+                        id=f"bp-{i:02d}",
+                        title=f"BP {i}",
+                        blueprint=tiny_blueprint,
+                    ),
+                )
+
+        async def _hammer_reads() -> int:
+            total = 0
+            for _ in range(5):
+                # Each load() opens a fresh sync connection — exactly the
+                # pattern that would clash with the writer without busy_timeout.
+                reader = SqliteBlueprintSource(db_path=db)
+                total += len(list(reader.load()))
+                await asyncio.sleep(0)
+            return total
+
+        write_task = asyncio.create_task(_hammer_writes())
+        read_task = asyncio.create_task(_hammer_reads())
+        await write_task
+        total_reads = await read_task
+        await writer.close()
+
+        # No SQLITE_BUSY raised; final write count correct.
+        assert len(list(SqliteBlueprintSource(db_path=db).load())) == 20
+        assert total_reads >= 0  # readers completed without raising
+
+
 class TestSqliteLifecycle:
     @pytest.mark.asyncio
     async def test_load_empty_when_file_new(self, tmp_path: Path) -> None:

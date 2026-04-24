@@ -141,14 +141,18 @@ class TestInMemoryRunCorrelator:
         import time
 
         c = InMemoryRunCorrelator(ttl_seconds=0.05)
+        # Feed both TASK_STARTED (goal) + TASK_COMPLETED (output) — lookup now
+        # requires both to be populated.
         await c.observe(
             event=Event.create(
                 type=EventType.TASK_STARTED,
-                payload={
-                    "run_id": "r1",
-                    "node_id": "n1",
-                    "goal_text": "g",
-                },
+                payload={"run_id": "r1", "node_id": "n1", "goal_text": "g"},
+            )
+        )
+        await c.observe(
+            event=Event.create(
+                type=EventType.TASK_COMPLETED,
+                payload={"run_id": "r1", "node_id": "n1", "output": "o"},
             )
         )
         assert await c.lookup(run_id="r1", node_id="n1") is not None
@@ -158,21 +162,46 @@ class TestInMemoryRunCorrelator:
     @pytest.mark.asyncio
     async def test_max_entries_cap(self) -> None:
         c = InMemoryRunCorrelator(max_entries=2, ttl_seconds=3600)
-        # 3 distinct (run, node) pairs → oldest evicted.
+        # 3 distinct (run, node) pairs → oldest evicted. Feed both signals.
         for i in range(3):
             await c.observe(
                 event=Event.create(
                     type=EventType.TASK_STARTED,
-                    payload={
-                        "run_id": f"r{i}",
-                        "node_id": "n",
-                        "goal_text": f"g{i}",
-                    },
+                    payload={"run_id": f"r{i}", "node_id": "n", "goal_text": f"g{i}"},
+                )
+            )
+            await c.observe(
+                event=Event.create(
+                    type=EventType.TASK_COMPLETED,
+                    payload={"run_id": f"r{i}", "node_id": "n", "output": f"o{i}"},
                 )
             )
         # First one should have been evicted.
         assert await c.lookup(run_id="r0", node_id="n") is None
         assert await c.lookup(run_id="r2", node_id="n") is not None
+
+    @pytest.mark.asyncio
+    async def test_lookup_requires_both_goal_and_output(self) -> None:
+        """Partial context (goal-only or output-only) returns None — prevents
+        half-populated harvests when EVAL races ahead of TASK_COMPLETED."""
+        c = InMemoryRunCorrelator()
+        await c.observe(
+            event=Event.create(
+                type=EventType.TASK_STARTED,
+                payload={"run_id": "r1", "node_id": "n1", "goal_text": "g"},
+            )
+        )
+        # Only goal captured — lookup must return None.
+        assert await c.lookup(run_id="r1", node_id="n1") is None
+
+        await c.observe(
+            event=Event.create(
+                type=EventType.TASK_COMPLETED,
+                payload={"run_id": "r1", "node_id": "n1", "output": "o"},
+            )
+        )
+        # Both captured now — lookup succeeds.
+        assert await c.lookup(run_id="r1", node_id="n1") is not None
 
 
 class TestRecipeBlueprintDistiller:

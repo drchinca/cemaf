@@ -214,6 +214,122 @@ class TestEngineOrchestration:
         assert correlator.observed == [started]
 
 
+class _EventuallyReadyCorrelator:
+    """Correlator that returns None for the first N lookups, then returns a context.
+
+    Simulates the race where EVAL_COMPLETED arrives before TASK_COMPLETED —
+    the engine must retry `lookup` so late-arriving output_text still wins.
+    """
+
+    def __init__(self, *, ready_after: int, context: HarvestContext) -> None:
+        self._ready_after = ready_after
+        self._context = context
+        self._calls = 0
+
+    async def observe(self, *, event: Event) -> None:
+        return None
+
+    async def lookup(self, *, run_id: str, node_id: str) -> HarvestContext | None:
+        self._calls += 1
+        if self._calls > self._ready_after:
+            return self._context
+        return None
+
+
+class _NeverReadyCorrelator:
+    """Always returns None — simulates a genuinely orphaned eval."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def observe(self, *, event: Event) -> None:
+        return None
+
+    async def lookup(self, *, run_id: str, node_id: str) -> HarvestContext | None:
+        self.calls += 1
+        return None
+
+
+class TestCorrelationRetry:
+    @pytest.mark.asyncio
+    async def test_retry_catches_late_correlation(self) -> None:
+        """Engine re-polls the correlator and wins if the data arrives mid-retry."""
+        source = InMemoryWritableBlueprintSource()
+        ctx = HarvestContext(run_id="r1", node_id="n1", goal_text="g", output_text="o")
+        correlator = _EventuallyReadyCorrelator(ready_after=2, context=ctx)
+        outcomes: list[HarvestOutcome] = []
+        engine = BlueprintHarvesterEngine(
+            writable_source=source,
+            policy=_FakePolicy(decision=True),
+            correlator=correlator,
+            distiller=_FakeDistiller(entry=_sample_entry()),
+            on_outcome=outcomes.append,
+            correlation_retry_attempts=3,
+            correlation_retry_delay_s=0.0,  # fast test
+        )
+        await engine._trigger_handler(_eval_event())
+        assert outcomes[-1].accepted is True
+        assert correlator._calls == 3  # 1 initial + 2 retries until ready
+
+    @pytest.mark.asyncio
+    async def test_retry_gives_up_after_bounded_attempts(self) -> None:
+        """Orphaned eval (no correlation ever arrives) fails after retries are spent."""
+        source = InMemoryWritableBlueprintSource()
+        correlator = _NeverReadyCorrelator()
+        outcomes: list[HarvestOutcome] = []
+        engine = BlueprintHarvesterEngine(
+            writable_source=source,
+            policy=_FakePolicy(decision=True),
+            correlator=correlator,
+            distiller=_FakeDistiller(entry=_sample_entry()),
+            on_outcome=outcomes.append,
+            correlation_retry_attempts=3,
+            correlation_retry_delay_s=0.0,
+        )
+        await engine._trigger_handler(_eval_event())
+        assert outcomes[-1].accepted is False
+        assert outcomes[-1].reason == "no_correlation"
+        assert correlator.calls == 4  # 1 initial + 3 retries
+
+    @pytest.mark.asyncio
+    async def test_zero_retries_is_one_attempt(self) -> None:
+        """retry_attempts=0 means try once, don't retry."""
+        source = InMemoryWritableBlueprintSource()
+        correlator = _NeverReadyCorrelator()
+        engine = BlueprintHarvesterEngine(
+            writable_source=source,
+            policy=_FakePolicy(decision=True),
+            correlator=correlator,
+            distiller=_FakeDistiller(entry=_sample_entry()),
+            correlation_retry_attempts=0,
+            correlation_retry_delay_s=0.0,
+        )
+        await engine._trigger_handler(_eval_event())
+        assert correlator.calls == 1
+
+    @pytest.mark.asyncio
+    async def test_negative_retry_attempts_rejected(self) -> None:
+        with pytest.raises(ValueError, match="correlation_retry_attempts"):
+            BlueprintHarvesterEngine(
+                writable_source=InMemoryWritableBlueprintSource(),
+                policy=_FakePolicy(decision=True),
+                correlator=_FakeCorrelator(context=None),
+                distiller=_FakeDistiller(entry=None),
+                correlation_retry_attempts=-1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_negative_retry_delay_rejected(self) -> None:
+        with pytest.raises(ValueError, match="correlation_retry_delay_s"):
+            BlueprintHarvesterEngine(
+                writable_source=InMemoryWritableBlueprintSource(),
+                policy=_FakePolicy(decision=True),
+                correlator=_FakeCorrelator(context=None),
+                distiller=_FakeDistiller(entry=None),
+                correlation_retry_delay_s=-0.1,
+            )
+
+
 class TestEngineSubscription:
     @pytest.mark.asyncio
     async def test_subscribe_and_unsubscribe_on_real_bus(self) -> None:

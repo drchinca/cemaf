@@ -187,13 +187,21 @@ class SqliteBlueprintSource:
             await conn.commit()
 
     def load(self) -> Iterable[BlueprintEntry]:
-        """Yield every stored entry. Runs a blocking SELECT — intended for boot-time wiring."""
-        # We use a synchronous sqlite3 connection here because BlueprintSource.load()
-        # is a synchronous generator and callers (BlueprintLibrary.register_from)
-        # may run it outside an event loop at import time.
+        """Yield every stored entry. Runs a blocking SELECT — intended for boot-time wiring.
+
+        Mirrors the async `append` path's pragmas — WAL + `busy_timeout` —
+        so a concurrent writer (harvester appending under the aiosqlite
+        lock) doesn't cause `SQLITE_BUSY` on this reader. Without the
+        timeout the sync reader gives up immediately on contention.
+        """
+        # Sync sqlite3 connection — BlueprintSource.load() is a synchronous generator
+        # and callers (BlueprintLibrary.register_from) may run it outside an event
+        # loop at import time.
         import sqlite3
 
         with sqlite3.connect(self._db_path) as conn:
+            conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
+            conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
             conn.execute(_CREATE_TABLE)
             conn.execute(_CREATE_INDEX_KIND)
             cursor = conn.execute(

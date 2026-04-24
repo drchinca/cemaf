@@ -140,11 +140,18 @@ class InMemoryRunCorrelator:
             self._entries.pop(oldest_key, None)
 
     async def lookup(self, *, run_id: str, node_id: str) -> HarvestContext | None:
+        """Return context only when BOTH goal and output are captured.
+
+        Returning partial context (goal only, no output) would let the
+        engine harvest half-populated blueprints when `EVAL_COMPLETED`
+        races ahead of `TASK_COMPLETED`. The stricter contract pushes
+        the race handling up to the engine's retry loop.
+        """
         self._evict_stale()
         entry = self._entries.get((run_id, node_id))
         if entry is None:
             return None
-        if not entry.goal_text and not entry.output_text:
+        if not entry.goal_text or not entry.output_text:
             return None
         return HarvestContext(
             run_id=run_id,
