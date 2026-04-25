@@ -46,16 +46,10 @@ def create_memory_store(
     default_ttl_seconds: float = 3600.0,
     file_path: str | None = None,
 ) -> MemoryStore:
-    """Factory for `MemoryStore` with sensible defaults.
-
-    `backend` accepts a `MemoryBackend` enum (preferred) or the string
-    name at the boundary (env vars / CLI / config). Strings are coerced
-    immediately so the rest of the function branches on the enum.
-    """
+    """Build a `MemoryStore` for the given backend."""
     backend_enum = MemoryBackend(backend) if isinstance(backend, str) else backend
     match backend_enum:
         case MemoryBackend.MEMORY:
-            # max_items/ttl reserved for a future implementation.
             return InMemoryStore()
         case MemoryBackend.JSON_FILE:
             path_str = file_path or os.getenv("CEMAF_MEMORY_FILE_PATH")
@@ -93,13 +87,11 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
     max_items = int(os.getenv("CEMAF_MEMORY_MAX_ITEMS", "10000"))
     default_ttl = float(os.getenv("CEMAF_MEMORY_DEFAULT_TTL_SECONDS", "3600.0"))
 
-    # Coerce env string → enum at the boundary.
     try:
         backend = MemoryBackend(raw_backend)
     except ValueError:
-        backend = None  # falls through to the EXTEND-HERE block below
+        backend = None
 
-    # BUILT-IN IMPLEMENTATIONS
     if backend is not None:
         return create_memory_store(
             backend=backend,

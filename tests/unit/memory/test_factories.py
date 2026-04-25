@@ -28,8 +28,6 @@ class TestCreateMemoryStore:
         assert isinstance(store, InMemoryStore)
 
     def test_invalid_backend_raises_value_error(self) -> None:
-        # MemoryBackend enum rejects unknown strings at the boundary —
-        # error message comes from the enum, not a custom string.
         with pytest.raises(ValueError, match="MemoryBackend"):
             create_memory_store(backend="redis")
 

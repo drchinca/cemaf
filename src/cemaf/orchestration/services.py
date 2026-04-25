@@ -103,7 +103,7 @@ class RuntimeServices:
     llm_client: LLMClient | None = None
     vector_store: VectorStore | None = None
 
-    # Blueprints — curated library + optional retrieval hook for context nodes
+    # Blueprints
     blueprint_library: BlueprintLibrary | None = None
     blueprint_selector: BlueprintSelectorHook | None = None
 

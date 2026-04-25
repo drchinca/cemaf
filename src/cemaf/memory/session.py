@@ -245,14 +245,10 @@ class DefaultSessionManager:
     ) -> int:
         """Run extraction (if configured), close episode, clean up SESSION items.
 
-        When `promote_to` is set, every SESSION-scoped memory item with
-        `confidence >= promotion_min_confidence` is re-stored under
-        `promote_to` (typically `PROJECT` or `BRAND`) before SESSION
-        cleanup runs. This is the "data flywheel" — high-confidence
-        learnings from one session survive into the next.
-
-        Returns the number of SESSION items cleaned up (unchanged from
-        the pre-promotion contract — promotion is additive).
+        When `promote_to` is set, SESSION items with
+        `confidence >= promotion_min_confidence` are re-stored under
+        `promote_to` before cleanup. Returns the number of SESSION
+        items cleaned up.
         """
         state = self._sessions.get(session_id)
         if state is None:
@@ -281,13 +277,11 @@ class DefaultSessionManager:
         if state.episode_id:
             await self._manager.end_episode(episode_id=state.episode_id)
 
-        # Read SESSION items once — used for both promotion (optional) and cleanup.
         session_results = await self._manager.recall(
             query=MemoryQuery(scope=MemoryScope.SESSION, limit=10000),
         )
 
-        # Promote high-confidence items to long-term scope BEFORE cleanup,
-        # otherwise the items we'd promote vanish first.
+        # Promote before cleanup — otherwise the items vanish first.
         if promote_to is not None:
             for result in session_results:
                 item = result.item
