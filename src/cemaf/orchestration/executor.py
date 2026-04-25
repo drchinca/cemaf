@@ -20,7 +20,7 @@ import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -77,7 +77,7 @@ _correlation_id_var: ContextVar[str] = ContextVar(
 )
 
 
-class HaltReason(str, Enum):
+class HaltReason(StrEnum):
     """Why a DAG execution was halted mid-flight.
 
     Enum-typed so on-call engineers reading logs at 3am know immediately
@@ -122,12 +122,7 @@ def _current_route_choices() -> dict[NodeID, set[NodeID]]:
 
 
 def _derive_goal_text_for_event(*, inputs: dict[str, Any]) -> str:
-    """Best-effort goal text for a TASK_STARTED payload.
-
-    Picks the first populated well-known goal field; returns '' when no
-    match — subscribers (harvester correlators, audit) can fall back to
-    the `inputs` field on the same payload.
-    """
+    """First populated well-known goal field in inputs; '' on miss."""
     if not isinstance(inputs, dict):
         return ""
     for key in ("objective", "goal", "description", "task", "query", "feature_description"):
@@ -1140,9 +1135,6 @@ class DAGExecutor:
             resolved_inputs = resolve_node_input(node.input_mapping, context)
             resolved_context = context.set("_resolved_inputs", resolved_inputs)
 
-        # Emit TASK_STARTED so subscribers (harvester correlators, audit) can
-        # capture goal/inputs before the agent runs. Mirrors the TASK_COMPLETED
-        # payload shape so (run_id, node_id) correlation works on both events.
         await self._emit_event(
             event_type=EventType.TASK_STARTED,
             payload={

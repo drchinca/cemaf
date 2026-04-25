@@ -1,12 +1,16 @@
 """Factory functions for retrieval components."""
 
-from typing import Any
+import os
+from typing import TYPE_CHECKING, Any
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
+
+if TYPE_CHECKING:
+    from cemaf.retrieval.pgvector_store import PgVectorStore
 
 # Global vector store registry — extend with your own backends
 vector_store_registry: ProviderRegistry[VectorStore] = ProviderRegistry(name="vector_store")
@@ -29,8 +33,19 @@ def _create_memory_vector_store(**kwargs: Any) -> InMemoryVectorStore:
     )
 
 
+def _create_pgvector_store(**kwargs: Any) -> PgVectorStore:
+    """Registry-compatible factory for pgvector store."""
+    return create_pg_vector_store(
+        dsn=kwargs.get("dsn"),
+        dimension=kwargs.get("dimension", 3072),
+        tenant_id=kwargs.get("tenant_id", "default"),
+        embedding_provider=kwargs.get("embedding_provider"),
+    )
+
+
 # Register built-in backends
 vector_store_registry.register(backend="memory", factory=_create_memory_vector_store)
+vector_store_registry.register(backend="pgvector", factory=_create_pgvector_store)
 
 
 def create_vector_store_from_config(
@@ -47,3 +62,22 @@ def create_vector_store_from_config(
         embedding_provider=embedding_provider,
         dimension=cfg.retrieval.embedding_dimension,
     )
+
+
+def create_pg_vector_store(
+    *,
+    dsn: str | None = None,
+    dimension: int = 3072,
+    tenant_id: str = "default",
+    embedding_provider: EmbeddingProvider | None = None,
+) -> PgVectorStore:
+    """Create a PgVectorStore, reading DSN from env when dsn is None.
+
+    embedding_provider is accepted for API compatibility but not used internally —
+    PgVectorStore requires callers to embed externally and pass vectors to search().
+    Reads CEMAF_POSTGRES_DSN when dsn is None.
+    """
+    resolved_dsn = dsn or os.getenv("CEMAF_POSTGRES_DSN", "postgresql://localhost/cemaf")
+    from cemaf.retrieval.pgvector_store import PgVectorStore
+
+    return PgVectorStore(dsn=resolved_dsn, dimension=dimension, tenant_id=tenant_id)

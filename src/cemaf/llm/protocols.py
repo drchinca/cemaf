@@ -10,7 +10,7 @@ Supports:
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -21,7 +21,7 @@ from cemaf.core.types import JSON, TokenCount
 MessageContent = str | list[dict[str, Any]]
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Role of a message in a conversation."""
 
     SYSTEM = "system"

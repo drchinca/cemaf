@@ -2,14 +2,14 @@
 
 import math
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.core.utils import utc_now
 from cemaf.memory.base import MemoryItem
 
 
-class DecayFunction(str, Enum):
+class DecayFunction(StrEnum):
     """Decay curves for recency scoring."""
 
     EXPONENTIAL = "exponential"  # e^(-λt)

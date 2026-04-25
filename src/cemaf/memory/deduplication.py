@@ -1,7 +1,7 @@
 """Memory deduplication — detect and resolve near-duplicate memory items."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.core.types import Confidence
@@ -9,7 +9,7 @@ from cemaf.memory.base import MemoryItem
 from cemaf.memory.semantic import MemoryQuery, MemorySearchResult, SemanticMemoryStore
 
 
-class MatchType(str, Enum):
+class MatchType(StrEnum):
     """How a duplicate was detected."""
 
     EXACT_KEY = "exact_key"
@@ -17,7 +17,7 @@ class MatchType(str, Enum):
     PARTIAL_KEY = "partial_key"
 
 
-class DeduplicationAction(str, Enum):
+class DeduplicationAction(StrEnum):
     """What to do with a candidate after dedup check."""
 
     STORE_NEW = "store_new"

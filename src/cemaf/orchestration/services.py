@@ -67,6 +67,7 @@ from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.health import HealthMonitor
+from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.retrieval.protocols import VectorStore
@@ -102,9 +103,12 @@ class RuntimeServices:
     llm_client: LLMClient | None = None
     vector_store: VectorStore | None = None
 
-    # Blueprints — curated library + optional retrieval hook for context nodes
+    # Blueprints
     blueprint_library: BlueprintLibrary | None = None
     blueprint_selector: BlueprintSelectorHook | None = None
 
     # Recovery
     auto_heal_manager: AutoHealManager | None = None
+
+    # Distributed tracing
+    tracer: Tracer | None = None

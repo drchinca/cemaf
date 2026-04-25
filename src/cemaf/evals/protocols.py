@@ -36,7 +36,7 @@ through `RunEvalTool` for one-off grading.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
@@ -45,7 +45,7 @@ from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
 
-class EvalMetric(str, Enum):
+class EvalMetric(StrEnum):
     """Standard evaluation metrics."""
 
     # Binary

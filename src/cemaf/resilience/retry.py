@@ -13,7 +13,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from cemaf.core.utils import utc_now
 
 
-class BackoffStrategy(str, Enum):
+class BackoffStrategy(StrEnum):
     """Backoff strategy for retries."""
 
     CONSTANT = "constant"  # Same delay each time

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from cemaf.docs_api.protocols import DocSource
 
 
-class DocEntryKind(str, Enum):
+class DocEntryKind(StrEnum):
     """What kind of documentation this entry represents."""
 
     GUIDE = "guide"  # A full markdown doc under docs/

@@ -4,10 +4,10 @@ Core enums for the framework.
 All status enums, type enums, and scope enums live here.
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     """Status of an agent during execution."""
 
     IDLE = "idle"
@@ -17,7 +17,7 @@ class AgentStatus(str, Enum):
     FAILED = "failed"
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     """Status of a pipeline/workflow run."""
 
     PENDING = "pending"
@@ -27,7 +27,7 @@ class RunStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class NodeType(str, Enum):
+class NodeType(StrEnum):
     """Type of node in a DAG."""
 
     TOOL = "tool"
@@ -40,7 +40,7 @@ class NodeType(str, Enum):
     CHECKPOINT = "checkpoint"
 
 
-class MemoryScope(str, Enum):
+class MemoryScope(StrEnum):
     """Scope for memory items - from start.ini."""
 
     BRAND = "brand"
@@ -49,9 +49,10 @@ class MemoryScope(str, Enum):
     PLATFORM = "platform"
     PERSONAE = "personae"
     SESSION = "session"  # Short-term, single run
+    STRATEGY = "strategy"  # Cross-run learned strategies
 
 
-class ContextArtifactType(str, Enum):
+class ContextArtifactType(StrEnum):
     """Type of context artifact - from start.ini."""
 
     BRAND_CONSTITUTION = "brand_constitution"
@@ -65,7 +66,7 @@ class ContextArtifactType(str, Enum):
     DO_NOT_SAY = "do_not_say"
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     """Priority levels for task scheduling."""
 
     LOW = "low"
@@ -74,7 +75,7 @@ class Priority(str, Enum):
     CRITICAL = "critical"
 
 
-class VerificationStatus(str, Enum):
+class VerificationStatus(StrEnum):
     """Verification state of a cited fact."""
 
     UNVERIFIED = "unverified"
@@ -83,7 +84,7 @@ class VerificationStatus(str, Enum):
     RETRACTED = "retracted"
 
 
-class ExclusionReason(str, Enum):
+class ExclusionReason(StrEnum):
     """Reason a context source was excluded from compilation."""
 
     BUDGET_EXCEEDED = "budget_exceeded"
@@ -93,9 +94,27 @@ class ExclusionReason(str, Enum):
     FILTERED = "filtered"
 
 
-class ToolRiskLevel(str, Enum):
+class ToolRiskLevel(StrEnum):
     """Risk classification for tool actions — gates execution policy."""
 
     LOW = "low"  # Read-only, no side effects (e.g., search, introspect)
     MEDIUM = "medium"  # Writes data, reversible (e.g., add entity, update config)
     HIGH = "high"  # Destructive or irreversible (e.g., delete, deploy, send)
+
+
+class TrustLevel(StrEnum):
+    """Trust state for dynamic tools and skills."""
+
+    UNTRUSTED = "untrusted"  # Brand new, not yet verified
+    SANDBOXED = "sandboxed"  # Some history, still runs in sandbox
+    TRUSTED = "trusted"  # Proven reliable, runs natively
+    DEPRECATED = "deprecated"  # Too many failures, no longer used
+
+
+class MemoryBackend(StrEnum):
+    """Backend kind for `create_memory_store` and `MemoryStore` factories."""
+
+    MEMORY = "memory"  # in-process InMemoryStore (tests, dev)
+    JSON_FILE = "json_file"  # JsonFileMemoryStore (single-process persistence)
+    SQLITE = "sqlite"  # SqliteMemoryStore (durable, single-host)
+    POSTGRES = "postgres"  # PostgresMemoryStore (multi-replica, prod)

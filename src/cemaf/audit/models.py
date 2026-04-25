@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import generate_id, utc_now
 
 
-class AuditEntryType(str, Enum):
+class AuditEntryType(StrEnum):
     """Categories of auditable events in the framework."""
 
     NODE_EXECUTED = "node.executed"
@@ -20,6 +20,8 @@ class AuditEntryType(str, Enum):
     QUALITY_ALERT = "quality.alert"
     DAG_COMPLETED = "dag.completed"
     MEMORY_EXTRACTED = "memory.extracted"
+    ACCESS_DENIED = "access.denied"
+    KEY_ROTATION = "security.key_rotation"
 
 
 @dataclass(frozen=True, slots=True)

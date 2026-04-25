@@ -10,7 +10,7 @@ DAGs are:
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -20,7 +20,7 @@ from cemaf.core.enums import NodeType
 from cemaf.core.types import JSON, NodeID
 
 
-class ConditionOperator(str, Enum):
+class ConditionOperator(StrEnum):
     """Operators for serializable conditions."""
 
     EQUALS = "equals"
@@ -74,7 +74,7 @@ class Condition:
         return False  # Should not be reached
 
 
-class EdgeCondition(str, Enum):
+class EdgeCondition(StrEnum):
     """Condition for edge traversal."""
 
     ALWAYS = "always"  # Always traverse

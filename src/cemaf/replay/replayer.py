@@ -9,7 +9,7 @@ This module provides:
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from cemaf.context.context import Context
@@ -18,7 +18,7 @@ from cemaf.core.utils import utc_now
 from cemaf.observability.run_logger import RunRecord, ToolCall
 
 
-class ReplayMode(str, Enum):
+class ReplayMode(StrEnum):
     """Mode for replaying runs."""
 
     # Apply recorded patches exactly

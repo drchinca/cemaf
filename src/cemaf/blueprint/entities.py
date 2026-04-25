@@ -5,7 +5,7 @@ Defines entity types, factory methods, and metadata patterns for
 representing various roles and components in semantic blueprints.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -36,7 +36,7 @@ KnowledgeLevel = Literal["beginner", "intermediate", "advanced"]
 ValidationType = Literal["schema", "business_rules", "compliance", "quality"]
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     """
     Entity type discriminator for blueprint context entities.
 

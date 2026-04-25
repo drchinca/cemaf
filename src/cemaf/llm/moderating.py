@@ -49,13 +49,12 @@ def _find_sentence_boundary(*, text: str) -> int | None:
 
 
 # Invisible / formatting Unicode categories commonly used to smuggle
-# instructions past keyword gates: zero-width chars, bidi controls,
-# tag characters. We strip them before moderation.
+# instructions past keyword gates. Stripped before moderation.
 _ZERO_WIDTH_RE = re.compile(
     "["
-    "​-‏"  # ZWSP/ZWNJ/ZWJ + LRM/RLM
-    "‪-‮"  # LRE/RLE/PDF/LRO/RLO
-    "⁦-⁩"  # LRI/RLI/FSI/PDI
+    "​-‏"  # ZWSP/ZWNJ/ZWJ + LRM/RLM  # nosec B613
+    "‪-‮"  # LRE/RLE/PDF/LRO/RLO  # nosec B613
+    "⁦-⁩"  # LRI/RLI/FSI/PDI  # nosec B613
     "﻿"  # BOM / ZWNBSP
     "️"  # Variation selector
     "]"

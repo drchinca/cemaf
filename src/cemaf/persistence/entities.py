@@ -6,7 +6,7 @@ All entities are immutable (frozen Pydantic models).
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,7 @@ from cemaf.core.types import JSON, ProjectID, RunID
 from cemaf.core.utils import generate_id, utc_now
 
 
-class ProjectStatus(str, Enum):
+class ProjectStatus(StrEnum):
     """Status of a project."""
 
     DRAFT = "draft"
@@ -25,7 +25,7 @@ class ProjectStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class ContentStatus(str, Enum):
+class ContentStatus(StrEnum):
     """Status of content item."""
 
     DRAFT = "draft"

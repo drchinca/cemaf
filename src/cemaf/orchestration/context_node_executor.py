@@ -229,15 +229,7 @@ class ContextNodeExecutor:
             return None
 
     def _query_text_for(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> str:
-        """Derive a search query string for the blueprint selector.
-
-        Returns the first populated well-known goal field
-        (`objective`, `goal`, `description`, `task`, `query`,
-        `feature_description`) in the input dict. Returns `""` on miss —
-        the selector treats empty queries as no-ops, which is correct:
-        matching on agent_name alone yields false positives (every
-        "Writer" node getting any blueprint with "writer" in the title).
-        """
+        """First populated well-known goal field in inputs; '' on miss."""
         if isinstance(inputs, dict):
             for key in ("objective", "goal", "description", "task", "query", "feature_description"):
                 value = inputs.get(key)
@@ -341,9 +333,7 @@ class ContextNodeExecutor:
                 for key, value in inputs.items():
                     artifact_pairs.append((key, str(value)))
 
-            # Blueprint selector runs first so the preamble arrives as the
-            # highest-priority artifact — it survives truncation under tight
-            # budgets. Absent selector or empty match → no-op.
+            # Insert at index 0 so the preamble survives budget truncation.
             if self._blueprint_selector is not None:
                 try:
                     query = self._query_text_for(agent_name=agent_name, inputs=inputs)

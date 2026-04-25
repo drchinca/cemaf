@@ -2,7 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.core.enums import MemoryScope
@@ -11,7 +11,7 @@ from cemaf.memory.base import MemoryItem
 from cemaf.memory.episodic import Episode, EpisodicEvent
 
 
-class ExtractionCategory(str, Enum):
+class ExtractionCategory(StrEnum):
     """Category of extracted memory."""
 
     PREFERENCE = "preference"
