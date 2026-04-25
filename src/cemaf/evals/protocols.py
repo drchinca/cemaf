@@ -161,7 +161,7 @@ class EvalContext:
 
         try:
             return json.dumps(self.output, default=str)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return str(self.output)
 
 

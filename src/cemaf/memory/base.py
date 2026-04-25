@@ -301,7 +301,7 @@ class JsonFileMemoryStore(MemoryStore):
         """Load items from disk; silently start empty on any failure."""
         try:
             raw: dict[str, object] = json.loads(self._path.read_text())
-        except FileNotFoundError, json.JSONDecodeError:
+        except (FileNotFoundError, json.JSONDecodeError):
             return
         for record in raw.values():
             if not isinstance(record, dict):
@@ -324,7 +324,7 @@ class JsonFileMemoryStore(MemoryStore):
                 )
                 if not item.is_expired:
                     self._data[item.full_key] = item
-            except KeyError, ValueError:
+            except (KeyError, ValueError):
                 continue
 
     def _save(self) -> None:

@@ -109,3 +109,12 @@ class TrustLevel(StrEnum):
     SANDBOXED = "sandboxed"  # Some history, still runs in sandbox
     TRUSTED = "trusted"  # Proven reliable, runs natively
     DEPRECATED = "deprecated"  # Too many failures, no longer used
+
+
+class MemoryBackend(StrEnum):
+    """Backend kind for `create_memory_store` and `MemoryStore` factories."""
+
+    MEMORY = "memory"  # in-process InMemoryStore (tests, dev)
+    JSON_FILE = "json_file"  # JsonFileMemoryStore (single-process persistence)
+    SQLITE = "sqlite"  # SqliteMemoryStore (durable, single-host)
+    POSTGRES = "postgres"  # PostgresMemoryStore (multi-replica, prod)

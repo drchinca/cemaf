@@ -11,11 +11,13 @@ Extension Point:
 """
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cemaf.config.protocols import Settings
+from cemaf.core.enums import MemoryBackend
 from cemaf.events.protocols import EventBus
-from cemaf.memory.base import InMemoryStore
+from cemaf.memory.base import InMemoryStore, JsonFileMemoryStore
 from cemaf.memory.compaction import SimpleMemoryCompactor
 from cemaf.memory.deduplication import MemoryDeduplicator
 from cemaf.memory.episodic import InMemoryEpisodicStore
@@ -39,39 +41,35 @@ if TYPE_CHECKING:
 
 
 def create_memory_store(
-    backend: str = "memory",
+    backend: MemoryBackend | str = MemoryBackend.MEMORY,
     max_items: int = 10000,
     default_ttl_seconds: float = 3600.0,
+    file_path: str | None = None,
 ) -> MemoryStore:
+    """Factory for `MemoryStore` with sensible defaults.
+
+    `backend` accepts a `MemoryBackend` enum (preferred) or the string
+    name at the boundary (env vars / CLI / config). Strings are coerced
+    immediately so the rest of the function branches on the enum.
     """
-    Factory for MemoryStore with sensible defaults.
-
-    Args:
-        backend: Memory store backend (memory, sqlite, postgres)
-        max_items: Maximum memory items to store
-        default_ttl_seconds: Default TTL for memory items
-
-    Returns:
-        Configured MemoryStore instance
-
-    Example:
-        # In-memory store
-        store = create_memory_store()
-
-        # With custom limits
-        store = create_memory_store(max_items=5000, default_ttl_seconds=7200.0)
-    """
-    if backend == "memory":
-        # Note: InMemoryStore doesn't support max_items/ttl limits yet
-        # These parameters are reserved for future implementation
-        return InMemoryStore()
-    elif backend == "sqlite":
-        db_path = os.getenv("CEMAF_MEMORY_SQLITE_PATH", "cemaf_memory.db")
-        return SqliteMemoryStore(db_path=db_path)
-    elif backend == "postgres":
-        return create_postgres_memory_store()
-    else:
-        raise ValueError(f"Unsupported memory backend: {backend}")
+    backend_enum = MemoryBackend(backend) if isinstance(backend, str) else backend
+    match backend_enum:
+        case MemoryBackend.MEMORY:
+            # max_items/ttl reserved for a future implementation.
+            return InMemoryStore()
+        case MemoryBackend.JSON_FILE:
+            path_str = file_path or os.getenv("CEMAF_MEMORY_FILE_PATH")
+            if not path_str:
+                raise ValueError(
+                    f"{MemoryBackend.JSON_FILE.value} backend requires file_path "
+                    f"(or CEMAF_MEMORY_FILE_PATH env)."
+                )
+            return JsonFileMemoryStore(path=Path(path_str))
+        case MemoryBackend.SQLITE:
+            db_path = os.getenv("CEMAF_MEMORY_SQLITE_PATH", "cemaf_memory.db")
+            return SqliteMemoryStore(db_path=db_path)
+        case MemoryBackend.POSTGRES:
+            return create_postgres_memory_store()
 
 
 def create_memory_store_from_config(settings: Settings | None = None) -> MemoryStore:
@@ -91,12 +89,18 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
         # From environment
         store = create_memory_store_from_config()
     """
-    backend = os.getenv("CEMAF_MEMORY_BACKEND", "memory")
+    raw_backend = os.getenv("CEMAF_MEMORY_BACKEND", MemoryBackend.MEMORY.value)
     max_items = int(os.getenv("CEMAF_MEMORY_MAX_ITEMS", "10000"))
     default_ttl = float(os.getenv("CEMAF_MEMORY_DEFAULT_TTL_SECONDS", "3600.0"))
 
+    # Coerce env string → enum at the boundary.
+    try:
+        backend = MemoryBackend(raw_backend)
+    except ValueError:
+        backend = None  # falls through to the EXTEND-HERE block below
+
     # BUILT-IN IMPLEMENTATIONS
-    if backend in ("memory", "sqlite", "postgres"):
+    if backend is not None:
         return create_memory_store(
             backend=backend,
             max_items=max_items,
@@ -137,9 +141,10 @@ def create_memory_store_from_config(settings: Settings | None = None) -> MemoryS
     #       )
     # ============================================================================
 
+    supported = ", ".join(b.value for b in MemoryBackend)
     raise ValueError(
-        f"Unsupported memory backend: {backend}. "
-        f"Supported: memory, sqlite, postgres. "
+        f"Unsupported memory backend: {raw_backend}. "
+        f"Supported: {supported}. "
         f"To add your own, extend create_memory_store_from_config() "
         f"in cemaf/memory/factories.py"
     )

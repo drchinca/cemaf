@@ -1182,7 +1182,7 @@ class DAGExecutor:
         try:
             cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)))
             tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             cost, tokens = 0.0, 0
         import math
 

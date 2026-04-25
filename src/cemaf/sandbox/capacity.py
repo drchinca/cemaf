@@ -47,7 +47,7 @@ class SystemCapacity:
                     if len(parts) == 2:
                         try:
                             page_size = int(parts[1].split()[0])
-                        except ValueError, IndexError:
+                        except (ValueError, IndexError):
                             pass
                 if "Pages free" in line or "Pages inactive" in line:
                     raw = line.split(":")[1].strip().rstrip(".")
@@ -79,7 +79,7 @@ class SystemCapacity:
         try:
             stat = os.statvfs("/tmp")
             disk_free_mb = (stat.f_bavail * stat.f_frsize) / (1024 * 1024)
-        except OSError, AttributeError:
+        except (OSError, AttributeError):
             disk_free_mb = 1024.0  # safe fallback
 
         return cls(
