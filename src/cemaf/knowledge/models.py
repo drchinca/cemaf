@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     """Classification of knowledge graph entities."""
 
     AGENT = "agent"
@@ -22,7 +22,7 @@ class EntityType(str, Enum):
     SKILL = "skill"
 
 
-class RelationType(str, Enum):
+class RelationType(StrEnum):
     """Classification of knowledge graph relations."""
 
     USES = "uses"

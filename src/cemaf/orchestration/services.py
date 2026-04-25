@@ -53,6 +53,7 @@ OpenSpec deps. See `cemaf.meta.bootstrap`.
 
 from dataclasses import dataclass
 
+from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
@@ -66,7 +67,9 @@ from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.health import HealthMonitor
+from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
+from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.retrieval.protocols import VectorStore
 
 
@@ -100,5 +103,12 @@ class RuntimeServices:
     llm_client: LLMClient | None = None
     vector_store: VectorStore | None = None
 
+    # Blueprints
+    blueprint_library: BlueprintLibrary | None = None
+    blueprint_selector: BlueprintSelectorHook | None = None
+
     # Recovery
     auto_heal_manager: AutoHealManager | None = None
+
+    # Distributed tracing
+    tracer: Tracer | None = None

@@ -6,7 +6,7 @@ All generators are Protocol-based for pluggability.
 """
 
 from abc import ABC
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -27,7 +27,7 @@ class VoiceInfo(TypedDict):
 # =============================================================================
 
 
-class ImageFormat(str, Enum):
+class ImageFormat(StrEnum):
     """Supported image formats."""
 
     PNG = "png"
@@ -37,7 +37,7 @@ class ImageFormat(str, Enum):
     GIF = "gif"
 
 
-class AudioFormat(str, Enum):
+class AudioFormat(StrEnum):
     """Supported audio formats."""
 
     MP3 = "mp3"
@@ -46,7 +46,7 @@ class AudioFormat(str, Enum):
     FLAC = "flac"
 
 
-class VideoFormat(str, Enum):
+class VideoFormat(StrEnum):
     """Supported video formats."""
 
     MP4 = "mp4"
@@ -55,7 +55,7 @@ class VideoFormat(str, Enum):
     GIF = "gif"
 
 
-class DiagramType(str, Enum):
+class DiagramType(StrEnum):
     """Types of diagrams."""
 
     FLOWCHART = "flowchart"
@@ -70,7 +70,7 @@ class DiagramType(str, Enum):
     CUSTOM = "custom"
 
 
-class UIComponentType(str, Enum):
+class UIComponentType(StrEnum):
     """Types of UI outputs."""
 
     WIREFRAME = "wireframe"
@@ -81,7 +81,7 @@ class UIComponentType(str, Enum):
     FLOW = "flow"
 
 
-class CodeLanguage(str, Enum):
+class CodeLanguage(StrEnum):
     """Supported programming languages."""
 
     PYTHON = "python"

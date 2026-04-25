@@ -1,11 +1,11 @@
 """Budget Guard - Enforces cost and token limits across DAG runs."""
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class AlertLevel(str, Enum):
+class AlertLevel(StrEnum):
     """Budget alert severity levels."""
 
     INFO = "info"

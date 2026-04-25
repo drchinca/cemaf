@@ -28,7 +28,7 @@ class TestCreateMemoryStore:
         assert isinstance(store, InMemoryStore)
 
     def test_invalid_backend_raises_value_error(self) -> None:
-        with pytest.raises(ValueError, match="Unsupported memory backend: redis"):
+        with pytest.raises(ValueError, match="MemoryBackend"):
             create_memory_store(backend="redis")
 
     def test_custom_parameters_accepted(self) -> None:
@@ -61,9 +61,9 @@ class TestCreateMemoryStoreFromConfig:
     def test_unsupported_backend_raises_value_error_with_helpful_message(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("CEMAF_MEMORY_BACKEND", "postgres")
+        monkeypatch.setenv("CEMAF_MEMORY_BACKEND", "cassandra")
 
-        with pytest.raises(ValueError, match="Unsupported memory backend: postgres"):
+        with pytest.raises(ValueError, match="Unsupported memory backend: cassandra"):
             create_memory_store_from_config()
 
     def test_error_message_mentions_extension_point(self, monkeypatch: pytest.MonkeyPatch) -> None:

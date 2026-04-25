@@ -11,14 +11,14 @@ Supports:
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Type of streaming event."""
 
     CONTENT = "content"  # Text content chunk

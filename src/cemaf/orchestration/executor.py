@@ -20,7 +20,7 @@ import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -77,7 +77,7 @@ _correlation_id_var: ContextVar[str] = ContextVar(
 )
 
 
-class HaltReason(str, Enum):
+class HaltReason(StrEnum):
     """Why a DAG execution was halted mid-flight.
 
     Enum-typed so on-call engineers reading logs at 3am know immediately
@@ -119,6 +119,17 @@ def _current_route_choices() -> dict[NodeID, set[NodeID]]:
     if choices is None:
         return {}
     return choices
+
+
+def _derive_goal_text_for_event(*, inputs: dict[str, Any]) -> str:
+    """First populated well-known goal field in inputs; '' on miss."""
+    if not isinstance(inputs, dict):
+        return ""
+    for key in ("objective", "goal", "description", "task", "query", "feature_description"):
+        value = inputs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
 
 
 def _flatten_for_moderation(*, output: Any, max_depth: int = 10) -> str:
@@ -1119,9 +1130,21 @@ class DAGExecutor:
         is just `try once → decide → maybe heal → maybe retry`.
         """
         resolved_context = context
+        resolved_inputs: dict[str, Any] = {}
         if node.input_mapping:
             resolved_inputs = resolve_node_input(node.input_mapping, context)
             resolved_context = context.set("_resolved_inputs", resolved_inputs)
+
+        await self._emit_event(
+            event_type=EventType.TASK_STARTED,
+            payload={
+                "node_id": str(node.id),
+                "node_type": (node.type.value if hasattr(node.type, "value") else str(node.type)),
+                "agent_id": node.ref_id or "",
+                "inputs": resolved_inputs,
+                "goal_text": _derive_goal_text_for_event(inputs=resolved_inputs),
+            },
+        )
 
         try:
             result = await asyncio.wait_for(

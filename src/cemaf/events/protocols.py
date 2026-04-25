@@ -6,7 +6,7 @@ Defines the contracts for event buses, handlers, and notifiers.
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import uuid4
 
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from cemaf.core.types import JSON
 
 
-class EventType(str, Enum):
+class EventType(StrEnum):
     """Common event types."""
 
     # Task lifecycle

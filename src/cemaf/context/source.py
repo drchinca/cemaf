@@ -26,13 +26,13 @@ Usage:
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from cemaf.core.types import JSON, TokenCount
 from cemaf.core.utils import utc_now
 
 
-class ContextType(str, Enum):
+class ContextType(StrEnum):
     """Classification of context sources by behavioral semantics."""
 
     RESOURCE = "resource"

@@ -330,6 +330,36 @@ CEMAF is its own first client — opt-in modules where the framework uses its ow
 
 **What this gets you**: one instruction ("build an app that does X") becomes a working CEMAF-based app on disk — spec validated by `openspec validate --strict`, agents synthesized from the spec, scaffolded into an importable package with its own registry, DAGs, and smoke tests. See `create_app_synthesis_dag()`.
 
+### Blueprint Triad — the self-growing knowledge asset
+
+`Blueprint` is CEMAF's semantic prompt object. The **triad** turns it from a reference type into a runtime asset that learns from successful runs:
+
+- **`BlueprintLibrary`** — curated, searchable catalog. Three storage kinds (SNAPSHOT / FACTORY / RECIPE) all resolving to the same `Blueprint`. Developer-authored entries and autonomously harvested entries coexist under one `search()`.
+- **`BlueprintSelectorHook`** — one-method `@runtime_checkable` Protocol wired into `ContextNodeExecutor`. Before every LLM call, the executor retrieves the best-matching blueprint's prompt and injects it into compiled context as the highest-priority artifact.
+- **`BlueprintHarvesterEngine`** — autonomous write path. Subscribes to `EVAL_COMPLETED`, turns high-quality runs into RECIPE entries, appends them to a writable source. Every decision (policy, correlator, distiller) is a pluggable Protocol — bundled defaults are opt-in, not the only way.
+
+```python
+from cemaf.blueprint import BlueprintLibrary, BlueprintHarvesterEngine
+from cemaf.blueprint.sqlite_source import SqliteBlueprintSource
+from cemaf.meta.blueprint_selector import LibraryBlueprintSelectorHook
+from cemaf.meta.harvest_defaults import (
+    InMemoryRunCorrelator, RecipeBlueprintDistiller, ScoreThresholdHarvestPolicy,
+)
+
+source = SqliteBlueprintSource(db_path="blueprints.db")
+library = BlueprintLibrary(); library.register_from(sources=(source,))
+selector = LibraryBlueprintSelectorHook(library=library)
+engine = BlueprintHarvesterEngine(
+    writable_source=source, library=library,
+    policy=ScoreThresholdHarvestPolicy(threshold=0.85),
+    correlator=InMemoryRunCorrelator(),
+    distiller=RecipeBlueprintDistiller(),
+)
+engine.subscribe(event_bus=bus)   # auto-harvest from now on
+```
+
+Full reference: [`docs/blueprints.md`](docs/blueprints.md). Design pattern: [`docs/patterns.md#13-protocol-gated-growing-asset-blueprint-triad`](docs/patterns.md).
+
 ---
 
 ## Docs for LLMs (`cemaf.docs_api`)

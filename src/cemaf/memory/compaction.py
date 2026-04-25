@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.context.source import ContextSource
@@ -11,7 +11,7 @@ from cemaf.memory.base import MemoryItem
 from cemaf.memory.scoring import MemoryScorer
 
 
-class CompactionLevel(str, Enum):
+class CompactionLevel(StrEnum):
     """How aggressively a memory item has been compacted."""
 
     FULL = "full"

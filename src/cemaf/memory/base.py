@@ -10,10 +10,14 @@ Memory items have:
 - Redaction/serialization hooks
 """
 
+from __future__ import annotations
+
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
@@ -273,3 +277,115 @@ class InMemoryStore(MemoryStore):
     def clear(self) -> None:
         """Clear all items from the store."""
         self._data.clear()
+
+
+class JsonFileMemoryStore(MemoryStore):
+    """File-backed memory store that persists to a JSON file.
+
+    Suitable for single-process deployments where SQLite is unavailable.
+    Every mutation (set/delete) is immediately flushed to disk.
+    Corrupt or missing files start empty rather than crashing.
+    """
+
+    def __init__(self, *, path: Path | str) -> None:
+        super().__init__()
+        self._path = Path(path)
+        self._data: dict[str, MemoryItem] = {}
+        self._load()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load(self) -> None:
+        """Load items from disk; silently start empty on any failure."""
+        try:
+            raw: dict[str, object] = json.loads(self._path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return
+        for record in raw.values():
+            if not isinstance(record, dict):
+                continue
+            try:
+                ttl_seconds = record.get("ttl_seconds")
+                expires_at_str = record.get("expires_at")
+                item = MemoryItem(
+                    scope=MemoryScope(record["scope"]),
+                    key=str(record["key"]),
+                    value=record["value"],
+                    confidence=Confidence(float(record["confidence"])),
+                    created_at=datetime.fromisoformat(str(record["created_at"])),
+                    updated_at=datetime.fromisoformat(str(record["updated_at"])),
+                    ttl=timedelta(seconds=float(ttl_seconds)) if ttl_seconds is not None else None,
+                    expires_at=(
+                        datetime.fromisoformat(str(expires_at_str)) if expires_at_str is not None else None
+                    ),
+                    scope_path=str(record["scope_path"]) if record.get("scope_path") is not None else None,
+                )
+                if not item.is_expired:
+                    self._data[item.full_key] = item
+            except (KeyError, ValueError):
+                continue
+
+    def _save(self) -> None:
+        """Flush in-memory data to disk."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, object] = {}
+        for full_key, item in self._data.items():
+            payload[full_key] = {
+                "scope": item.scope.value,
+                "key": item.key,
+                "value": item.value,
+                "confidence": float(item.confidence),
+                "created_at": item.created_at.isoformat(),
+                "updated_at": item.updated_at.isoformat(),
+                "ttl_seconds": item.ttl.total_seconds() if item.ttl is not None else None,
+                "expires_at": item.expires_at.isoformat() if item.expires_at is not None else None,
+                "scope_path": item.scope_path,
+            }
+        self._path.write_text(json.dumps(payload, indent=2))
+
+    # ------------------------------------------------------------------
+    # MemoryStore interface
+    # ------------------------------------------------------------------
+
+    async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
+        item = self._data.get(f"{scope.value}:{key}")
+        if item is not None and item.is_expired:
+            await self.delete(scope, key)
+            return None
+        return self._apply_redaction(item)
+
+    async def set(self, item: MemoryItem) -> None:
+        self._data[item.full_key] = item
+        self._save()
+
+    async def delete(self, scope: MemoryScope, key: str) -> bool:
+        full_key = f"{scope.value}:{key}"
+        if full_key not in self._data:
+            return False
+        del self._data[full_key]
+        self._save()
+        return True
+
+    async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]:
+        prefix = f"{scope.value}:"
+        items = []
+        for full_key, item in list(self._data.items()):
+            if not full_key.startswith(prefix):
+                continue
+            if item.is_expired:
+                await self.delete(item.scope, item.key)
+                continue
+            redacted = self._apply_redaction(item)
+            if redacted is not None:
+                items.append(redacted)
+        return tuple(items)
+
+    async def cleanup_expired(self) -> int:
+        expired = [key for key, item in self._data.items() if item.is_expired]
+        for key in expired:
+            del self._data[key]
+        if expired:
+            self._save()
+        return len(expired)

@@ -15,13 +15,13 @@ Type imports happen at runtime within methods that need them.
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from cemaf.core.utils import generate_id, utc_now
 
 
-class PatchOperation(str, Enum):
+class PatchOperation(StrEnum):
     """Type of operation performed on context."""
 
     SET = "set"  # Set a value at a path
@@ -30,7 +30,7 @@ class PatchOperation(str, Enum):
     APPEND = "append"  # Append to a list
 
 
-class PatchSource(str, Enum):
+class PatchSource(StrEnum):
     """Source of a context change."""
 
     TOOL = "tool"  # Change from a tool execution

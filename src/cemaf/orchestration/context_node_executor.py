@@ -24,6 +24,7 @@ from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 from cemaf.memory.session import SessionManager
 from cemaf.observability.run_logger import RunLogger
+from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.orchestration.dag import Node
 from cemaf.orchestration.executor import NodeResult
 from cemaf.retrieval.protocols import VectorStore
@@ -46,6 +47,7 @@ class ContextNodeExecutor:
         session_manager: SessionManager | None = None,
         context_compiler: ContextCompiler | None = None,
         token_budget: TokenBudget | None = None,
+        blueprint_selector: BlueprintSelectorHook | None = None,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation."""
         self._registry = agent_registry
@@ -57,6 +59,7 @@ class ContextNodeExecutor:
         self._session_manager = session_manager
         self._context_compiler = context_compiler
         self._token_budget = token_budget
+        self._blueprint_selector = blueprint_selector
 
     async def execute_node(
         self,
@@ -225,6 +228,15 @@ class ContextNodeExecutor:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
 
+    def _query_text_for(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> str:
+        """First populated well-known goal field in inputs; '' on miss."""
+        if isinstance(inputs, dict):
+            for key in ("objective", "goal", "description", "task", "query", "feature_description"):
+                value = inputs.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+        return ""
+
     def _extract_output(self, *, result: AgentResult[Any]) -> str | None:
         """Extract serializable output from agent result."""
         output = result.output
@@ -320,6 +332,29 @@ class ContextNodeExecutor:
             if isinstance(inputs, dict):
                 for key, value in inputs.items():
                     artifact_pairs.append((key, str(value)))
+
+            # Insert at index 0 so the preamble survives budget truncation.
+            if self._blueprint_selector is not None:
+                try:
+                    query = self._query_text_for(agent_name=agent_name, inputs=inputs)
+                    if query:
+                        preamble = await self._blueprint_selector.select(query=query)
+                        if preamble:
+                            artifact_pairs.insert(0, ("blueprint:selected", preamble))
+                except Exception as exc:
+                    logger.warning(
+                        "Blueprint selection failed for '%s'",
+                        agent_name,
+                        exc_info=True,
+                    )
+                    if warnings is not None:
+                        warnings.append(
+                            {
+                                "stage": "blueprint_select",
+                                "error_type": type(exc).__name__,
+                                "error_message": str(exc),
+                            }
+                        )
 
             memory_pairs: list[tuple[str, str]] = []
             for key, value in memories.items():

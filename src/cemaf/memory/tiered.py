@@ -2,14 +2,14 @@
 
 import json
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.memory.base import MemoryItem
 from cemaf.memory.compaction import CompactedMemory, CompactionLevel, SimpleTokenEstimator
 
 
-class LoadingTier(str, Enum):
+class LoadingTier(StrEnum):
     """Progressive loading tiers for memory items."""
 
     L0 = "l0"  # ~100 tokens: one-sentence abstract

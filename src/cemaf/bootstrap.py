@@ -26,6 +26,7 @@ def create_executor(
         session_manager=svc.session_manager,
         context_compiler=svc.context_compiler,
         token_budget=svc.token_budget,
+        blueprint_selector=svc.blueprint_selector,
     )
 
     # Wire online eval pipeline and quality police subscriptions
@@ -45,8 +46,15 @@ def create_executor(
         event_bus=svc.event_bus if cfg.enable_events else None,
         moderation_pipeline=svc.moderation_pipeline if cfg.enable_moderation else None,
     )
-    return DAGExecutor(
+    executor: DAGExecutor = DAGExecutor(
         node_executor=node_executor,
         services=effective_services,
         config=cfg,
     )
+
+    if effective_services.tracer is not None:
+        from cemaf.orchestration.instrumented_executor import InstrumentedDAGExecutor
+
+        return InstrumentedDAGExecutor(inner=executor, tracer=effective_services.tracer)  # type: ignore[return-value]
+
+    return executor

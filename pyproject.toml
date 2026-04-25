@@ -1,6 +1,6 @@
 [project]
 name = "cemaf"
-version = "0.3.2"
+version = "0.4.0"
 description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -65,6 +65,7 @@ dev = [
     "ruff>=0.3",
     "bandit[toml]>=1.7",
     "pre-commit>=4.0",
+    "fakeredis>=2.0",
 ]
 
 # HTTP client for OpenAI-compat, Gemini, Groq, Together adapters
@@ -119,6 +120,21 @@ web = [
     "uvicorn[standard]>=0.34",
     "sse-starlette>=2.0",
 ]
+
+# PostgreSQL memory store + pgvector
+postgres = ["asyncpg>=0.30", "pgvector>=0.3"]
+
+# Redis session store
+redis = ["redis[asyncio]>=5.0"]
+
+# Security layer: Ed25519 audit signing
+security = ["cryptography>=42.0"]
+
+# Security layer with YAML mapping support
+security-yaml = ["cemaf[security]", "pyyaml>=6.0"]
+
+# Convenience meta-extra: postgres + redis + security
+enterprise = ["cemaf[postgres,redis,security]"]
 
 # All optional integrations
 all = [
@@ -197,6 +213,17 @@ module = [
     "openai.*",
     "pinecone",
     "pinecone.*",
+    "asyncpg",
+    "asyncpg.*",
+    "pgvector",
+    "pgvector.*",
+    "redis",
+    "redis.*",
+    "fakeredis",
+    "fakeredis.*",
+    "cryptography",
+    "cryptography.*",
+    "yaml",
 ]
 ignore_missing_imports = true
 
