@@ -22,7 +22,7 @@ def create_mock_blueprint(
 
 
 class MockBlueprintRegistry:
-    """Mock registry for storing and retrieving blueprints."""
+    """Sync in-memory test helper for `Blueprint`s (not a `BlueprintLibrary` — use that for app code)."""
 
     def __init__(self) -> None:
         self._blueprints: dict[str, Blueprint] = {}

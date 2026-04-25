@@ -121,6 +121,22 @@ def _current_route_choices() -> dict[NodeID, set[NodeID]]:
     return choices
 
 
+def _derive_goal_text_for_event(*, inputs: dict[str, Any]) -> str:
+    """Best-effort goal text for a TASK_STARTED payload.
+
+    Picks the first populated well-known goal field; returns '' when no
+    match — subscribers (harvester correlators, audit) can fall back to
+    the `inputs` field on the same payload.
+    """
+    if not isinstance(inputs, dict):
+        return ""
+    for key in ("objective", "goal", "description", "task", "query", "feature_description"):
+        value = inputs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def _flatten_for_moderation(*, output: Any, max_depth: int = 10) -> str:
     """Extract concatenated string leaves from a possibly nested output.
 
@@ -1119,9 +1135,24 @@ class DAGExecutor:
         is just `try once → decide → maybe heal → maybe retry`.
         """
         resolved_context = context
+        resolved_inputs: dict[str, Any] = {}
         if node.input_mapping:
             resolved_inputs = resolve_node_input(node.input_mapping, context)
             resolved_context = context.set("_resolved_inputs", resolved_inputs)
+
+        # Emit TASK_STARTED so subscribers (harvester correlators, audit) can
+        # capture goal/inputs before the agent runs. Mirrors the TASK_COMPLETED
+        # payload shape so (run_id, node_id) correlation works on both events.
+        await self._emit_event(
+            event_type=EventType.TASK_STARTED,
+            payload={
+                "node_id": str(node.id),
+                "node_type": (node.type.value if hasattr(node.type, "value") else str(node.type)),
+                "agent_id": node.ref_id or "",
+                "inputs": resolved_inputs,
+                "goal_text": _derive_goal_text_for_event(inputs=resolved_inputs),
+            },
+        )
 
         try:
             result = await asyncio.wait_for(

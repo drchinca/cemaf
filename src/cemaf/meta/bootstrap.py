@@ -8,12 +8,25 @@ from pathlib import Path
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
 from cemaf.audit.protocols import AuditLog, AuditTrail
+from cemaf.blueprint.harvest import (
+    BlueprintDistiller,
+    BlueprintHarvesterEngine,
+    HarvestPolicy,
+    RunCorrelator,
+)
+from cemaf.blueprint.library import WritableBlueprintSource
 from cemaf.bootstrap import create_executor
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
+from cemaf.meta.harvest_defaults import (
+    InMemoryRunCorrelator,
+    RecipeBlueprintDistiller,
+    ScoreThresholdHarvestPolicy,
+)
 from cemaf.meta.registry import (
+    register_blueprint_selector,
     register_meta_agents,
     register_meta_scaffolder,
     register_meta_specifier,
@@ -28,7 +41,9 @@ class MetaServices:
     """Additional services for meta-mode, extending RuntimeServices.
 
     OpenSpec deps live here, not in RuntimeServices, so the orchestration core
-    has no static dependency on the mcp.bridges.openspec module.
+    has no static dependency on the mcp.bridges.openspec module. Similarly,
+    the blueprint-harvest machinery lives here rather than on `RuntimeServices`
+    to keep the base framework free of harvest-specific coupling.
     """
 
     audit_log: AuditLog | None = None
@@ -37,6 +52,17 @@ class MetaServices:
     openspec_runtime: OpenSpecRuntime | None = None
     openspec_workspace: OpenSpecWorkspace | None = None
     scaffold_output_dir: Path | None = None
+
+    # Blueprint harvest — fully opt-in. To enable, set enable_blueprint_harvester=True
+    # and provide a writable_blueprint_source (e.g. SqliteBlueprintSource). The
+    # three decision protocols default to the opt-in bundled impls in
+    # harvest_defaults; pass your own to swap any single piece.
+    enable_blueprint_harvester: bool = False
+    writable_blueprint_source: WritableBlueprintSource | None = None
+    blueprint_harvest_threshold: float = 0.8
+    harvest_policy: HarvestPolicy | None = None
+    harvest_correlator: RunCorrelator | None = None
+    harvest_distiller: BlueprintDistiller | None = None
 
 
 def create_meta_executor(
@@ -90,6 +116,38 @@ def create_meta_executor(
     # register even when no target dir is configured. Callers who want to
     # synthesize apps pass target_dir via ScaffoldGoal.
     register_meta_scaffolder(agent_registry)
+
+    # Register BlueprintSelectorAgent when a library is available.
+    if svc.blueprint_library is not None:
+        register_blueprint_selector(
+            agent_registry,
+            library=svc.blueprint_library,
+        )
+
+    # Wire the blueprint harvester engine when enabled + all required deps present.
+    # The engine is a pure orchestrator; every decision (policy, correlator,
+    # distiller) is pluggable — callers who don't override get the bundled
+    # defaults from harvest_defaults. Subscription happens here so the engine's
+    # lifecycle is owned by the composition root, not by the application.
+    if (
+        meta_services is not None
+        and meta_services.enable_blueprint_harvester
+        and meta_services.writable_blueprint_source is not None
+        and svc.event_bus is not None
+    ):
+        policy = meta_services.harvest_policy or ScoreThresholdHarvestPolicy(
+            threshold=meta_services.blueprint_harvest_threshold,
+        )
+        correlator = meta_services.harvest_correlator or InMemoryRunCorrelator()
+        distiller = meta_services.harvest_distiller or RecipeBlueprintDistiller()
+        engine = BlueprintHarvesterEngine(
+            writable_source=meta_services.writable_blueprint_source,
+            policy=policy,
+            correlator=correlator,
+            distiller=distiller,
+            library=svc.blueprint_library,
+        )
+        engine.subscribe(event_bus=svc.event_bus)
 
     # Delegate to standard bootstrap
     return create_executor(

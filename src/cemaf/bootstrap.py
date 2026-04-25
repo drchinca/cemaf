@@ -26,6 +26,7 @@ def create_executor(
         session_manager=svc.session_manager,
         context_compiler=svc.context_compiler,
         token_budget=svc.token_budget,
+        blueprint_selector=svc.blueprint_selector,
     )
 
     # Wire online eval pipeline and quality police subscriptions
