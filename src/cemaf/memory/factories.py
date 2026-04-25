@@ -260,7 +260,9 @@ def create_postgres_memory_store(
     Reads CEMAF_POSTGRES_DSN when dsn is None.
     Pool is initialized lazily on first I/O call.
     """
-    resolved_dsn = dsn or os.getenv("CEMAF_POSTGRES_DSN", "postgresql://localhost/cemaf")
+    resolved_dsn: str = (
+        dsn or os.getenv("CEMAF_POSTGRES_DSN") or "postgresql://localhost/cemaf"
+    )
     from cemaf.memory.postgres_store import PostgresMemoryStore
 
     return PostgresMemoryStore(
@@ -282,7 +284,9 @@ def create_distributed_session_manager(
 
     Reads CEMAF_REDIS_URL from env when redis_url is None.
     """
-    resolved_url = redis_url or os.getenv("CEMAF_REDIS_URL", "redis://localhost:6379")
+    resolved_url: str = (
+        redis_url or os.getenv("CEMAF_REDIS_URL") or "redis://localhost:6379"
+    )
     from cemaf.memory.postgres_session_manager import DistributedSessionManager
     from cemaf.memory.redis_session_store import RedisSessionStore
 

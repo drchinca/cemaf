@@ -87,7 +87,7 @@ class SSEFormatter:
                         data = data["content"]
 
                     events.append(StreamEvent(type=event_type, data=data))
-                except json.JSONDecodeError, ValueError:
+                except (json.JSONDecodeError, ValueError):
                     pass
 
                 current_event_type = None

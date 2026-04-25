@@ -51,11 +51,17 @@ def _find_sentence_boundary(*, text: str) -> int | None:
 # Invisible / formatting Unicode categories commonly used to smuggle
 # instructions past keyword gates: zero-width chars, bidi controls,
 # tag characters. We strip them before moderation.
+#
+# This regex deliberately CONTAINS bidi controls (LRM/RLM, LRE/RLE/PDF,
+# LRI/RLI/FSI/PDI) in a character class so we can match-and-remove them.
+# Bandit's B613 trojan-source check fires here because the source file
+# contains these bytes — but their inclusion is the security feature,
+# not a vulnerability. Without them, the regex couldn't strip them.
 _ZERO_WIDTH_RE = re.compile(
     "["
-    "​-‏"  # ZWSP/ZWNJ/ZWJ + LRM/RLM
-    "‪-‮"  # LRE/RLE/PDF/LRO/RLO
-    "⁦-⁩"  # LRI/RLI/FSI/PDI
+    "​-‏"  # ZWSP/ZWNJ/ZWJ + LRM/RLM  # nosec B613 - intentional, see module-level note above
+    "‪-‮"  # LRE/RLE/PDF/LRO/RLO  # nosec B613
+    "⁦-⁩"  # LRI/RLI/FSI/PDI  # nosec B613
     "﻿"  # BOM / ZWNBSP
     "️"  # Variation selector
     "]"

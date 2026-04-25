@@ -299,5 +299,5 @@ def _parse_arguments(args: str | dict[str, Any]) -> dict[str, Any]:
     try:
         parsed: dict[str, Any] = json.loads(args)
         return parsed
-    except json.JSONDecodeError, TypeError:
+    except (json.JSONDecodeError, TypeError):
         return {"raw": args}

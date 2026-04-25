@@ -97,7 +97,13 @@ class SessionManager(Protocol):
         session_id: str,
     ) -> tuple[CompactedMemory, ...]: ...
 
-    async def dispose(self, session_id: str) -> int: ...
+    async def dispose(
+        self,
+        session_id: str,
+        *,
+        promote_to: MemoryScope | None = None,
+        promotion_min_confidence: float = 0.7,
+    ) -> int: ...
 
     async def get_state(self, session_id: str) -> SessionState | None: ...
 
@@ -230,8 +236,24 @@ class DefaultSessionManager:
 
         return compacted
 
-    async def dispose(self, session_id: str) -> int:
-        """Run extraction (if configured), close episode, clean up SESSION items."""
+    async def dispose(
+        self,
+        session_id: str,
+        *,
+        promote_to: MemoryScope | None = None,
+        promotion_min_confidence: float = 0.7,
+    ) -> int:
+        """Run extraction (if configured), close episode, clean up SESSION items.
+
+        When `promote_to` is set, every SESSION-scoped memory item with
+        `confidence >= promotion_min_confidence` is re-stored under
+        `promote_to` (typically `PROJECT` or `BRAND`) before SESSION
+        cleanup runs. This is the "data flywheel" — high-confidence
+        learnings from one session survive into the next.
+
+        Returns the number of SESSION items cleaned up (unchanged from
+        the pre-promotion contract — promotion is additive).
+        """
         state = self._sessions.get(session_id)
         if state is None:
             return 0
@@ -259,10 +281,25 @@ class DefaultSessionManager:
         if state.episode_id:
             await self._manager.end_episode(episode_id=state.episode_id)
 
-        # Clean up session-scoped memories explicitly (not global cleanup)
+        # Read SESSION items once — used for both promotion (optional) and cleanup.
         session_results = await self._manager.recall(
             query=MemoryQuery(scope=MemoryScope.SESSION, limit=10000),
         )
+
+        # Promote high-confidence items to long-term scope BEFORE cleanup,
+        # otherwise the items we'd promote vanish first.
+        if promote_to is not None:
+            for result in session_results:
+                item = result.item
+                if float(item.confidence) >= promotion_min_confidence:
+                    await self._manager.remember(
+                        scope=promote_to,
+                        key=item.key,
+                        value=item.value,
+                        confidence=float(item.confidence),
+                    )
+
+        # Clean up session-scoped memories explicitly (not global cleanup).
         removed = 0
         for result in session_results:
             if await self._manager.forget(scope=result.item.scope, key=result.item.key):
