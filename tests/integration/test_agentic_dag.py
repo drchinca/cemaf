@@ -24,6 +24,7 @@ from cemaf.events.bus import InMemoryEventBus
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
+from tests.unit.evals.conftest import drain_tasks
 
 # ---------------------------------------------------------------------------
 # Deterministic test agents (no LLM, no external deps)
@@ -449,6 +450,7 @@ class TestAgentDagWithEvals:
         )
 
         result = await executor.run(dag=dag)
+        await drain_tasks()
 
         assert result.status == RunStatus.COMPLETED
 
@@ -524,6 +526,7 @@ class TestAgentDagWithEvals:
         )
 
         result = await executor.run(dag=dag)
+        await drain_tasks()
 
         assert result.status == RunStatus.COMPLETED
         assert len(result.node_results) == 2
@@ -543,14 +546,19 @@ class TestAgentDagWithEvals:
         registry: AgentRegistry,
         event_bus: InMemoryEventBus,
     ) -> None:
-        """Quality police halts execution when eval scores degrade."""
+        """Quality police halts execution when eval scores degrade.
+
+        Uses GATE mode — the police halt check must see the score before the next
+        node's halt gate fires. OBSERVE mode is fire-and-forget by design and will
+        not serialize eval → police → halt within the DAG timeline.
+        """
         # Strict eval: requires output length > 100 chars (JSON-serialized BadOutputResult is ~12 chars)
         eval_pipeline = OnlineEvalPipeline(
             bindings=(
                 NodeEvalBinding(
                     node_pattern="*",
                     evaluators=(LengthEvaluator(min_length=100, max_length=5000),),
-                    mode=EvalMode.OBSERVE,
+                    mode=EvalMode.GATE,
                 ),
             ),
             event_bus=event_bus,
@@ -608,6 +616,7 @@ class TestAgentDagWithEvals:
         )
 
         result = await executor.run(dag=dag)
+        await drain_tasks()
 
         # DAG should have been halted by quality police
         assert police.should_halt() or result.status == RunStatus.FAILED
@@ -878,6 +887,7 @@ class TestFullAutomatedPipeline:
         )
 
         result = await executor.run(dag=dag)
+        await drain_tasks()
 
         # All three agents should have succeeded
         assert result.status == RunStatus.COMPLETED
@@ -962,6 +972,7 @@ class TestFullAutomatedPipeline:
         )
 
         result = await executor.run(dag=dag)
+        await drain_tasks()
 
         # Good node succeeded, failing node failed
         assert result.node_results[0].success is True

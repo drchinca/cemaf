@@ -7,6 +7,7 @@ from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice, QualityPoliceConfig
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
+from tests.unit.evals.conftest import drain_tasks
 
 
 class TestFullEvalFlow:
@@ -61,6 +62,7 @@ class TestFullEvalFlow:
             source="test",
         )
         await event_bus.publish(event=event)
+        await drain_tasks()
 
         # Pipeline should have evaluated
         assert len(eval_pipeline.results) == 1
@@ -96,6 +98,7 @@ class TestFullEvalFlow:
                 source="test",
             )
             await event_bus.publish(event=event)
+        await drain_tasks()
 
         assert len(eval_pipeline.results) == 3
         # All three scores should be recorded in police
@@ -133,6 +136,7 @@ class TestFullEvalFlow:
             source="test",
         )
         await event_bus.publish(event=event)
+        await drain_tasks()
 
         # Pipeline should have zero results (error path)
         assert len(pipeline.results) == 0
@@ -176,6 +180,7 @@ class TestFullEvalFlow:
             source="test",
         )
         await event_bus.publish(event=event)
+        await drain_tasks()
 
         assert len(eval_pipeline.results) == 1
         assert eval_pipeline.results[0]["node_id"] == "bootstrapped_node"

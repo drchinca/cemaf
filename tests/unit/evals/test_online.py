@@ -6,6 +6,7 @@ from cemaf.evals.evaluators import ContainsEvaluator, LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
+from tests.unit.evals.conftest import drain_tasks as _drain
 
 
 def _make_binding(
@@ -33,11 +34,18 @@ def _task_completed_event(
     node_id: str = "summarize",
     output: str = "hello world",
     correlation_id: str = "corr-1",
+    run_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> Event:
     """Create a TASK_COMPLETED event."""
+    payload: dict[str, object] = {"node_id": node_id, "output": output}
+    if run_id is not None:
+        payload["run_id"] = run_id
+    if workspace_id is not None:
+        payload["workspace_id"] = workspace_id
     return Event.create(
         type=EventType.TASK_COMPLETED,
-        payload={"node_id": node_id, "output": output},
+        payload=payload,
         source="test",
         correlation_id=correlation_id,
     )
@@ -54,6 +62,7 @@ async def test_subscribes_to_task_completed() -> None:
     pipeline.subscribe()
 
     await bus.publish(event=_task_completed_event())
+    await _drain()
 
     assert len(pipeline.results) == 1
     assert pipeline.results[0]["node_id"] == "summarize"
@@ -71,8 +80,10 @@ async def test_evaluates_matching_node() -> None:
 
     # Matching node
     await bus.publish(event=_task_completed_event(node_id="summarize"))
+    await _drain()
     # Non-matching node
     await bus.publish(event=_task_completed_event(node_id="other_node"))
+    await _drain()
 
     assert len(pipeline.results) == 1
     assert pipeline.results[0]["node_id"] == "summarize"
@@ -91,6 +102,7 @@ async def test_wildcard_binding_matches_all() -> None:
     await bus.publish(event=_task_completed_event(node_id="node_a"))
     await bus.publish(event=_task_completed_event(node_id="node_b"))
     await bus.publish(event=_task_completed_event(node_id="node_c"))
+    await _drain()
 
     assert len(pipeline.results) == 3
     result_nodes = {r["node_id"] for r in pipeline.results}
@@ -153,6 +165,7 @@ async def test_observe_mode_no_alert_on_failure() -> None:
     pipeline.subscribe()
 
     await bus.publish(event=_task_completed_event(output="hello world"))
+    await _drain()
 
     assert len(alerts) == 0
     assert len(pipeline.results) == 1
@@ -197,6 +210,7 @@ async def test_results_accumulated() -> None:
                 output="hello world",
             )
         )
+    await _drain()
 
     assert len(pipeline.results) == 5
     # Each result has required keys
@@ -206,3 +220,60 @@ async def test_results_accumulated() -> None:
         assert "overall_passed" in result
         assert "results" in result
         assert "mode" in result
+
+
+@pytest.mark.asyncio
+async def test_eval_completed_payload_includes_run_and_workspace_ids() -> None:
+    """EVAL_STARTED / EVAL_COMPLETED carry explicit run_id and workspace_id for audit/SSE."""
+    bus = InMemoryEventBus()
+    captured: list[Event] = []
+
+    async def capture_eval(event: Event) -> None:
+        captured.append(event)
+
+    bus.subscribe(event_type=EventType.EVAL_STARTED, handler=capture_eval)
+    bus.subscribe(event_type=EventType.EVAL_COMPLETED, handler=capture_eval)
+
+    pipeline = OnlineEvalPipeline(
+        bindings=(_make_binding(node_pattern="*", mode=EvalMode.OBSERVE),),
+        event_bus=bus,
+    )
+    pipeline.subscribe()
+
+    await bus.publish(
+        event=_task_completed_event(
+            run_id="run-z",
+            workspace_id="ws-z",
+        )
+    )
+    await _drain()
+
+    started = [e for e in captured if e.type == EventType.EVAL_STARTED]
+    completed = [e for e in captured if e.type == EventType.EVAL_COMPLETED]
+    assert len(started) == 1
+    assert len(completed) == 1
+    assert started[0].payload["run_id"] == "run-z"
+    assert started[0].payload["workspace_id"] == "ws-z"
+    assert completed[0].payload["run_id"] == "run-z"
+    assert completed[0].payload["workspace_id"] == "ws-z"
+
+
+@pytest.mark.asyncio
+async def test_observe_mode_does_not_block_publish() -> None:
+    """OBSERVE handlers fire-and-forget — publish returns before eval completes."""
+    bus = InMemoryEventBus()
+    pipeline = OnlineEvalPipeline(
+        bindings=(_make_binding(node_pattern="*", mode=EvalMode.OBSERVE),),
+        event_bus=bus,
+    )
+    pipeline.subscribe()
+
+    await bus.publish(event=_task_completed_event())
+
+    # publish has returned but the task hasn't drained yet
+    assert len(pipeline.results) == 0
+
+    await _drain()
+
+    # after draining, the result is present
+    assert len(pipeline.results) == 1
