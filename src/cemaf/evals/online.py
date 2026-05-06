@@ -58,6 +58,20 @@ class OnlineEvalPipeline:
         self._bindings = bindings
         self._event_bus = event_bus
         self._results: list[dict[str, Any]] = []
+        self._pending: set[asyncio.Task[None]] = set()
+
+    def _spawn_observe(self, coro: Any) -> None:
+        """Schedule a fire-and-forget OBSERVE eval and track it for flush()."""
+        task = asyncio.create_task(coro)
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
+    async def flush(self) -> None:
+        """Await all in-flight OBSERVE evals. Production: graceful shutdown. Tests: determinism."""
+        if not self._pending:
+            return
+        in_flight = tuple(self._pending)
+        await asyncio.gather(*in_flight, return_exceptions=True)
 
     def subscribe(self) -> None:
         """Subscribe to execution events."""
@@ -120,7 +134,7 @@ class OnlineEvalPipeline:
                             workspace_id=ws,
                         )
 
-                asyncio.create_task(_observe_run())
+                self._spawn_observe(_observe_run())
             else:
                 await self._run_eval(
                     binding=binding,
@@ -186,7 +200,7 @@ class OnlineEvalPipeline:
                             workspace_id=ws,
                         )
 
-                asyncio.create_task(_observe_ckpt())
+                self._spawn_observe(_observe_ckpt())
             else:
                 await self._run_eval(
                     binding=binding,

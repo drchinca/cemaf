@@ -6,7 +6,6 @@ from cemaf.evals.evaluators import ContainsEvaluator, LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
-from tests.unit.evals.conftest import drain_tasks as _drain
 
 
 def _make_binding(
@@ -62,7 +61,7 @@ async def test_subscribes_to_task_completed() -> None:
     pipeline.subscribe()
 
     await bus.publish(event=_task_completed_event())
-    await _drain()
+    await pipeline.flush()
 
     assert len(pipeline.results) == 1
     assert pipeline.results[0]["node_id"] == "summarize"
@@ -80,10 +79,10 @@ async def test_evaluates_matching_node() -> None:
 
     # Matching node
     await bus.publish(event=_task_completed_event(node_id="summarize"))
-    await _drain()
+    await pipeline.flush()
     # Non-matching node
     await bus.publish(event=_task_completed_event(node_id="other_node"))
-    await _drain()
+    await pipeline.flush()
 
     assert len(pipeline.results) == 1
     assert pipeline.results[0]["node_id"] == "summarize"
@@ -102,7 +101,7 @@ async def test_wildcard_binding_matches_all() -> None:
     await bus.publish(event=_task_completed_event(node_id="node_a"))
     await bus.publish(event=_task_completed_event(node_id="node_b"))
     await bus.publish(event=_task_completed_event(node_id="node_c"))
-    await _drain()
+    await pipeline.flush()
 
     assert len(pipeline.results) == 3
     result_nodes = {r["node_id"] for r in pipeline.results}
@@ -165,7 +164,7 @@ async def test_observe_mode_no_alert_on_failure() -> None:
     pipeline.subscribe()
 
     await bus.publish(event=_task_completed_event(output="hello world"))
-    await _drain()
+    await pipeline.flush()
 
     assert len(alerts) == 0
     assert len(pipeline.results) == 1
@@ -210,7 +209,7 @@ async def test_results_accumulated() -> None:
                 output="hello world",
             )
         )
-    await _drain()
+    await pipeline.flush()
 
     assert len(pipeline.results) == 5
     # Each result has required keys
@@ -246,7 +245,7 @@ async def test_eval_completed_payload_includes_run_and_workspace_ids() -> None:
             workspace_id="ws-z",
         )
     )
-    await _drain()
+    await pipeline.flush()
 
     started = [e for e in captured if e.type == EventType.EVAL_STARTED]
     completed = [e for e in captured if e.type == EventType.EVAL_COMPLETED]
@@ -260,7 +259,12 @@ async def test_eval_completed_payload_includes_run_and_workspace_ids() -> None:
 
 @pytest.mark.asyncio
 async def test_observe_mode_does_not_block_publish() -> None:
-    """OBSERVE handlers fire-and-forget — publish returns before eval completes."""
+    """OBSERVE handlers fire-and-forget — publish returns before eval completes.
+
+    Contract: publish() returns promptly; pipeline.flush() deterministically
+    awaits every in-flight OBSERVE task this pipeline scheduled. Production
+    callers invoke flush() at shutdown to avoid losing telemetry in flight.
+    """
     bus = InMemoryEventBus()
     pipeline = OnlineEvalPipeline(
         bindings=(_make_binding(node_pattern="*", mode=EvalMode.OBSERVE),),
@@ -270,10 +274,49 @@ async def test_observe_mode_does_not_block_publish() -> None:
 
     await bus.publish(event=_task_completed_event())
 
-    # publish has returned but the task hasn't drained yet
+    # publish returned before the OBSERVE eval ran
     assert len(pipeline.results) == 0
 
-    await _drain()
+    await pipeline.flush()
 
-    # after draining, the result is present
+    # flush waited for every in-flight eval from this pipeline
     assert len(pipeline.results) == 1
+
+
+@pytest.mark.asyncio
+async def test_flush_is_noop_when_no_pending_tasks() -> None:
+    """flush() with no in-flight tasks returns immediately — safe to call at any time."""
+    bus = InMemoryEventBus()
+    pipeline = OnlineEvalPipeline(bindings=(), event_bus=bus)
+    pipeline.subscribe()
+
+    await pipeline.flush()  # no work, no crash, no hang
+
+
+@pytest.mark.asyncio
+async def test_flush_only_awaits_this_pipelines_tasks() -> None:
+    """flush() is scoped to this pipeline — unrelated async work is untouched."""
+    bus = InMemoryEventBus()
+    pipeline = OnlineEvalPipeline(
+        bindings=(_make_binding(node_pattern="*", mode=EvalMode.OBSERVE),),
+        event_bus=bus,
+    )
+    pipeline.subscribe()
+
+    import asyncio
+
+    unrelated_done = asyncio.Event()
+
+    async def unrelated_background_work() -> None:
+        await asyncio.sleep(10.0)  # would hang the test if flush() awaited this
+        unrelated_done.set()
+
+    unrelated_task = asyncio.create_task(unrelated_background_work())
+    try:
+        await bus.publish(event=_task_completed_event())
+        await pipeline.flush()
+
+        assert len(pipeline.results) == 1
+        assert not unrelated_done.is_set()  # flush did not drain unrelated tasks
+    finally:
+        unrelated_task.cancel()

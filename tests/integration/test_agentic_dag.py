@@ -24,7 +24,6 @@ from cemaf.events.bus import InMemoryEventBus
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
-from tests.unit.evals.conftest import drain_tasks
 
 # ---------------------------------------------------------------------------
 # Deterministic test agents (no LLM, no external deps)
@@ -450,7 +449,7 @@ class TestAgentDagWithEvals:
         )
 
         result = await executor.run(dag=dag)
-        await drain_tasks()
+        await eval_pipeline.flush()
 
         assert result.status == RunStatus.COMPLETED
 
@@ -526,7 +525,7 @@ class TestAgentDagWithEvals:
         )
 
         result = await executor.run(dag=dag)
-        await drain_tasks()
+        await eval_pipeline.flush()
 
         assert result.status == RunStatus.COMPLETED
         assert len(result.node_results) == 2
@@ -616,7 +615,7 @@ class TestAgentDagWithEvals:
         )
 
         result = await executor.run(dag=dag)
-        await drain_tasks()
+        await eval_pipeline.flush()
 
         # DAG should have been halted by quality police
         assert police.should_halt() or result.status == RunStatus.FAILED
@@ -887,7 +886,7 @@ class TestFullAutomatedPipeline:
         )
 
         result = await executor.run(dag=dag)
-        await drain_tasks()
+        await eval_pipeline.flush()
 
         # All three agents should have succeeded
         assert result.status == RunStatus.COMPLETED
@@ -972,7 +971,7 @@ class TestFullAutomatedPipeline:
         )
 
         result = await executor.run(dag=dag)
-        await drain_tasks()
+        await eval_pipeline.flush()
 
         # Good node succeeded, failing node failed
         assert result.node_results[0].success is True

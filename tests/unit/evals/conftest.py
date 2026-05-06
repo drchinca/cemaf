@@ -1,17 +1,9 @@
 """Shared fixtures and fakes for eval tests."""
 
-import asyncio
 from typing import Any
 
 from cemaf.core.types import JSON
 from cemaf.evals.protocols import EvalMetric, EvalResult
-
-
-async def drain_tasks() -> None:
-    """Drain all pending asyncio tasks — needed after fire-and-forget OBSERVE evals."""
-    pending = {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
 
 
 class FakeEvaluator:

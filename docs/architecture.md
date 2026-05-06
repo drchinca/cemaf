@@ -284,7 +284,7 @@ executor = create_executor(
 
 Every cross-cutting signal has two distinct semantics the framework exposes:
 
-- **`OBSERVE`** — I want this telemetry, but it must not serialize the pipeline. Evaluator runs in a fire-and-forget task against the event. `TASK_COMPLETED` publish returns immediately; next node starts; judge completes in the background; `EVAL_COMPLETED` lands whenever it lands. Used for quality monitoring, SLO tracking, drift detection.
+- **`OBSERVE`** — I want this telemetry, but it must not serialize the pipeline. Evaluator runs in a task the pipeline tracks in its `_pending` set; `TASK_COMPLETED` publish returns immediately; next node starts; judge completes in the background; `EVAL_COMPLETED` lands whenever it lands. `OnlineEvalPipeline.flush()` awaits every in-flight OBSERVE task for this pipeline — production graceful shutdown, tests, or any code that needs to know all scheduled evals have landed. Used for quality monitoring, SLO tracking, drift detection.
 - **`GATE`** — this signal *must* land before the next node runs. Evaluator runs inline; `QUALITY_ALERT` publishes before `publish()` returns; `should_halt()` observes the alert; the executor honors the halt. Used for safety-critical gates: a failing eval must stop downstream work.
 
 Both modes exist in the same pipeline, per-binding. One node can be OBSERVE, its downstream node can be GATE. This is the control you do not get from a message-bus framework, where "run a judge after this step" means "block the pipeline on the judge" unconditionally.
