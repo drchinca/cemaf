@@ -60,7 +60,19 @@ class LLMSettings(BaseModel):
 
     model_config = {"frozen": True}
 
-    provider: Literal["mock", "openai", "anthropic", "azure", "bedrock", "vertex", "ollama"] = "mock"
+    provider: Literal[
+        "mock",
+        "openai",
+        "anthropic",
+        "azure",
+        "bedrock",
+        "vertex",
+        "ollama",
+        "ollama-tiered",
+        "groq",
+        "together",
+        "gemini",
+    ] = "mock"
     default_model: str = "gpt-4"
     api_key: str = ""
     base_url: str = ""
