@@ -53,12 +53,30 @@ def _create_openai(**kwargs: Any) -> LLMClient:
 
 
 def _create_ollama(**kwargs: Any) -> LLMClient:
-    from cemaf.llm.openai_compat import OpenAICompatClient
+    from cemaf.llm.ollama import DEFAULT_BASE_URL, create_ollama_client
 
-    return OpenAICompatClient(  # type: ignore[return-value]
-        base_url=kwargs.get("base_url", "http://localhost:11434/v1"),
-        model=kwargs.get("model", "qwen3.5"),
-        api_key="",
+    return create_ollama_client(
+        model=kwargs.get("model", "gemma3:4b"),
+        base_url=kwargs.get("base_url", DEFAULT_BASE_URL),
+        timeout_seconds=kwargs.get("timeout_seconds", 300.0),
+    )
+
+
+def _create_ollama_tiered(**kwargs: Any) -> LLMClient:
+    from cemaf.llm.ollama import (
+        DEFAULT_BASE_URL,
+        DEFAULT_ESCALATION_CHARS,
+        DEFAULT_LARGE_MODEL,
+        DEFAULT_SMALL_MODEL,
+        create_tiered_ollama_router,
+    )
+
+    return create_tiered_ollama_router(
+        small_model=kwargs.get("small_model", DEFAULT_SMALL_MODEL),
+        large_model=kwargs.get("large_model", DEFAULT_LARGE_MODEL),
+        base_url=kwargs.get("base_url", DEFAULT_BASE_URL),
+        escalation_chars=kwargs.get("escalation_chars", DEFAULT_ESCALATION_CHARS),
+        timeout_seconds=kwargs.get("timeout_seconds", 300.0),
     )
 
 
@@ -101,6 +119,7 @@ llm_registry.register(backend="mock", factory=_create_mock)
 llm_registry.register(backend="anthropic", factory=_create_anthropic)
 llm_registry.register(backend="openai", factory=_create_openai)
 llm_registry.register(backend="ollama", factory=_create_ollama)
+llm_registry.register(backend="ollama-tiered", factory=_create_ollama_tiered)
 llm_registry.register(backend="groq", factory=_create_groq)
 llm_registry.register(backend="together", factory=_create_together)
 llm_registry.register(backend="gemini", factory=_create_gemini)
