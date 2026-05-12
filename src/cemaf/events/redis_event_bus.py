@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from typing import cast
 from uuid import uuid4
 
 from cemaf.events.protocols import Event, EventHandler, EventHandlerFn, EventType
@@ -154,7 +155,7 @@ class RedisEventBus:
     ) -> None:
         """Deserialise, call handler, ACK on success, DLQ after max failures."""
         try:
-            event = self._fields_to_event(fields)
+            event = self._fields_to_event(cast("dict[bytes | str, bytes | str]", fields))
         except Exception as exc:
             logger.error("Failed to deserialise event from stream %s: %s", stream, exc)
             await self._redis.xack(stream, group, msg_id)
@@ -162,9 +163,9 @@ class RedisEventBus:
 
         try:
             if hasattr(handler, "handle"):
-                await handler.handle(event)  # type: ignore[union-attr]
+                await handler.handle(event)
             else:
-                result = handler(event)  # type: ignore[operator]
+                result = handler(event)
                 if asyncio.iscoroutine(result):
                     await result
             await self._redis.xack(stream, group, msg_id)

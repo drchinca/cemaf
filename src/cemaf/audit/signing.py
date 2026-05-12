@@ -115,7 +115,8 @@ class EnvKeyProvider:
 
     def sign(self, payload: bytes) -> bytes:
         """Return the raw 64-byte Ed25519 signature for *payload*."""
-        return self._private_key.sign(payload)
+        result: bytes = self._private_key.sign(payload)
+        return result
 
     def verify(self, payload: bytes, signature: bytes) -> bool:
         """Return True if *signature* is a valid Ed25519 signature for *payload*."""
