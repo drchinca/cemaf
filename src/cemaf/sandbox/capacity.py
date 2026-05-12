@@ -1,7 +1,7 @@
 """Read live system stats to determine safe sandbox resource limits."""
 
 import os
-import subprocess
+import subprocess  # nosec B404
 from dataclasses import dataclass
 
 
@@ -21,7 +21,7 @@ class SystemCapacity:
 
         if platform.system() == "Darwin":
             # macOS: use sysctl for total memory, vm_stat for free pages
-            mem_result = subprocess.run(
+            mem_result = subprocess.run(  # nosec B603,B607
                 ["sysctl", "-n", "hw.memsize"],
                 capture_output=True,
                 text=True,
@@ -31,7 +31,7 @@ class SystemCapacity:
             except ValueError:
                 _total_bytes = 0
 
-            vm_result = subprocess.run(
+            vm_result = subprocess.run(  # nosec B603,B607
                 ["vm_stat"],
                 capture_output=True,
                 text=True,

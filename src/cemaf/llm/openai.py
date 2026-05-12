@@ -55,7 +55,7 @@ class OpenAILLMClient:
 
         start = time.monotonic()
         try:
-            response = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            response = await self._client.chat.completions.create(**kwargs)
         except Exception as exc:
             return CompletionResult.fail(error=f"OpenAI API error: {exc}")
 
@@ -124,7 +124,7 @@ class OpenAILLMClient:
         completion_tokens = 0
 
         try:
-            stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+            stream = await self._client.chat.completions.create(**kwargs)
         except Exception:
             yield StreamChunk(
                 content="",
@@ -134,7 +134,7 @@ class OpenAILLMClient:
             )
             return
 
-        async for chunk in stream:  # type: ignore[union-attr]
+        async for chunk in stream:
             if not chunk.choices and chunk.usage:
                 # Final usage chunk when stream_options.include_usage=True
                 prompt_tokens = chunk.usage.prompt_tokens

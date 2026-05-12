@@ -1172,8 +1172,8 @@ class DAGExecutor:
             return
         meta = result.metadata or {}
         try:
-            cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)))
-            tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)))
+            cost = float(meta.get("cost_estimate_usd", meta.get("cost_usd", 0.0)) or 0.0)
+            tokens = int(meta.get("tokens_total", meta.get("tokens_used", 0)) or 0)
         except (TypeError, ValueError):
             cost, tokens = 0.0, 0
         import math

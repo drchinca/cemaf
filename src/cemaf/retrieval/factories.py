@@ -77,7 +77,7 @@ def create_pg_vector_store(
     PgVectorStore requires callers to embed externally and pass vectors to search().
     Reads CEMAF_POSTGRES_DSN when dsn is None.
     """
-    resolved_dsn = dsn or os.getenv("CEMAF_POSTGRES_DSN", "postgresql://localhost/cemaf")
+    resolved_dsn: str = dsn or os.getenv("CEMAF_POSTGRES_DSN") or "postgresql://localhost/cemaf"
     from cemaf.retrieval.pgvector_store import PgVectorStore
 
     return PgVectorStore(dsn=resolved_dsn, dimension=dimension, tenant_id=tenant_id)
