@@ -1,8 +1,14 @@
 """
 Dependency Resolver - Regex-based context chaining for DAG execution.
 
-Resolves placeholders like $$STEP_N_OUTPUT$$ from the Context,
-enabling resilient context chaining between nodes.
+Resolves $$key$$ and $$key.subkey$$ placeholders from the Context, enabling
+typed context chaining between nodes. Any string wrapped in $$ markers is
+treated as a context reference.
+
+Supported patterns:
+  $$STEP_1_OUTPUT$$         → context["STEP_1_OUTPUT"] (legacy CEMAF convention)
+  $$scrape_result$$         → context["scrape_result"] (arbitrary output_key)
+  $$scrape_result.posts$$   → context["scrape_result"]["posts"] (dot-path access)
 """
 
 import copy
@@ -14,49 +20,67 @@ from cemaf.context.context import Context
 
 logger = logging.getLogger(__name__)
 
+# Match any $$<identifier>[.identifier]*$$ pattern.
+# Captures the inner path (e.g. "scrape_result.posts" or "STEP_1_OUTPUT").
+_PLACEHOLDER = re.compile(r"\$\$([\w]+(?:\.[\w]+)*)\$\$")
+
+
+def _resolve_path(context: Context, path: str, fallback: Any = None) -> Any:
+    """Resolve a dot-separated path against the context.
+
+    "scrape_result" → context.get("scrape_result")
+    "scrape_result.posts" → context.get("scrape_result")["posts"]
+    """
+    parts = path.split(".")
+    value = context.get(parts[0], default=None)
+    if value is None:
+        return fallback
+
+    for part in parts[1:]:
+        if isinstance(value, dict):
+            value = value.get(part)
+        elif hasattr(value, part):
+            value = getattr(value, part)
+        else:
+            return fallback
+        if value is None:
+            return fallback
+    return value
+
 
 def resolve_dependencies(input_params: dict[str, Any], context: Context) -> dict[str, Any]:
     """
-    Resolve $$STEP_N_OUTPUT$$ placeholders in input parameters using regex.
+    Resolve $$key$$ and $$key.subkey$$ placeholders in input parameters.
 
-    Uses regex to find placeholders within strings, making context chaining
-    resilient against extraneous LLM text.
+    If a value is EXACTLY one placeholder (e.g. "$$scrape_result$$"), the raw
+    object (dict, list, Pydantic model) is returned — not a string. If the
+    placeholder is embedded in surrounding text, it's stringified in-place.
 
-    Args:
-        input_params: Input parameters dictionary (may contain placeholders)
-        context: CEMAF Context object containing resolved values
-
-    Returns:
-        Resolved input parameters with placeholders replaced
-
-    Example:
-        >>> context = Context(data={"STEP_1_OUTPUT": "blueprint_json"})
-        >>> input_params = {"blueprint": "$$STEP_1_OUTPUT$$"}
-        >>> resolved = resolve_dependencies(input_params, context)
-        >>> assert resolved["blueprint"] == "blueprint_json"
+    Examples:
+        >>> context = Context(data={"scrape_result": {"bio": "hello", "posts": [1,2]}})
+        >>> resolve_dependencies({"bio": "$$scrape_result.bio$$"}, context)
+        {"bio": "hello"}
+        >>> resolve_dependencies({"all": "$$scrape_result$$"}, context)
+        {"all": {"bio": "hello", "posts": [1, 2]}}
     """
     resolved_input = copy.deepcopy(input_params)
-    # Pattern to match $$STEP_1_OUTPUT$$, $$STEP_2_OUTPUT$$, etc.
-    pattern = r"\$\$(STEP_\d+_OUTPUT)\$\$"
 
     def resolve(value: Any) -> Any:
         """Recursively resolve placeholders in a value."""
         if isinstance(value, str):
-            matches = re.findall(pattern, value)
+            matches = _PLACEHOLDER.findall(value)
             if not matches:
                 return value
 
-            # If the value is EXACTLY one placeholder, return the raw object (could be dict/list)
-            if re.fullmatch(pattern, value.strip()):
-                ref_key = matches[0]
-                resolved_value = context.get(ref_key, value)
-                return resolved_value
+            # If the value is EXACTLY one placeholder, return the raw object
+            if _PLACEHOLDER.fullmatch(value.strip()):
+                return _resolve_path(context, matches[0], fallback=value)
 
-            # If the placeholder is embedded in text, replace with string representation
+            # Multiple placeholders or embedded in text → string interpolation
             resolved_value = value
-            for ref_key in matches:
-                replacement = str(context.get(ref_key, f"$${ref_key}$$"))
-                resolved_value = resolved_value.replace(f"$${ref_key}$$", replacement)
+            for path in matches:
+                replacement = _resolve_path(context, path, fallback=f"$${path}$$")
+                resolved_value = resolved_value.replace(f"$${path}$$", str(replacement))
             return resolved_value
 
         elif isinstance(value, dict):
@@ -69,11 +93,10 @@ def resolve_dependencies(input_params: dict[str, Any], context: Context) -> dict
 
 
 def resolve_node_input(node_input_mapping: dict[str, Any], context: Context) -> dict[str, Any]:
-    """
-    Resolve a node's input_mapping using context.
+    """Resolve a node's input_mapping using context.
 
-    This is a convenience wrapper that handles the common case of resolving
-    node input mappings before execution.
+    Convenience wrapper for the common case of resolving node input
+    mappings before execution.
 
     Args:
         node_input_mapping: Node's input_mapping dictionary
