@@ -1028,11 +1028,17 @@ class DAGExecutor:
     ) -> Context:
         """Update context with node output if configured."""
         if (result.success) and node.output_key and result.output is not None:
+            # When node.structured_output=True, use the dict-form output for
+            # context so downstream nodes can resolve $$key.subkey$$ via
+            # dot-path. Otherwise keep the JSON-string form (backward compat).
+            _ctx_out = (result.metadata or {}).get("_context_output")
+            context_value = _ctx_out if (node.structured_output and _ctx_out is not None) else result.output
+
             # Create patch for provenance
             patch = ContextPatch(
                 path=node.output_key,
                 operation=PatchOperation.SET,
-                value=result.output,
+                value=context_value,
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
                 reason=f"Output from node '{node.id}'",

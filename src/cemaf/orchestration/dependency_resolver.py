@@ -72,9 +72,11 @@ def resolve_dependencies(input_params: dict[str, Any], context: Context) -> dict
             if not matches:
                 return value
 
-            # If the value is EXACTLY one placeholder, return the raw object
+            # If the value is EXACTLY one placeholder, return the raw object.
+            # If the key doesn't exist in context (e.g. optional node didn't run),
+            # return None so Pydantic goal field defaults can kick in.
             if _PLACEHOLDER.fullmatch(value.strip()):
-                return _resolve_path(context, matches[0], fallback=value)
+                return _resolve_path(context, matches[0], fallback=None)
 
             # Multiple placeholders or embedded in text → string interpolation
             resolved_value = value
