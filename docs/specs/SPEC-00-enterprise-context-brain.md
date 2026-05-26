@@ -20,10 +20,10 @@ inspiration:
 
 # SPEC-00: Enterprise Context Brain
 
-> Umbrella spec. Defines the north-star architecture and the single seam that
-> operationalizes it. Child specs (SPEC-01..06) own the implementation detail of
-> each subsystem; this document owns the contract between them and the invariants
-> that hold across all of them.
+> Umbrella spec. Defines the north-star architecture, the single seam that
+> operationalizes it, and the **common types** every child spec reuses. Child
+> specs (SPEC-01..06) own per-subsystem detail; this document owns the
+> contract between them and the invariants that hold across all of them.
 
 ## Glossary
 
@@ -35,10 +35,14 @@ inspiration:
 | **Node interceptor** | A pre-flight/post-flight middleware step wrapping every node's `agent.run`. The seam that operationalizes the brain. |
 | **KG (Knowledge Business Graph)** | `knowledge/` entity-relation graph backed by `MemoryManager`. Promoted here from a meta-only asset to a shared `RuntimeService`. |
 | **DataSource** | A `@runtime_checkable` connector protocol over an enterprise system (warehouse, ticketing, docs) exposing read-only, citeable retrieval. |
-| **TaskContext** | The long-horizon awareness object: goal, step N of M, prior decisions, budget remaining — injected into every node of an autonomous run. |
-| **Guardian** | An auto-injected agent enforcing a gate (legitimacy, security, moderation, citation/grounding, quality) without the DAG author wiring it manually. |
+| **TaskContext** | The long-horizon awareness object: goal, step N of M, prior decisions, retry ledger, budget remaining — injected into every node of an autonomous run. |
+| **Decision** | A material choice or output from a prior node worth carrying forward. Append-only on `TaskContext.prior_decisions`. |
+| **SurfacedSources** | The set of `CiteableChunk`s the PullInterceptor placed in `Context` for a given node — the membership set every cite-or-fail check uses. |
+| **Claim** | A factual proposition emitted by a node's output (text span or schema field) that requires a citation. Extraction algorithm is defined in SPEC-05 §2. |
+| **Guardian** | An auto-injected interceptor enforcing a gate (legitimacy, cite-or-fail, online eval, goal-completion, audit) without the DAG author wiring it manually. |
 | **Goal-completion / success-mark** | An evaluator answering "is the declared goal achieved?", distinct from per-output quality scores. |
-| **Cite-or-fail** | A post-flight gate that rejects any generative node output whose claims are not grounded in retrieved, citeable evidence. |
+| **Cite-or-fail** | A post-flight gate that rejects any node output whose claims are not grounded in `SurfacedSources` or whose `cited_evidence_refs` are not members of `SurfacedSources`. |
+| **ChainProfile** | The set of guardians active for a given run. `DEFAULT` for parent runs, `RECOVERY` (reduced) for meta sub-DAG runs. |
 
 ## 1. Context
 
@@ -51,107 +55,178 @@ Graph** plus live enterprise data, and polices the path to completion with
 audited, secure, and low-to-zero hallucination**.
 
 Assessment of the current codebase (2026-05-26) found that nearly every primitive
-already exists — `MemoryContextProvider`, Librarian/Researcher agents, `Blueprint.to_prompt()`,
-`knowledge/`, `OnlineEvalPipeline`, `QualityPolice`, `citation/`, `moderation/`,
-`audit/`, `replay/` — **but none are wired into the default DAG execution path**.
-They are opt-in, manually invoked, or sealed in the meta/self-hosting layer. This
-program is therefore **~70% operationalization, ~30% net-new** (enterprise
-connectors + task state machine). It is not a rewrite.
-
-The unifying architectural change is a **node-execution interceptor pipeline** in
-`ContextNodeExecutor`. Six of the eight requirements collapse onto this one seam.
+already exists — `MemoryContextProvider`, Librarian/Researcher agents,
+`Blueprint.to_prompt()`, `knowledge/`, `OnlineEvalPipeline`, `QualityPolice`,
+`citation/`, `moderation/`, `audit/`, `replay/` — but none are wired into the
+default DAG execution path. The unifying architectural change is a
+**node-execution interceptor pipeline** in `ContextNodeExecutor`. Six of the
+eight requirements collapse onto this one seam.
 
 ```mermaid
 sequenceDiagram
     participant Ex as DAGExecutor
     participant NE as ContextNodeExecutor
-    participant Pre as Pre-flight gates
-    participant Ag as Agent (Librarian/Writer/…)
-    participant Post as Post-flight gates
-    participant Svc as RuntimeServices (KG, DataSource, Police)
+    participant Pre as Pre-flight chain
+    participant Ag as Agent
+    participant Post as Post-flight chain
+    participant Svc as RuntimeServices
 
     Ex->>NE: run(node, ctx, task_context)
-    NE->>Pre: legitimacy · blueprint resolve · pull (KG+DataSource+memory) · inject TaskContext
-    Pre->>Svc: query KG / DataSource (token-budgeted)
-    Pre-->>NE: enriched goal + grounded sources
-    NE->>Ag: agent.run(blueprint_goal, enriched_ctx)
-    Ag-->>NE: result + cited_evidence_refs
-    NE->>Post: cite-or-fail · online eval (GATE) · goal-completion · audit
+    NE->>Pre: legitimacy → pull → blueprint → task_inject
+    Pre->>Svc: KG / DataSource / Memory (token-budgeted)
+    Pre-->>NE: enriched(goal, ctx, surfaced_sources)
+    NE->>Ag: agent.run(blueprint_request, enriched_ctx, task_context)
+    Ag-->>NE: AgentResult (with cited_evidence_refs)
+    NE->>Post: cite_or_fail → tool_verify → online_eval → goal_completion → audit
     Post->>Svc: QualityPolice.record_score → may HALT
     alt eval fails or ungrounded
-        Post-->>Ex: route to recovery / halt DAG
+        Post-->>Ex: REJECT / RECOVER(strategy) / HALT(scope)
     else passes
-        Post-->>Ex: store output, advance
+        Post-->>Ex: ACCEPT, advance
     end
 ```
 
 ## 2. Interface Contract (MDE)
 
-This umbrella declares only the **cross-cutting seams**. Field-level schemas live
-in the child spec named in each row.
+### Common Types (single source of truth)
+
+These types are referenced by every child spec. Child specs may extend them but
+SHALL NOT redefine them.
+
+```python
+from typing import NewType, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+
+# IDs
+TaskID         = NewType("TaskID", str)
+NodeID         = NewType("NodeID", str)
+DAGID          = NewType("DAGID", str)
+ChunkID        = NewType("ChunkID", str)
+BlueprintID    = NewType("BlueprintID", str)
+CorrelationID  = NewType("CorrelationID", str)
+TokenCount     = NewType("TokenCount", int)
+Confidence     = NewType("Confidence", float)
+
+# Context-brain primitives
+@dataclass(frozen=True, slots=True)
+class TokenBudget:
+    total: TokenCount
+    pull_tokens: TokenCount       # cap for PullInterceptor
+    generation_tokens: TokenCount # cap for the agent's LLM call
+    timeout_ms: int = 30_000
+
+@dataclass(frozen=True, slots=True)
+class Citation:
+    citation_id: str
+    source_id: str
+    locator: str                  # URL, file path, KG entity ref
+    retrieved_at: datetime
+
+@dataclass(frozen=True, slots=True)
+class CiteableChunk:
+    chunk_id: ChunkID
+    citation: Citation
+    content: str
+    token_count: TokenCount
+    confidence: Confidence
+
+@dataclass(frozen=True, slots=True)
+class Goal:
+    text: str
+    metadata: dict[str, str] = field(default_factory=dict)
+
+@dataclass(frozen=True, slots=True)
+class AgentResult:
+    output: object                                  # may be a Pydantic model when blueprint.output_schema is set
+    raw_text: str | None
+    cited_evidence_refs: tuple[Citation, ...] = ()
+    metadata: dict[str, str] = field(default_factory=dict)
+
+# Chain primitives — full detail in SPEC-01
+@dataclass(frozen=True, slots=True)
+class DAGNode:
+    node_id: NodeID
+    is_terminal: bool
+    is_llm_node: bool
+    retry_budget: int = 1                           # max RECOVER dispatches before HALT escalation
+    grounding: GroundingPolicy = GroundingPolicy.REQUIRED
+
+class GroundingPolicy(Enum):
+    REQUIRED = "required"   # cite-or-fail enforced
+    OPTIONAL = "optional"   # cite if present, do not reject if absent
+    DISABLED = "disabled"   # router/conditional/parallel non-output nodes
+
+class ChainProfile(Enum):
+    DEFAULT  = "default"    # legitimacy → pull → blueprint → task_inject ; cite_or_fail → tool_verify → online_eval → goal_completion → audit
+    RECOVERY = "recovery"   # legitimacy → pull → blueprint → task_inject ; cite_or_fail → tool_verify → audit  (no online_eval, no goal_completion)
+```
+
+### Cross-cutting seams
+
+This umbrella declares only the seams. Field-level schemas live in the child
+spec named in each row.
 
 ```python
 # The seam — SPEC-01 owns the detail
 @runtime_checkable
 class NodeInterceptor(Protocol):
+    interceptor_id: str
+    phase: InterceptorPhase            # PRE | POST | BOTH
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
-                 task: TaskContext, services: RuntimeServices) -> PreflightResult: ...
+                  task: TaskContext, services: RuntimeServices) -> PreflightDecision: ...
     async def post(self, *, node: DAGNode, result: AgentResult, ctx: Context,
-                   task: TaskContext, services: RuntimeServices) -> PostflightResult: ...
+                   task: TaskContext, services: RuntimeServices) -> PostflightDecision: ...
 
-# PreflightResult either enriches the goal/context or rejects (legitimacy/security).
-# PostflightResult is one of: ACCEPT | REJECT(reason) | RECOVER(strategy) | HALT(reason).
+# Carrier field consumed by SPEC-05 cite-or-fail (set by SPEC-02 PullInterceptor)
+#   ctx.surfaced_sources: tuple[CiteableChunk, ...]
 
-# RuntimeServices gains two shared deps — SPEC-02
-#   knowledge_graph: KnowledgeGraph | None      (was meta-only)
-#   data_sources:    DataSourceRegistry | None  (net-new)
-
-@runtime_checkable
-class DataSource(Protocol):
-    """Read-only, citeable connector over an enterprise system."""
-    source_id: str
-    async def retrieve(self, query: RetrievalQuery, *, budget: TokenBudget) -> tuple[CiteableChunk, ...]: ...
-
-# Blueprint becomes the canonical node input — SPEC-03
-#   ContextNodeExecutor resolves a node's input to a Blueprint and calls
-#   blueprint.to_request() (structured) instead of passing an English string.
-
-# Long-horizon awareness — SPEC-04
-@dataclass(frozen=True, slots=True)
-class TaskContext:
-    task_id: TaskID
-    goal: Goal
-    step_index: int
-    step_count: int
-    prior_decisions: tuple[Decision, ...]
-    budget_remaining: TokenBudget
-    state: TaskState   # QUEUED | RUNNING | PAUSED | RESUMED | COMPLETED | HALTED
+# DEFAULT chain order — SPEC-00 §3 Invariant 9 canonical reference
+DEFAULT_PRE_ORDER  = ("legitimacy", "pull", "blueprint", "task_inject")
+DEFAULT_POST_ORDER = ("cite_or_fail", "tool_verify", "online_eval", "goal_completion", "audit")
+RECOVERY_PRE_ORDER  = ("legitimacy", "pull", "blueprint", "task_inject")
+RECOVERY_POST_ORDER = ("cite_or_fail", "tool_verify", "audit")
 ```
 
-The interceptor chain is **ordered and composable**: guardians (SPEC-05),
-blueprint resolution (SPEC-03), context pull (SPEC-02), and task injection
-(SPEC-04) each contribute one interceptor. Order is part of the contract (§3).
+### RuntimeServices additions (consolidation)
+
+Existing `RuntimeServices` (16 fields, see CLAUDE.md) gains the following.
+This table is the single source of truth — child specs consume these.
+
+| Field | Type | Owning spec | Purpose |
+|---|---|---|---|
+| `interceptors` | `tuple[NodeInterceptor, ...]` | SPEC-01 | Ordered chain |
+| `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Selects DEFAULT vs RECOVERY ordering |
+| `knowledge_graph` | `KnowledgeGraph \| None` | SPEC-02 | Shared KG (meta + non-meta) |
+| `data_sources` | `DataSourceRegistry \| None` | SPEC-02 | Read-only enterprise connectors |
+| `blueprint_library` | `BlueprintLibrary \| None` | SPEC-03 | Blueprint resolution |
+| `task_repository` | `TaskRepository \| None` | SPEC-04 | Task state machine + snapshot |
+| `authorization_policy` | `AuthorizationPolicy \| None` | SPEC-05 | Legitimacy gate backend |
+| `goal_completion_evaluator` | `GoalCompletionEvaluator \| None` | SPEC-05 | Terminal-node goal check |
+| `tool_output_verifier` | `ToolOutputVerifier \| None` | SPEC-05 | Tool-layer hallucination gate |
+| `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
+| `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds |
 
 ## 3. Invariants (DbC)
 
 Cross-cutting rules that hold regardless of which child subsystem is active.
 
-1. `IF a node produces generative output AND any claim lacks a citeable evidence ref, THEN THE System SHALL reject the output (cite-or-fail).`
+1. `IF a node has GroundingPolicy.REQUIRED AND any element of result.cited_evidence_refs ∉ ctx.surfaced_sources, THEN THE System SHALL reject the output (cite-or-fail).`
 2. `WHEN the pre-flight legitimacy gate denies a node, THE System SHALL NOT execute the agent and SHALL emit an audit entry.`
-3. `WHILE a DAG is executing, THE System SHALL pull context within the node's TokenBudget and SHALL NOT stuff full source bodies into the system prompt.`
-4. `WHEN QualityPolice raises AlertLevel.HALT, THE System SHALL stop dispatching new nodes and transition the task to HALTED.`
-5. `WHERE a node declares a Blueprint input, THE System SHALL drive generation from the Blueprint structure, not a free-form English prompt.`
-6. `Every node receives a TaskContext; step_index < step_count for all non-terminal nodes.`
-7. `THE Knowledge Graph SHALL be queryable by any node via RuntimeServices — access SHALL NOT be restricted to the meta layer.`
+3. `WHILE a DAG is executing, THE System SHALL pull context within node.budget.pull_tokens and SHALL NOT stuff full source bodies into the system prompt.`
+4. `WHEN any guardian raises HALT(scope=DAG) or HALT(scope=TASK), THE System SHALL stop dispatching new nodes and transition the task to HALTED.`
+5. `WHERE a node has is_llm_node == True, THE System SHALL drive generation from a Blueprint-derived structured request, not a free-form English prompt.`
+6. `Every node SHALL receive a TaskContext; 0 ≤ step_index < step_count.`
+7. `THE Knowledge Graph SHALL be queryable by any node via RuntimeServices.knowledge_graph — access SHALL NOT be restricted to the meta layer.`
 8. `Every interceptor decision (ACCEPT/REJECT/RECOVER/HALT) carries source, reason, correlation_id (ContextPatch provenance).`
-9. `Interceptor ordering SHALL be: legitimacy → blueprint → pull → task-inject → EXECUTE → cite-or-fail → online-eval → goal-completion → audit.`
-10. `A DataSource SHALL expose read-only retrieval only — no write path port exists on the protocol.`
+9. `Interceptor ordering for ChainProfile.DEFAULT SHALL be DEFAULT_PRE_ORDER then EXECUTE then DEFAULT_POST_ORDER. For ChainProfile.RECOVERY (used by SPEC-06 sub-DAG runs) it SHALL be RECOVERY_PRE_ORDER then EXECUTE then RECOVERY_POST_ORDER.`
+10. `A DataSource SHALL expose read-only retrieval only — no write port exists on the protocol.`
+11. `WHEN tool output is consumed by a downstream node, THE ToolOutputVerifier SHALL inspect it for hallucinated facts before downstream dispatch (SPEC-05).`
 
-Budget: 10 invariants. Detailed per-subsystem invariants live in child specs.
+Per-subsystem invariants live in child specs.
 
 ## 4. Acceptance Criteria (BDD)
-
-Cross-cutting scenarios. Subsystem scenarios live in child specs.
 
 ```gherkin
 Feature: Enterprise Context Brain end-to-end
@@ -159,16 +234,18 @@ Feature: Enterprise Context Brain end-to-end
   Scenario: Pull-not-push grounding
     Given a DAG node with a goal referencing enterprise entities
     And a DataSource and Knowledge Graph registered in RuntimeServices
-    When the node executes
-    Then context is retrieved on demand within the node TokenBudget
+    When the node executes under ChainProfile.DEFAULT
+    Then context is retrieved on demand within node.budget.pull_tokens
+    And ctx.surfaced_sources is populated before BlueprintInterceptor runs
     And the system prompt does not contain full source bodies
-    And the output's claims each carry a citeable evidence ref
+    And every Citation in result.cited_evidence_refs is a member of ctx.surfaced_sources
 
   Scenario: Cite-or-fail blocks an ungrounded claim
-    Given a generative node whose draft asserts a fact with no retrieved evidence
+    Given a generative node with GroundingPolicy.REQUIRED
+    And a Claim with no Citation in cited_evidence_refs
     When the post-flight cite-or-fail gate runs
     Then the output is rejected with reason "ungrounded_claim"
-    And the node is routed to recovery, not stored
+    And the node is routed to RECOVER, not stored
 
   Scenario: Online eval halts a degrading run
     Given a long-running task whose recent node scores trend below the HALT threshold
@@ -188,31 +265,41 @@ Feature: Enterprise Context Brain end-to-end
     When step 3's node executes
     Then it receives a TaskContext with step_index=2, step_count=10
     And prior_decisions from steps 1-2 are present
+    And retry_count[node_id] is observable
 
   Scenario: Blueprint drives generation
-    Given a node whose input resolves to a Blueprint
+    Given a node with is_llm_node=True
     When the node executes
-    Then generation is driven from the Blueprint structure
+    Then BlueprintInterceptor produces a BlueprintRequest
     And no free-form English prompt is constructed from the goal text
 
   Scenario: KG queryable by a normal node
     Given a non-meta DAG and a Knowledge Graph in RuntimeServices
     When a node queries neighbors of an entity
-    Then it receives KG relations as citeable context sources
-```
+    Then it receives KG relations as CiteableChunks in ctx.surfaced_sources
 
-Budget: 7 cross-cutting scenarios. Split into child specs if a subsystem needs more.
+  Scenario: Tool-output hallucination is caught
+    Given a tool that returns fabricated facts consumed by a downstream node
+    When the post-flight tool_verify guardian runs
+    Then the output is rejected with reason "tool_unverified"
+    And the parent decision is RECOVER or HALT per node policy
+
+  Scenario: Recovery sub-DAG runs the reduced chain
+    Given a guardian emits RECOVER(INVOKE_META_ARCHITECT)
+    When the meta dispatcher executes the sub-DAG
+    Then the active chain profile is ChainProfile.RECOVERY
+    And online_eval and goal_completion are NOT invoked inside the sub-DAG
+```
 
 ## 5. Out of Scope
 
 - **Implementation detail of each subsystem** — owned by SPEC-01..06.
-- **Specific enterprise connectors** (Salesforce, SAP, Snowflake adapters) — the
-  `DataSource` *protocol* is in scope (SPEC-02); concrete adapters are follow-on specs.
-- **Write-back to enterprise systems** — the brain is read-only this cycle.
+- **Specific enterprise connectors** (Salesforce, SAP, Snowflake) — protocol in scope (SPEC-02); concrete adapters are follow-on.
+- **Streaming generation** — all post-flight gates inspect a complete `AgentResult`. Streaming is out-of-scope this cycle; mid-stream grounding is a follow-on spec.
+- **Write-back to enterprise systems** — read-only this cycle.
 - **Multi-tenant pricing / per-org rate negotiation** — `BudgetGuard` territory.
 - **UI / dashboard surfaces** for task progress — backend awareness only.
-- **Replacing the existing meta self-hosting layer** — SPEC-06 *connects* it to
-  mid-DAG dispatch; it does not rewrite `meta/`.
+- **Replacing the existing meta self-hosting layer** — SPEC-06 *connects* it; does not rewrite `meta/`.
 
 ## 6. Dependencies
 
@@ -222,81 +309,94 @@ Build order (each row is a child spec; later rows depend on earlier):
 |---|---|---|---|
 | 1 | SPEC-01 Node interceptor pipeline | the seam itself | existing `ContextNodeExecutor` |
 | 2 | SPEC-02 KG + DataSource RuntimeServices | pull-not-push, KG-in-engine | SPEC-01, `knowledge/`, `retrieval/` |
-| 3 | SPEC-03 Blueprint-as-LLM-input | structured generation | SPEC-01, `blueprint/`, `generation/` |
+| 3 | SPEC-03 Blueprint-as-LLM-input | structured generation | SPEC-01, SPEC-02 (consumes ctx.surfaced_sources), `blueprint/`, `generation/` |
 | 4 | SPEC-04 Task state machine | long-horizon awareness | SPEC-01, `persistence/`, `replay/` |
 | 5 | SPEC-05 Guardian mesh + gates | quality/safety/grounding | SPEC-01..04, `evals/`, `citation/`, `moderation/`, `audit/` |
 | 6 | SPEC-06 Self-resolving DAG | framework-uses-itself mid-run | SPEC-01, SPEC-05, `meta/` |
 
-Existing POC decisions feed the context layer: model-catalog (selection),
+POC decisions feed the context layer: model-catalog (selection),
 anchored-compaction (session memory), tool-output-bucket (context budgeting).
 
 ## 7. Correctness Properties
 
 ### Property 1: Grounding membership
 
-*For any* generative node output `o`, every claim in `o.cited_evidence_refs` is a
-member of the set of sources actually surfaced to the node during pre-flight pull.
-Claims citing non-surfaced sources are rejected.
+*For any* node output `r` with `node.grounding == REQUIRED`,
+`set(r.cited_evidence_refs) ⊆ set(c.citation for c in ctx.surfaced_sources)`.
+Outputs violating this are rejected.
 
-**Validates: §3 Invariant 1, §4 Scenario "Cite-or-fail blocks an ungrounded claim"**
+**Validates: §3 Invariant 1, §4 "Cite-or-fail blocks an ungrounded claim"**
 
 ### Property 2: Read-only enterprise boundary
 
-*For any* `DataSource` implementation, no method mutates the underlying enterprise
-system — the protocol exposes `retrieve` only; no write port exists.
+*For any* `DataSource` implementation, no method mutates the underlying
+enterprise system — the protocol exposes `retrieve` only; no write port exists
+in `dir(DataSource)`.
 
-**Validates: §3 Invariant 10, §4 Scenario "Pull-not-push grounding"**
+**Validates: §3 Invariant 10, §4 "Pull-not-push grounding"**
 
 ### Property 3: Halt safety
 
-*For any* task in state RUNNING, once QualityPolice emits HALT no further node is
+*For any* task in state RUNNING, once any guardian emits HALT no further node is
 dispatched; the task reaches HALTED and never silently resumes.
 
-**Validates: §3 Invariant 4, §4 Scenario "Online eval halts a degrading run"**
+**Validates: §3 Invariant 4, §4 "Online eval halts a degrading run"**
 
 ### Property 4: Interceptor order determinism
 
-*For any* node, interceptors run in the §3-Invariant-9 order; the same inputs
-produce the same accept/reject/recover/halt decision (replay-safe).
+*For any* node, interceptors run in the §3-Invariant-9 order for the active
+ChainProfile; the same inputs produce the same accept/reject/recover/halt
+decision sequence (replay-safe).
 
 **Validates: §3 Invariant 9**
 
 ### Property 5: KG access symmetry
 
 *For any* node (meta or non-meta), KG queries resolve through the same
-`RuntimeServices.knowledge_graph` handle — the graph is used both *in* and *by* the engine.
+`RuntimeServices.knowledge_graph` handle.
 
-**Validates: §3 Invariant 7, §4 Scenario "KG queryable by a normal node"**
+**Validates: §3 Invariant 7, §4 "KG queryable by a normal node"**
 
-Budget: 5 properties. Subsystem properties live in child specs.
+### Property 6: End-to-end replay determinism
+
+*For any* fixed inputs `(node, goal, ctx, task, services_snapshot)` and a fixed
+random seed, the full chain (PRE → EXECUTE → POST) produces an identical
+sequence of decisions and an identical `AgentResult`. LLM-judge evaluators
+inside the chain SHALL be replayed via recorded fixtures (cassettes) keyed by
+`(prompt_template_version, model_id, decoding_params, input_hash)` — fixtures
+are part of the test contract.
+
+**Validates: §3 Invariant 9 / SPEC-01 Inv 8 / SPEC-03 "Determinism" / SPEC-05 "Replay determinism"**
 
 ## 8. Eval Criteria
 
+Cross-cutting evaluators. Per-subsystem evaluators (with pinned prompts, models,
+baselines) live in child specs.
+
 | Evaluator | Node | Mode | Threshold | Method |
 |---|---|---|---|---|
-| GroundingEvaluator | every generative node | GATE | groundedness >= 0.9 | hybrid (citation membership + LLM judge) |
-| GoalCompletionEvaluator | terminal node | GATE | achieved == true | LLM judge |
-| LegitimacyEvaluator | every node (pre) | GATE | authorized == true | deterministic (scope check) |
-| HallucinationProbe | every generative node | OBSERVE | rate <= 0.02 | LLM judge |
-| QualityTrendMonitor | DAG-wide | GATE | no HALT alert | deterministic (z-score, QualityPolice) |
-
-Detailed evaluator wiring and thresholds-per-tenant live in SPEC-05.
+| GroundingEvaluator | every REQUIRED-grounding node | GATE | membership violations == 0 | deterministic (SPEC-05 §2) |
+| GoalCompletionEvaluator | terminal node | GATE | achieved == true ∧ confidence ≥ 0.8 | LLM judge (pinned prompt+model in SPEC-05) |
+| LegitimacyEvaluator | every node (pre) | GATE | authorized == true | deterministic |
+| HallucinationProbe | every generative node | OBSERVE | rate ≤ 0.02 (95% CI) on labeled corpus | LLM judge (pinned in SPEC-05) |
+| QualityTrendMonitor | per-Task | GATE | no HALT alert | deterministic z-score (QualityPolice) |
+| ToolOutputVerifier | every node consuming tool output | GATE | unverified == 0 | hybrid (SPEC-05 §2) |
 
 ## 9. Observability Contract
 
 - **Spans**:
-  - `gen_ai.node.preflight` — `node.id`, `legitimacy.decision`, `pull.sources_count`, `pull.tokens`, `blueprint.resolved`
+  - `gen_ai.node.preflight` — `node.id`, `chain_profile`, `legitimacy.decision`, `pull.sources_count`, `pull.tokens`, `blueprint.resolved`
   - `gen_ai.node.execute` — `gen_ai.request.model`, `task.step_index`, `task.step_count`
-  - `gen_ai.node.postflight` — `cite.decision`, `eval.score`, `goal.achieved`, `police.alert_level`
-- **Log events**: `preflight.legitimacy_denied`, `pull.completed`, `cite_or_fail.rejected`, `eval.gate_failed`, `task.halted`, `kg.queried`, `datasource.retrieved`
-- **Metrics**: `node_interceptor_decisions_total{decision}`, `grounding_score`, `task_steps_completed`, `eval_halts_total`
+  - `gen_ai.node.postflight` — `cite.decision`, `tool_verify.decision`, `eval.score`, `goal.achieved`, `police.alert_level`
+- **Log events**: `preflight.legitimacy_denied`, `pull.completed`, `cite_or_fail.rejected`, `tool_verify.rejected`, `eval.gate_failed`, `task.halted`, `kg.queried`, `datasource.retrieved`, `recovery.dispatched`
+- **Metrics**: `node_interceptor_decisions_total{decision,chain_profile}`, `grounding_score`, `task_steps_completed`, `eval_halts_total`, `tool_verify_rejections_total`
 
 Per-subsystem telemetry refines this in the child specs.
 
 ## Next Steps
 
-1. Review this umbrella. On approval, write **SPEC-01 (node interceptor pipeline)** —
-   the keystone — before any code.
-2. Each child spec carries its own §2–§9 and a `/write-poc` where the approach is
-   not yet proven (e.g., the legitimacy gate, goal-completion evaluator).
-3. Implementation is per-child-spec, one PR per spec, flat against `main`.
+1. With this umbrella consolidated, implementation proceeds per SPEC-01.
+2. Each child spec carries its own §2–§9 and a `/write-poc` where the approach
+   is not yet proven (legitimacy gate, goal-completion evaluator, claim
+   extractor, tool-output verifier).
+3. One PR per spec, flat against `main`.
