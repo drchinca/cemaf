@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤770 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤850 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -443,8 +443,19 @@ construction, before the first `run()` call:
 - `services.token_budget is None` → `StartupError` ("RuntimeServices.token_budget
   is required for parent metering; default is provided at dataclass
   construction — explicit None means a misconfigured factory.")
+- `DataSourceRegistry.register()` raising `DuplicateSourceError` (SPEC-02 Inv 9)
+  or `ReadOnlyViolationError` (SPEC-02 Inv 1) → wrapped and re-raised as
+  `StartupError` (single deploy-tool catch path).
+- Custom `NodeInterceptor` subclass `__init_subclass__` `TypeError` (SPEC-01
+  Inv 15 — empty/None `interceptor_id`/`phase`/`display_name`) → wrapped as
+  `StartupError` when the offending interceptor is in the resolved chain.
+- Resolved chain `interceptor_id` set size > 16 (canonical chains are 5+5;
+  user-supplied additions raise `StartupError` past the cap; matches the
+  metric label-cardinality bound in §9).
+- `SentenceClaimExtractor` selected as the active extractor AND the spaCy
+  model (`en_core_web_sm` per SPEC-05 §6) cannot be loaded → `StartupError`.
 
-`StartupError` is a single exception class raised here so deployment
+`StartupError` is the single exception class raised here so deployment
 tooling has one path to catch and report. Liveness probes SHALL surface
 this as "not ready" (next subsection).
 
@@ -477,6 +488,38 @@ Required-fields rule (per active chain_profile):
 `/readyz` (readiness) maps to `readiness().ready`. Tenants opting out of
 specific guardians SHALL see `ready=True` with the unsupplied guardians
 listed in `optional_fields_present={...: False}` rather than a hard fail.
+
+**DataSource health policy.** `datasource_health` is observability-only —
+it does NOT factor into `ready`. Rationale: PullInterceptor (SPEC-02 Inv 5)
+already skips UNHEALTHY sources at runtime and surviving sources still
+populate `ctx.surfaced_sources`; flipping `/readyz` red on a single
+flaky upstream would cause false rolling-deploy aborts. Operators wanting
+strict source-health gating SHALL deploy a sidecar that ANDs
+`readiness().ready` with their own DataSource health policy.
+
+### Graceful shutdown contract
+
+On SIGTERM (K8s pod terminationGracePeriodSeconds, typically 30s):
+
+1. The executor SHALL stop accepting new `run()` calls and reject with
+   `ExecutorShuttingDownError` mapped to HTTP 503.
+2. In-flight DAG runs SHALL be allowed to drain to a terminal state
+   (`success`, `REJECT`, `HALT`) OR snapshot to PAUSED via
+   `TaskRepository.transition(state=PAUSED, reason="shutdown_drain")`
+   when `(deadline - now) < node.budget.timeout_ms`.
+3. Active SPEC-06 sub-DAGs SHALL be allowed to complete OR HALT — they
+   are NOT snapshotted, since the parent's drain-then-dispatch barrier
+   already serializes them.
+4. The drain-then-dispatch barrier SHALL be **per-call-frame**, not
+   instance-shared (closes the SPEC-06 §"Concurrency model" race when
+   nested executors share a single `DAGExecutor` instance).
+5. The executor `Task` adds a transient internal flag `is_shutting_down`
+   queried by `readiness()`; `ready=False` with `reason="shutting_down"`
+   so K8s rolling deploys see the pod leave the load-balancer pool.
+
+`SHUTTING_DOWN` is NOT a `TaskState` — it's an executor-level state. Tasks
+either drain to terminal or PAUSED; the lease (SPEC-04) is released on
+either path so a replacement pod can resume PAUSED tasks.
 
 ## 3. Invariants (DbC)
 
@@ -691,6 +734,40 @@ are part of the test contract.
 decoding_params, input}))[:16]`. Missing cassette in CI fails the test loud,
 not silent regenerate. Cassettes are checked into git.
 
+**Cassette payload schema** (canonical, per-judge-type):
+
+```python
+class CassettePayload(TypedDict, total=False):
+    # Identity (REQUIRED on every cassette)
+    prompt_template_version: str
+    model_id: str
+    decoding_params: DecodingParams
+    input_hash: str                                # the path's <input_hash>
+    recorded_at: str                               # ISO-8601 UTC
+
+    # Judgment (REQUIRED for every judge type)
+    score: float                                    # primary 0..1 score
+    level: str                                      # bounded enum per judge
+
+    # Optional payloads (REQUIRED when judge surfaces them at runtime)
+    judge_citations: list[dict[str, str]]           # SPEC-05 GoalCompletionEvaluator
+    missing_criteria: list[str]                     # SPEC-05 GoalCompletionEvaluator
+    raw_response: str                               # full LLM response when judge consumes it post-score
+    attempt_idx: int                                # SPEC-05 OnlineEvalInterceptor
+```
+
+A judge that surfaces an output field at runtime (e.g.
+`GoalCompletionEvaluator.judge_citations`) and reads it post-replay SHALL
+record that field in the cassette. Replay loaders SHALL fail loud on
+missing required fields per judge-type — score-only cassettes are valid
+ONLY for judges whose entire surface is `(score, level, attempt_idx)`.
+
+**Recording mode.** `CEMAF_CASSETTE_RECORD=1` enables developer-mode
+re-recording — the test harness MAY hit live LLMs, write cassettes, and
+SHALL print a banner naming each new/updated cassette path so the developer
+commits them deliberately. Default (`CEMAF_CASSETTE_RECORD` unset or `0`)
+forbids network egress in tests; missing/stale cassettes fail the run.
+
 ## 8. Eval Criteria
 
 Cross-cutting evaluators. Per-subsystem evaluators (with pinned prompts, models,
@@ -727,6 +804,11 @@ baselines) live in child specs.
 - `source_kind` (bounded enum: kg, vector, memory, datasource), NOT `source_id`.
 - Hashed bucket label `tenant_bucket = int.from_bytes(sha256(tenant.id.encode("utf-8")).digest()[:8], "big") % 64` when per-tenant slicing is needed (hash function, byte slice, and modulus are part of the contract for telemetry replay determinism); raw `tenant.id` is span-attribute-only.
 - `evaluator` label (used by `cemaf_eval_halts_total`) is bounded by the `services.online_eval_pipeline` registry — implementations SHALL cap the registry at ≤32 distinct evaluator IDs; over-cap is a startup error, not a metric explosion.
+- `interceptor_id` label (used by SPEC-01 `cemaf_node_interceptor_*` metrics) is bounded by the resolved chain — `bootstrap.create_executor()` enforces ≤16 distinct IDs across PRE+POST after user-supplied additions; over-cap is a `StartupError` (see "Startup-error owner"). Custom interceptors past the cap are a hard fail, not a silent metric explosion.
+- `outcome` label (used by `cemaf_recovery_attempts_total`, `cemaf_meta_dispatches_total`, `cemaf_datasource_duration_seconds`, `cemaf_node_execute_*`) SHALL be drawn from the closed enum `{success, rejected, recovered, halted, failed, timeout, skipped}` — child specs MAY use a strict subset but SHALL NOT introduce new outcome values without a SPEC-00 amendment.
+- `tenant_bucket` label is allowlisted ONLY on metrics that explicitly declare it in their cardinality contract; the canonical RED metrics in this section do NOT carry `tenant_bucket` (multiplicative explosion against `chain_profile × node_type × outcome`). Child specs adding `tenant_bucket` to a metric SHALL declare the resulting cardinality bound.
+
+**`cemaf_task_state_current{state}` reporting cadence (SPEC-04 §9).** Sampled gauge — owned by a single leader-elected reporter per deployment (the executor instance whose pod has the lowest hostname-hash on the registered TaskRepository), scraped at the Prometheus default interval. Multi-replica deploys without leader election SHALL emit the gauge as instance-local with `sum`-aggregated dashboards; spec mandates the labels, deploy mandates the topology.
 
 **Metric units.** All durations are seconds (`*_seconds` histograms, Prometheus convention). The legacy `*_ms` names elsewhere in this document and child specs are **renamed** to `*_seconds` at implementation; spec text retains historic names for traceability but the contract is seconds. Span attributes carrying durations follow the same rule — e.g. `latency_seconds`, `wall_time_seconds`. Any `*_ms` span attribute appearing in a child spec (SPEC-01, SPEC-02 use `latency_ms`) is renamed to `*_seconds` at implementation; spec text retains historic names for traceability.
 

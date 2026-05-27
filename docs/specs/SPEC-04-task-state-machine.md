@@ -190,6 +190,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 12. `WHEN AcquireToken.lease_ttl_ms elapses without explicit release, THE TaskRepository SHALL treat the lease as expired and permit a new acquire — preventing dead executors from holding tasks indefinitely.`
 13. `WHEN a PostflightDecision is RECOVER(INVOKE_META_ARCHITECT), THE Executor SHALL call increment_retry(task_id, node_id) BEFORE invoking MetaDispatcher.dispatch (SPEC-06). Combined with Inv 11, the meta sub-DAG observes the incremented attempt counter via task.retry_ledger from its first node, so nested recoveries see correct attempt accounting.`
 14. `task.correlation_id (per-task, assigned at create()) and ctx.correlation_id (per-attempt, assigned by DAGExecutor at node dispatch — SPEC-00 §2) are intentionally distinct scopes. Audit and recovery references resolve as follows: SPEC-05 §3 attempt-level audit SHALL use ctx.correlation_id; SPEC-06 §3 Inv 6 parent_correlation_id SHALL be the parent attempt's ctx.correlation_id (NOT task.correlation_id). On resume across PAUSED→RUNNING, task.correlation_id persists; new attempts mint fresh ctx.correlation_id. Every AuditEntry SHALL carry both fields explicitly so query paths over either are deterministic.`
+15. `WHEN a holder calls TaskRepository.release(token) OR TaskRepository.transition(token=...) AFTER the lease has expired (Inv 12) and a new holder has acquired, THE Repository SHALL raise StaleLeaseError and SHALL NOT mutate Task state. Detection: every release/transition call carries the original AcquireToken; the repository compares the persisted current_holder_id against token.holder_id and raises if they differ. This closes the multi-pod race where holder A's lease expires, holder B acquires, then A's slow callback writes — A's write is discarded with a logged event "task.stale_lease_write".`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -254,6 +255,14 @@ Feature: Long-horizon task awareness
     When 200ms elapses and executor B calls acquire()
     Then the lease is treated as expired
     And B receives a fresh AcquireToken without TaskInUseError
+
+  Scenario: Stale-lease write is rejected (Inv 15)
+    Given executor A's lease has expired and executor B has acquired
+    When A's slow callback calls release(token_A) or transition(token=token_A, ...)
+    Then the Repository raises StaleLeaseError
+    And Task state is unchanged
+    And a "task.stale_lease_write" log event is emitted
+    And cemaf_task_stale_lease_writes_total is incremented
 
   Scenario: Recovery sub-DAG budget is metered separately (cross-ref SPEC-06)
     Given a parent Task with budget_remaining=10000
@@ -351,4 +360,4 @@ State-machine spec — deterministic evaluators only.
 - **Span**: `gen_ai.task.lifetime` — `task.id`, `task.state`, `step.index`, `step.count`, `budget.remaining`
 - **Span**: `gen_ai.task.transition` — `from`, `to`, `reason`
 - **Log events**: `task.created`, `task.paused`, `task.resumed`, `task.halted`, `task.completed`, `task.invalid_transition`, `task.acquire_conflict`, `task.retry_started` (emitted by the executor on every RECOVER re-dispatch — RETRY_WITH_HINTS, REROUTE_TO_AGENT, or post-recovery re-issue — carrying `node_id`, `attempt` (1-based), `retry_budget`, `reason` from the prior PostflightDecision; rendered to users via SPEC-05 §10 status-event copy as "Retrying step (`<DAGNode.display_name>`), attempt N of M". One event per re-dispatch — including each meta-recovered retry — so users see every attempt, not just the first.)
-- **Metrics**: `cemaf_task_state_transitions_total{from,to}` (counter — emitted on every transition; replaces the earlier mis-shaped `cemaf_task_state_total{state}` counter), `cemaf_task_state_current{state}` (gauge — current count of tasks in each state, sampled), `cemaf_task_steps_completed_total` (counter, no per-task label), `cemaf_task_budget_remaining_tokens` (gauge, no labels — sampled snapshot only), `cemaf_task_retries_total{node_type,outcome}` — per-`node_id` labels are forbidden by SPEC-00 §9 cardinality rules; `node_id` stays a span attribute only. Also: `cemaf_task_acquire_conflicts_total`, `cemaf_task_lease_expired_total`
+- **Metrics**: `cemaf_task_state_transitions_total{from,to}` (counter — emitted on every transition; replaces the earlier mis-shaped `cemaf_task_state_total{state}` counter), `cemaf_task_state_current{state}` (gauge — current count of tasks in each state, sampled), `cemaf_task_steps_completed_total` (counter, no per-task label), `cemaf_task_budget_remaining_tokens` (gauge, no labels — sampled snapshot only), `cemaf_task_retries_total{node_type,outcome}` — per-`node_id` labels are forbidden by SPEC-00 §9 cardinality rules; `node_id` stays a span attribute only. Also: `cemaf_task_acquire_conflicts_total`, `cemaf_task_lease_expired_total`, `cemaf_task_stale_lease_writes_total` (no labels — Inv 15 stale-holder writes)
