@@ -313,7 +313,7 @@ Feature: Guardian mesh
   Scenario: Online eval triggers DAG halt
     Given QualityPolice configured with HALT threshold breached
     When OnlineEvalInterceptor records the next score
-    Then it returns HALT(scope=DAG)
+    Then it returns HALT(scope=DAG, reason="quality_halt")
     And the DAGExecutor stops dispatching new nodes
     And the Task transitions to HALTED
 
@@ -330,7 +330,7 @@ Feature: Guardian mesh
     And get_retry(task.retry_ledger, node.id) == 1 (incremented after the prior RECOVER)
     And GoalCompletionResult.achieved == False
     When GoalCompletionInterceptor runs
-    Then PostflightDecision is HALT(scope=TASK)
+    Then PostflightDecision is HALT(scope=TASK, reason="goal_unreachable")
 
   Scenario: Goal-completion judge must self-cite
     Given GoalCompletionEvaluator returns judge_citations==()
@@ -363,6 +363,31 @@ Feature: Guardian mesh
     Given identical ctx.surfaced_sources and identical result.cited_evidence_refs
     When CiteOrFailInterceptor runs twice
     Then both PostflightDecisions are byte-identical (kind, reason, recovery_strategy)
+
+  Scenario: Unverified claims are not promoted to downstream surfaced_sources
+    Given node A produces AgentResult.unverified_claims=(c1,) under GroundingPolicy.BEST_EFFORT
+    And node B is a downstream consumer of A's output
+    When node B's PRE chain completes
+    Then ctx.surfaced_sources at node B contains no CiteableChunk derived from c1
+    And c1 appears only in A's persisted AgentResult and in user-facing copy as "[unverified]"
+
+  Scenario: SchemaFieldClaimExtractor ignores non-annotated fields
+    Given an output schema with one field annotated grounding_required=True and three unannotated fields
+    And result.output populates all four fields with non-empty values
+    When SchemaFieldClaimExtractor.extract runs
+    Then exactly one Claim is returned, sourced from the annotated field
+
+  Scenario: SchemaFieldClaimExtractor returns empty when no fields are annotated
+    Given an output schema with zero grounding_required fields
+    When SchemaFieldClaimExtractor.extract runs
+    Then the result is the empty tuple
+    And CiteOrFailInterceptor ACCEPTs regardless of grounding policy
+
+  Scenario: Every emitted reason string maps to a §10 copy row
+    Given the set R of reason strings any guardian (REJECT or HALT) can emit in code
+    When the §10 user-facing copy table is loaded
+    Then every r in R matches a row key (with <scope>/<rule>/<class>/<id> placeholders matched by pattern)
+    And every row in §10 is reachable from at least one emission site in code
 ```
 
 ## 5. Out of Scope

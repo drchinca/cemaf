@@ -65,7 +65,7 @@ class BlueprintRequest:
     entities: tuple[EntityRef, ...]
     style: StyleSpec
     policies: tuple[PolicySpec, ...]
-    output_schema: type[BaseModel] | None
+    output_schema: type[BaseModel] | None           # see "Grounding annotation policy" below
     grounding_refs: tuple[Citation, ...]            # derived from ctx.surfaced_sources
     policy_retry_budget: int = 2                     # consumed by StructuredGenerator (Inv 7)
     metadata: dict[str, str] = field(default_factory=dict)
@@ -104,6 +104,26 @@ class StructuredGenerator(Protocol):
     async def generate(self, *, request: BlueprintRequest, client: LLMClient) -> StructuredResult: ...
 ```
 
+### Grounding annotation policy
+
+`SchemaFieldClaimExtractor` (SPEC-05 §2) treats only Pydantic fields annotated
+`Field(json_schema_extra={"grounding_required": True})` as Claims. To prevent
+factual prose escaping claim extraction, every blueprint that declares an
+`output_schema` containing a free-text factual field SHALL annotate that
+field. Built-in conventions:
+
+| Field name (or role) | Annotation |
+|---|---|
+| `summary`, `answer`, `findings`, `recommendation`, `description`, `analysis`, `narrative`, free-text factual prose | `grounding_required=True` |
+| `id`, `status`, `category`, `kind`, `confidence`, `score`, enums, labels, ids, foreign keys, structural metadata | NOT annotated (these are not Claims) |
+
+The spec audit (SPEC-00 §6 Spec Audit) SHALL fail the build when any
+registered blueprint has an `output_schema` whose field set contains a
+free-text factual field (heuristic: `str` typed, `max_length` ≥ 64 or
+unbounded, name ∉ structural-metadata allow-list) WITHOUT
+`grounding_required=True`. Override requires an explicit waiver entry in
+`cemaf/data/eval_pins/grounding_audit_waivers.json`.
+
 ## 3. Invariants (DbC)
 
 1. `WHEN node.is_llm_node == True AND BlueprintLibrary.resolve_for_node returns None, THE BlueprintInterceptor SHALL emit REJECT(reason="no_blueprint_resolved").`
@@ -115,6 +135,7 @@ class StructuredGenerator(Protocol):
 7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to BlueprintRequest.policy_retry_budget (default 2). On exhaustion the generator SHALL raise PolicyExhaustedError; the post-flight chain converts it to REJECT(reason="policy_exhausted").`
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
 9. `THE generator SHALL filter cited_evidence_refs to ⊆ BlueprintRequest.grounding_refs before returning the StructuredResult — i.e., it SHALL NOT introduce non-member Citations. SPEC-05 cite-or-fail enforces the same membership predicate at post-flight against ctx.surfaced_sources (which equals grounding_refs at the moment BlueprintInterceptor ran, per Inv 3) — the two checks are redundant by design (defense in depth).`
+10. `IF a registered blueprint declares an output_schema with a free-text factual field (str-typed, max_length ≥ 64 or unbounded, name ∉ structural-metadata allow-list per §2 "Grounding annotation policy") AND no field on that schema carries grounding_required=True, THEN the SPEC-00 §6 Spec Audit SHALL fail the build. Override requires a waiver entry in cemaf/data/eval_pins/grounding_audit_waivers.json with a justification string.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -165,6 +186,17 @@ Feature: Blueprint-driven generation
     When the generator post-processes the draft
     Then the returned StructuredResult.cited_evidence_refs has the non-member Citation removed
     And the StructuredResult is still returned (the post-flight cite-or-fail in SPEC-05 makes the final accept/reject call against ctx.surfaced_sources)
+
+  Scenario: Spec audit fails on un-annotated factual field
+    Given a registered blueprint whose output_schema has a str field "summary" with max_length=2000 and no grounding_required annotation
+    And no waiver entry exists in cemaf/data/eval_pins/grounding_audit_waivers.json
+    When the SPEC-00 §6 Spec Audit runs
+    Then the audit fails with a message naming the blueprint and the un-annotated field
+
+  Scenario: Spec audit passes on annotated factual field
+    Given a blueprint whose output_schema has "summary" annotated grounding_required=True
+    When the audit runs
+    Then it passes
 ```
 
 ## 5. Out of Scope

@@ -116,6 +116,7 @@ class PostflightDecision:
     recovery_strategy: RecoveryStrategy | None = None   # required when kind == RECOVER
     recovery_hints: tuple[RecoveryHint, ...] = ()
     halt_scope: HaltScope | None = None                 # required when kind == HALT
+    derived_unverified_claims: tuple = ()               # tuple[Claim, ...] forward-ref to SPEC-05 §2; set by CiteOrFailInterceptor under GroundingPolicy.BEST_EFFORT. Per Inv 15 the Executor merges these into NodeOutcome.result.unverified_claims; per SPEC-05 Inv 14 they are NOT promoted to downstream surfaced_sources.
 ```
 
 ### NodeInterceptor — abstract base, not bare Protocol
@@ -130,14 +131,17 @@ from typing import ClassVar
 class NodeInterceptor(ABC):
     interceptor_id: ClassVar[str]       # required class attribute on every subclass
     phase: ClassVar[InterceptorPhase]   # required class attribute on every subclass
+    display_name: ClassVar[str]         # required, ≤30 chars, human-readable; per Inv 16
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Runtime guard: subclasses without interceptor_id/phase fail at class
-        creation rather than at first dispatch."""
+        """Runtime guard: subclasses without interceptor_id/phase/display_name fail
+        at class creation rather than at first dispatch."""
         super().__init_subclass__(**kwargs)
-        for attr in ("interceptor_id", "phase"):
+        for attr in ("interceptor_id", "phase", "display_name"):
             if not hasattr(cls, attr) or getattr(cls, attr) is None:
                 raise TypeError(f"{cls.__name__} must define class attribute {attr!r}")
+        if len(cls.display_name) > 30:
+            raise TypeError(f"{cls.__name__}.display_name must be ≤30 chars")
 
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
                   task: TaskContext, services: RuntimeServices) -> PreflightDecision:
@@ -306,6 +310,17 @@ Feature: Interceptor pipeline
     Then the chain raises ChainContractError("post phase MAY NOT re-issue agent")
     And the failure is converted to REJECT with reason "<id>:exception:ChainContractError"
     And no second AgentResult is produced
+
+  Scenario: Executor merges post-flight derived fields into NodeOutcome.result
+    Given a POST interceptor whose ACCEPT decision carries derived field unverified_claims=(c1,)
+    When the chain finishes
+    Then NodeOutcome.result is a new AgentResult with unverified_claims=(c1,)
+    And the agent-emitted AgentResult is unchanged in audit storage
+
+  Scenario: Subclass missing display_name fails at class creation
+    Given a NodeInterceptor subclass that declares interceptor_id and phase but not display_name
+    When the class body is evaluated
+    Then TypeError is raised with message containing "display_name"
 
   Scenario: Reentrant under concurrent dispatch
     Given an InterceptorChain instance shared by two concurrent execute_node calls

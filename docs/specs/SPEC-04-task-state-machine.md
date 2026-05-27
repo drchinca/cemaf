@@ -195,6 +195,12 @@ Feature: Long-horizon task awareness
     When the guardian post-flight inspects get_retry(task.retry_ledger, node.id) on the second attempt
     Then the value is 1 (incremented after the first attempt's RECOVER, before the second attempt)
 
+  Scenario: task.retry_started emitted on every RECOVER re-dispatch
+    Given a node with retry_budget=2 whose first attempt RECOVERs with reason "non_member_citation"
+    When the executor re-dispatches attempt 2
+    Then a task.retry_started log event is emitted carrying node_id, attempt=2, retry_budget=2, reason="non_member_citation"
+    And one event is emitted per re-dispatch — including each meta-recovered retry — never coalesced
+
   Scenario: Pause and resume across processes
     Given a Task in state RUNNING with 3 of 10 steps complete
     When the executor pauses the task and the process exits
