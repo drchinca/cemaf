@@ -588,6 +588,29 @@ Feature: Guardian mesh
     Then judge A reserves first (lexicographic id ordering), B reserves second
     And both eval_budget_snapshot_at_judge values are deterministic across replay
     And no concurrent over-spend is observable
+
+  Scenario: AuditLog FIFO eviction at max_entries cap (Inv 26)
+    Given an AuditLog backing constructed with max_entries=100
+    And 100 AuditEntry records have been appended
+    When the 101st AuditEntry is appended
+    Then the oldest entry is evicted FIFO
+    And exactly one "audit.log.retention_evicted{count=1}" log event is emitted
+    And the log holds 100 entries with the newest 100 retained
+
+  Scenario: AuditLog ttl_days reaping (Inv 26)
+    Given an AuditLog with ttl_days=30 and entries dated 31, 25, and 5 days ago
+    When the scheduled cleanup pass runs
+    Then the 31-day entry is reaped
+    And the 25-day and 5-day entries are retained
+    And the reaper emits "audit.log.retention_reaped{count=1}"
+
+  Scenario: GATE online evaluator unbound at startup raises StartupError (Inv 20)
+    Given a registered DAG with an LLM node N1 whose online_evaluators tuple is empty
+    And an Evaluator E1 declared mode=GATE, eval_kind='online' whose node-pattern matches N1
+    When bootstrap.create_executor runs
+    Then a StartupError is raised with reason='gate_evaluator_unbound'
+    And the error carries evaluator_id='E1' and node_id='N1'
+    And no DAGExecutor instance is returned
 ```
 
 ## 5. Out of Scope

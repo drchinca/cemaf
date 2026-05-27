@@ -422,6 +422,18 @@ class PatchDropReason(Enum):
     PATCH_UNVERIFIED_PROMOTION       = "patch_unverified_promotion"        # SPEC-05 Inv 14
     TOOL_OUTPUT_UNVERIFIED_PROMOTION = "tool_output_unverified_promotion"  # SPEC-05 Inv 22
 
+# AttemptKind — closed enum for the per-(node, attempt) classifier used as
+# (a) cassette key component (§7 below), (b) metric label on
+# cemaf_eval_score / cemaf_eval_halts_total (§9, cap 4), and (c) rolling-window
+# discriminator for SPEC-05 Inv 18/19. Bare strings are forbidden — child specs
+# SHALL reference AttemptKind members. New attempt classes require a SPEC-00
+# amendment so cardinality caps and cassette layouts stay aligned.
+class AttemptKind(Enum):
+    FIRST               = "first"                  # the initial dispatch
+    RETRY_AFTER_HINTS   = "retry_after_hints"      # post-RECOVER(RETRY_WITH_HINTS)
+    RETRY_AFTER_META    = "retry_after_meta"       # post-RECOVER(INVOKE_META_ARCHITECT)
+    RETRY_AFTER_REROUTE = "retry_after_reroute"    # post-RECOVER(REROUTE_DAG)
+
 # ToolLoopFabricationError — SPEC-03 Inv 11 sub-clause: a tool output produced
 # inside the structured-generator tool loop fails ToolOutputVerifier inspection
 # BEFORE being fed back into the LLM. Converted by post-flight to
@@ -1065,8 +1077,10 @@ are part of the test contract.
 `tests/fixtures/cassettes/<spec_id>/<judge_name>/<input_hash>.json` where
 `input_hash = sha256(canonical_json({prompt_template_version, model_id,
 decoding_params, judge_input_projection_version, input_projected, attempt_kind}))[:16]`.
-`attempt_kind ∈ {first, retry_after_hints, retry_after_meta, retry_after_reroute}` makes
-attempt-class cassettes deterministic without including drifting integers.
+`attempt_kind` SHALL be the string value of an `AttemptKind` enum member (§2);
+the closed 4-value set makes attempt-class cassettes deterministic without
+including drifting integers. Bare-string equality is forbidden — readers
+parse the field via `AttemptKind(value)`.
 Missing cassette in CI fails the test loud, not silent regenerate.
 Cassettes are checked into git.
 
