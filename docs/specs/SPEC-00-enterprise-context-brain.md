@@ -313,6 +313,12 @@ class RunResult:
     terminal_outcome: NodeOutcome | None     # None if HALT before terminal
     halt_scope: HaltScope | None = None      # set when task ended in HALTED
     recovery_summary: tuple[RecoveryResult, ...] = ()  # all recoveries, in dispatch order
+# RunResult lives in `cemaf/orchestration/executor.py` alongside
+# `DAGExecutor.run`; declared inline here for umbrella documentation only.
+# Implementation imports its field types (`Task`, `NodeOutcome`, `HaltScope`,
+# `RecoveryResult`) directly from their owning modules (SPEC-04, SPEC-01,
+# SPEC-01, SPEC-06 respectively) — no `core.types` re-export, avoiding the
+# import cycle that would arise from a single-module home.
 
 # get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
 # Single source of truth so child specs cite the same signature.
@@ -373,23 +379,30 @@ spec named in each row.
 #                              run via patches with source="meta:<sub_dag_id>".
 
 # Context extensions — owned by this umbrella so child specs do not redefine.
-# Context is a Pydantic BaseModel with model_config={"frozen": True}; the
-# canonical declaration (every field including round-46 additions) is:
+# Context is a frozen dataclass (matching the rest of CEMAF's value objects:
+# AgentResult, Goal, ContextPatch, RuntimeServices, Task). The canonical
+# declaration (every field including round-46 additions) is:
 #
-#   class Context(BaseModel):
-#       model_config = {"frozen": True}
-#       data: Mapping[str, Any] = Field(default_factory=dict)
-#       patch_history: tuple[ContextPatch, ...] = Field(default_factory=tuple)
+#   @dataclass(frozen=True, slots=True)
+#   class Context:
+#       data: Mapping[str, Any] = field(default_factory=dict)
+#       patch_history: tuple[ContextPatch, ...] = ()
 #       correlation_id: CorrelationID | None = None
-#       surfaced_sources: tuple[CiteableChunk, ...] = Field(default_factory=tuple)
-#       pending_meta_patches: tuple[CiteableChunk, ...] = Field(default_factory=tuple)
+#       surfaced_sources: tuple[CiteableChunk, ...] = ()
+#       pending_meta_patches: tuple[CiteableChunk, ...] = ()
+#
+#       def __post_init__(self) -> None:
+#           # Canonical wrap pattern (SPEC-00 §2): freeze the data mapping so
+#           # downstream `ctx.data["k"] = v` raises TypeError instead of
+#           # silently mutating shared state.
+#           object.__setattr__(self, "data", MappingProxyType(dict(self.data)))
 #
 # Field semantics (defaults preserve backwards-compatibility with existing
 # `Context(...)` constructors):
 #   Context.correlation_id   : CorrelationID | None = None
 #                              — DAGExecutor SHALL replace None with a freshly
 #                              minted CorrelationID via
-#                              `ctx = ctx.model_copy(update={"correlation_id": new_id})`
+#                              `ctx = dataclasses.replace(ctx, correlation_id=new_id)`
 #                              BEFORE invoking the PRE chain. Any interceptor
 #                              that observes ctx.correlation_id is None SHALL
 #                              raise ChainContractError("correlation_id_unset").
@@ -411,18 +424,19 @@ spec named in each row.
 #                              returned PreflightDecision (single-use;
 #                              idempotent re-runs observe ()).
 #
-# Frozen-model replacement idiom.
-# Context is a Pydantic `BaseModel` with `model_config = {"frozen": True}`;
-# in-place attribute assignment raises `ValidationError`. All "set" / "clear"
-# / "replace" mutations described in this umbrella and child specs SHALL be
-# implemented as `ctx = ctx.model_copy(update={...})` returning a new
+# Frozen-dataclass replacement idiom.
+# Context is `@dataclass(frozen=True, slots=True)`; in-place attribute
+# assignment raises `dataclasses.FrozenInstanceError`. All "set" / "clear" /
+# "replace" mutations described in this umbrella and child specs SHALL be
+# implemented as `ctx = dataclasses.replace(ctx, **updates)` returning a new
 # instance. Specifically: (a) Executor mints `correlation_id` via
-# `ctx.model_copy(update={"correlation_id": new_id})`; (b) Executor stages
-# meta patches via `ctx = ctx.model_copy(update={"pending_meta_patches": chunks})`
+# `dataclasses.replace(ctx, correlation_id=new_id)`; (b) Executor stages meta
+# patches via `ctx = dataclasses.replace(ctx, pending_meta_patches=chunks)`
 # immediately before `chain.run_pre` per SPEC-06 Inv 17; (c) PullInterceptor
 # clears the channel by returning a `PreflightDecision` whose
-# `enriched_context = ctx.model_copy(update={"surfaced_sources": ..., "pending_meta_patches": ()})`
-# per SPEC-02 Inv 13.
+# `enriched_context = dataclasses.replace(ctx, surfaced_sources=..., pending_meta_patches=())`
+# per SPEC-02 Inv 13. The `data` mapping is wrapped in `MappingProxyType` by
+# `__post_init__` per the canonical wrap pattern.
 
 # DAG consumed surface — declared here so SPEC-01 Inv 6e and SPEC-05
 # ToolOutputVerifier resolve without forward-referencing implementation:
@@ -475,6 +489,7 @@ This table is the single source of truth — child specs consume these.
 | `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Default profile a new executor uses; per-call `DAGExecutor.run(..., chain_profile=)` overrides (SPEC-06). Precedence: call-arg > services-default. **Default**: `ChainProfile.DEFAULT` (so omitting the field on construction does not break tenants who never opt into recovery). |
 | `knowledge_graph` | `KnowledgeGraph \| None` | SPEC-02 | Shared KG (meta + non-meta) |
 | `data_sources` | `DataSourceRegistry \| None` | SPEC-02 | Read-only enterprise connectors |
+| `entity_extractor` | `EntityExtractor \| None` | SPEC-02 | Pinned entity extractor for PullInterceptor step 1; deterministic regex+gazetteer default at `retrieval/entity_extractor.py`. None disables KG entity-driven retrieval (PullInterceptor falls back to text-only DataSource/vector queries). |
 | `blueprint_library` | `BlueprintLibrary \| None` | SPEC-03 | Blueprint resolution |
 | `task_repository` | `TaskRepository \| None` | SPEC-04 | Task state machine + snapshot |
 | `authorization_policy` | `AuthorizationPolicy \| None` | SPEC-05 | Legitimacy gate backend |

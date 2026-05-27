@@ -261,7 +261,13 @@ class GoalCompletionEvaluator(Protocol):
                        outputs: tuple[AgentResult, ...],
                        surfaced_sources: tuple[CiteableChunk, ...]
                        ) -> GoalCompletionResult:
-        """surfaced_sources is the membership set the judge MUST cite from
+        """`outputs` is the in-execution-order tuple of accepted `AgentResult`s
+        from every `is_llm_node` node in the task up to and including the
+        terminal node, projected from `task.prior_decisions` (only entries
+        with `decision.kind == ACCEPT`) plus the in-flight terminal
+        `AgentResult`. Order is the DAG topological order of the source nodes.
+
+        `surfaced_sources` is the membership set the judge MUST cite from
         (Inv 12). The interceptor passes ctx.surfaced_sources of the terminal
         node — the judge is structurally barred from inventing citations.
         """

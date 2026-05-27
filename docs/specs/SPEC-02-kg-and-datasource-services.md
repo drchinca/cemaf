@@ -89,6 +89,17 @@ class DataSourceRegistry:
 # Carrier field on Context (added by PullInterceptor, read by SPEC-05 cite-or-fail)
 #   ctx.surfaced_sources: tuple[CiteableChunk, ...]
 
+@runtime_checkable
+class EntityExtractor(Protocol):
+    """Pinned, pluggable entity extraction over goal.text. Default deterministic
+    implementation (regex + gazetteer) lives at `retrieval/entity_extractor.py`
+    and is referenced by PullInterceptor strategy step 1. LLM-based extractors
+    require fixture cassettes per SPEC-00 Property 6; bumping `version`
+    invalidates those cassettes.
+    """
+    version: ClassVar[str]
+    def extract(self, *, text: str) -> tuple[EntityRef, ...]: ...
+
 class PullInterceptor(NodeInterceptor):
     """PRE phase, runs at position 2 — BEFORE BlueprintInterceptor.
 

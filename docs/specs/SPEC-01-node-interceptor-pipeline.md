@@ -187,14 +187,20 @@ class NodeInterceptor(ABC):
         if not isinstance(display_name, str) or len(display_name) > 30:
             raise TypeError(f"{cls.__name__}.display_name must be a str ≤30 chars")
 
-    # NodeInterceptor implementations MAY assume `ctx.correlation_id is not None`
-    # — the Executor's pre-chain mint (SPEC-00 §380) is the load-bearing
+    # NodeInterceptor implementations MAY assume `ctx.correlation_id is not None`;
+    # the default body raises `ChainContractError("correlation_id_unset")` if
+    # violated, matching SPEC-00's mint-before-chain contract. The Executor's
+    # pre-chain mint (SPEC-00 §"Context extensions") is the load-bearing
     # precondition; unit tests SHALL construct Context with an explicit
-    # correlation_id.
+    # correlation_id. Raising `ChainContractError` (not `assert`) ensures the
+    # check survives `python -O` and surfaces as
+    # REJECT(reason="<id>:exception:ChainContractError") with the specced
+    # reason string instead of an AssertionError.
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
                   task: TaskContext, services: RuntimeServices) -> PreflightDecision:
         """Default no-op ACCEPT. Override when phase in {PRE, BOTH}."""
-        assert ctx.correlation_id is not None  # minted by Executor before chain entry per SPEC-00 §380
+        if ctx.correlation_id is None:
+            raise ChainContractError("correlation_id_unset")
         return PreflightDecision(kind=PreflightKind.ACCEPT,
                                   interceptor_id=self.interceptor_id,
                                   correlation_id=ctx.correlation_id)
@@ -205,7 +211,8 @@ class NodeInterceptor(ABC):
         `dag` is provided so post-flight interceptors (e.g., tool_verify) can
         inspect downstream edges without reaching into shared services state.
         """
-        assert ctx.correlation_id is not None  # minted by Executor before chain entry per SPEC-00 §380
+        if ctx.correlation_id is None:
+            raise ChainContractError("correlation_id_unset")
         return PostflightDecision(kind=PostflightKind.ACCEPT,
                                    interceptor_id=self.interceptor_id,
                                    correlation_id=ctx.correlation_id)
