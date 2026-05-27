@@ -631,9 +631,9 @@ Corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 generative outputs
 - **Spans**:
   - `gen_ai.guardian.legitimacy` — `authorized`, `policy.id`, `denied_scope`, `moderation.rule`
   - `gen_ai.guardian.cite_or_fail` — `claims.total`, `claims.ungrounded`, `non_member_refs.count`
-  - `gen_ai.guardian.tool_verify` — `tool_outputs.count`, `unverified.count`
-  - `gen_ai.guardian.online_eval` — `evaluator.id`, `score`, `police.alert_level`
-  - `gen_ai.guardian.goal_completion` — `achieved`, `confidence`, `missing_criteria.count`, `judge_citations.count`
+  - `gen_ai.guardian.tool_verify` — `tool_outputs.count`, `unverified.count`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
+  - `gen_ai.guardian.online_eval` — `evaluator.id`, `score`, `police.alert_level`, `judge_id`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
+  - `gen_ai.guardian.goal_completion` — `achieved`, `confidence`, `missing_criteria.count`, `judge_citations.count`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
   - `gen_ai.guardian.audit` — `phase`, `entry.id`, `node.status_at_emission`
 - **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `eval.score_recorded{evaluator,attempt_kind,score,correlation_id}` (paired with each `cemaf_eval_score` observation for span exemplar linkage per SPEC-00 §9), `eval.judge_budget_exhausted{judge_id, attempt_kind, correlation_id}`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
 - **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_eval_score{evaluator,attempt_kind,judge_id,prompt_template_version,model_id}` (histogram; bounded by §9 cardinality cap — evaluator≤32 × attempt_kind=3 × judge_id≤32 × prompt_template_version (pinned, ≤8 in flight) × model_id (pinned, ≤8 in flight); pin bumps invalidate prior series per Inv 19), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_eval_judge_budget_exhausted_total{judge_id}` (counter; judge_id bounded by online_eval_pipeline registry cap ≤32), `cemaf_hallucination_probe_rate` (gauge, no labels)
