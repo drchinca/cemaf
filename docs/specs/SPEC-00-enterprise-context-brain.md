@@ -26,6 +26,20 @@ inspiration:
 > specs (SPEC-01..06) own per-subsystem detail; this document owns the
 > contract between them and the invariants that hold across all of them.
 
+## Contents
+
+- [Glossary](#glossary)
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+- [Next Steps](#next-steps)
+
 ## Glossary
 
 | Term | Meaning |

@@ -13,6 +13,18 @@ parent: SPEC-00 — Enterprise Context Brain
 > and post-flight middleware chain. Six of the eight Context Brain pillars
 > compose on this one mechanism.
 
+## Contents
+
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+
 ## 1. Context
 
 Today `ContextNodeExecutor.execute_node()` resolves the agent, builds the goal,

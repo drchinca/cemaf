@@ -17,6 +17,32 @@ budget_override: "≤810 lines (scenarios ≤32) — six guardians + §10 user-f
 > **audit** (both). Together they enforce the **low-to-zero hallucination,
 > total awareness, audited-and-assertive** property of the Context Brain.
 
+## Contents
+
+- [Glossary](#glossary)
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+- [10. User-facing failure copy](#10-user-facing-failure-copy)
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| **Legitimacy** | Pre-flight authorization gate via `AuthorizationPolicy.authorize`; rejects out-of-scope actions before agent invocation. |
+| **Cite-or-fail** | Post-flight enforcement that every `cited_evidence_ref` is a member of `ctx.surfaced_sources` (3-tuple membership predicate from SPEC-00 §2). |
+| **Tool-verify** | Post-flight `ToolOutputVerifier` check; unverified tool outputs trigger RECOVER and are barred from downstream surfaced_sources (Inv 22). |
+| **Online eval** | Per-attempt synchronous LLM-judge scoring with rolling-window halt via `QualityPolice` (z-score ≤ −2.5 or 3× WARN). |
+| **Attempt kind** | Member of SPEC-00 §2 `AttemptKind` enum; rolling-window key dimension preventing pre/post-recovery score mixing. |
+| **Judge–agent isolation** | Spec-audit invariant: every guardian judge's model FAMILY differs from the agent it gates (Inv 23). |
+| **Cassette** | Fixture file under `tests/fixtures/cassettes/<spec_id>/<judge>/<input_hash>.json` — pinned LLM-judge replay, fail-loud on divergence. |
+
 ## 1. Context
 
 `evals/`, `citation/`, `moderation/`, `audit/` already exist. None are wired

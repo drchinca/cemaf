@@ -15,6 +15,18 @@ depends_on: SPEC-01
 > and defines the `PullInterceptor` that realizes **pull-not-push** retrieval —
 > writing the canonical `ctx.surfaced_sources` set consumed by SPEC-05 cite-or-fail.
 
+## Contents
+
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+
 ## 1. Context
 
 `knowledge/MemoryBackedKnowledgeGraph` exists but is consumed only by `meta/`.
