@@ -189,9 +189,10 @@ Feature: Pull-not-push context
 
 ### Property 1: Read-only boundary
 *For any* `DataSource` registered via `DataSourceRegistry.register`, the
-concrete class's public attribute set is a subset of
-`{"retrieve","health","source_id","capabilities"}`. Enforced at registration
-time; `@runtime_checkable` Protocol presence-check alone is insufficient.
+concrete class's *public* attribute set (names not starting with `_`) is a
+subset of `{"retrieve","health","source_id","capabilities"}`. Enforced at
+registration time; `@runtime_checkable` Protocol presence-check alone is
+insufficient.
 
 **Validates: §3 Invariant 1 / §4 "Read-only enforcement at registry"**
 

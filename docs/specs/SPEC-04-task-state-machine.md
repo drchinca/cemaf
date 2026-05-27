@@ -48,10 +48,11 @@ match.
 Common types in SPEC-00 §2 (`TaskID`, `NodeID`, `TokenBudget`, `Citation`).
 
 ```python
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from types import TracebackType
 
 class TaskState(Enum):
     QUEUED    = "queued"
@@ -78,7 +79,7 @@ class TaskContext:
     budget_remaining: TokenBudget                  # required, no default
     started_at: datetime                           # required, no default
     correlation_id: CorrelationID                  # required, no default
-    retry_ledger: dict[NodeID, int] = field(default_factory=dict)   # SPEC-05 reads, executor writes
+    retry_ledger: tuple[tuple[NodeID, int], ...] = ()   # SPEC-05 reads, executor rebuilds via dataclasses.replace; tuple-of-pairs preserves frozen+slots invariants while supporting increment-only updates (Inv 10)
     state: TaskState = TaskState.RUNNING
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +97,10 @@ class AcquiredLease:
     """Async context manager wrapping an AcquireToken + the owning repository."""
     def __init__(self, *, repository: "TaskRepository", token: AcquireToken) -> None: ...
     async def __aenter__(self) -> AcquireToken: ...
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self,
+                         exc_type: type[BaseException] | None,
+                         exc_val: BaseException | None,
+                         exc_tb: "TracebackType | None") -> None:
         """Calls repository.release(self._token); re-raises after release."""
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +114,7 @@ class Task:
     step_index: int
     step_count: int
     prior_decisions: tuple[Decision, ...]
-    retry_ledger: dict[NodeID, int]
+    retry_ledger: tuple[tuple[NodeID, int], ...]
     budget_remaining: TokenBudget
     correlation_id: CorrelationID
     created_at: datetime
@@ -125,11 +129,12 @@ class TaskSnapshot:
     step_index: int
     step_count: int
     prior_decisions: tuple[Decision, ...]
-    retry_ledger: dict[NodeID, int]
+    retry_ledger: tuple[tuple[NodeID, int], ...]
     budget_remaining: TokenBudget
     correlation_id: CorrelationID
     snapshot_at: datetime
 
+@runtime_checkable
 class TaskRepository(Protocol):
     async def create(self, *, goal: Goal, dag_id: DAGID,
                      budget: TokenBudget) -> Task: ...
@@ -170,7 +175,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 7. `Every node SHALL receive a TaskContext via TaskInjectInterceptor — even single-step DAGs (step_count=1).`
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`
 9. `TaskRepository.acquire SHALL be exclusive — concurrent resumption attempts on the same task SHALL fail with TaskInUseError.`
-10. `THE retry_ledger SHALL be append/increment-only; counters never decrement.`
+10. `THE retry_ledger SHALL be append/increment-only; counters never decrement. Storage is tuple[tuple[NodeID, int], ...]; read access is via a helper get_retry(ledger, node_id) -> int (default 0); writes happen by rebuilding the Task aggregate via dataclasses.replace, not in-place mutation.`
 11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) BEFORE running the interceptor chain for a re-dispatched node, so guardians observe the post-increment value.`
 12. `WHEN AcquireToken.lease_ttl_ms elapses without explicit release, THE TaskRepository SHALL treat the lease as expired and permit a new acquire — preventing dead executors from holding tasks indefinitely.`
 

@@ -125,6 +125,14 @@ class NodeInterceptor(ABC):
     interceptor_id: ClassVar[str]       # required class attribute on every subclass
     phase: ClassVar[InterceptorPhase]   # required class attribute on every subclass
 
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Runtime guard: subclasses without interceptor_id/phase fail at class
+        creation rather than at first dispatch."""
+        super().__init_subclass__(**kwargs)
+        for attr in ("interceptor_id", "phase"):
+            if not hasattr(cls, attr) or getattr(cls, attr) is None:
+                raise TypeError(f"{cls.__name__} must define class attribute {attr!r}")
+
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
                   task: TaskContext, services: RuntimeServices) -> PreflightDecision:
         """Default no-op ACCEPT. Override when phase in {PRE, BOTH}."""
