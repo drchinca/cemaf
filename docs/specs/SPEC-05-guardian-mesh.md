@@ -67,8 +67,12 @@ class Claim:
 @runtime_checkable
 class ClaimExtractor(Protocol):
     """Deterministic given a fixed implementation. Two impls in v1:
-       - SchemaFieldClaimExtractor: each non-trivial field (non-None,
-         non-empty, non-default) of a Pydantic output is one Claim.
+       - SchemaFieldClaimExtractor: ONLY fields explicitly annotated with
+         `Field(json_schema_extra={"grounding_required": True})` on the
+         Pydantic output schema become Claims. Non-annotated fields are NOT
+         Claims (avoids false-positive grounding on labels, ids, enums, and
+         other non-factual fields). When the schema declares zero
+         grounding-required fields, the extractor returns ().
        - SentenceClaimExtractor: segment raw_text via the pinned rules in
          `evals/claim_extractor.py::SENTENCE_RULES_V1`:
            * sentence boundary: `(?<=[.!?])\s+(?=[A-Z])`
@@ -78,8 +82,10 @@ class ClaimExtractor(Protocol):
            * factual: any remaining sentence with ≥1 token whose
              POS-tag-equivalent is NOUN, PROPN, NUM, or DATE per the
              `en_core_web_sm` tagger pinned in `cemaf/data/eval_pins/`.
-       Default is SchemaFieldClaimExtractor when output_schema is set, else
-       SentenceClaimExtractor. Pluggable via RuntimeServices.claim_extractor.
+       Default selection: SchemaFieldClaimExtractor when output_schema is set
+       AND ≥1 field is `grounding_required=True`; otherwise
+       SentenceClaimExtractor over `raw_text`. Pluggable via
+       RuntimeServices.claim_extractor.
     """
     def extract(self, *, result: AgentResult) -> tuple[Claim, ...]: ...
 ```
@@ -116,14 +122,28 @@ class CiteOrFailInterceptor(NodeInterceptor):
     """POST position 1.
     Algorithm (deterministic):
       surfaced = {c.citation for c in ctx.surfaced_sources}
-      claims  = ClaimExtractor.extract(result=result)
-      cited   = set(result.cited_evidence_refs)
+      claims   = ClaimExtractor.extract(result=result)
+      cited    = set(result.cited_evidence_refs)
+      ungrounded = tuple(c for c in claims if c.citations == ())
 
+      # Membership check applies regardless of grounding policy.
       if cited - surfaced:                  -> REJECT(reason="non_member_citation",
                                                        hints=[fix=cite from surfaced])
-      if any claim with claim.citations == () and node.grounding == REQUIRED:
+
+      # Grounding-policy branching (SPEC-00 §2 GroundingPolicy):
+      if node.grounding == REQUIRED and ungrounded:
                                             -> REJECT(reason="ungrounded_claim",
                                                        hints=[fix=cite source X for claim Y])
+      if node.grounding == BEST_EFFORT and ungrounded:
+          # ACCEPT. The chain reports `ungrounded` via the PostflightDecision's
+          # `unverified_claims` payload (carve-out to SPEC-01 Inv 6: post-flight
+          # MAY NOT mutate the existing AgentResult, but the executor MAY
+          # construct a NEW AgentResult with `unverified_claims = prior +
+          # ungrounded` before persisting — frozen-dataclass invariant
+          # preserved). Downstream consumers and user-facing copy SHALL
+          # annotate these claims as "[unverified]".
+                                            -> ACCEPT(unverified_claims=ungrounded)
+      # OPTIONAL and DISABLED: no claim-level enforcement.
     """
     interceptor_id = "cite_or_fail"
     phase = InterceptorPhase.POST
@@ -229,7 +249,7 @@ class AuditInterceptor(NodeInterceptor):
 
 1. `WHEN AuthorizationPolicy.authorize returns authorized=False, THE LegitimacyInterceptor SHALL emit REJECT(reason="out_of_scope:<denied_scope>") and the agent SHALL NOT be invoked.`
 2. `WHEN any element of result.cited_evidence_refs ∉ {c.citation for c in ctx.surfaced_sources}, THE CiteOrFailInterceptor SHALL REJECT(reason="non_member_citation").`
-3. `WHEN node.grounding == REQUIRED AND ClaimExtractor.extract yields a Claim with citations==(), THE CiteOrFailInterceptor SHALL REJECT(reason="ungrounded_claim").`
+3. `WHEN node.grounding == REQUIRED AND ClaimExtractor.extract yields a Claim with citations==(), THE CiteOrFailInterceptor SHALL REJECT(reason="ungrounded_claim"). WHEN node.grounding == BEST_EFFORT AND ungrounded claims exist, THE CiteOrFailInterceptor SHALL ACCEPT and the executor SHALL persist a derived AgentResult whose unverified_claims tuple includes those claims; user-facing surfaces SHALL render them as "[unverified]". WHEN node.grounding ∈ {OPTIONAL, DISABLED}, ungrounded claims SHALL NOT trigger any decision change.`
 4. `WHEN ToolOutputVerifier.verify returns verified=False, THE ToolOutputVerifierInterceptor SHALL REJECT(reason="tool_unverified").`
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
@@ -271,6 +291,14 @@ Feature: Guardian mesh
     And SchemaFieldClaimExtractor extracts a Claim with citations==()
     When CiteOrFailInterceptor runs
     Then PostflightDecision is REJECT(reason="ungrounded_claim")
+
+  Scenario: Cite-or-fail downgrades ungrounded claim under BEST_EFFORT
+    Given node.grounding == BEST_EFFORT
+    And ClaimExtractor extracts two Claims, one with citations==() and one cited from surfaced
+    When CiteOrFailInterceptor runs
+    Then PostflightDecision is ACCEPT
+    And the persisted AgentResult.unverified_claims contains exactly the ungrounded Claim
+    And the agent is not re-dispatched
 
   Scenario: Tool-output verifier catches fabricated tool result
     Given a tool output consumed by the next node
@@ -446,3 +474,35 @@ To support the `rate ≤ 0.02` claim:
   - `gen_ai.guardian.audit` — `phase`, `entry.id`, `node.status_at_emission`
 - **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
 - **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_hallucination_probe_rate` (gauge, no labels)
+
+## 10. User-facing failure copy
+
+Reason strings emitted by guardians (`PreflightDecision.reason`,
+`PostflightDecision.reason`) are engineer-facing identifiers. Every consumer
+(BrightAgent Slack notifications, dashboards, CLI run summaries) SHALL render
+them via this single mapping — no ad-hoc paraphrasing per surface. Suggested
+actions are imperative and address the *user*, not the developer. The mapping
+is the source of truth; tests assert that every reason string emitted in code
+appears as a row here.
+
+| Reason | Human message | Suggested next action |
+|---|---|---|
+| `out_of_scope:<scope>` | "This action isn't permitted in your current workspace scope (`<scope>`)." | "Ask an admin to grant the scope, or rephrase the request to stay within current permissions." |
+| `moderation:<rule>` | "Your request was blocked by content safety (rule: `<rule>`)." | "Remove the flagged content (e.g., PII, secrets) and resend." |
+| `non_member_citation` | "The answer cited a source that wasn't part of the surfaced evidence." | "We retried automatically. If you keep seeing this, check that the relevant data source is connected." |
+| `ungrounded_claim` | "Part of the answer wasn't backed by a cited source, so we held it back." | "Try rephrasing more narrowly, or attach a document with the missing context." |
+| `tool_unverified` | "A tool response looked unreliable, so we didn't pass it downstream." | "We're retrying with hints. No action needed; we'll surface a result or a clear failure." |
+| `policy_exhausted` | "The blueprint policy couldn't be satisfied after retries." | "Review the policy on this blueprint, or relax the constraint and retry." |
+| `no_blueprint_resolved` | "We couldn't pick a blueprint for this step." | "Check the agent capability or assign an explicit blueprint to this node." |
+| `no_grounding_available` | "We couldn't find any source material to ground this answer." | "Connect a relevant data source or broaden the query." |
+| `meta_unavailable` | "The answer needed a fix-up plan, but the recovery engine is offline." | "Retry later. If urgent, escalate — recovery is not configured for this deployment." |
+| `meta_depth_exceeded` | "We tried to fix the run but kept hitting the same wall." | "Simplify the request or break it into smaller steps." |
+| `meta_token_exhausted` | "We hit the recovery budget for this task." | "Either raise the recovery budget for this task class or accept the partial output and retry manually." |
+| `<id>:timeout` | "An internal step (`<id>`) took too long." | "Retry. If it persists, check service health for that subsystem." |
+| `<id>:exception:<class>` | "An internal step (`<id>`) crashed." | "Retry. If it persists, the error is logged with `correlation_id` for engineering follow-up — no user action available." |
+
+Unverified-claim rendering (under `GroundingPolicy.BEST_EFFORT`): each claim
+in `AgentResult.unverified_claims` SHALL be rendered with a leading
+`[unverified]` tag in any surface that displays the claim's text, AND the
+surface SHALL show a one-line footer: "Some statements above couldn't be
+matched to a cited source — treat them as unconfirmed."

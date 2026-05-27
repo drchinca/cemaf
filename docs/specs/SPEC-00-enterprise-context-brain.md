@@ -159,12 +159,14 @@ class AgentResult:
     raw_text: str | None
     cited_evidence_refs: tuple[Citation, ...] = ()
     tool_calls: tuple[ToolCallOutput, ...] = ()     # consumed by SPEC-05 ToolOutputVerifier
+    unverified_claims: tuple["Claim", ...] = ()      # claims accepted under GroundingPolicy.BEST_EFFORT but lacking citation membership; surfaced to users as "[unverified]". Claim type defined in SPEC-05 §2.
     metadata: dict[str, str] = field(default_factory=dict)
 
 class GroundingPolicy(Enum):
-    REQUIRED = "required"   # cite-or-fail enforced
-    OPTIONAL = "optional"   # cite if present, do not reject if absent
-    DISABLED = "disabled"   # router/conditional/parallel non-output nodes
+    REQUIRED    = "required"      # cite-or-fail enforced; ungrounded → REJECT
+    BEST_EFFORT = "best_effort"   # cite-or-fail downgrades ungrounded claims to AgentResult.unverified_claims and ACCEPTs (claim still surfaces in user copy as "[unverified]")
+    OPTIONAL    = "optional"      # cite if present, do not reject if absent (no flagging)
+    DISABLED    = "disabled"      # router/conditional/parallel non-output nodes
 
 class SchemaFailurePolicy(Enum):
     REJECT  = "reject"      # post-flight REJECT on schema validation failure
