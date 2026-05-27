@@ -73,7 +73,17 @@ class BlueprintRequest(Generic[T]):
     output_schema: type[T] | None                    # see "Grounding annotation policy" below
     grounding_refs: tuple[Citation, ...]            # derived from ctx.surfaced_sources
     policy_retry_budget: int = 2                     # consumed by StructuredGenerator (Inv 7)
+    tool_loop_budget: int = 5                        # bounds the TERMINAL_TOOL → tool exec → resume loop (Inv 11)
     metadata: Mapping[str, str] = field(default_factory=dict)   # Mapping per SPEC-00 §2 canonical wrap pattern
+
+class StreamingIncompleteError(RuntimeError):
+    """Raised when the upstream LLM stream returns a partial finish_reason (Inv 11)."""
+
+class PolicyExhaustedError(RuntimeError):
+    """Raised when blueprint MUST/MUST_NOT re-generation budget is exhausted (Inv 7)."""
+
+class ToolLoopExhaustedError(RuntimeError):
+    """Raised when the StructuredGenerator's tool-call loop exceeds tool_loop_budget."""
 
 @dataclass(frozen=True, slots=True)
 class StructuredResult(Generic[T]):
@@ -170,9 +180,10 @@ should not require grounding) requires an explicit waiver entry in
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
 9. `THE generator SHALL filter cited_evidence_refs to ⊆ BlueprintRequest.grounding_refs before returning the StructuredResult — i.e., it SHALL NOT introduce non-member Citations. SPEC-05 cite-or-fail enforces the same membership predicate at post-flight against ctx.surfaced_sources (which equals grounding_refs at the moment BlueprintInterceptor ran, per Inv 3) — the two checks are redundant by design (defense in depth).`
 10. `IF a registered blueprint declares an output_schema with a free-text factual field (str-typed, max_length ≥ 64 or unbounded, name ∉ structural-metadata allow-list per §2 "Grounding annotation policy") AND no field on that schema carries grounding_required=True, THEN the SPEC-00 §6 Spec Audit SHALL fail the build. Override requires a waiver entry in cemaf/data/eval_pins/grounding_audit_waivers.json with a justification string.`
-11. `StructuredGenerator.generate SHALL return only after the upstream LLM stream has reached its terminal token (finish_reason ∈ {FinishReason.TERMINAL_STOP, FinishReason.TERMINAL_TOOL} per SPEC-00 §2). Partial completion due to stream error, client-side cancellation, or finish_reason ∈ {FinishReason.PARTIAL_LENGTH, FinishReason.PARTIAL_FILTER, FinishReason.PARTIAL_ERROR} SHALL raise StreamingIncompleteError carrying the partial token count and finish_reason; the post-flight chain converts it to REJECT(reason="generation_incomplete"). Adapters MUST normalize provider-native values (Anthropic stop_sequence/end_turn → TERMINAL_STOP; Anthropic tool_use / OpenAI tool_calls,function_call → TERMINAL_TOOL; Anthropic max_tokens / OpenAI length → PARTIAL_LENGTH) at the adapter boundary per SPEC-00 §3 Inv 12. Validators, policy checks, and cited_evidence_ref filtering (Invs 6/7/9) SHALL NOT run against partial output — incomplete generations never produce a StructuredResult.`
+11. `StructuredGenerator.generate SHALL return only after the upstream LLM stream has reached its terminal token (finish_reason == FinishReason.TERMINAL_STOP per SPEC-00 §2). WHEN finish_reason == FinishReason.TERMINAL_TOOL, THE StructuredGenerator SHALL execute the requested tool via the bound ToolRegistry, append the tool result to the conversation, and resume streaming. The generator returns ONLY when a resumed stream reaches FinishReason.TERMINAL_STOP, or raises StreamingIncompleteError if any resumed stream returns a partial reason. The tool-call loop SHALL be bounded by BlueprintRequest.tool_loop_budget (default 5); on exhaustion the generator SHALL raise ToolLoopExhaustedError converted by post-flight to REJECT(reason="tool_loop_exhausted"). Partial completion due to stream error, client-side cancellation, or finish_reason ∈ {FinishReason.PARTIAL_LENGTH, FinishReason.PARTIAL_FILTER, FinishReason.PARTIAL_ERROR} SHALL raise StreamingIncompleteError carrying the partial token count and finish_reason; the post-flight chain converts it to REJECT(reason="generation_incomplete"). Adapters MUST normalize provider-native values per the SPEC-00 §2 canonical mapping table at the adapter boundary (SPEC-00 §3 Inv 12). Validators, policy checks, and cited_evidence_ref filtering (Invs 6/7/9) SHALL NOT run against partial output — incomplete generations never produce a StructuredResult.`
 12. `WHEN a chain-level or per-interceptor timeout fires during agent.run, THE Executor SHALL cancel the upstream LLM stream, charge consumed input+output tokens to task.budget_remaining (already-paid cost), and emit REJECT(reason='agent:timeout'). A cancelled stream SHALL NOT produce a StructuredResult — same path as Inv 11 (no validators, no policy checks, no cited_evidence_ref filtering on partial output).`
 13. `THE StructuredGenerator SHALL bound the LLM request's effective max_tokens at min(node.budget.generation_tokens, blueprint.style.max_tokens). RuntimeServices.eval_budget applies ONLY to guardian-invoked judges (SPEC-05 Inv 17) and SHALL NOT debit task.budget_remaining or override the StructuredGenerator's per-node cap.`
+14. `WHEN StructuredGenerator.generate completes (terminal or partial), THE generator SHALL emit a gen_ai.generate.structured span carrying gen_ai.request.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.response.finish_reason — including on StreamingIncompleteError paths (finish_reason ∈ partial set per Inv 11).`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -242,6 +253,23 @@ Feature: Blueprint-driven generation
     And the post-flight chain converts it to REJECT(reason="generation_incomplete")
     And no validators or policy checks run against partial output
     And no StructuredResult is produced
+
+  Scenario: Tool-call loop completes via continuation
+    Given an LLM stream returns finish_reason=FinishReason.TERMINAL_TOOL with a tool_use block
+    When the StructuredGenerator dispatches the tool, appends the result, and resumes the stream
+    And the resumed stream reaches finish_reason=FinishReason.TERMINAL_STOP within tool_loop_budget rounds
+    Then a single StructuredResult is returned with the validated output schema instance
+
+  Scenario: Tool-call loop exhausts budget
+    Given a StructuredGenerator with tool_loop_budget=2
+    And the LLM emits TERMINAL_TOOL on rounds 1, 2, and 3
+    When the generator processes the third TERMINAL_TOOL
+    Then it raises ToolLoopExhaustedError
+    And the post-flight chain converts to REJECT(reason="tool_loop_exhausted")
+
+  Scenario: Structured-generate span emits usage attrs
+    Given a StructuredGenerator completes a successful generation
+    Then the gen_ai.generate.structured span carries non-null gen_ai.request.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.response.finish_reason
 
   Scenario: Chain timeout cancels the in-flight stream
     Given a chain-level timeout fires during agent.run
