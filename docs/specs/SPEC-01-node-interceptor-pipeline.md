@@ -121,9 +121,15 @@ class PostflightDecision:
 
 ### NodeInterceptor — abstract base, not bare Protocol
 
-Junior-dev feedback: a Protocol forces every implementer to define both
-`pre()` and `post()`. We use an abstract base with default ACCEPT methods so
-implementers override only what they need.
+A Protocol forces every implementer to define both `pre()` and `post()`. We
+use an abstract base with default ACCEPT methods so implementers override only
+what they need. The `ABC` base is load-bearing for two reasons even without
+`@abstractmethod` on `pre`/`post`: (1) `__init_subclass__` uses cooperative
+`super().__init_subclass__(**kwargs)` and ABC integrates cleanly with that
+chain; (2) `isinstance(x, NodeInterceptor)` is the registration check used
+by the chain assembler. The required-attribute enforcement (Inv 15) lives in
+`__init_subclass__` rather than via `@abstractmethod` because it covers
+class-level `ClassVar`s, not methods.
 
 ```python
 from typing import ClassVar

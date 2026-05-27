@@ -93,14 +93,19 @@ class AcquireToken:
     acquired_at: datetime
     lease_ttl_ms: int = 60_000                     # auto-released after TTL on holder crash
 
+# NOTE: this snippet uses `from __future__ import annotations` semantics —
+# all annotations are strings at runtime, so TaskRepository (defined below)
+# resolves without TYPE_CHECKING. The CEMAF "no TYPE_CHECKING" rule still
+# holds at the module level: at implementation time, AcquiredLease lives in
+# the same module as TaskRepository or imports it at module top.
 class AcquiredLease:
     """Async context manager wrapping an AcquireToken + the owning repository."""
-    def __init__(self, *, repository: "TaskRepository", token: AcquireToken) -> None: ...
+    def __init__(self, *, repository: TaskRepository, token: AcquireToken) -> None: ...
     async def __aenter__(self) -> AcquireToken: ...
     async def __aexit__(self,
                          exc_type: type[BaseException] | None,
                          exc_val: BaseException | None,
-                         exc_tb: "TracebackType | None") -> None:
+                         exc_tb: TracebackType | None) -> None:
         """Calls repository.release(self._token); re-raises after release."""
 
 @dataclass(frozen=True, slots=True)

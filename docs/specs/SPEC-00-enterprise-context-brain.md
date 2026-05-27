@@ -136,7 +136,14 @@ class CiteableChunk:
 @dataclass(frozen=True, slots=True)
 class Goal:
     text: str
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
+    # Value type is `object` (not `str`) because reserved keys carry structured
+    # payloads — e.g. SPEC-01 Inv 10 stores `metadata["remediation"]: tuple[RecoveryHint, ...]`.
+    # Reserved keys and their value types are documented in their owning specs:
+    #   "remediation"    : tuple[RecoveryHint, ...]   — SPEC-01 Inv 10
+    #   "blueprint_request" : str (canonical JSON)    — SPEC-03 §2 BlueprintInterceptor
+    # Free-form caller metadata SHOULD use only `str` values to keep canonical
+    # serialization (SPEC-03 Inv 4) replay-deterministic.
 
 @dataclass(frozen=True, slots=True)
 class EntityRef:
