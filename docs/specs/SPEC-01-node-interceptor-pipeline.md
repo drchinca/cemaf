@@ -77,6 +77,12 @@ class HaltScope(Enum):
     DAG  = "dag"
     TASK = "task"
 
+class ChainContractError(RuntimeError):
+    """Raised when an interceptor violates a chain-phase contract — e.g. a
+    POST interceptor attempts to re-issue agent.run, or a PRE interceptor
+    mutates AgentResult. The chain catches it and converts to REJECT
+    (reason=\"<id>:exception:ChainContractError\")."""
+
 class RecoveryStrategy(Enum):
     RETRY_WITH_HINTS       = "retry_with_hints"
     REROUTE_TO_AGENT       = "reroute_to_agent"
