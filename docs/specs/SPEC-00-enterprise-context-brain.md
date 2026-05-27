@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤640 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, and concurrency contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤700 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -302,8 +302,8 @@ This table is the single source of truth — child specs consume these.
 | Field | Type | Owning spec | Purpose |
 |---|---|---|---|
 | `interceptors` | `tuple[NodeInterceptor, ...]` | SPEC-01 | Ordered chain |
-| `token_budget` | `TokenBudget` | SPEC-00 / SPEC-01 / SPEC-04 | The default per-call parent metering authority. SPEC-01 reads `services.token_budget.timeout_ms` for chain-bound precedence; SPEC-04 `Task.budget_remaining` is initialized from this value at task creation; SPEC-06 recovery runs are metered against `meta_budget` and SHALL NOT decrement this. Already present on the existing `RuntimeServices` (CLAUDE.md); listed here so child specs reference it from the umbrella table. |
-| `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Default profile a new executor uses; per-call `DAGExecutor.run(..., chain_profile=)` overrides (SPEC-06). Precedence: call-arg > services-default. |
+| `token_budget` | `TokenBudget` | SPEC-00 / SPEC-01 / SPEC-04 | The default per-call parent metering authority. SPEC-01 reads `services.token_budget.timeout_ms` for chain-bound precedence; SPEC-04 `Task.budget_remaining` is initialized from this value at task creation; SPEC-06 recovery runs are metered against `meta_budget` and SHALL NOT decrement this. Already present on the existing `RuntimeServices` (CLAUDE.md); listed here so child specs reference it from the umbrella table. **Default**: `TokenBudget(total=20_000, pull_tokens=4_000, generation_tokens=4_000, timeout_ms=30_000)` — applied at dataclass construction so existing tenants instantiating `RuntimeServices` without passing this field do not regress. |
+| `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Default profile a new executor uses; per-call `DAGExecutor.run(..., chain_profile=)` overrides (SPEC-06). Precedence: call-arg > services-default. **Default**: `ChainProfile.DEFAULT` (so omitting the field on construction does not break tenants who never opt into recovery). |
 | `knowledge_graph` | `KnowledgeGraph \| None` | SPEC-02 | Shared KG (meta + non-meta) |
 | `data_sources` | `DataSourceRegistry \| None` | SPEC-02 | Read-only enterprise connectors |
 | `blueprint_library` | `BlueprintLibrary \| None` | SPEC-03 | Blueprint resolution |
@@ -314,7 +314,7 @@ This table is the single source of truth — child specs consume these.
 | `claim_extractor` | `ClaimExtractor \| None` | SPEC-05 | Claim segmentation for cite-or-fail |
 | `structured_generator` | `StructuredGenerator \| None` | SPEC-03 | Blueprint → typed result generator |
 | `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
-| `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds |
+| `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds. **Default**: `MetaInvocationBudget()` (max_depth=2, max_token_total=50_000, max_wall_time_ms=30_000) — applied at dataclass construction so existing tenants do not need to know about the field to remain valid; meta_dispatcher=None still downgrades RECOVER(INVOKE_META_ARCHITECT) to REJECT(meta_unavailable) per SPEC-01 Inv 16. |
 
 `RuntimeServices` is a frozen dataclass; mutation is forbidden. Per-call
 state (e.g., active `ChainProfile` for a specific `DAGExecutor.run` call)
@@ -364,8 +364,14 @@ exposed via this factory:
 3. Append `AuditInterceptor` last — unconditional (SPEC-05 Inv 10) and
    independent of any service field.
 4. Sort the resulting tuple by `(phase, position)` against
-   `DEFAULT_PRE_ORDER` / `DEFAULT_POST_ORDER`. Unknown interceptor IDs
-   are a startup `ValueError`.
+   `DEFAULT_PRE_ORDER` / `DEFAULT_POST_ORDER`. Interceptor IDs not in
+   the canonical orders are appended after the canonical entries in
+   their declared `phase` (PRE or POST) preserving insertion order —
+   custom user-supplied interceptors are a supported extension point
+   (SPEC-01 Inv 14 permits arbitrary `NodeInterceptor` subclasses) and
+   SHALL NOT block startup. Duplicate `interceptor_id` (same id present
+   twice in the resolved tuple) IS a startup `ValueError` — that's the
+   actual unsafe case.
 5. Freeze the tuple onto a new `RuntimeServices` instance via
    `dataclasses.replace(services, interceptors=...)`.
 
@@ -388,6 +394,56 @@ maintains a "drain peers, then dispatch sub-DAG" barrier:
   before sub-DAG starts.
 - HALT during drain: if any draining peer emits HALT, the sub-DAG SHALL
   NOT be dispatched and the Task transitions to HALTED via SPEC-04 Inv 8.
+
+### Startup-error owner
+
+Cardinality caps and registry constraints declared across these specs are
+enforced in one place — `bootstrap.create_executor()` — at executor
+construction, before the first `run()` call:
+
+- `services.online_eval_pipeline` registry size > 32 → `StartupError`
+  (SPEC-00 §9 evaluator-label cap). Skipped when the pipeline is None.
+- `services.blueprint_library` registry size > 200 distinct `(id, version)`
+  pairs → `StartupError` (SPEC-03 §9). Skipped when the library is None.
+- Duplicate `interceptor_id` in the resolved chain → `StartupError`
+  (above, step 4).
+- `services.token_budget is None` → `StartupError` ("RuntimeServices.token_budget
+  is required for parent metering; default is provided at dataclass
+  construction — explicit None means a misconfigured factory.")
+
+`StartupError` is a single exception class raised here so deployment
+tooling has one path to catch and report. Liveness probes SHALL surface
+this as "not ready" (next subsection).
+
+### Readiness contract
+
+Production deploys need a readiness probe distinguishing "process up" from
+"process up AND configured for the workload it claims to serve."
+`DAGExecutor.readiness() -> ReadinessReport` returns:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ReadinessReport:
+    ready: bool                                       # AND of every required-field check below
+    chain_profile: ChainProfile
+    required_fields_present: Mapping[str, bool]       # field name -> presence; only includes fields required for chain_profile
+    optional_fields_present: Mapping[str, bool]
+    datasource_health: Mapping[str, DataSourceHealth] # SPEC-02 — empty when services.data_sources is None
+    reason: str | None                                # human-readable explanation when ready=False
+```
+
+Required-fields rule (per active chain_profile):
+- `ChainProfile.DEFAULT`: `task_repository`, `token_budget`. Guardians
+  with non-None services activate; guardians with None services are
+  silently skipped (SPEC-05 Inv 10) and listed under `optional_fields_present`.
+- `ChainProfile.RECOVERY`: same baseline; `meta_dispatcher` is NOT
+  required (sub-DAGs run inside the parent's executor and the dispatcher
+  is the *invoker*, not a sub-DAG dependency).
+
+`/healthz` (liveness) maps to "process running, no `StartupError`".
+`/readyz` (readiness) maps to `readiness().ready`. Tenants opting out of
+specific guardians SHALL see `ready=True` with the unsupplied guardians
+listed in `optional_fields_present={...: False}` rather than a hard fail.
 
 ## 3. Invariants (DbC)
 
