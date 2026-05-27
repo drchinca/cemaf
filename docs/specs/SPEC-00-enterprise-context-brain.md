@@ -568,6 +568,37 @@ each:
 | Cassette presence | SPEC-00 Property 6 | Build fails when an LLM-judge interceptor has no cassette file matching its hash key |
 | Hallucination-baseline diff | SPEC-05 §8 HallucinationProbe | PR fails when current rate > baseline + 0.5pp |
 
+**Audit script contract** (`scripts/spec_audit.py`):
+
+- **Invocation**: `python -m scripts.spec_audit [--audit <name>...] [--allowlist <path>]`. With no `--audit` flag, runs all four. Reads emitted-reason allowlist from `scripts/spec_audit.allowlist.txt` (one canonical reason per line, `#` comments allowed); the file is required to exist (empty file is valid); missing file is itself an audit failure.
+- **Discovery**: blueprints are enumerated by importing `cemaf.blueprint.registry` and iterating `BlueprintLibrary.list_all() -> tuple[Blueprint, ...]` (added to SPEC-03 BlueprintLibrary protocol below). LLM-judge interceptors are enumerated by importing `cemaf.evals.registry` and iterating `OnlineEvalPipeline.list_judges() -> tuple[JudgeDescriptor, ...]` (`JudgeDescriptor` carries `prompt_template_version, model_id, decoding_params`). Reason strings are discovered by `ast`-walking `cemaf/**/*.py` for `PreflightDecision(...)` / `PostflightDecision(...)` constructor calls and collecting their `reason=` literal string arguments.
+- **Exit codes**: `0` all audits pass, `1` any audit fails (CI failure), `2` configuration error (missing allowlist, broken import, malformed blueprint registry). `1` is a normal PR failure; `2` is an infra failure that pages the on-call.
+- **Output**: each failure emits one line to stderr in the form `<audit_name>: <file_or_artifact>: <message>`; stdout summarises `<n_pass>/<n_total>` audits. CI surfaces stderr in the PR check annotation.
+- **Make target**: `make check` includes `python -m scripts.spec_audit` as a non-skippable step.
+
+**Cassette decoding-params schema** (canonical, hash-stable):
+
+`decoding_params` in the Property 6 hash key SHALL be canonicalised to this
+exact dict before JSON-encoding, with keys sorted alphabetically and any
+absent field omitted (NOT defaulted) so adding a field later does not
+invalidate every existing cassette:
+
+```python
+DecodingParams = TypedDict("DecodingParams", {
+    "max_tokens":  int,        # required
+    "temperature": float,      # required (use 0.0 for deterministic judges)
+    "top_p":       float,      # required
+    "top_k":       int,        # optional — omit when not set by adapter
+    "stop":        tuple[str, ...],  # optional — omit when empty
+}, total=False)
+```
+
+Implementations SHALL normalise floats to 6 decimal places (`round(v, 6)`)
+before serialising and SHALL emit `tuple[str, ...]` `stop` sequences in
+their declared order (NOT sorted) so adapters that treat stop sequences as
+ordered prefix matchers replay deterministically. Adding a non-listed key
+to the dict before hashing is forbidden — extension requires a SPEC update.
+
 The audit script is part of `make check` and the GitHub Actions workflow.
 
 ## 7. Correctness Properties
