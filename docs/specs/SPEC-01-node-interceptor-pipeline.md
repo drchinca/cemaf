@@ -59,7 +59,8 @@ from abc import ABC
 from enum import Enum
 
 # InterceptorPhase imported from SPEC-00 §2 Common Types — SHALL NOT be redefined per umbrella rule.
-# Imports: `InterceptorPhase, Claim, Citation, CorrelationID, Goal, Context, TaskContext, AgentResult, DAGNode, DAG, ChainProfile, RuntimeServices, RecoveryStrategy, RecoveryHint` are all sourced from SPEC-00 §2.
+# Imports: `InterceptorPhase, Claim, Citation, CorrelationID, Goal, Context, TaskContext, AgentResult, DAGNode, DAG, ChainProfile, RuntimeServices` are sourced from SPEC-00 §2.
+# `HaltScope`, `RecoveryStrategy`, and `RecoveryHint` are owned locally by this spec (defined immediately below) — SPEC-00 §"Type registry" lists them as SPEC-01-owned.
 
 class PreflightKind(Enum):
     ACCEPT = "accept"

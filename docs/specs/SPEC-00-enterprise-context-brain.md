@@ -34,7 +34,7 @@ inspiration:
 | **Pull-not-push** | Context enters a node via on-demand retrieval bounded by a `TokenBudget`, not via static prompt stuffing. |
 | **Blueprint** | A structured, typed specification of *what* an LLM must produce (goal, entities, style, policies). The canonical node input — replaces free-form English prompts. |
 | **Node interceptor** | A pre-flight/post-flight middleware step wrapping every node's `agent.run`. The seam that operationalizes the brain. |
-| **KG (Knowledge Business Graph)** | `knowledge/` entity-relation graph backed by `MemoryManager`. Promoted here from a meta-only asset to a shared `RuntimeService`. |
+| **KG (Knowledge Graph)** | `knowledge/` entity-relation graph backed by `MemoryManager`. Promoted here from a meta-only asset to a shared `RuntimeService`. |
 | **DataSource** | A `@runtime_checkable` connector protocol over an enterprise system (warehouse, ticketing, docs) exposing read-only, citeable retrieval. |
 | **TaskContext** | The long-horizon awareness object: goal, step N of M, prior decisions, retry ledger, budget remaining — injected into every node of an autonomous run. |
 | **Decision** | A material choice or output from a prior node worth carrying forward. Append-only on `TaskContext.prior_decisions`. |
@@ -408,10 +408,10 @@ class ChainContractError(RuntimeError):
 
 # Per-recovery / per-attempt tool-loop bound (SPEC-03 Inv 11 enforcement).
 # Default; child specs MAY override per node via BlueprintRequest.tool_loop_budget.
+# Hard cap on parallel tool_use blocks emitted by the LLM in a single
+# TERMINAL_TOOL turn (SPEC-03 Inv 11 — both Anthropic and OpenAI emit parallel
+# tool calls). Exceeding raises StreamingIncompleteError(PARTIAL_ERROR).
 MAX_PARALLEL_TOOL_CALLS: int = 8
-"""Hard cap on parallel tool_use blocks emitted by the LLM in a single
-TERMINAL_TOOL turn (SPEC-03 Inv 11 — both Anthropic and OpenAI emit parallel
-tool calls). Exceeding raises StreamingIncompleteError(PARTIAL_ERROR)."""
 
 # PatchDropReason — closed enum for ContextPatch application drops, owned by
 # SPEC-00 type registry per shared-types rule. Referenced by SPEC-05 Inv 14/22
