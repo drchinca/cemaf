@@ -48,6 +48,7 @@ here as the single source of truth.
 Common types in SPEC-00 §2 (`TaskID`, `NodeID`, `TokenBudget`, `Citation`).
 
 ```python
+from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -121,7 +122,12 @@ class AcquiredLease:
     async def __aenter__(self) -> AcquireToken:
         return self._token
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self._repository.release(self._token)
 
 @dataclass(frozen=True, slots=True)

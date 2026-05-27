@@ -527,6 +527,19 @@ spec named in each row.
 #                              non-Optional; the default-None on Context is
 #                              ONLY a constructor-convenience for non-runtime
 #                              code paths (tests, fixtures, replay loaders).
+#   Context.patch_history    : tuple[ContextPatch, ...] = ()
+#                              — append-only audit trail of context mutations.
+#                              Bound: at most CONTEXT_PATCH_HISTORY_CAP = 256
+#                              entries per Context instance; on overflow the
+#                              oldest entries are evicted (FIFO) and a single
+#                              "context.patch_history.truncated{task_id}" log
+#                              event is emitted per cap breach. patch_history
+#                              is audit-only — interceptors and agents SHALL
+#                              read ctx.data / ctx.surfaced_sources for live
+#                              state, never iterate patch_history during
+#                              dispatch. Cap closes the unbounded-growth vector
+#                              for long-running tasks (rules/context-engineering.md
+#                              CE-1: token budgets are first-class invariants).
 #   Context.surfaced_sources : tuple[CiteableChunk, ...] = ()
 #                              — populated by PullInterceptor (SPEC-02) before
 #                              BlueprintInterceptor; canonical membership set

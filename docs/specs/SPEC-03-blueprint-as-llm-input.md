@@ -43,23 +43,38 @@ from cemaf.tools import ToolSchema, ToolRegistry           # tools/base.py, tool
 
 T = TypeVar("T", bound=BaseModel)
 
+class DeliverableType(Enum):
+    REPORT   = "report"
+    DECISION = "decision"
+    CODE     = "code"
+    ANSWER   = "answer"
+
+class OutputFormat(Enum):
+    MARKDOWN = "markdown"
+    JSON     = "json"
+    PLAIN    = "plain"
+
+class PolicyKind(Enum):
+    MUST     = "MUST"
+    MUST_NOT = "MUST_NOT"
+
 @dataclass(frozen=True, slots=True)
 class GoalSpec:
     """Typed restatement of node intent — what to produce."""
     objective: str
-    deliverable_type: str            # "report" | "decision" | "code" | "answer" ...
+    deliverable_type: DeliverableType
     success_criteria: tuple[str, ...]
 
 @dataclass(frozen=True, slots=True)
 class StyleSpec:
     tone: str
     max_tokens: int
-    output_format: str               # "markdown" | "json" | "plain"
+    output_format: OutputFormat
 
 @dataclass(frozen=True, slots=True)
 class PolicySpec:
     rule_id: str
-    kind: str                        # "MUST" | "MUST_NOT"
+    kind: PolicyKind
     description: str
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +137,7 @@ class BlueprintInterceptor(NodeInterceptor):
     interceptor_id = "blueprint"
     phase = InterceptorPhase.PRE
 
+@runtime_checkable
 class StructuredGenerator(Protocol):
     async def generate(
         self, *,

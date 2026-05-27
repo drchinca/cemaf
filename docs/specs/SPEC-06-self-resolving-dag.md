@@ -141,8 +141,8 @@ resumes only after `MetaDispatcher.dispatch` returns.
 3. `Recovery sub-DAGs SHALL run with chain_profile=ChainProfile.RECOVERY (SPEC-05) — online_eval and goal_completion guardians SHALL NOT be active inside a recovery run.`
 4. `THE MetaDispatcher SHALL share RuntimeServices.knowledge_graph and data_sources with the parent — no isolated meta-only handles.`
 5. `Token consumption inside a recovery run SHALL be charged to MetaInvocationBudget; parent task.budget_remaining SHALL be unchanged across the recovery boundary (SPEC-04 §3 Inv 6).`
-6. `Recovery run AuditEntries SHALL carry parent_task_id, parent_node_id, and parent_correlation_id.`
-7. `Splicing back into the parent SHALL be via ContextPatch with source="meta:<sub_dag_id>" and correlation_id linking parent and sub-run.`
+6. `Recovery run AuditEntries SHALL carry parent_task_id, parent_node_id, and parent_correlation_id, where parent_correlation_id is the parent attempt's ctx.correlation_id (per SPEC-04 Inv 14 — attempt-scoped, NOT task.correlation_id). Audit-side joins over task scope SHALL use parent_task_id; the audit entry carries both fields explicitly so neither query path requires a join.`
+7. `Splicing back into the parent SHALL be via ContextPatch carrying source="meta:<sub_dag_id>", parent_task_correlation_id (= parent task.correlation_id, per SPEC-00 §2 ContextPatch dual-scope schema) AND parent_ctx_correlation_id (= parent attempt's ctx.correlation_id). Replay keys on parent_task_correlation_id; audit keys on parent_ctx_correlation_id.`
 8. `WHEN meta_dispatcher is None, RECOVER(INVOKE_META_ARCHITECT) SHALL downgrade to REJECT(reason="meta_unavailable") at the chain layer (SPEC-01).`
 9. `MetaDispatcher SHALL be invocable from any node — no separate executor path. The same DAGExecutor instance SHALL run both parent and sub-DAGs.`
 10. `THE total tokens consumed across all nested recoveries for one parent Task SHALL NOT exceed MetaInvocationBudget.max_token_total; on breach the dispatcher SHALL return halt=True.`
