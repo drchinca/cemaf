@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Draft
 last_reviewed: 2026-05-26
 owner: drchinca
-budget_override: "≤525 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06; splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤550 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim and the canonical MappingProxyType pattern); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -155,12 +155,23 @@ class ToolCallOutput:
     consumed_by_node: NodeID | None = None          # set by executor when downstream node reads this output
 
 @dataclass(frozen=True, slots=True)
+class Claim:
+    """A factual proposition that requires a citation. Hoisted here from SPEC-05
+    §2 so AgentResult.unverified_claims types cleanly without a layer inversion.
+    SPEC-05 §2 owns the extraction algorithms and policy; this is the type only.
+    """
+    claim_id: str
+    text: str
+    span: tuple[int, int] | None
+    citations: tuple[Citation, ...]
+
+@dataclass(frozen=True, slots=True)
 class AgentResult:
     output: object                                  # may be a Pydantic model when blueprint.output_schema is set
     raw_text: str | None
     cited_evidence_refs: tuple[Citation, ...] = ()
     tool_calls: tuple[ToolCallOutput, ...] = ()     # consumed by SPEC-05 ToolOutputVerifier
-    unverified_claims: tuple["Claim", ...] = ()      # OWNED BY THE EXECUTOR, NOT THE AGENT. Agents SHALL emit unverified_claims=(); the chain (SPEC-05 CiteOrFail under GroundingPolicy.BEST_EFFORT) populates this tuple via PostflightDecision.derived_unverified_claims, which the executor merges into a NEW AgentResult per SPEC-01 Inv 6. Surfaced to users as "[unverified]". Claim type defined in SPEC-05 §2.
+    unverified_claims: tuple[Claim, ...] = ()       # OWNED BY THE EXECUTOR, NOT THE AGENT. Agents SHALL emit unverified_claims=(); the chain (SPEC-05 CiteOrFail under GroundingPolicy.BEST_EFFORT) populates this tuple via PostflightDecision.derived_unverified_claims, which the executor merges into a NEW AgentResult per SPEC-01 Inv 6. Surfaced to users as "[unverified]".
     metadata: dict[str, str] = field(default_factory=dict)
 
 class GroundingPolicy(Enum):
@@ -243,8 +254,19 @@ spec named in each row.
 #                              Defaults to () pre-PullInterceptor.
 #
 # Mutable-collection fields on frozen dataclasses (e.g. metadata: dict[str, str])
-# are wrapped at construction with types.MappingProxyType to honor the
+# SHALL be wrapped at construction with types.MappingProxyType to honor the
 # "increment-only / append-only" invariants stated in §3 and child specs.
+# Canonical pattern (apply to AgentResult, Goal, ContextPatch, every metadata
+# field below — child specs inherit this without restating):
+#
+#   from types import MappingProxyType
+#   def __post_init__(self) -> None:
+#       if not isinstance(self.metadata, MappingProxyType):
+#           object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+#
+# `object.__setattr__` is required because the dataclass is frozen=True; the
+# wrapped MappingProxyType disallows downstream `instance.metadata["k"] = "v"`
+# mutation, making the immutability invariants enforceable rather than advisory.
 
 # Canonical chain order — single source of truth. SPEC-01 ChainConfig
 # pre_order/post_order SHALL equal these tuples for the matching profile.
@@ -262,6 +284,7 @@ This table is the single source of truth — child specs consume these.
 | Field | Type | Owning spec | Purpose |
 |---|---|---|---|
 | `interceptors` | `tuple[NodeInterceptor, ...]` | SPEC-01 | Ordered chain |
+| `token_budget` | `TokenBudget` | SPEC-00 / SPEC-01 / SPEC-04 | The default per-call parent metering authority. SPEC-01 reads `services.token_budget.timeout_ms` for chain-bound precedence; SPEC-04 `Task.budget_remaining` is initialized from this value at task creation; SPEC-06 recovery runs are metered against `meta_budget` and SHALL NOT decrement this. Already present on the existing `RuntimeServices` (CLAUDE.md); listed here so child specs reference it from the umbrella table. |
 | `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Default profile a new executor uses; per-call `DAGExecutor.run(..., chain_profile=)` overrides (SPEC-06). Precedence: call-arg > services-default. |
 | `knowledge_graph` | `KnowledgeGraph \| None` | SPEC-02 | Shared KG (meta + non-meta) |
 | `data_sources` | `DataSourceRegistry \| None` | SPEC-02 | Read-only enterprise connectors |

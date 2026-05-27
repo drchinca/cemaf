@@ -62,7 +62,7 @@ class BlueprintRequest:
     blueprint_id: BlueprintID
     blueprint_version: str
     goal: GoalSpec
-    entities: tuple[EntityRef, ...]
+    entities: tuple[EntityRef, ...]                  # informational — SPEC-02 PullInterceptor extracts entities from goal.text; BlueprintRequest.entities does NOT feed retrieval. This is intentional (Pull runs at PRE position 2, Blueprint at position 3); declare any required entities in goal.metadata for upstream extraction.
     style: StyleSpec
     policies: tuple[PolicySpec, ...]
     output_schema: type[BaseModel] | None           # see "Grounding annotation policy" below

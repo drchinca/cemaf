@@ -56,14 +56,12 @@ Common types in SPEC-00 §2 (`Citation`, `CiteableChunk`, `AgentResult`, `DAGNod
 
 ### Claim — the unit of grounding
 
+`Claim` is defined in SPEC-00 §2 (hoisted there so `AgentResult.unverified_claims`
+types without a layer inversion). SPEC-05 owns the extraction algorithms and
+policy below; the dataclass shape lives in the umbrella.
+
 ```python
-@dataclass(frozen=True, slots=True)
-class Claim:
-    """A factual proposition that requires a citation."""
-    claim_id: str
-    text: str                                       # the spanning text
-    span: tuple[int, int] | None                    # offsets in raw_text when applicable
-    citations: tuple[Citation, ...]                 # claimed grounding (subset of result.cited_evidence_refs)
+# Claim is imported from SPEC-00 §2; do not redefine.
 
 @runtime_checkable
 class ClaimExtractor(Protocol):

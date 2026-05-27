@@ -116,7 +116,7 @@ class PostflightDecision:
     recovery_strategy: RecoveryStrategy | None = None   # required when kind == RECOVER
     recovery_hints: tuple[RecoveryHint, ...] = ()
     halt_scope: HaltScope | None = None                 # required when kind == HALT
-    derived_unverified_claims: tuple = ()               # tuple[Claim, ...] forward-ref to SPEC-05 §2; set by CiteOrFailInterceptor under GroundingPolicy.BEST_EFFORT. Per Inv 6 the Executor merges these into NodeOutcome.result.unverified_claims; per SPEC-05 Inv 14 they are NOT promoted to downstream surfaced_sources.
+    derived_unverified_claims: tuple[Claim, ...] = ()   # Claim type from SPEC-00 §2; set by CiteOrFailInterceptor under GroundingPolicy.BEST_EFFORT. Per Inv 6 the Executor merges these into NodeOutcome.result.unverified_claims; per SPEC-05 Inv 14 they are NOT promoted to downstream surfaced_sources.
 ```
 
 ### NodeInterceptor — abstract base, not bare Protocol
@@ -135,12 +135,17 @@ class NodeInterceptor(ABC):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Runtime guard: subclasses without interceptor_id/phase/display_name fail
-        at class creation rather than at first dispatch."""
+        at class creation rather than at first dispatch. Uses cls.__dict__ rather
+        than getattr so annotation-only declarations (no value) are caught — pure
+        annotations populate __annotations__ but not __dict__, so an unassigned
+        ClassVar would otherwise pass hasattr() and AttributeError at first use.
+        """
         super().__init_subclass__(**kwargs)
         for attr in ("interceptor_id", "phase", "display_name"):
-            if not hasattr(cls, attr) or getattr(cls, attr) is None:
-                raise TypeError(f"{cls.__name__} must define class attribute {attr!r}")
-        if len(cls.display_name) > 30:
+            value = cls.__dict__.get(attr)
+            if value is None:
+                raise TypeError(f"{cls.__name__} must assign a value to {attr!r}")
+        if len(cls.__dict__["display_name"]) > 30:
             raise TypeError(f"{cls.__name__}.display_name must be ≤30 chars")
 
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,

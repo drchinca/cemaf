@@ -90,7 +90,7 @@ class RecoveryResult:
 
 @dataclass(frozen=True, slots=True)
 class MetaInvocationBudget:
-    max_depth: int = 2                               # allowed depths: 0 (parent run), 1 (recovery), 2 (recovery-of-recovery). depth 3 is rejected.
+    max_depth: int = 2                               # depth semantics (canonical): the parent run occupies depth 0; each nested recovery increments by 1. With max_depth=2, allowed depths are 0/1/2 — i.e. parent + up to 2 nested recoveries. Inv 14 enforces (parent.depth + 1) ≤ max_depth.
     max_token_total: TokenCount = TokenCount(50_000) # global cap across all nested recoveries for one parent task
     max_wall_time_ms: int = 30_000
 
@@ -151,6 +151,7 @@ resumes only after `MetaDispatcher.dispatch` returns.
 12. `WHILE a recovery sub-DAG is executing, THE parent DAGExecutor SHALL NOT dispatch peer parent nodes — sub-DAG execution is sequential w.r.t. the parent.`
 13. `THE active ChainProfile SHALL be passed as a parameter to DAGExecutor.run, NOT mutated on RuntimeServices — services is frozen. Precedence: DAGExecutor.run(chain_profile=) > services.chain_profile (default). The same value SHALL be threaded into InterceptorChain.run_pre/run_post (SPEC-01 ChainConfig), so the three call sites see the same profile within one DAG dispatch.`
 14. `Depth check semantics: a new recovery is permitted iff (parent.depth + 1) ≤ MetaInvocationBudget.max_depth. With max_depth=2: depth 0→1 allowed, 1→2 allowed, 2→3 rejected with halt=True.`
+15. `A meta sub-DAG SHALL NOT splice content derived from the parent's AgentResult.unverified_claims into any downstream node's ctx.surfaced_sources, directly or transitively (no citation laundering). SPEC-05 §3 Inv 14 binds this constraint; SPEC-06 ContextPatch payloads SHALL be inspected against this rule before application by the Executor, which SHALL drop offending entries with reason="patch_unverified_promotion" and emit an audit entry.`
 
 ## 4. Acceptance Criteria (BDD)
 

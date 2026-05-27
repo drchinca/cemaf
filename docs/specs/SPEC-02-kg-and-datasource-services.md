@@ -51,9 +51,14 @@ class RetrievalQuery:
     top_k: int = 8
     timeout_ms: int = 3_000
 
-@runtime_checkable
 class DataSource(Protocol):
-    """Read-only enterprise connector. Protocol surface contains NO write methods."""
+    """Read-only enterprise connector. Protocol surface contains NO write methods.
+
+    Note: NOT @runtime_checkable. PEP 544 forbids issubclass() against protocols
+    with non-method members (`source_id`, `capabilities`); structural validation
+    instead happens explicitly in DataSourceRegistry.register() per Inv 1, which
+    inspects the concrete class's public surface.
+    """
     source_id: str
     capabilities: frozenset[DataSourceCapability]
 
