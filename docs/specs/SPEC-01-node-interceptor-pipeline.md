@@ -277,6 +277,7 @@ class NodeOutcome:
 13. `Successive PRE interceptors SHALL observe the cumulative enrichment from earlier interceptors (ctx and goal carry forward).`
 14. `Empty chain (no interceptors registered) is a valid configuration; run_pre and run_post SHALL each return an empty tuple and the executor SHALL treat the absence of REJECT as ACCEPT.`
 15. `Each NodeInterceptor subclass SHALL declare display_name: ClassVar[str] (≤30 chars, human-readable, e.g. "citation check"); InterceptorChain.display_name_for(id) -> str is a pure lookup over registered interceptors (unknown IDs raise KeyError, no fallback to id). User-copy renderers (SPEC-05 §10 "<id>:timeout"/"<id>:exception") SHALL resolve display_name via this surface; interceptor_id SHALL NOT leak verbatim into user-facing copy.`
+16. `Recovery-target availability downgrade: WHEN a PostflightDecision is RECOVER and the RuntimeServices field referenced by its recovery_strategy is None, THE chain SHALL convert the decision to REJECT(reason="<strategy>_unavailable") before returning, and SHALL NOT invoke the absent service. Canonical mapping: RecoveryStrategy.INVOKE_META_ARCHITECT → services.meta_dispatcher → reason "meta_unavailable" (SPEC-06 §3 Inv 8). Strategies whose target is always present in RuntimeServices (RETRY_WITH_HINTS, REROUTE_TO_AGENT, SKIP_NODE) are no-ops under this rule. The downgrade emits one AuditEntry with the converted REJECT and the original recovery_strategy in metadata for traceability.`
 
 ## 4. Acceptance Criteria (BDD)
 

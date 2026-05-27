@@ -283,7 +283,7 @@ class AuditInterceptor(NodeInterceptor):
    - 3d. WHEN node.grounding == DISABLED, ClaimExtractor SHALL NOT be invoked at all.`
 4. `WHEN ToolOutputVerifier.verify returns verified=False, THE ToolOutputVerifierInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="tool_unverified") subject to Inv 15 budget escalation.`
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
-6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
+6. `WHEN chain_profile == ChainProfile.DEFAULT, THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True. Under ChainProfile.RECOVERY the interceptor is absent from the chain (per §1 ChainProfile table and SPEC-00 RECOVERY_POST_ORDER) — terminal recovery sub-DAG nodes therefore SHALL NOT trigger goal completion evaluation.`
 7. `WHEN GoalCompletionResult.achieved == False AND get_retry(task.retry_ledger, node.id) < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
 8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation, scoped per ATTEMPT (one PRE→optional EXECUTE→POST pass). A SPEC-06 recovery sub-DAG is a separate run with its own entries linked via parent_correlation_id (SPEC-06 Inv 6); the parent's next attempt begins after RECOVER + increment_retry. Per-attempt completeness: ACCEPTED end-to-end → 2 entries; post-flight REJECT/RECOVER/HALT → 2 entries; pre-flight REJECT → 1 entry (audit runs last in PRE and is exempt from SPEC-01 Inv 5 short-circuit).`
 9. `Recovery via RETRY_WITH_HINTS SHALL pass RecoveryHint instances in goal.metadata["remediation"] to the re-dispatched agent (per SPEC-01 Inv 10).`
