@@ -220,12 +220,29 @@ class FinishReason(Enum):
     """Provider-normalized terminal/partial reason for an LLM completion. Adapters
     SHALL map provider-native values to FinishReason at the boundary before
     constructing AgentResult / StructuredResult."""
-    TERMINAL_STOP  = "stop"             # OpenAI:stop  | Anthropic:end_turn, stop_sequence
-    TERMINAL_TOOL  = "tool"             # OpenAI:tool_calls, function_call | Anthropic:tool_use
-    PARTIAL_LENGTH = "length"           # OpenAI:length | Anthropic:max_tokens
-    PARTIAL_FILTER = "content_filter"   # both providers
-    PARTIAL_ERROR  = "error"            # adapter-emitted on stream failure / cancel
+    TERMINAL_STOP  = "stop"
+    TERMINAL_TOOL  = "tool"
+    PARTIAL_LENGTH = "length"
+    PARTIAL_FILTER = "content_filter"
+    PARTIAL_ERROR  = "error"
+```
 
+### Provider-native finish_reason → FinishReason mapping (canonical)
+
+Adapters SHALL implement this mapping at the boundary; downstream specs SHALL reference FinishReason members only (per §3 Inv 12).
+
+| Provider | Native value | FinishReason |
+|---|---|---|
+| OpenAI | `stop` | TERMINAL_STOP |
+| OpenAI | `tool_calls`, `function_call` | TERMINAL_TOOL |
+| OpenAI | `length` | PARTIAL_LENGTH |
+| OpenAI | `content_filter` | PARTIAL_FILTER |
+| Anthropic | `end_turn`, `stop_sequence` | TERMINAL_STOP |
+| Anthropic | `tool_use` | TERMINAL_TOOL |
+| Anthropic | `max_tokens` | PARTIAL_LENGTH |
+| Adapter | (stream error / cancellation) | PARTIAL_ERROR |
+
+```python
 # NodeBudget — per-node pull/generation/timeout caps; required on every DAGNode
 # so SPEC-02 PullInterceptor and SPEC-03 StructuredGenerator have a deterministic
 # bound independent of services.token_budget (parent metering authority).
@@ -520,7 +537,7 @@ This table is the single source of truth — child specs consume these.
 | `structured_generator` | `StructuredGenerator \| None` | SPEC-03 | Blueprint → typed result generator |
 | `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
 | `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds. **Default**: `MetaInvocationBudget()` (max_depth=2, max_token_total=50_000, max_wall_time_ms=30_000) — applied at dataclass construction so existing tenants do not need to know about the field to remain valid; meta_dispatcher=None still downgrades RECOVER(INVOKE_META_ARCHITECT) to REJECT(meta_unavailable) per SPEC-01 Inv 16. |
-| `eval_budget` | `TokenBudget` | SPEC-05 | Per-attempt cost cap for LLM-judge calls inside the chain (OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge). Judges SHALL debit this budget — NOT `task.budget_remaining` — so adversarial inputs that inflate judge prompts cannot exhaust the parent task's budget. **Default**: `TokenBudget(total=8_000, pull_tokens=0, generation_tokens=8_000, timeout_ms=15_000)`. Per-judge cap = `eval_budget.generation_tokens / max(1, count_active_judge_sites(node))` (canonical formula — owned by SPEC-05 Inv 17; counts distinct active judge sites from {online_eval (per-bound judge), goal_completion, tool_verify, blueprint_policy}; denominator recorded in cassette payload as `denom_judge_sites`). Judges exceeding the per-judge cap SHALL truncate the prompt with a logged event `eval.judge_input_truncated`; on hard exhaustion the judge returns `score=0, level="budget_exhausted"` (counted in QualityPolice as a non-passing observation, NOT silently dropped). |
+| `eval_budget` | `TokenBudget` | SPEC-05 | Per-attempt cost cap **template** for LLM-judge calls inside the chain (OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge). Judges SHALL debit this budget — NOT `task.budget_remaining` — so adversarial inputs that inflate judge prompts cannot exhaust the parent task's budget. `eval_budget` is a TEMPLATE NodeBudget, not a live counter: the Executor SHALL clone an `EvalBudgetCounter` from this template at the START of each `(node_id, attempt_idx)` pair and pass that fresh per-attempt counter to all guardian judges in that attempt's chain. Per-attempt counters do NOT cross node or attempt boundaries (see SPEC-05 Inv 17b). **Default**: `TokenBudget(total=8_000, pull_tokens=0, generation_tokens=8_000, timeout_ms=15_000)`. Per-judge cap = `eval_budget.generation_tokens / max(1, count_active_judge_sites(node))` (canonical formula — owned by SPEC-05 Inv 17; counts distinct active judge sites from {online_eval (per-bound judge), goal_completion, tool_verify, blueprint_policy}; denominator recorded in cassette payload as `denom_judge_sites`). Judges exceeding the per-judge cap SHALL truncate the prompt with a logged event `eval.judge_input_truncated`; on hard exhaustion the judge returns `score=0, level="budget_exhausted"` (counted in QualityPolice as a non-passing observation, NOT silently dropped). |
 | `judge_input_sanitizer` | `JudgeInputSanitizer \| None` | SPEC-05 | Deterministic regex+heuristic stripper threading untrusted segments through XML envelopes; bumping `version` invalidates cassettes via `judge_input_projection_version` (SPEC-05 Inv 16) |
 
 `RuntimeServices` is a frozen dataclass; mutation is forbidden. Per-call
@@ -811,6 +828,17 @@ Feature: Enterprise Context Brain end-to-end
     When the meta dispatcher executes the sub-DAG
     Then the active chain profile is ChainProfile.RECOVERY
     And online_eval and goal_completion are NOT invoked inside the sub-DAG
+
+  Scenario: Adapter normalizes provider-native finish_reason
+    Given an Anthropic adapter receives a completion with stop_reason="max_tokens"
+    When the adapter constructs AgentResult
+    Then AgentResult.finish_reason == FinishReason.PARTIAL_LENGTH
+    And no provider-native string ("max_tokens", "end_turn", "tool_use", "stop_sequence", "length", "tool_calls", "function_call") appears on AgentResult
+
+  Scenario: OpenAI-compat adapter normalizes finish_reason
+    Given an OpenAI-compat adapter receives a completion with finish_reason="tool_calls"
+    When the adapter constructs AgentResult
+    Then AgentResult.finish_reason == FinishReason.TERMINAL_TOOL
 ```
 
 ## 5. Out of Scope
@@ -1030,6 +1058,8 @@ Per-evaluator SLO compliance is exposed as `cemaf_eval_pass_rate{evaluator_id, w
 - `gen_ai.system = "cemaf"` and `gen_ai.operation.name` (e.g. `"chain.preflight"`, `"agent.run"`, `"meta.dispatch"`).
 - For agent-execute spans: `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reason`.
 - Guardian spans use the namespace `gen_ai.guardian.<name>` as a documented CEMAF extension to the GenAI conv; they additionally set `gen_ai.operation.name = "guardian.<name>"` so standard GenAI dashboards still slice them.
+
+**Token usage canonical source.** On every span emitting `gen_ai.usage.input_tokens` (`gen_ai.generate.structured`, `gen_ai.guardian.online_eval`, `gen_ai.guardian.goal_completion`, `gen_ai.guardian.tool_verify`), the value SHALL equal the token count of the **post-sanitization, post-truncation** prompt actually sent to the provider — i.e., the same byte sequence whose hash feeds the cassette `input_hash`. `gen_ai.usage.output_tokens` reflects the provider's reported output. Cassette payloads SHALL additionally record `input_tokens_recorded` matching the span attribute; replay loaders SHALL fail loud on cassette/span divergence ≥ 1 token.
 
 **Required baggage on every span.** `task.id`, `tenant.id`, `workspace.id`, `correlation_id`, `chain_profile`, `dag.id`, `node.id`, `attempt`. Set once at executor entry, propagated via OTel baggage so child specs do not redeclare them.
 
