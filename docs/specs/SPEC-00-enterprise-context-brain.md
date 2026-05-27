@@ -175,6 +175,7 @@ class EntityRef:
 class ToolCallOutput:
     """One observable tool invocation captured on AgentResult."""
     tool_name: str
+    tool_call_id: str    # provider-emitted call id, echoed back to the provider on tool-result; canonical across Anthropic tool_use.id and OpenAI tool_calls[].id
     arguments: Mapping[str, object]      # JSON-shaped tool-call arguments (numbers/bools/nested objects)
     output: str                          # producing tool SHALL truncate to ≤ TOOL_OUTPUT_MAX_TOKENS (default 8192) before emitting; downstream verifier rejects untruncated outputs whose token_count > cap and truncated=False
     truncated: bool = False               # True when the tool truncated; consumed by SPEC-05 ToolOutputVerifier for budget enforcement
@@ -242,6 +243,17 @@ Adapters SHALL implement this mapping at the boundary; downstream specs SHALL re
 | Anthropic | `max_tokens` | PARTIAL_LENGTH |
 | Adapter | (stream error / cancellation) | PARTIAL_ERROR |
 
+### Provider-native tool-call envelope mapping (canonical)
+
+CEMAF carries tool calls and results in the canonical `ToolCallOutput` shape (`tool_call_id`, `tool_name`, `arguments`, `output`). The LLM adapter SHALL translate to/from provider-native envelopes at the boundary:
+
+| Provider | Tool call (assistant turn) | Tool result (user turn echo) |
+|---|---|---|
+| Anthropic | `{type: "tool_use", id, name, input}` → `tool_call_id ← id`, `tool_name ← name`, `arguments ← input` | `{role: "user", content: [{type: "tool_result", tool_use_id, content}]}` ← `tool_call_id` populates `tool_use_id` |
+| OpenAI | `tool_calls[].id, .function.name, .function.arguments` | `{role: "tool", tool_call_id, content}` ← `tool_call_id` populates `tool_call_id` |
+
+Adapters SHALL preserve `tool_call_id` round-trip; downstream specs SHALL reference the canonical shape only.
+
 ```python
 # NodeBudget — per-node pull/generation/timeout caps; required on every DAGNode
 # so SPEC-02 PullInterceptor and SPEC-03 StructuredGenerator have a deterministic
@@ -251,6 +263,23 @@ class NodeBudget:
     pull_tokens: TokenCount
     generation_tokens: TokenCount
     timeout_ms: int
+
+@dataclass(frozen=True, slots=True)
+class EvalBudgetCounter:
+    """Live per-(node_id, attempt_idx) counter cloned from the eval_budget template
+    (services.eval_budget). Owned by the Executor; passed by reference to every
+    guardian judge in the active attempt's chain. Not shared across nodes or
+    attempts; not serialized into RuntimeServices."""
+    template: TokenBudget        # source it was cloned from (read-only reference)
+    remaining: int               # generation_tokens budget left, debited per-judge
+
+    def reserve(self, tokens: int) -> "EvalBudgetCounter":
+        """Pre-flight reservation; returns a new counter with remaining -= tokens. Caller serialises under counter-lock per Inv 17b."""
+        ...
+
+    def true_up(self, reserved: int, actual: int) -> "EvalBudgetCounter":
+        """Post-flight true-up; refunds (reserved - actual) to remaining."""
+        ...
 
 # Chain primitives — full detail in SPEC-01
 @dataclass(frozen=True, slots=True)
@@ -537,7 +566,7 @@ This table is the single source of truth — child specs consume these.
 | `structured_generator` | `StructuredGenerator \| None` | SPEC-03 | Blueprint → typed result generator |
 | `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
 | `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds. **Default**: `MetaInvocationBudget()` (max_depth=2, max_token_total=50_000, max_wall_time_ms=30_000) — applied at dataclass construction so existing tenants do not need to know about the field to remain valid; meta_dispatcher=None still downgrades RECOVER(INVOKE_META_ARCHITECT) to REJECT(meta_unavailable) per SPEC-01 Inv 16. |
-| `eval_budget` | `TokenBudget` | SPEC-05 | Per-attempt cost cap **template** for LLM-judge calls inside the chain (OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge). Judges SHALL debit this budget — NOT `task.budget_remaining` — so adversarial inputs that inflate judge prompts cannot exhaust the parent task's budget. `eval_budget` is a TEMPLATE NodeBudget, not a live counter: the Executor SHALL clone an `EvalBudgetCounter` from this template at the START of each `(node_id, attempt_idx)` pair and pass that fresh per-attempt counter to all guardian judges in that attempt's chain. Per-attempt counters do NOT cross node or attempt boundaries (see SPEC-05 Inv 17b). **Default**: `TokenBudget(total=8_000, pull_tokens=0, generation_tokens=8_000, timeout_ms=15_000)`. Per-judge cap = `eval_budget.generation_tokens / max(1, count_active_judge_sites(node))` (canonical formula — owned by SPEC-05 Inv 17; counts distinct active judge sites from {online_eval (per-bound judge), goal_completion, tool_verify, blueprint_policy}; denominator recorded in cassette payload as `denom_judge_sites`). Judges exceeding the per-judge cap SHALL truncate the prompt with a logged event `eval.judge_input_truncated`; on hard exhaustion the judge returns `score=0, level="budget_exhausted"` (counted in QualityPolice as a non-passing observation, NOT silently dropped). |
+| `eval_budget` | `TokenBudget` | SPEC-05 | Per-attempt cost cap **template** for LLM-judge calls inside the chain (OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge). Judges SHALL debit this budget — NOT `task.budget_remaining` — so adversarial inputs that inflate judge prompts cannot exhaust the parent task's budget. `eval_budget` is a TEMPLATE TokenBudget, not a live counter: the Executor SHALL clone an `EvalBudgetCounter` from this template at the START of each `(node_id, attempt_idx)` pair and pass that fresh per-attempt counter to all guardian judges in that attempt's chain. Per-attempt counters do NOT cross node or attempt boundaries (see SPEC-05 Inv 17b). **Default**: `TokenBudget(total=8_000, pull_tokens=0, generation_tokens=8_000, timeout_ms=15_000)`. Per-judge cap = `eval_budget.generation_tokens / max(1, count_active_judge_sites(node))` (canonical formula — owned by SPEC-05 Inv 17; counts distinct active judge sites from {online_eval (per-bound judge), goal_completion, tool_verify, blueprint_policy}; denominator recorded in cassette payload as `denom_judge_sites`). Judges exceeding the per-judge cap SHALL truncate the prompt with a logged event `eval.judge_input_truncated`; on hard exhaustion the judge returns `score=0, level="budget_exhausted"` (counted in QualityPolice as a non-passing observation, NOT silently dropped). |
 | `judge_input_sanitizer` | `JudgeInputSanitizer \| None` | SPEC-05 | Deterministic regex+heuristic stripper threading untrusted segments through XML envelopes; bumping `version` invalidates cassettes via `judge_input_projection_version` (SPEC-05 Inv 16) |
 
 `RuntimeServices` is a frozen dataclass; mutation is forbidden. Per-call
@@ -697,7 +726,10 @@ required (`ready=False, reason='online_eval_pipeline_required'` when None).
 UNHEALTHY → `ready=False, reason='task_repository_unhealthy'`.
 
 `/healthz` (liveness) maps to "process running, no `StartupError`".
-`/readyz` (readiness) maps to `readiness().ready`. Tenants opting out of
+`/readyz` (readiness) maps to `readiness().ready`.
+`CassetteDivergenceError` is explicitly excluded from the `StartupError` set —
+it is a CI-only, test-harness assertion and is never raised in production
+code paths; liveness/readiness SHALL NOT consider it. Tenants opting out of
 specific guardians SHALL see `ready=True` with the unsupplied guardians
 listed in `optional_fields_present={...: False}` rather than a hard fail.
 
@@ -1012,6 +1044,15 @@ class CassettePayload(TypedDict, total=False):
     missing_criteria: list[str]                     # SPEC-05 GoalCompletionEvaluator
     raw_response: str                               # full LLM response when judge consumes it post-score
     attempt_idx: int                                # SPEC-05 OnlineEvalInterceptor
+
+    # Budget accounting (REQUIRED for any judge that debits eval_budget — Inv 17/17b)
+    denom_judge_sites: int
+    eval_budget_snapshot_at_judge: int
+    input_tokens_recorded: int                    # parity check vs gen_ai.usage.input_tokens (§9)
+
+    # Truncation evidence (REQUIRED when input_projection truncates — Inv 17, §6)
+    truncation_applied: bool
+    dropped_chunk_ids: list[str]
 ```
 
 A judge that surfaces an output field at runtime (e.g.
@@ -1019,6 +1060,17 @@ A judge that surfaces an output field at runtime (e.g.
 record that field in the cassette. Replay loaders SHALL fail loud on
 missing required fields per judge-type — score-only cassettes are valid
 ONLY for judges whose entire surface is `(score, level, attempt_idx)`.
+
+The budget-accounting trio (`denom_judge_sites`, `eval_budget_snapshot_at_judge`, `input_tokens_recorded`) is required for `online_eval`, `goal_completion`, `tool_verify`, and `blueprint_policy` judge types. The truncation pair (`truncation_applied`, `dropped_chunk_ids`) is required when `truncation_applied=True`; loaders SHALL accept `truncation_applied=False` with empty `dropped_chunk_ids` as the no-truncation case.
+
+```python
+class CassetteDivergenceError(AssertionError):
+    """Replay-time fail-loud: cassette payload diverges from runtime span/counter
+    by >= 1 token (input_tokens_recorded mismatch, eval_budget_snapshot drift,
+    or denom_judge_sites mismatch). Test-only; never raised in production code
+    paths. Carries: kind ∈ {input_tokens, eval_budget, denom}, expected, actual,
+    cassette_path, span_id."""
+```
 
 **Recording mode.** `CEMAF_CASSETTE_RECORD=1` enables developer-mode
 re-recording — the test harness MAY hit live LLMs, write cassettes, and

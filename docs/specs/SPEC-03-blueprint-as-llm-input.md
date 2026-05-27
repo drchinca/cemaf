@@ -31,12 +31,15 @@ as the typed call shape.
 ## 2. Interface Contract (MDE)
 
 Common types in SPEC-00 §2 (`Goal`, `AgentResult`, `Citation`, `BlueprintID`).
+Tool surface symbols (`ToolSchema`, `ToolRegistry`) come from the existing
+CEMAF `tools/` layer (CLAUDE.md "Module Map → Agent System").
 
 ```python
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pydantic import BaseModel
+from cemaf.tools import ToolSchema, ToolRegistry           # tools/base.py, tools/registry.py
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -74,6 +77,7 @@ class BlueprintRequest(Generic[T]):
     grounding_refs: tuple[Citation, ...]            # derived from ctx.surfaced_sources
     policy_retry_budget: int = 2                     # consumed by StructuredGenerator (Inv 7)
     tool_loop_budget: int = 5                        # bounds the TERMINAL_TOOL → tool exec → resume loop (Inv 11)
+    tool_schemas: tuple[ToolSchema, ...] = ()        # frozen tool surface for this call; folded into canonical serialization (Inv 4)
     metadata: Mapping[str, str] = field(default_factory=dict)   # Mapping per SPEC-00 §2 canonical wrap pattern
 
 class StreamingIncompleteError(RuntimeError):
@@ -119,7 +123,12 @@ class BlueprintInterceptor(NodeInterceptor):
     phase = InterceptorPhase.PRE
 
 class StructuredGenerator(Protocol):
-    async def generate(self, *, request: BlueprintRequest[T], client: LLMClient) -> StructuredResult[T]: ...
+    async def generate(
+        self, *,
+        request: BlueprintRequest[T],
+        client: LLMClient,
+        tool_registry: ToolRegistry,            # bound by ContextNodeExecutor from services.tool_registry
+    ) -> StructuredResult[T]: ...
 ```
 
 ### Grounding annotation policy
@@ -173,14 +182,14 @@ should not require grounding) requires an explicit waiver entry in
 1. `WHEN node.is_llm_node == True AND BlueprintLibrary.resolve_for_node returns None, THE BlueprintInterceptor SHALL emit REJECT(reason="no_blueprint_resolved").`
 2. `WHEN node.is_llm_node == False, THE BlueprintInterceptor SHALL emit ACCEPT with no enrichment.`
 3. `BlueprintRequest.grounding_refs SHALL equal tuple(c.citation for c in ctx.surfaced_sources) at the moment BlueprintInterceptor runs. The LLM call carries citation_id only — Citation.locator (which may be a long URL or KG ref) SHALL NOT be inlined into the prompt; this keeps the request size O(citation_id × N) rather than O(locator × N) and preserves enforceability of node.budget.generation_tokens. The generator resolves locator at post-flight from ctx.surfaced_sources for cite-or-fail membership and for user-facing rendering.`
-4. `THE BlueprintRequest SHALL be structurally equal under canonical serialization given the same Blueprint, goal, entities, and ctx.surfaced_sources (replay-deterministic).`
+4. `THE BlueprintRequest SHALL be structurally equal under canonical serialization given the same Blueprint, goal, entities, ctx.surfaced_sources, and tool_schemas (replay-deterministic). Canonical serialization SHALL include tool_schemas in sorted-key form so registry mutations between runs surface as byte-level drift.`
 5. `Every StructuredResult SHALL carry the source blueprint_id and version (provenance).`
 6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → PostflightDecision determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER).`
 7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to BlueprintRequest.policy_retry_budget (default 2). On exhaustion the generator SHALL raise PolicyExhaustedError; the post-flight chain converts it to REJECT(reason="policy_exhausted").`
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
 9. `THE generator SHALL filter cited_evidence_refs to ⊆ BlueprintRequest.grounding_refs before returning the StructuredResult — i.e., it SHALL NOT introduce non-member Citations. SPEC-05 cite-or-fail enforces the same membership predicate at post-flight against ctx.surfaced_sources (which equals grounding_refs at the moment BlueprintInterceptor ran, per Inv 3) — the two checks are redundant by design (defense in depth).`
 10. `IF a registered blueprint declares an output_schema with a free-text factual field (str-typed, max_length ≥ 64 or unbounded, name ∉ structural-metadata allow-list per §2 "Grounding annotation policy") AND no field on that schema carries grounding_required=True, THEN the SPEC-00 §6 Spec Audit SHALL fail the build. Override requires a waiver entry in cemaf/data/eval_pins/grounding_audit_waivers.json with a justification string.`
-11. `StructuredGenerator.generate SHALL return only after the upstream LLM stream has reached its terminal token (finish_reason == FinishReason.TERMINAL_STOP per SPEC-00 §2). WHEN finish_reason == FinishReason.TERMINAL_TOOL, THE StructuredGenerator SHALL execute the requested tool via the bound ToolRegistry, append the tool result to the conversation, and resume streaming. The generator returns ONLY when a resumed stream reaches FinishReason.TERMINAL_STOP, or raises StreamingIncompleteError if any resumed stream returns a partial reason. The tool-call loop SHALL be bounded by BlueprintRequest.tool_loop_budget (default 5); on exhaustion the generator SHALL raise ToolLoopExhaustedError converted by post-flight to REJECT(reason="tool_loop_exhausted"). Partial completion due to stream error, client-side cancellation, or finish_reason ∈ {FinishReason.PARTIAL_LENGTH, FinishReason.PARTIAL_FILTER, FinishReason.PARTIAL_ERROR} SHALL raise StreamingIncompleteError carrying the partial token count and finish_reason; the post-flight chain converts it to REJECT(reason="generation_incomplete"). Adapters MUST normalize provider-native values per the SPEC-00 §2 canonical mapping table at the adapter boundary (SPEC-00 §3 Inv 12). Validators, policy checks, and cited_evidence_ref filtering (Invs 6/7/9) SHALL NOT run against partial output — incomplete generations never produce a StructuredResult.`
+11. `StructuredGenerator.generate SHALL return only after the upstream LLM stream has reached its terminal token (finish_reason == FinishReason.TERMINAL_STOP per SPEC-00 §2). WHEN finish_reason == FinishReason.TERMINAL_TOOL, THE StructuredGenerator SHALL execute the requested tool via the bound ToolRegistry, append a ToolCallOutput whose `tool_call_id` matches the provider's emitted call-id; the LLM adapter SHALL serialize to the provider-native tool-result envelope per the SPEC-00 §2 canonical mapping table, and resume streaming. The generator returns ONLY when a resumed stream reaches FinishReason.TERMINAL_STOP, or raises StreamingIncompleteError if any resumed stream returns a partial reason. The tool-call loop SHALL be bounded by BlueprintRequest.tool_loop_budget (default 5); on exhaustion the generator SHALL raise ToolLoopExhaustedError converted by post-flight to REJECT(reason="tool_loop_exhausted"). Partial completion due to stream error, client-side cancellation, or finish_reason ∈ {FinishReason.PARTIAL_LENGTH, FinishReason.PARTIAL_FILTER, FinishReason.PARTIAL_ERROR} SHALL raise StreamingIncompleteError carrying the partial token count and finish_reason; the post-flight chain converts it to REJECT(reason="generation_incomplete"). Adapters MUST normalize provider-native values per the SPEC-00 §2 canonical mapping table at the adapter boundary (SPEC-00 §3 Inv 12). Validators, policy checks, and cited_evidence_ref filtering (Invs 6/7/9) SHALL NOT run against partial output — incomplete generations never produce a StructuredResult. WHEN finish_reason == FinishReason.TERMINAL_TOOL AND the requested tool_name is NOT in request.tool_schemas, THE generator SHALL raise StreamingIncompleteError(finish_reason=FinishReason.PARTIAL_ERROR) rather than dispatch — closes registry-mutation race.`
 12. `WHEN a chain-level or per-interceptor timeout fires during agent.run, THE Executor SHALL cancel the upstream LLM stream, charge consumed input+output tokens to task.budget_remaining (already-paid cost), and emit REJECT(reason='agent:timeout'). A cancelled stream SHALL NOT produce a StructuredResult — same path as Inv 11 (no validators, no policy checks, no cited_evidence_ref filtering on partial output).`
 13. `THE StructuredGenerator SHALL bound the LLM request's effective max_tokens at min(node.budget.generation_tokens, blueprint.style.max_tokens). RuntimeServices.eval_budget applies ONLY to guardian-invoked judges (SPEC-05 Inv 17) and SHALL NOT debit task.budget_remaining or override the StructuredGenerator's per-node cap.`
 14. `WHEN StructuredGenerator.generate completes (terminal or partial), THE generator SHALL emit a gen_ai.generate.structured span carrying gen_ai.request.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.response.finish_reason — including on StreamingIncompleteError paths (finish_reason ∈ partial set per Inv 11).`
