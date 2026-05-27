@@ -175,7 +175,7 @@ class AgentResult:
     metadata: dict[str, str] = field(default_factory=dict)
 
 class GroundingPolicy(Enum):
-    REQUIRED    = "required"      # cite-or-fail enforced; ungrounded → REJECT
+    REQUIRED    = "required"      # cite-or-fail enforced; ungrounded → RECOVER(RETRY_WITH_HINTS) subject to SPEC-05 Inv 15 budget escalation to HALT
     BEST_EFFORT = "best_effort"   # cite-or-fail downgrades ungrounded claims to AgentResult.unverified_claims and ACCEPTs (claim still surfaces in user copy as "[unverified]")
     OPTIONAL    = "optional"      # cite if present, do not reject if absent (no flagging)
     DISABLED    = "disabled"      # router/conditional/parallel non-output nodes
@@ -310,7 +310,7 @@ executor uses; child specs that need to override (SPEC-06) do so via
 
 Cross-cutting rules that hold regardless of which child subsystem is active.
 
-1. `IF a node has GroundingPolicy.REQUIRED AND any element of result.cited_evidence_refs ∉ ctx.surfaced_sources, THEN THE System SHALL reject the output (cite-or-fail).`
+1. `IF a node has GroundingPolicy.REQUIRED AND any element of result.cited_evidence_refs ∉ ctx.surfaced_sources, THEN THE System SHALL NOT accept the output (cite-or-fail). SPEC-05 §3 Inv 2 binds the concrete decision: RECOVER(RETRY_WITH_HINTS, reason="non_member_citation") subject to SPEC-05 Inv 15 retry-budget escalation to HALT.`
 2. `WHEN the pre-flight legitimacy gate denies a node, THE System SHALL NOT execute the agent and SHALL emit an audit entry.`
 3. `WHILE a DAG is executing, THE System SHALL pull context within node.budget.pull_tokens and SHALL NOT stuff full source bodies into the system prompt.`
 4. `WHEN any guardian raises HALT(scope=DAG) or HALT(scope=TASK), THE System SHALL stop dispatching new nodes and transition the task to HALTED.`
@@ -341,9 +341,10 @@ Feature: Enterprise Context Brain end-to-end
   Scenario: Cite-or-fail blocks an ungrounded claim
     Given a generative node with GroundingPolicy.REQUIRED
     And a Claim with no Citation in cited_evidence_refs
+    And the node's retry_ledger value is below node.retry_budget
     When the post-flight cite-or-fail gate runs
-    Then the output is rejected with reason "ungrounded_claim"
-    And the node is routed to RECOVER, not stored
+    Then the PostflightDecision is RECOVER(RETRY_WITH_HINTS, reason="ungrounded_claim")
+    And the output is not stored as-is — SPEC-05 Inv 15 escalates RECOVER → HALT once the ledger reaches retry_budget
 
   Scenario: Online eval halts a degrading run
     Given a long-running task whose recent node scores trend below the HALT threshold

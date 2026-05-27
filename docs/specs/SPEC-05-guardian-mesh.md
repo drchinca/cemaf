@@ -412,7 +412,7 @@ Feature: Guardian mesh
     And CiteOrFailInterceptor ACCEPTs regardless of grounding policy
 
   Scenario: Every emitted reason string maps to a §10 copy row
-    Given the set R of reason strings any guardian (REJECT or HALT) can emit in code
+    Given the set R of reason strings any guardian (REJECT, RECOVER, or HALT) can emit in code
     When the §10 user-facing copy table is loaded
     Then every r in R matches a row key (with <scope>/<rule>/<class>/<id> placeholders matched by pattern)
     And every row in §10 is reachable from at least one emission site in code

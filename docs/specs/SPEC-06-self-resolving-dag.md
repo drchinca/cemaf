@@ -158,13 +158,18 @@ resumes only after `MetaDispatcher.dispatch` returns.
 ```gherkin
 Feature: Self-resolving DAG
 
-  Scenario: MetaArchitect recovers from a citation failure
-    Given a node rejected by CiteOrFail with reason "non_member_citation"
+  Scenario: MetaArchitect recovers from a goal-completion failure
+    Given a terminal node whose GoalCompletionInterceptor emits RECOVER(INVOKE_META_ARCHITECT)
     And meta_dispatcher is configured
+    And get_retry(task.retry_ledger, node.id) < node.retry_budget
     When the recovery dispatcher runs
-    Then MetaArchitect produces a recovery sub-DAG that adds a citation step
-    And the parent node is re-dispatched with goal.metadata["remediation"] containing the hint code
-    And the second attempt passes CiteOrFail
+    Then MetaArchitect produces a recovery sub-DAG that adds an evidence-gathering step
+    And the parent node is re-dispatched with goal.metadata["remediation"] containing the hint codes
+    And the second attempt's GoalCompletionInterceptor returns achieved=True
+
+  Note: CiteOrFail and ToolOutputVerifier emit RECOVER(RETRY_WITH_HINTS), not
+  INVOKE_META_ARCHITECT — those re-dispatches do NOT enter MetaDispatcher and
+  are therefore out of scope for this spec.
 
   Scenario: Depth 1 → 2 is permitted (boundary allowed)
     Given MetaInvocationBudget.max_depth == 2
