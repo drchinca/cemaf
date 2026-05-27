@@ -127,9 +127,13 @@ class Task:
 
 @dataclass(frozen=True, slots=True)
 class TaskSnapshot:
-    """Persistable snapshot for pause/resume across processes."""
+    """Persistable snapshot for pause/resume across processes. Carries every
+    field required to reconstruct the Task aggregate via restore(); the
+    immutable Goal+DAG binding (dag_id) and creation timestamp must round-trip
+    so the resumed Task is structurally equal to the paused Task."""
     task_id: TaskID
     goal: Goal
+    dag_id: DAGID
     state: TaskState
     step_index: int
     step_count: int
@@ -137,6 +141,7 @@ class TaskSnapshot:
     retry_ledger: tuple[tuple[NodeID, int], ...]
     budget_remaining: TokenBudget
     correlation_id: CorrelationID
+    created_at: datetime
     snapshot_at: datetime
 
 @runtime_checkable
@@ -175,7 +180,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 2. `WHEN a Task is HALTED or COMPLETED, transition() SHALL raise InvalidTransitionError on any further state change.`
 3. `Every TaskContext.step_index SHALL satisfy 0 ≤ step_index < step_count.`
 4. `TaskContext.prior_decisions SHALL be append-only and ordered by node execution sequence.`
-5. `WHEN restoring from a snapshot, THE restored Task SHALL be structurally equal to the snapshot under canonical sorted-key JSON serialization for task_id, goal, state, prior_decisions, retry_ledger, and budget_remaining.`
+5. `WHEN restoring from a snapshot, THE restored Task SHALL be structurally equal to the snapshot under canonical sorted-key JSON serialization for task_id, goal, dag_id, state, step_index, step_count, prior_decisions, retry_ledger, budget_remaining, correlation_id, and created_at. Task.updated_at is repository-managed and SHALL be set to utc_now() at restore time (not required to equal the pre-snapshot value).`
 6. `TaskContext.budget_remaining SHALL be monotonically non-increasing across the parent task's steps. Sub-DAG (recovery) consumption SHALL NOT decrement it (SPEC-06 metering boundary).`
 7. `Every node SHALL receive a TaskContext via TaskInjectInterceptor — even single-step DAGs (step_count=1).`
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`

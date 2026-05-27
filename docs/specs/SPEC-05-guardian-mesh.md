@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤640 lines (scenarios ≤25) — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
+budget_override: "≤650 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
 ---
 
 # SPEC-05: Guardian Mesh
@@ -43,8 +43,8 @@ re-route to a fix-it agent or trigger SPEC-06 meta dispatch.
 
 | Profile | PRE order | POST order |
 |---|---|---|
-| `DEFAULT` | legitimacy → pull → blueprint → task_inject | cite_or_fail → tool_verify → online_eval → goal_completion → audit |
-| `RECOVERY` | legitimacy → pull → blueprint → task_inject | cite_or_fail → tool_verify → audit |
+| `DEFAULT` | legitimacy → pull → blueprint → task_inject → audit | cite_or_fail → tool_verify → online_eval → goal_completion → audit |
+| `RECOVERY` | legitimacy → pull → blueprint → task_inject → audit | cite_or_fail → tool_verify → audit |
 
 `DAGExecutor.run(*, chain_profile=ChainProfile.DEFAULT)` is the default;
 `MetaDispatcher` (SPEC-06) overrides to `RECOVERY` for sub-DAG runs.
@@ -598,6 +598,17 @@ The audit script (`scripts/spec_audit.py`) SHALL collect emitted reasons from
 codebase string-literal scan + this normalization, then compare to the row
 keys in this section. Build fails on either direction (emitted reason with
 no row, or row with no emitted-reason match in code).
+
+**Scope (audit-gate boundary):** the §10 copy-coverage gate covers reason
+strings emitted by guardians on `PreflightDecision.reason` /
+`PostflightDecision.reason` (REJECT, RECOVER, HALT). Executor-internal audit
+reasons that do not surface to end users — e.g. SPEC-06 §3 Inv 15
+`patch_unverified_promotion`, emitted by the executor when it drops an
+unverified ContextPatch entry — are out of scope for §10 copy coverage. They
+remain auditable via the AuditEntry stream but do not require user-facing
+copy. The audit script SHALL exclude any reason string declared in the
+allowlist `scripts/spec_audit.allowlist.txt` from the §10 comparison;
+`patch_unverified_promotion` is the canonical entry in that allowlist.
 
 | Reason | Human message | Suggested next action |
 |---|---|---|
