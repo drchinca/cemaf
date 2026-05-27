@@ -692,6 +692,13 @@ reach a downstream node's surfaced_sources.
 
 **Validates: §3 Invariant 4, Invariant 22 / §4 "Tool-output verifier" / SPEC-00 Invariant 11**
 
+### Property 7: Judge self-citation
+*For any* GoalCompletionResult treated as ACCEPT, `judge_citations` is a
+non-empty subset of the terminal node's surfaced_sources citations. This
+prevents the judge LLM from being a hallucination surface itself.
+
+**Validates: §3 Invariant 12 / §4 "Goal-completion judge must self-cite"**
+
 ### Property 8: Untrusted-input isolation
 *For any* judge call consuming adversarial-controlled text (raw_text, tool
 output, CiteableChunk content, goal.text, RecoveryHint detail/locator), every
@@ -700,13 +707,6 @@ untrusted segment is wrapped in `<untrusted-input>` envelopes routed through
 re-validated against `ctx.surfaced_sources` by the Executor before recording.
 
 **Validates: §3 Invariant 16 / §4 "Judge prompt-injection sanitizer strips control tokens"**
-
-### Property 7: Judge self-citation
-*For any* GoalCompletionResult treated as ACCEPT, `judge_citations` is a
-non-empty subset of the terminal node's surfaced_sources citations. This
-prevents the judge LLM from being a hallucination surface itself.
-
-**Validates: §3 Invariant 12 / §4 "Goal-completion judge must self-cite"**
 
 ## 8. Eval Criteria
 
