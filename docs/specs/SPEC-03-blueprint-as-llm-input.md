@@ -273,7 +273,7 @@ Feature: Blueprint-driven generation
 and produced a `BlueprintRequest` before `agent.run` is invoked. Non-LLM nodes
 pass through.
 
-**Validates: §3 Invariants 1, 2 / §4 "LLM node without Blueprint is rejected", "Non-LLM node bypasses"**
+**Validates: §3 Invariants 1, 2 / §4 "LLM node without Blueprint is rejected", "Non-LLM node bypasses Blueprint"**
 
 ### Property 2: Schema conformance
 *For any* StructuredResult with non-None output_schema, `result.output` is an
@@ -286,7 +286,7 @@ instance of that schema and passes its validators.
 This is the same membership predicate SPEC-05 cite-or-fail enforces; drift
 between the two is a contract bug.
 
-**Validates: §3 Invariant 9 / §4 "Citation drop on non-member" / SPEC-05 Property 1**
+**Validates: §3 Invariant 9 / §4 "Citation filtered to grounding_refs at generator boundary" / SPEC-05 Property 1**
 
 ### Property 4: Provenance presence
 *For every* StructuredResult, `blueprint_id` and `blueprint_version` are

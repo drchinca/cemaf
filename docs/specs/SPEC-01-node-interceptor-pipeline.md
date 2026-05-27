@@ -287,6 +287,7 @@ class NodeOutcome:
 15. `Each NodeInterceptor subclass SHALL declare display_name: ClassVar[str] (≤30 chars, human-readable, e.g. "citation check"); InterceptorChain.display_name_for(id) -> str is a pure lookup over registered interceptors (unknown IDs raise KeyError, no fallback to id). User-copy renderers (SPEC-05 §10 "<id>:timeout"/"<id>:exception") SHALL resolve display_name via this surface; interceptor_id SHALL NOT leak verbatim into user-facing copy.`
 16. `Recovery-target availability downgrade: WHEN a PostflightDecision is RECOVER and the RuntimeServices field referenced by its recovery_strategy is None, THE chain SHALL convert the decision to REJECT(reason="<strategy>_unavailable") before returning, and SHALL NOT invoke the absent service. Canonical mapping: RecoveryStrategy.INVOKE_META_ARCHITECT → services.meta_dispatcher → reason "meta_unavailable" (SPEC-06 §3 Inv 8). Strategies whose target is always present in RuntimeServices (RETRY_WITH_HINTS, REROUTE_TO_AGENT, SKIP_NODE) are no-ops under this rule. The downgrade emits one AuditEntry with the converted REJECT and the original recovery_strategy in metadata for traceability.`
 17. `THE serialized goal.metadata['remediation'] (per Inv 10) SHALL debit node.budget.pull_tokens — hints are PRE-phase context injected before generation. Hint payload tokens are accounted before BlueprintInterceptor runs; if the budget would be exceeded, the hint set is truncated by RecoveryHint insertion order (hints have no kind field) until it fits.`
+18. `RecoveryHint citation membership. WHEN the executor splices hints into goal.metadata['remediation'] for the next attempt, IT SHALL filter RecoveryHint.citations to only entries that are members (per SPEC-00 §2 Citation membership predicate) of the parent node's ctx.surfaced_sources AFTER the next PullInterceptor pass completes. Hints whose entire citations tuple is dropped SHALL still pass — detail and suggested_action remain — but no fabricated Citation reaches the agent prompt. Drop events SHALL emit log "recovery.hint_citation_dropped{hint_code, dropped_count}" for replay determinism.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -401,7 +402,7 @@ Feature: Interceptor pipeline
 produces decisions in that order; `C.run_post` likewise — independent of
 interceptor internals.
 
-**Validates: §3 Invariants 3, 8 / §4 "Default DEFAULT order is observed", "Replay determinism"**
+**Validates: §3 Invariants 3, 8 / §4 "Default DEFAULT order is observed", "Replay determinism (non-LLM)"**
 
 ### Property 2: Agent isolation under reject
 *For any* node where any pre-interceptor returns REJECT, `agent.run` is not
@@ -444,5 +445,6 @@ All evaluators in this table are eval_kind=`repository` unless explicitly marked
 
 - **Span**: `gen_ai.node.preflight` — `node.id`, `chain_profile`, `interceptor.count`, child span per interceptor with `interceptor.id`, `decision.kind`, `latency_ms`
 - **Span**: `gen_ai.node.postflight` — `decision.kind`, `recovery.strategy`, `halt.scope`
-- **Log events**: `interceptor.accepted`, `interceptor.rejected`, `interceptor.recovered`, `interceptor.halted`, `interceptor.exception`, `interceptor.timeout`
+- **Log events**: `interceptor.accepted`, `interceptor.rejected`, `interceptor.recovered`, `interceptor.halted`, `interceptor.exception`, `interceptor.timeout`, `interceptor.recovery_downgraded{strategy,target_field,reason}`
+- **Downgrade metric**: `cemaf_recovery_downgrades_total{strategy}` (counter; bounded by SPEC-00 §9 strategy enum cap 4).
 - **Metrics** (per SPEC-00 §9 — `interceptor_id` is bounded ≤16 by the canonical chain orders, safe as label): `cemaf_node_interceptor_decisions_total{interceptor_id,decision,chain_profile}`, `cemaf_node_interceptor_duration_seconds{interceptor_id,phase}` (histogram), `cemaf_chain_duration_seconds{phase,chain_profile}` (histogram), `cemaf_node_execute_duration_seconds{chain_profile,node_type,outcome}` (histogram — labels match SPEC-00 §9 RED block, redeclared here for child-spec readability per SPEC-00 §9 inheritance rule), `cemaf_node_execute_errors_total{chain_profile,node_type,outcome}` (same labels as SPEC-00 §9)

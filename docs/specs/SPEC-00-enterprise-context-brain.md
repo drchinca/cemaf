@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤960 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification). Round-40 additions: OnlineEvalPipeline protocol, JudgeInputSanitizer service+protocol, RunResult dataclass, DecodingParams split, attempt_kind label, claim_extractor readiness clause. Round-41 additions: Evaluator + EvalScore protocol, NodeBudget dataclass + DAGNode.budget/entities/blueprint_id fields, ContextPatch correlation_id split (parent_task / parent_ctx scopes), DataSourceHealth → HealthStatus correction."
+budget_override: "≤1010 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification). Round-40 additions: OnlineEvalPipeline protocol, JudgeInputSanitizer service+protocol, RunResult dataclass, DecodingParams split, attempt_kind label, claim_extractor readiness clause. Round-41 additions: Evaluator + EvalScore protocol, NodeBudget dataclass + DAGNode.budget/entities/blueprint_id fields, ContextPatch correlation_id split (parent_task / parent_ctx scopes), DataSourceHealth → HealthStatus correction. Round-42 additions: Citation membership predicate (single source of truth), GATE-evaluator SLO subsection, exemplar-linkage paragraph, strategy/category metric labels, readiness probe extensions (claim_extractor health, online_eval_pipeline gating, task_repository.health), graceful-shutdown service-dispose ordering, in-flight recovery sub-DAG shutdown reconciliation."
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -125,6 +125,19 @@ class Citation:
     source_id: str
     locator: str                  # URL, file path, KG entity ref
     retrieved_at: datetime
+
+# **Citation membership predicate (single source of truth)**: two Citations
+# are members of the same surfaced set iff their (citation_id, source_id,
+# locator) triples are equal. retrieved_at is excluded — it is metadata for
+# audit, NOT part of identity. CiteOrFail and GoalCompletion membership
+# checks SHALL use this predicate, not Python __eq__. Implementations SHALL
+# define Citation.__eq__/__hash__ over the 3-tuple, OR use the explicit
+# helper:
+#
+#   def citations_match(a: Citation, b: Citation) -> bool:
+#       return (a.citation_id, a.source_id, a.locator) == (b.citation_id, b.source_id, b.locator)
+#
+# exported from cemaf.core.types.
 
 @dataclass(frozen=True, slots=True)
 class CiteableChunk:
@@ -572,6 +585,19 @@ reason `"claim_extractor_required"`) when any registered DAGNode has
 Default construction SHOULD wire `SchemaFieldClaimExtractor()` to satisfy
 this gate without explicit configuration.
 
+Further readiness clauses:
+
+(a) When `services.claim_extractor` is a `SentenceClaimExtractor` instance,
+readiness SHALL invoke `claim_extractor.health_check() -> bool`; failure →
+`ready=False, reason='claim_extractor_unhealthy'`.
+
+(b) When `chain_profile=ChainProfile.DEFAULT` AND any registered DAGNode has
+non-empty `online_evaluators`, `services.online_eval_pipeline` SHALL be
+required (`ready=False, reason='online_eval_pipeline_required'` when None).
+
+(c) Readiness SHALL invoke `services.task_repository.health() -> HealthStatus`;
+UNHEALTHY → `ready=False, reason='task_repository_unhealthy'`.
+
 `/healthz` (liveness) maps to "process running, no `StartupError`".
 `/readyz` (readiness) maps to `readiness().ready`. Tenants opting out of
 specific guardians SHALL see `ready=True` with the unsupplied guardians
@@ -597,13 +623,25 @@ On SIGTERM (K8s pod terminationGracePeriodSeconds, typically 30s):
    when `(deadline - now) < node.budget.timeout_ms`.
 3. Active SPEC-06 sub-DAGs SHALL be allowed to complete OR HALT — they
    are NOT snapshotted, since the parent's drain-then-dispatch barrier
-   already serializes them.
+   already serializes them. When a sub-DAG HALTs during shutdown drain,
+   the Executor SHALL convert it to `RecoveryResult(accepted=False,
+   halt=True, reason='shutdown_halt')` AND decrement `retry_ledger` for
+   the parent node via `task_repository.decrement_retry(task_id, node_id)`
+   so the resumed pod sees an accurate counter.
 4. The drain-then-dispatch barrier SHALL be **per-call-frame**, not
    instance-shared (closes the SPEC-06 §"Concurrency model" race when
    nested executors share a single `DAGExecutor` instance).
 5. The executor `Task` adds a transient internal flag `is_shutting_down`
    queried by `readiness()`; `ready=False` with `reason="shutting_down"`
    so K8s rolling deploys see the pod leave the load-balancer pool.
+
+6. Service dispose order SHALL be: (i) drain in-flight runs to terminal/PAUSED;
+   (ii) flush AuditInterceptor pending entries via `audit_log.flush()`;
+   (iii) flush EventBus subscribers; (iv) snapshot+release leases via
+   `task_repository.flush()`; (v) close LLM/vector/KG/DataSource clients;
+   (vi) close StructuredLogger / metrics exporter. Dispose failures at any
+   stage SHALL be logged but SHALL NOT block subsequent stages — last-resort
+   `os._exit(1)` after `terminationGracePeriodSeconds - 2s`.
 
 `SHUTTING_DOWN` is NOT a `TaskState` — it's an executor-level state. Tasks
 either drain to terminal or PAUSED; the lease (SPEC-04) is released on
@@ -885,6 +923,14 @@ baselines) live in child specs.
 
 All evaluators in this table are eval_kind=`guardian` unless explicitly marked `online` (per SPEC-05 Inv 20). Only `eval_kind='online'` evaluators bind through `node.online_evaluators`; guardian-internal evaluators are auto-bound by their owning interceptor.
 
+### GATE evaluator SLOs
+
+Every GATE-mode evaluator SHALL declare a `(window, target_pass_rate, error_budget_burn_rate)` triple in `cemaf/data/eval_pins/slo/<evaluator_id>.yaml`. Spec audit (§6) SHALL fail when a GATE evaluator listed in any §8 table has no SLO file. Canonical defaults:
+- Safety gates (legitimacy, cite_or_fail, tool_verify): `window=1h, target=0.995, burn_rate=14.4`
+- Quality gates (goal_completion, blueprint_policy, online_eval): `window=24h, target=0.95, burn_rate=2`
+
+Per-evaluator SLO compliance is exposed as `cemaf_eval_pass_rate{evaluator_id, window}` (gauge); alert routing references this metric, not raw counters.
+
 | Evaluator | Node | Mode | Threshold | Method |
 |---|---|---|---|---|
 | GroundingEvaluator | every REQUIRED-grounding node | GATE | membership violations == 0 | deterministic (SPEC-05 §2) |
@@ -919,6 +965,8 @@ All evaluators in this table are eval_kind=`guardian` unless explicitly marked `
 - `attempt_kind ∈ {first, retry_after_hints, retry_after_meta}` is allowlisted; combined cap with `evaluator` is `evaluator (≤32) × attempt_kind (3) = 96`.
 - `interceptor_id` label (used by SPEC-01 `cemaf_node_interceptor_*` metrics) is bounded by the resolved chain — `bootstrap.create_executor()` enforces ≤16 distinct IDs across PRE+POST after user-supplied additions; over-cap is a `StartupError` (see "Startup-error owner"). Custom interceptors past the cap are a hard fail, not a silent metric explosion.
 - `outcome` label (used by `cemaf_recovery_attempts_total`, `cemaf_meta_dispatches_total`, `cemaf_datasource_duration_seconds`, `cemaf_node_execute_*`) SHALL be drawn from the closed enum `{success, rejected, recovered, halted, failed, timeout, skipped}` — child specs MAY use a strict subset but SHALL NOT introduce new outcome values without a SPEC-00 amendment.
+- `strategy ∈ {retry_with_hints, reroute_to_agent, invoke_meta_architect, skip_node}` — authorized on `cemaf_recovery_attempts_total` (mirrors SPEC-01 RecoveryStrategy enum; cardinality bound 4).
+- `category ∈ {citation, goal, eval, tool, other}` — authorized on `cemaf_meta_dispatches_total` (mirrors SPEC-06 FailureCategory enum; cardinality bound 5).
 - `tenant_bucket` label is allowlisted ONLY on metrics that explicitly declare it in their cardinality contract; the canonical RED metrics in this section do NOT carry `tenant_bucket` (multiplicative explosion against `chain_profile × node_type × outcome`). Child specs adding `tenant_bucket` to a metric SHALL declare the resulting cardinality bound.
 
 **`cemaf_task_state_current{state}` reporting cadence (SPEC-04 §9).** Sampled gauge — owned by a single leader-elected reporter per deployment (the executor instance whose pod has the lowest hostname-hash on the registered TaskRepository), scraped at the Prometheus default interval. Multi-replica deploys without leader election SHALL emit the gauge as instance-local with `sum`-aggregated dashboards; spec mandates the labels, deploy mandates the topology.
@@ -941,6 +989,8 @@ All evaluators in this table are eval_kind=`guardian` unless explicitly marked `
 - **Metrics**: `cemaf_node_interceptor_decisions_total{interceptor_id,decision,chain_profile}` (cardinality bound: interceptor_id ≤ 16 (per startup-error rule); decision ∈ {ACCEPT,REJECT,RECOVER,HALT}; chain_profile ∈ {DEFAULT,RECOVERY}), `cemaf_grounding_score` (gauge, no labels), `cemaf_task_steps_completed_total` (counter, no labels), `cemaf_eval_halts_total{evaluator}`, `cemaf_tool_verify_rejections_total`
 
 Per-subsystem telemetry refines this in the child specs and SHALL inherit the cross-cutting conventions above without redeclaring them.
+
+**Exemplar linkage.** Every counter increment in `cemaf_guardian_decisions_total{decision ∈ {REJECT,HALT}}` SHALL emit a paired log event carrying `correlation_id`, `task_id`, `node_id` matching the active span. Each guardian SHALL register its `interceptor_id → log_event_name` mapping at startup; missing mapping is a `StartupError(reason='exemplar_mapping_missing', interceptor_id=...)`.
 
 ## Next Steps
 

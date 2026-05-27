@@ -182,6 +182,11 @@ class TaskRepository(Protocol):
     async def increment_retry(self, task_id: TaskID, node_id: NodeID) -> int:
         """Called by the executor at re-dispatch time, BEFORE the chain runs
         for the new attempt — so guardians observe the incremented value."""
+    async def decrement_retry(self, task_id: TaskID, node_id: NodeID) -> None:
+        """SHALL only be callable during shutdown drain — repository asserts
+        is_shutting_down flag; otherwise raises InvariantViolationError."""
+    async def health(self) -> HealthStatus:
+        """Liveness probe consumed by SPEC-00 readiness contract."""
 
 class TaskInjectInterceptor(NodeInterceptor):
     """PRE phase, position 4 — runs LAST in DEFAULT_PRE_ORDER."""
@@ -399,5 +404,5 @@ All evaluators in this table are eval_kind=`repository` unless explicitly marked
 
 - **Span**: `gen_ai.task.lifetime` — `task.id`, `task.state`, `step.index`, `step.count`, `budget.remaining`
 - **Span**: `gen_ai.task.transition` — `from`, `to`, `reason`
-- **Log events**: `task.created`, `task.paused`, `task.resumed`, `task.halted`, `task.completed`, `task.invalid_transition`, `task.acquire_conflict`, `task.retry_started` (emitted by the executor on every RECOVER re-dispatch — RETRY_WITH_HINTS, REROUTE_TO_AGENT, or post-recovery re-issue — carrying `node_id`, `attempt` (1-based), `retry_budget`, `reason` from the prior PostflightDecision; rendered to users via SPEC-05 §10 status-event copy as "Retrying step (`<DAGNode.display_name>`), attempt N of M". One event per re-dispatch — including each meta-recovered retry — so users see every attempt, not just the first.)
+- **Log events**: `task.created`, `task.paused`, `task.resumed`, `task.halted`, `task.completed`, `task.invalid_transition`, `task.acquire_conflict`, `task.lease_expired{task_id, holder_id, expired_at_iso, ttl_ms}`, `task.retry_started` (emitted by the executor on every RECOVER re-dispatch — RETRY_WITH_HINTS, REROUTE_TO_AGENT, or post-recovery re-issue — carrying `node_id`, `attempt` (1-based), `retry_budget`, `reason` from the prior PostflightDecision; rendered to users via SPEC-05 §10 status-event copy as "Retrying step (`<DAGNode.display_name>`), attempt N of M". One event per re-dispatch — including each meta-recovered retry — so users see every attempt, not just the first.)
 - **Metrics**: `cemaf_task_state_transitions_total{from,to}` (counter — emitted on every transition; replaces the earlier mis-shaped `cemaf_task_state_total{state}` counter), `cemaf_task_state_current{state}` (gauge — current count of tasks in each state, sampled), `cemaf_task_steps_completed_total` (counter, no per-task label), `cemaf_task_budget_remaining_tokens` (gauge, no labels — sampled snapshot only), `cemaf_task_retries_total{node_type,outcome}` — per-`node_id` labels are forbidden by SPEC-00 §9 cardinality rules; `node_id` stays a span attribute only. Also: `cemaf_task_acquire_conflicts_total`, `cemaf_task_lease_expired_total`, `cemaf_task_stale_lease_writes_total` (no labels — Inv 15 stale-holder writes)

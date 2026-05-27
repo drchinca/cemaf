@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤700 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
+budget_override: "≤730 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
 ---
 
 # SPEC-05: Guardian Mesh
@@ -89,6 +89,9 @@ class ClaimExtractor(Protocol):
        RuntimeServices.claim_extractor.
     """
     def extract(self, *, result: AgentResult) -> tuple[Claim, ...]: ...
+    def health_check(self) -> bool:
+        """Optional liveness probe (SentenceClaimExtractor implements; default True
+        for SchemaFieldClaimExtractor). Consumed by SPEC-00 readiness contract."""
 ```
 
 ### Legitimacy
@@ -122,9 +125,17 @@ class LegitimacyInterceptor(NodeInterceptor):
 class CiteOrFailInterceptor(NodeInterceptor):
     """POST position 1.
     Algorithm (deterministic):
-      surfaced = {c.citation for c in ctx.surfaced_sources}
+      surfaced_keys = frozenset(
+          (c.citation.citation_id, c.citation.source_id, c.citation.locator)
+          for c in ctx.surfaced_sources
+      )
       claims   = ClaimExtractor.extract(result=result)
-      cited    = set(result.cited_evidence_refs)
+      # Membership key is the SPEC-00 §2 Citation predicate (citation_id, source_id, locator).
+      # retrieved_at is excluded — see SPEC-00 §2 Citation membership predicate.
+      cited_keys = frozenset(
+          (c.citation_id, c.source_id, c.locator) for c in result.cited_evidence_refs
+      )
+      ungrounded_or_non_member = cited_keys - surfaced_keys
       ungrounded = tuple(c for c in claims if c.citations == ())
 
       # Decision kinds use SPEC-01 PostflightKind grammar: REJECT carries no
@@ -134,7 +145,7 @@ class CiteOrFailInterceptor(NodeInterceptor):
       # another RECOVER, closing the infinite-loop hazard.
       #
       # Membership check applies regardless of grounding policy.
-      if cited - surfaced:                  -> RECOVER(RETRY_WITH_HINTS,
+      if ungrounded_or_non_member:          -> RECOVER(RETRY_WITH_HINTS,
                                                        reason="non_member_citation",
                                                        hints=[fix=cite from surfaced])
 
@@ -306,13 +317,15 @@ class AuditInterceptor(NodeInterceptor):
 13. `THE AuditInterceptor SHALL NOT be subject to the SPEC-01 Inv 5 short-circuit — its PRE entry SHALL be emitted even when an earlier PRE interceptor REJECTED (Inv 8 above is the per-attempt completeness contract that depends on this).`
 14. `THE Executor SHALL NOT include AgentResult.unverified_claims in any downstream node's ctx.surfaced_sources — unverified_claims have no Citation and SHALL appear only in the originating AgentResult and in user-facing copy (rendered as "[unverified]"). Promotion of an unverified claim into a citable surface SHALL require a fresh PullInterceptor pass that produces a CiteableChunk with a real Citation.`
 15. `Retry budget escalation (closes infinite-loop hazard): WHEN CiteOrFailInterceptor or ToolOutputVerifierInterceptor would emit RECOVER(RETRY_WITH_HINTS), THE interceptor SHALL first check get_retry(task.retry_ledger, node.id). If the value < node.retry_budget, emit RECOVER (executor calls increment_retry per SPEC-04 Inv 11). If the value ≥ node.retry_budget, emit HALT(scope=TASK, reason="<original_reason>_exhausted") with the original reason string suffixed "_exhausted" (e.g. "non_member_citation_exhausted", "ungrounded_claim_exhausted", "tool_unverified_exhausted"). SPEC-05 §10 SHALL carry one user-copy row per *_exhausted reason.`
-16. `LLM-judge prompt-injection isolation. Every judge that consumes adversarial-controlled text (AgentResult.raw_text, AgentResult.output, ToolCallOutput.output, CiteableChunk.content) SHALL: (a) wrap untrusted segments in delimited envelopes — judge prompts use canonical XML-like markers <untrusted-input id="..."> ... </untrusted-input> with content-hash echo verification; (b) pass through services.judge_input_sanitizer (a deterministic regex+heuristic stripper for known directive patterns: "ignore previous", "system:", "</untrusted-input>", base64-encoded directives); (c) include the sanitizer version in the cassette key (judge_input_projection_version per SPEC-00 §7). Judges that consume CiteableChunk.content SHALL NOT trust citation_id selection from inside untrusted segments — judge_citations SHALL be re-validated against ctx.surfaced_sources by the Executor before recording the GoalCompletionResult. Closes the cite-or-fail bypass where an attacker emits "achieved=true, judge_citations=[<real_id>]" inside their output. The untrusted-source list SHALL also include `goal.text` and every `goal.metadata['remediation'][i].detail` / `.suggested_action` string when present — these flow through the same XML envelope sanitization.`
+16. `LLM-judge prompt-injection isolation. Every judge that consumes adversarial-controlled text (AgentResult.raw_text, AgentResult.output, ToolCallOutput.output, CiteableChunk.content) SHALL: (a) wrap untrusted segments in delimited envelopes — judge prompts use canonical XML-like markers <untrusted-input id="..."> ... </untrusted-input> with content-hash echo verification; (b) pass through services.judge_input_sanitizer (a deterministic regex+heuristic stripper for known directive patterns: "ignore previous", "system:", "</untrusted-input>", base64-encoded directives); (c) include the sanitizer version in the cassette key (judge_input_projection_version per SPEC-00 §7). Judges that consume CiteableChunk.content SHALL NOT trust citation_id selection from inside untrusted segments — judge_citations SHALL be re-validated against ctx.surfaced_sources by the Executor before recording the GoalCompletionResult. Closes the cite-or-fail bypass where an attacker emits "achieved=true, judge_citations=[<real_id>]" inside their output. The untrusted-source list SHALL also include `goal.text`, every `goal.metadata['remediation'][i].detail` / `.suggested_action` string, and every `goal.metadata['remediation'][i].citations[j].locator` string when present — these flow through the same XML envelope sanitization.`
 17. `LLM-judge token budget. OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifierInterceptor, and BlueprintInterceptor's policy judge SHALL debit services.eval_budget — NOT task.budget_remaining (SPEC-00 §"RuntimeServices additions"). Per-judge cap = eval_budget.generation_tokens / max(1, count_active_judge_sites(node)) where count_active_judge_sites(node) counts the distinct judge sites active for this node from {online_eval (per-judge multiplied by its bound count), goal_completion, tool_verify, blueprint_policy}. The denominator SHALL be deterministic given (node, services) and SHALL be recorded in the cassette payload as denom_judge_sites so per-cap drift is replayable. On per-judge cap exceedance, judges SHALL truncate the prompt input projection by dropping lowest-priority CiteableChunks first (SPEC-02 Inv 11 sort) and emit "eval.judge_input_truncated{judge_id,dropped_chunks}". Truncation drops from the END of the SPEC-02 Inv 11 sort with terminal tiebreaker chunk_id ASC. The dropped CiteableChunk ids are recorded in dropped_chunk_ids on the cassette payload (SPEC-00 §"Canonical judge input projection"). On hard exhaustion, judges SHALL return score=0, level="budget_exhausted" — counted as a non-passing observation in QualityPolice (NOT silently dropped).`
 18. `OnlineEvalInterceptor rolling-window scoping (closes attempt mis-attribution): QualityPolice.record_score SHALL accept (node_id, score, attempt_kind) and bucket the rolling window separately by attempt_kind. The default N=30, z=−2.5 HALT trigger fires only on the "first" bucket; "retry_after_hints" and "retry_after_meta" maintain independent windows scored OBSERVE-only with separate metric labels (SPEC-05 §9 cemaf_eval_score{attempt_kind}). Mixed-bucket aggregation across attempt kinds is forbidden — prevents post-recovery scores from masking pre-recovery regressions.`
 19. `THE QualityPolice rolling window SHALL be keyed by (node_id, attempt_kind, judge_id, prompt_template_version, model_id). Bumping any of {prompt_template_version, model_id} SHALL start a fresh window in OBSERVE mode for that key; window transitions back to GATE only after N samples (default 30) accumulate under the new pin. Mixed-regime samples SHALL NOT enter z-score baseline computation.`
 20. `EVERY evaluator declared with mode=GATE AND eval_kind='online' (i.e., bound through OnlineEvalInterceptor — node-scoped synchronous evaluators per the "Online eval + halt" subsection above) SHALL be bound to every applicable LLM node in the registered DAG. Guardian-internal, repository-internal, and audit-completeness evaluators are auto-bound by their owning interceptor and SHALL NOT appear in node.online_evaluators. bootstrap.create_executor SHALL emit StartupError(reason='gate_evaluator_unbound', evaluator_id=..., node_id=...) only for the eval_kind='online' subset when an LLM node's online_evaluators tuple omits any GATE-mode online evaluator whose node-pattern matches that node. §8 tables across the spec set SHALL carry an eval_kind column ∈ {online, guardian, repository, audit} so the gate is unambiguous; mode-flip from GATE→OBSERVE within eval_kind='online' requires a spec amendment, never a missing tuple element.`
 21. `AuthorizationPolicy.authorize SHALL NOT mutate Task, Context, or RuntimeServices — it is a read-only predicate. Implementations that need to record audit data SHALL emit through the AuditInterceptor surface, not via direct service mutation.`
 22. `Tool outputs whose verification status is NOT verified SHALL NOT be promoted into any downstream node's ctx.surfaced_sources. The Executor SHALL drop offending ContextPatch entries with reason='tool_output_unverified_promotion' (parallel to Inv 14 for unverified_claims).`
+23. `Judge–agent isolation. For every LLM-judge guardian (GoalCompletionEvaluator, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge, HallucinationProbe), JudgeDescriptor.model_id SHALL identify a model FAMILY distinct from the producing node's agent model. Spec audit (SPEC-00 §6) SHALL fail when any registered judge's model family equals the family of any agent bound to a node the judge gates. Family is parsed as the prefix before '@' in model_id (e.g. 'claude-sonnet-4-6'). Cross-family pairs (agent claude-sonnet-4-6@... judged by claude-haiku-4-5@... or gpt-5-mini@... or llama-3.3-70b@...) are conformant.`
+24. `Every guardian judge with eval_kind='guardian' that has a pinned calibration corpus SHALL have a per-PR replay check comparing current judge_agreement_rate to the pinned baseline JSON in cemaf/data/eval_pins/<judge_id>_baseline.json. PR fails on regression beyond the per-judge tolerance (default 2 percentage points). Closes the silent-drift hole where a model revision-pin bump or prompt edit lands without a measurable quality check.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -592,7 +605,9 @@ LLM-judge evaluators are fully pinned. Prompts and corpora live under
 | Evaluator | Node | Mode | eval_kind | Threshold | Method | Pinned |
 |---|---|---|---|---|---|---|
 | GroundingEvaluator | every REQUIRED-grounding node | GATE | guardian | membership_violations == 0 | deterministic | n/a |
-| GoalCompletionEvaluator | terminal node | GATE | guardian | achieved == true ∧ confidence ≥ 0.8 ∧ judge_citations ⊆ surfaced (fixed pin; calibration corpus `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` is regenerated only by explicit PR that simultaneously updates the threshold) | LLM judge | prompt `prompts/goal_completion_v1.md`, model `claude-sonnet-4-6`, temp=0, top_p=1 |
+| GoalCompletionEvaluator | terminal node | GATE | guardian | achieved == true ∧ confidence ≥ 0.8 ∧ judge_citations ⊆ surfaced (fixed pin; calibration corpus `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` is regenerated only by explicit PR that simultaneously updates the threshold) | LLM judge | prompt `prompts/goal_completion_v1.md`, model `claude-haiku-4-5@2026-04-12` (family flipped per Inv 23 — agent default is claude-sonnet-4-6), temp=0, top_p=1 |
+| GoalCompletionEvaluator (calibration regression) | terminal node | GATE | guardian | judge_agreement_rate ≥ baseline − 2pp on pinned calibration corpus (Inv 24) | deterministic replay | baseline `cemaf/data/eval_pins/goal_completion_baseline.json`, corpus `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` |
+| QualityTrendMonitor (SLO rollback) | per-Task | GATE | guardian | When `cemaf_eval_halts_total{evaluator='QualityTrendMonitor'}` rate exceeds the `halt_rate_threshold` declared in `cemaf/data/eval_pins/slo/quality_trend_monitor.yaml` (default 0.05/min over 5min window), deployment automation SHALL roll back to the prior revision pin. Threshold and window are encoded in the SLO file (per SPEC-00 §8 GATE evaluator SLOs). | deterministic | SLO file `cemaf/data/eval_pins/slo/quality_trend_monitor.yaml` |
 | LegitimacyEvaluator | every node (pre) | GATE | guardian | authorized == true | deterministic (rule-based AuthorizationPolicy) | n/a |
 | HallucinationProbe | every generative node | OBSERVE (always — gating happens via per-PR diff against pinned baseline JSON, not via runtime mode flip) | online | rate ≤ 0.02 with Wilson 95% CI upper bound on labeled corpus; PR-time check fails when current rate regresses beyond baseline + 0.5pp | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans — landing this fixture is a precondition for SPEC-05 implementation start), prompt `prompts/halluc_judge_v1.md`, model `claude-sonnet-4-6`, temp=0; baseline JSON `cemaf/data/eval_pins/halluc_baseline.json` updated by explicit PR only |
 | QualityTrendMonitor | per-Task | GATE | guardian | no HALT alert | deterministic z-score (QualityPolice rolling window) | window 30 nodes, z=−2.5 ⇒ HALT |
@@ -613,8 +628,8 @@ Corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 generative outputs
   - `gen_ai.guardian.online_eval` — `evaluator.id`, `score`, `police.alert_level`
   - `gen_ai.guardian.goal_completion` — `achieved`, `confidence`, `missing_criteria.count`, `judge_citations.count`
   - `gen_ai.guardian.audit` — `phase`, `entry.id`, `node.status_at_emission`
-- **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
-- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_hallucination_probe_rate` (gauge, no labels)
+- **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `eval.score_recorded{evaluator,attempt_kind,score,correlation_id}` (paired with each `cemaf_eval_score` observation for span exemplar linkage per SPEC-00 §9), `eval.judge_budget_exhausted{judge_id, attempt_kind, correlation_id}`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
+- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_eval_score{evaluator,attempt_kind}` (histogram; bounded by §9 cardinality cap evaluator≤32 × attempt_kind=3 = 96), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_eval_judge_budget_exhausted_total{judge_id}` (counter; judge_id bounded by online_eval_pipeline registry cap ≤32), `cemaf_hallucination_probe_rate` (gauge, no labels)
 
 ## 10. User-facing failure copy
 
