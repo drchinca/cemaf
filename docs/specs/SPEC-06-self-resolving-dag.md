@@ -227,6 +227,14 @@ Feature: Self-resolving DAG
     When it is applied to the parent context
     Then the patch carries source="meta:<sub_dag_id>" and a correlation_id linking parent and sub
 
+  Scenario: Meta sub-DAG cannot launder unverified claims (Inv 15)
+    Given the parent AgentResult.unverified_claims contains Claim X
+    And a meta sub-DAG produces a ContextPatch whose payload would add a CiteableChunk derived from X to ctx.surfaced_sources
+    When the Executor applies the patch
+    Then the offending entry is dropped with reason "patch_unverified_promotion"
+    And one AuditEntry is recorded carrying parent_correlation_id and the dropped claim_id
+    And no downstream node observes X in ctx.surfaced_sources
+
   Scenario: Same DAGExecutor instance handles both
     Given a parent run on DAGExecutor instance X
     When a recovery sub-DAG dispatches

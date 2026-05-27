@@ -145,8 +145,9 @@ class NodeInterceptor(ABC):
             value = cls.__dict__.get(attr)
             if value is None:
                 raise TypeError(f"{cls.__name__} must assign a value to {attr!r}")
-        if len(cls.__dict__["display_name"]) > 30:
-            raise TypeError(f"{cls.__name__}.display_name must be ≤30 chars")
+        display_name = cls.__dict__["display_name"]
+        if not isinstance(display_name, str) or len(display_name) > 30:
+            raise TypeError(f"{cls.__name__}.display_name must be a str ≤30 chars")
 
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
                   task: TaskContext, services: RuntimeServices) -> PreflightDecision:

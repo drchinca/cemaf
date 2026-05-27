@@ -254,6 +254,23 @@ Feature: Long-horizon task awareness
     Given any guardian post-flight returns HALT
     When the executor finishes the post chain
     Then TaskRepository.transition(to=HALTED) is invoked before next dispatch
+
+  Scenario: increment_retry runs before MetaDispatcher.dispatch (Inv 13)
+    Given a node whose post-flight returns RECOVER(INVOKE_META_ARCHITECT)
+    And get_retry(task.retry_ledger, node.id) is 0 at decision time
+    When the Executor invokes MetaDispatcher.dispatch
+    Then TaskRepository.increment_retry(task.id, node.id) was called BEFORE dispatch
+    And the meta sub-DAG's first TaskInjectInterceptor observes retry_ledger value 1
+
+  Scenario: correlation_id scopes are distinct and both audited (Inv 14)
+    Given a Task created with task.correlation_id="T-1"
+    When attempt 1 of node N runs and Executor mints ctx.correlation_id="C-1"
+    Then every AuditEntry for the attempt carries task_correlation_id="T-1" AND ctx_correlation_id="C-1"
+    And the attempt's PostflightDecision.correlation_id == "C-1"
+    When the task is paused and resumed and attempt 2 of N runs
+    Then task.correlation_id is still "T-1"
+    And the new ctx.correlation_id is freshly minted (≠ "C-1")
+    And SPEC-06 parent_correlation_id (when meta dispatched) equals the parent attempt's ctx.correlation_id, NOT task.correlation_id
 ```
 
 ## 5. Out of Scope

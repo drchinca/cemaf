@@ -68,7 +68,7 @@ class DataSource(Protocol):
 
 class DataSourceRegistry:
     """Static read-only-port enforcement happens at register() — see Inv 1."""
-    ALLOWED_PUBLIC: frozenset[str] = frozenset({"retrieve", "health", "source_id", "capabilities"})
+    ALLOWED_PUBLIC: ClassVar[frozenset[str]] = frozenset({"retrieve", "health", "source_id", "capabilities"})
 
     def register(self, source: DataSource) -> None:
         """Reject sources whose concrete class declares any public attribute
