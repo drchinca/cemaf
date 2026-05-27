@@ -31,6 +31,7 @@ Common types in SPEC-00 §2 (`Citation`, `CiteableChunk`, `TokenBudget`).
 
 ```python
 from typing import Protocol, runtime_checkable
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 class DataSourceCapability(Enum):
@@ -47,7 +48,7 @@ class HealthStatus(Enum):
 class RetrievalQuery:
     text: str
     entities: tuple[EntityRef, ...] = ()
-    filters: dict[str, str] = field(default_factory=dict)
+    filters: Mapping[str, str] = field(default_factory=dict)   # Mapping per SPEC-00 §2 canonical wrap pattern
     top_k: int = 8
     timeout_ms: int = 3_000
 

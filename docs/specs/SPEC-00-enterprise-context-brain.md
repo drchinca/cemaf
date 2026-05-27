@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤560 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim, canonical MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤575 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -96,6 +96,7 @@ SHALL NOT redefine them.
 
 ```python
 from typing import NewType, Protocol, runtime_checkable
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -136,7 +137,11 @@ class CiteableChunk:
 @dataclass(frozen=True, slots=True)
 class Goal:
     text: str
-    metadata: dict[str, object] = field(default_factory=dict)
+    metadata: Mapping[str, object] = field(default_factory=dict)
+    # Annotated as Mapping[str, object] (not dict[...]) because the canonical
+    # MappingProxyType wrap below replaces the field with a read-only view —
+    # `dict[...]` would lie about the post-init runtime type. Constructors may
+    # pass a plain dict; __post_init__ wraps it.
     # Value type is `object` (not `str`) because reserved keys carry structured
     # payloads — e.g. SPEC-01 Inv 10 stores `metadata["remediation"]: tuple[RecoveryHint, ...]`.
     # Reserved keys and their value types are documented in their owning specs:
@@ -156,7 +161,7 @@ class EntityRef:
 class ToolCallOutput:
     """One observable tool invocation captured on AgentResult."""
     tool_name: str
-    arguments: dict[str, str]
+    arguments: Mapping[str, object]      # JSON-shaped tool-call arguments (numbers/bools/nested objects)
     output: str
     citations: tuple[Citation, ...] = ()
     consumed_by_node: NodeID | None = None          # set by executor when downstream node reads this output
@@ -179,7 +184,7 @@ class AgentResult:
     cited_evidence_refs: tuple[Citation, ...] = ()
     tool_calls: tuple[ToolCallOutput, ...] = ()     # consumed by SPEC-05 ToolOutputVerifier
     unverified_claims: tuple[Claim, ...] = ()       # OWNED BY THE EXECUTOR, NOT THE AGENT. Agents SHALL emit unverified_claims=(); the chain (SPEC-05 CiteOrFail under GroundingPolicy.BEST_EFFORT) populates this tuple via PostflightDecision.derived_unverified_claims, which the executor merges into a NEW AgentResult per SPEC-01 Inv 6. Surfaced to users as "[unverified]".
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, str] = field(default_factory=dict)   # Mapping, not dict — see MappingProxyType wrap pattern below
 
 class GroundingPolicy(Enum):
     REQUIRED    = "required"      # cite-or-fail enforced; ungrounded → RECOVER(RETRY_WITH_HINTS) subject to SPEC-05 Inv 15 budget escalation to HALT
@@ -261,11 +266,16 @@ spec named in each row.
 #                              the canonical membership set for SPEC-05 cite-or-fail.
 #                              Defaults to () pre-PullInterceptor.
 #
-# Mutable-collection fields on frozen dataclasses (e.g. metadata: dict[str, str])
-# SHALL be wrapped at construction with types.MappingProxyType to honor the
-# "increment-only / append-only" invariants stated in §3 and child specs.
-# Canonical pattern (apply to AgentResult, Goal, ContextPatch, every metadata
-# field below — child specs inherit this without restating):
+# Mutable-collection fields on frozen dataclasses SHALL be:
+#   (a) annotated as `Mapping[K, V]` (NOT `dict[K, V]`) — `dict[...]` would
+#       lie about the runtime type after __post_init__ wraps it, breaking
+#       strict-mode pyright/mypy callers that store the field elsewhere; and
+#   (b) wrapped at construction with types.MappingProxyType to honor the
+#       "increment-only / append-only" invariants stated in §3 and child specs.
+# Canonical pattern (apply to AgentResult, Goal, ContextPatch, ToolCallOutput
+# .arguments, RetrievalQuery.filters, BlueprintRequest.metadata, every other
+# metadata/arguments/filters field below — child specs inherit this without
+# restating):
 #
 #   from types import MappingProxyType
 #   def __post_init__(self) -> None:

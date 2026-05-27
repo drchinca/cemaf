@@ -154,6 +154,16 @@ class NodeInterceptor(ABC):
     phase: ClassVar[InterceptorPhase]   # required class attribute on every subclass
     display_name: ClassVar[str]         # required, ≤30 chars, human-readable; per Inv 15
 
+    def __init__(self) -> None:
+        """Block direct instantiation of the abstract base. ABC alone does not
+        prevent instantiation when no method is decorated @abstractmethod;
+        pre()/post() carry default ACCEPT bodies and cannot be abstract. This
+        guard short-circuits `NodeInterceptor()` so the AttributeError on
+        self.interceptor_id never surfaces from the default methods."""
+        if type(self) is NodeInterceptor:
+            raise TypeError("NodeInterceptor is abstract; subclass and assign "
+                            "interceptor_id/phase/display_name")
+
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Runtime guard: subclasses without interceptor_id/phase/display_name fail
         at class creation rather than at first dispatch. Uses cls.__dict__ rather

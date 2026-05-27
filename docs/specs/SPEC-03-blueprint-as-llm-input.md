@@ -34,6 +34,7 @@ Common types in SPEC-00 §2 (`Goal`, `AgentResult`, `Citation`, `BlueprintID`).
 
 ```python
 from typing import Protocol, runtime_checkable
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pydantic import BaseModel
 
@@ -68,7 +69,7 @@ class BlueprintRequest:
     output_schema: type[BaseModel] | None           # see "Grounding annotation policy" below
     grounding_refs: tuple[Citation, ...]            # derived from ctx.surfaced_sources
     policy_retry_budget: int = 2                     # consumed by StructuredGenerator (Inv 7)
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, str] = field(default_factory=dict)   # Mapping per SPEC-00 §2 canonical wrap pattern
 
 @dataclass(frozen=True, slots=True)
 class StructuredResult:
