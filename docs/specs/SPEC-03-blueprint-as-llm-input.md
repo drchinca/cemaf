@@ -114,7 +114,7 @@ class StructuredGenerator(Protocol):
 6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → PostflightDecision determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER).`
 7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to BlueprintRequest.policy_retry_budget (default 2). On exhaustion the generator SHALL raise PolicyExhaustedError; the post-flight chain converts it to REJECT(reason="policy_exhausted").`
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
-9. `THE generator SHALL NOT introduce Citations in cited_evidence_refs that are absent from BlueprintRequest.grounding_refs; SPEC-05 cite-or-fail enforces the same invariant at post-flight.`
+9. `THE generator SHALL filter cited_evidence_refs to ⊆ BlueprintRequest.grounding_refs before returning the StructuredResult — i.e., it SHALL NOT introduce non-member Citations. SPEC-05 cite-or-fail enforces the same membership predicate at post-flight against ctx.surfaced_sources (which equals grounding_refs at the moment BlueprintInterceptor ran, per Inv 3) — the two checks are redundant by design (defense in depth).`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -160,10 +160,11 @@ Feature: Blueprint-driven generation
     When BlueprintRequest is built twice
     Then the canonical serialization (JSON, sorted keys) of both is byte-identical
 
-  Scenario: Citation drop on non-member
-    Given a generator output citing a source not in BlueprintRequest.grounding_refs
-    When the generator post-processes
-    Then the result is dropped before return (handoff to cite-or-fail post-flight)
+  Scenario: Citation filtered to grounding_refs at generator boundary
+    Given a generator draft whose cited_evidence_refs includes a Citation absent from BlueprintRequest.grounding_refs
+    When the generator post-processes the draft
+    Then the returned StructuredResult.cited_evidence_refs has the non-member Citation removed
+    And the StructuredResult is still returned (the post-flight cite-or-fail in SPEC-05 makes the final accept/reject call against ctx.surfaced_sources)
 ```
 
 ## 5. Out of Scope

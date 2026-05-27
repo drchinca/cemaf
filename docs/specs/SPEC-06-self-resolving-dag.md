@@ -116,6 +116,18 @@ parameter; the parent run passes `services.token_budget`, the recovery run
 passes `services.meta_budget`. Reentrancy on the same executor instance is
 preserved (SPEC-01 Inv 12).
 
+### Recovery TaskContext
+
+Recovery sub-DAG nodes run under the SAME parent Task — sub-DAGs are not
+sub-tasks (SPEC-04 §5). The TaskInjectInterceptor inside a recovery run
+receives a derived TaskContext: same `task_id`, `goal`, `correlation_id`, and
+`prior_decisions` as the parent at the moment of dispatch; `step_index` and
+`step_count` are scoped to the SUB-DAG (0-based across the sub-DAG's own
+node sequence) so guardians inside the recovery see meaningful step
+positions; `budget_remaining` reflects `MetaInvocationBudget` (Inv 5),
+NOT the parent's `TokenBudget`. The recovery TaskContext carries
+`metadata["parent_node_id"]` and `metadata["depth"]` for audit linkage.
+
 ### Concurrency model
 
 Sub-DAG execution is sequential w.r.t. the parent: while a recovery sub-DAG
@@ -152,6 +164,13 @@ Feature: Self-resolving DAG
     Then MetaArchitect produces a recovery sub-DAG that adds a citation step
     And the parent node is re-dispatched with goal.metadata["remediation"] containing the hint code
     And the second attempt passes CiteOrFail
+
+  Scenario: Depth 1 → 2 is permitted (boundary allowed)
+    Given MetaInvocationBudget.max_depth == 2
+    And a recovery currently executing at depth 1
+    When a nested guardian inside it emits RECOVER(INVOKE_META_ARCHITECT) (would reach depth 2)
+    Then the dispatcher accepts the request
+    And the new sub-DAG runs at depth 2
 
   Scenario: Depth limit triggers escalation
     Given MetaInvocationBudget.max_depth == 2

@@ -176,7 +176,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`
 9. `TaskRepository.acquire SHALL be exclusive — concurrent resumption attempts on the same task SHALL fail with TaskInUseError.`
 10. `THE retry_ledger SHALL be append/increment-only; counters never decrement. Storage is tuple[tuple[NodeID, int], ...]; read access is via a helper get_retry(ledger, node_id) -> int (default 0); writes happen by rebuilding the Task aggregate via dataclasses.replace, not in-place mutation.`
-11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) BEFORE running the interceptor chain for a re-dispatched node, so guardians observe the post-increment value.`
+11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) AFTER the post-flight chain emits RECOVER on attempt N AND BEFORE re-dispatching attempt N+1. Semantics: on attempt N (N starting at 1), guardians observe retry_ledger value (N-1). Combined with DAGNode.retry_budget, "budget=K" means up to K recoveries (i.e., attempts 1..K+1); on attempt N+1 a guardian sees value N, and (N < K) determines RECOVER vs HALT.`
 12. `WHEN AcquireToken.lease_ttl_ms elapses without explicit release, THE TaskRepository SHALL treat the lease as expired and permit a new acquire — preventing dead executors from holding tasks indefinitely.`
 
 ## 4. Acceptance Criteria (BDD)
@@ -192,8 +192,8 @@ Feature: Long-horizon task awareness
 
   Scenario: Retry ledger observable to guardians
     Given a node that has failed once and been re-dispatched via RECOVER
-    When the guardian post-flight inspects task.retry_ledger[node.id]
-    Then the value is 1 (incremented after the first failure)
+    When the guardian post-flight inspects get_retry(task.retry_ledger, node.id) on the second attempt
+    Then the value is 1 (incremented after the first attempt's RECOVER, before the second attempt)
 
   Scenario: Pause and resume across processes
     Given a Task in state RUNNING with 3 of 10 steps complete
@@ -229,6 +229,18 @@ Feature: Long-horizon task awareness
     Given a Task being resumed by executor A
     When executor B attempts to acquire() the same task
     Then the second call raises TaskInUseError
+
+  Scenario: Lease TTL expiry permits re-acquire
+    Given executor A holds an AcquireToken with lease_ttl_ms=100
+    And A crashes without calling release
+    When 200ms elapses and executor B calls acquire()
+    Then the lease is treated as expired
+    And B receives a fresh AcquireToken without TaskInUseError
+
+  Scenario: Recovery sub-DAG budget is metered separately (cross-ref SPEC-06)
+    Given a parent Task with budget_remaining=10000
+    When a recovery sub-DAG runs and consumes 3000 tokens via MetaInvocationBudget
+    Then parent.budget_remaining stays 10000 (Inv 6 — see SPEC-06 §4 "Token budget isolation")
 
   Scenario: Guardian HALT propagates to Task
     Given any guardian post-flight returns HALT

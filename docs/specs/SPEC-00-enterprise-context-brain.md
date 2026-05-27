@@ -195,12 +195,9 @@ class InterceptorPhase(Enum):
     POST = "post"
     BOTH = "both"
 
-class TaskState(Enum):
-    QUEUED    = "queued"
-    RUNNING   = "running"
-    PAUSED    = "paused"
-    COMPLETED = "completed"
-    HALTED    = "halted"
+# TaskState lives in SPEC-04 §2 (single source of truth). Listed here only as
+# a forward-referenced symbol for completeness of the umbrella common-types
+# block — do NOT redefine the enum body.
 ```
 
 ### Cross-cutting seams
@@ -215,15 +212,31 @@ spec named in each row.
 
 # Symbols declared in SPEC-00 referenced by child specs but owned elsewhere:
 #   DAG                      — orchestration/dag.py::DAG (existing CEMAF type)
-#   Context                  — context/context.py::Context (existing); SPEC-02
-#                              adds typed field `surfaced_sources: tuple[CiteableChunk, ...]`
-#                              and `correlation_id: CorrelationID`.
+#   Context                  — context/context.py::Context (existing). This
+#                              spec amends Context with two new fields owned
+#                              jointly by SPEC-01 (correlation_id) and SPEC-02
+#                              (surfaced_sources), set out in the
+#                              "Context extensions" subsection below.
 #   RuntimeServices          — orchestration/services.py (existing)
-#   TaskContext, Task        — full def in SPEC-04 §2
+#   TaskContext, Task, TaskState — full def in SPEC-04 §2
 #   Decision                 — full def in SPEC-04 §2
 #   PreflightDecision/PostflightDecision — full def in SPEC-01 §2
 #   NodeInterceptor (ABC)    — full def in SPEC-01 §2
 #   Blueprint                — blueprint/base.py::Blueprint (existing)
+#   ContextPatch             — context/patch.py::ContextPatch (existing). Carries
+#                              source: str, correlation_id: CorrelationID, applied_at: datetime;
+#                              SPEC-06 splices recovery outputs back into the parent
+#                              run via patches with source="meta:<sub_dag_id>".
+
+# Context extensions — owned by this umbrella so child specs do not redefine.
+# Both fields are required at construction time once the chain runs:
+#   Context.correlation_id   : CorrelationID  — assigned by DAGExecutor at node
+#                              dispatch; threaded into every PreflightDecision /
+#                              PostflightDecision and AuditEntry of the attempt.
+#   Context.surfaced_sources : tuple[CiteableChunk, ...] — populated by the
+#                              PullInterceptor (SPEC-02) before BlueprintInterceptor;
+#                              the canonical membership set for SPEC-05 cite-or-fail.
+#                              Defaults to () pre-PullInterceptor.
 #
 # Mutable-collection fields on frozen dataclasses (e.g. metadata: dict[str, str])
 # are wrapped at construction with types.MappingProxyType to honor the
@@ -424,6 +437,12 @@ inside the chain SHALL be replayed via recorded fixtures (cassettes) keyed by
 are part of the test contract.
 
 **Validates: §3 Invariant 9 / SPEC-01 Inv 8 / SPEC-03 "Determinism" / SPEC-05 "Replay determinism"**
+
+**Cassette path convention** (single source of truth — child specs inherit):
+`tests/fixtures/cassettes/<spec_id>/<judge_name>/<input_hash>.json` where
+`input_hash = sha256(canonical_json({prompt_template_version, model_id,
+decoding_params, input}))[:16]`. Missing cassette in CI fails the test loud,
+not silent regenerate. Cassettes are checked into git.
 
 ## 8. Eval Criteria
 

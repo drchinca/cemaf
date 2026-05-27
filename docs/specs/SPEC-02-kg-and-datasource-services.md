@@ -66,8 +66,9 @@ class DataSourceRegistry:
     ALLOWED_PUBLIC: frozenset[str] = frozenset({"retrieve", "health", "source_id", "capabilities"})
 
     def register(self, source: DataSource) -> None:
-        """Reject sources whose concrete class exposes any public attribute
-        outside ALLOWED_PUBLIC (where 'public' = name not starting with '_').
+        """Reject sources whose concrete class declares any public attribute
+        (vars(type(source)), name not starting with '_') outside ALLOWED_PUBLIC —
+        inherited members from object/Protocol bases are NOT counted.
         Raises DuplicateSourceError if source.source_id is already registered.
         Raises ReadOnlyViolationError if extra public surface is present."""
     def get(self, source_id: str) -> DataSource: ...
@@ -96,7 +97,7 @@ class PullInterceptor(NodeInterceptor):
 
 ## 3. Invariants (DbC)
 
-1. `WHEN DataSourceRegistry.register(source) is called, THE registry SHALL reject any source whose concrete class exposes a public attribute (name not starting with '_') outside DataSourceRegistry.ALLOWED_PUBLIC = {retrieve, health, source_id, capabilities} — i.e., set(name for name in dir(type(source)) if not name.startswith('_')) - ALLOWED_PUBLIC == ∅. Violations raise ReadOnlyViolationError.`
+1. `WHEN DataSourceRegistry.register(source) is called, THE registry SHALL reject any source whose concrete class exposes a public attribute (name not starting with '_') outside ALLOWED_PUBLIC = {"retrieve", "health", "source_id", "capabilities"}. The check uses ONLY attributes declared directly on the concrete type (excluding inherited members from object/Protocol bases): public_set = {n for n in vars(type(source)) if not n.startswith('_')}; violations raise ReadOnlyViolationError when public_set - ALLOWED_PUBLIC ≠ ∅. Helper attributes (loggers, config) MUST be private (leading underscore) or live on a non-DataSource collaborator.`
 2. `WHEN PullInterceptor runs, sum(chunk.token_count for chunk in returned) SHALL be ≤ node.budget.pull_tokens.`
 3. `Every CiteableChunk in ctx.surfaced_sources SHALL have a Citation with non-empty source_id and locator.`
 4. `THE knowledge_graph service SHALL be queryable from any node — meta or non-meta — through RuntimeServices.knowledge_graph.`
@@ -189,10 +190,11 @@ Feature: Pull-not-push context
 
 ### Property 1: Read-only boundary
 *For any* `DataSource` registered via `DataSourceRegistry.register`, the
-concrete class's *public* attribute set (names not starting with `_`) is a
-subset of `{"retrieve","health","source_id","capabilities"}`. Enforced at
-registration time; `@runtime_checkable` Protocol presence-check alone is
-insufficient.
+concrete class's *directly-declared public* attribute set
+(`{n for n in vars(type(source)) if not n.startswith('_')}`) is a subset of
+`{"retrieve","health","source_id","capabilities"}`. Enforced at registration
+time; `@runtime_checkable` Protocol presence-check alone is insufficient.
+Inherited methods from base classes do not count.
 
 **Validates: §3 Invariant 1 / §4 "Read-only enforcement at registry"**
 
@@ -231,7 +233,7 @@ Pinned models / fixtures referenced explicitly so evaluators are replay-determin
 | BudgetConservationEvaluator | every PullInterceptor run | GATE | tokens ≤ budget | deterministic | n/a |
 | GroundingCoverageEvaluator | nodes with grounding=REQUIRED | GATE | chunks ≥ 1 | deterministic | n/a |
 | ProtocolSurfaceEvaluator | DataSource implementations | GATE | extra public methods == 0 | deterministic | n/a |
-| RetrievalRelevanceEvaluator | sample of pulls | OBSERVE | mean cos-sim ≥ 0.55 on `tests/fixtures/retrieval_eval_corpus_v1.jsonl` | semantic | embedding model `text-embedding-3-small`, version pinned in `cemaf/llm/factories.py` |
+| RetrievalRelevanceEvaluator | sample of pulls | OBSERVE | mean cos-sim ≥ baseline from `cemaf/data/eval_pins/retrieval_relevance_baseline.json` (absolute floor 0.55); regression > 0.02 fails CI | semantic | embedding model `text-embedding-3-small@2024-01-25` (API version), pinned in `cemaf/llm/factories.py`; corpus `tests/fixtures/retrieval_eval_corpus_v1.jsonl` |
 
 ## 9. Observability Contract
 

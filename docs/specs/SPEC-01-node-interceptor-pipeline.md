@@ -160,7 +160,7 @@ class ChainConfig:
     the profile is passed at run_pre/run_post so a single chain serves both
     DEFAULT (parent) and RECOVERY (sub-DAG) calls without mutating services.
     """
-    pre_order: tuple[str, ...]                     # interceptor_ids in order; SHALL equal SPEC-00 *_PRE_ORDER for the active profile
+    pre_order: tuple[str, ...]                     # interceptor_ids in order; SHALL equal SPEC-00 *_PRE_ORDER for the active profile (the executor builds ChainConfig per-call FROM the resolved chain_profile, so pre_order/post_order are derived, not user-set)
     post_order: tuple[str, ...]                    # SHALL equal SPEC-00 *_POST_ORDER for the active profile
     per_interceptor_timeout_ms: int = 5_000
     chain_timeout_ms: int = 30_000
@@ -291,6 +291,13 @@ Feature: Interceptor pipeline
     And B returns enriched_context with key "y"=2
     When the agent is dispatched
     Then the agent's context contains both x=1 and y=2
+
+  Scenario: POST interceptor cannot re-issue the agent
+    Given a POST interceptor that attempts to invoke agent.run during post()
+    When the chain runs
+    Then the chain raises ChainContractError("post phase MAY NOT re-issue agent")
+    And the failure is converted to REJECT with reason "<id>:exception:ChainContractError"
+    And no second AgentResult is produced
 
   Scenario: Reentrant under concurrent dispatch
     Given an InterceptorChain instance shared by two concurrent execute_node calls

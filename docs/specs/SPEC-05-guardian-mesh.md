@@ -205,10 +205,10 @@ class GoalCompletionResult:
 
 class GoalCompletionInterceptor(NodeInterceptor):
     """POST, runs only when node.is_terminal == True.
-    Decision policy:
-      - achieved AND confidence ≥ 0.8                                        → ACCEPT
-      - !achieved AND retry_ledger[node_id] < node.retry_budget              → RECOVER(INVOKE_META_ARCHITECT)
-      - !achieved AND retry_ledger[node_id] ≥ node.retry_budget              → HALT(scope=TASK)
+    Decision policy (uses get_retry(task.retry_ledger, node.id), per SPEC-04 Inv 10):
+      - achieved AND confidence ≥ 0.8                                              → ACCEPT
+      - !achieved AND get_retry(task.retry_ledger, node.id) < node.retry_budget    → RECOVER(INVOKE_META_ARCHITECT)
+      - !achieved AND get_retry(task.retry_ledger, node.id) ≥ node.retry_budget    → HALT(scope=TASK)
     """
     interceptor_id = "goal_completion"
     phase = InterceptorPhase.POST
@@ -233,8 +233,8 @@ class AuditInterceptor(NodeInterceptor):
 4. `WHEN ToolOutputVerifier.verify returns verified=False, THE ToolOutputVerifierInterceptor SHALL REJECT(reason="tool_unverified").`
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
-7. `WHEN GoalCompletionResult.achieved == False AND task.retry_ledger[node_id] < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
-8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation that runs, scoped per ATTEMPT (a re-dispatch under RECOVER is a separate attempt with its own PRE/POST entries). Audit completeness per attempt: ACCEPTED end-to-end → 2 entries (PRE + POST); REJECTED/RECOVERED/HALTED in post-flight → 2 entries; REJECTED in pre-flight → 1 entry (PRE only — audit is the LAST PRE interceptor and SHALL still emit when an earlier PRE rejected, per SPEC-01 Inv 5).`
+7. `WHEN GoalCompletionResult.achieved == False AND get_retry(task.retry_ledger, node.id) < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
+8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation that runs, scoped per ATTEMPT. Definition: an ATTEMPT is one (PRE → optional EXECUTE → POST) pass through the parent node's chain. A SPEC-06 recovery sub-DAG dispatched mid-attempt is NOT a new attempt of the parent — it is a separate run with its own audit entries (linked via parent_correlation_id, SPEC-06 Inv 6); the parent's RECOVER decision plus the executor's increment_retry then begin attempt N+1, which is a fresh PRE/POST audit pair. Audit completeness per attempt: ACCEPTED end-to-end → 2 entries (PRE + POST); REJECTED/RECOVERED/HALTED in post-flight → 2 entries; REJECTED in pre-flight → 1 entry (PRE only — audit is the LAST PRE interceptor and SHALL still emit when an earlier PRE rejected, per SPEC-01 Inv 5).`
 9. `Recovery via RETRY_WITH_HINTS SHALL pass RecoveryHint instances in goal.metadata["remediation"] to the re-dispatched agent (per SPEC-01 Inv 10).`
 10. `Guardian interceptors SHALL be auto-injected at bootstrap when the corresponding RuntimeServices.* field is non-None; opting out requires an explicit ChainConfig override.`
 11. `Citation membership check (Inv 2) SHALL be replay-safe: identical surfaced_sources + identical cited_evidence_refs yield identical decisions.`
@@ -286,13 +286,19 @@ Feature: Guardian mesh
     And the DAGExecutor stops dispatching new nodes
     And the Task transitions to HALTED
 
-  Scenario: Goal completion recovers once then halts
+  Scenario: Goal completion first failure recovers
     Given a terminal node with node.retry_budget == 1
-    And first run: GoalCompletionResult.achieved == False
+    And get_retry(task.retry_ledger, node.id) == 0
+    And GoalCompletionResult.achieved == False
     When GoalCompletionInterceptor runs
     Then PostflightDecision is RECOVER(INVOKE_META_ARCHITECT)
-    Given task.retry_ledger[node_id] now == 1 and second run still achieved == False
-    When GoalCompletionInterceptor runs again
+    And the executor increments the retry ledger to 1 before the next attempt
+
+  Scenario: Goal completion second failure halts
+    Given a terminal node with node.retry_budget == 1
+    And get_retry(task.retry_ledger, node.id) == 1 (incremented after the prior RECOVER)
+    And GoalCompletionResult.achieved == False
+    When GoalCompletionInterceptor runs
     Then PostflightDecision is HALT(scope=TASK)
 
   Scenario: Goal-completion judge must self-cite
@@ -344,7 +350,7 @@ Feature: Guardian mesh
 - SPEC-04 (`task.retry_ledger`, `node.retry_budget`)
 - `evals/online.py`, `evals/police.py`, `evals/grounding.py`, `evals/judge.py` (extend)
 - `citation/`, `moderation/`, `audit/`
-- `spacy>=3.7` + `en_core_web_sm` model — required by `SentenceClaimExtractor`'s POS-tag pass; pinned in `pyproject.toml` and `cemaf/data/eval_pins/spacy_model_version.txt`
+- `spacy==3.7.4` + `en_core_web_sm==3.7.1` (exact pins; mirrored in `pyproject.toml` and `cemaf/data/eval_pins/spacy_model_version.txt`) — required by `SentenceClaimExtractor`'s POS-tag pass. Two CI runs MUST produce byte-identical sentence segmentation given identical input; absence of the pinned model file aborts SPEC-05 test suite startup.
 - New code:
   - `evals/goal_completion.py` (LLM-judge with pinned prompt)
   - `evals/tool_output_verifier.py` (hybrid)
@@ -409,9 +415,9 @@ LLM-judge evaluators are fully pinned. Prompts and corpora live under
 | Evaluator | Node | Mode | Threshold | Method | Pinned |
 |---|---|---|---|---|---|
 | GroundingEvaluator | every REQUIRED-grounding node | GATE | membership_violations == 0 | deterministic | n/a |
-| GoalCompletionEvaluator | terminal node | GATE | achieved == true ∧ confidence ≥ τ ∧ judge_citations ⊆ surfaced; τ derived from `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` (≥100 labeled tasks) at the Youden-J optimal point, default 0.8 floor | LLM judge | prompt `prompts/goal_completion_v1.md`, model `claude-sonnet-4-6`, temp=0, top_p=1 |
+| GoalCompletionEvaluator | terminal node | GATE | achieved == true ∧ confidence ≥ 0.8 ∧ judge_citations ⊆ surfaced (fixed pin; calibration corpus `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` is regenerated only by explicit PR that simultaneously updates the threshold) | LLM judge | prompt `prompts/goal_completion_v1.md`, model `claude-sonnet-4-6`, temp=0, top_p=1 |
 | LegitimacyEvaluator | every node (pre) | GATE | authorized == true | deterministic (rule-based AuthorizationPolicy) | n/a |
-| HallucinationProbe | every generative node | OBSERVE while corpus is missing; GATE once corpus is checked in | rate ≤ 0.02 with Wilson 95% CI upper bound on labeled corpus | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans — landing this fixture is a precondition for SPEC-05 implementation start), prompt `prompts/halluc_judge_v1.md`, model `claude-sonnet-4-6`, temp=0; baseline JSON `cemaf/data/eval_pins/halluc_baseline.json` updated by explicit PR only |
+| HallucinationProbe | every generative node | OBSERVE (always — gating happens via per-PR diff against pinned baseline JSON, not via runtime mode flip) | rate ≤ 0.02 with Wilson 95% CI upper bound on labeled corpus; PR-time check fails when current rate regresses beyond baseline + 0.5pp | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans — landing this fixture is a precondition for SPEC-05 implementation start), prompt `prompts/halluc_judge_v1.md`, model `claude-sonnet-4-6`, temp=0; baseline JSON `cemaf/data/eval_pins/halluc_baseline.json` updated by explicit PR only |
 | QualityTrendMonitor | per-Task | GATE | no HALT alert | deterministic z-score (QualityPolice rolling window) | window 30 nodes, z=−2.5 ⇒ HALT |
 | AuditCompletenessEvaluator | every node | GATE | entries == expected_for_status (2 for ACCEPTED, 1 for pre-rejected, 2 otherwise) | deterministic | n/a |
 | RecoveryBoundEvaluator | every node | GATE | retry_ledger[node_id] ≤ retry_budget | deterministic | n/a |
