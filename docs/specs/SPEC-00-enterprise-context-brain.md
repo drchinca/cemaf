@@ -344,6 +344,16 @@ spec named in each row.
 #   RuntimeServices          — orchestration/services.py (existing)
 #   TaskContext, Task, TaskState — full def in SPEC-04 §2
 #   Decision                 — full def in SPEC-04 §2
+#   NodeOutcome              — full def in SPEC-04 §2; per-node terminal record
+#                              (node_id, agent_result, post_decision, attempt_idx)
+#                              referenced by RunResult.terminal_outcome.
+#   HaltScope                — full def in SPEC-04 §2; enum {NODE, TASK, DAG}
+#                              identifying the blast radius of a HALT decision;
+#                              referenced by RunResult.halt_scope.
+#   RecoveryResult           — full def in SPEC-06 §2; per-recovery summary
+#                              (accepted, sub_dag_id, reason, retry_hints,
+#                              applied_patches) returned by recovery sub-DAGs;
+#                              referenced by RunResult.recovery_summary.
 #   PreflightDecision/PostflightDecision — full def in SPEC-01 §2
 #   NodeInterceptor (ABC)    — full def in SPEC-01 §2
 #   Blueprint                — blueprint/base.py::Blueprint (existing)
