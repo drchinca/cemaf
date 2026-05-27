@@ -138,11 +138,38 @@ class Goal:
     metadata: dict[str, str] = field(default_factory=dict)
 
 @dataclass(frozen=True, slots=True)
+class EntityRef:
+    """A typed reference to a business entity surfaced by KG or extraction."""
+    entity_id: str
+    kind: str                                       # "Order", "Customer", "Product", ...
+    label: str | None = None
+
+@dataclass(frozen=True, slots=True)
+class ToolCallOutput:
+    """One observable tool invocation captured on AgentResult."""
+    tool_name: str
+    arguments: dict[str, str]
+    output: str
+    citations: tuple[Citation, ...] = ()
+    consumed_by_node: NodeID | None = None          # set by executor when downstream node reads this output
+
+@dataclass(frozen=True, slots=True)
 class AgentResult:
     output: object                                  # may be a Pydantic model when blueprint.output_schema is set
     raw_text: str | None
     cited_evidence_refs: tuple[Citation, ...] = ()
+    tool_calls: tuple[ToolCallOutput, ...] = ()     # consumed by SPEC-05 ToolOutputVerifier
     metadata: dict[str, str] = field(default_factory=dict)
+
+class GroundingPolicy(Enum):
+    REQUIRED = "required"   # cite-or-fail enforced
+    OPTIONAL = "optional"   # cite if present, do not reject if absent
+    DISABLED = "disabled"   # router/conditional/parallel non-output nodes
+
+class SchemaFailurePolicy(Enum):
+    REJECT  = "reject"      # post-flight REJECT on schema validation failure
+    RECOVER = "recover"     # RECOVER(RETRY_WITH_HINTS) on schema failure
+    HALT    = "halt"        # HALT(scope=TASK) on schema failure
 
 # Chain primitives — full detail in SPEC-01
 @dataclass(frozen=True, slots=True)
@@ -152,11 +179,12 @@ class DAGNode:
     is_llm_node: bool
     retry_budget: int = 1                           # max RECOVER dispatches before HALT escalation
     grounding: GroundingPolicy = GroundingPolicy.REQUIRED
+    schema_failure_policy: SchemaFailurePolicy = SchemaFailurePolicy.RECOVER
 
-class GroundingPolicy(Enum):
-    REQUIRED = "required"   # cite-or-fail enforced
-    OPTIONAL = "optional"   # cite if present, do not reject if absent
-    DISABLED = "disabled"   # router/conditional/parallel non-output nodes
+# TaskContext is fully defined in SPEC-04. SPEC-00 declares the type symbol so
+# protocol signatures here resolve without forward-referencing implementation.
+# Same for Context (existing CEMAF type, see context/context.py) and
+# RuntimeServices (orchestration/services.py).
 
 class ChainProfile(Enum):
     DEFAULT  = "default"    # legitimacy → pull → blueprint → task_inject ; cite_or_fail → tool_verify → online_eval → goal_completion → audit
@@ -182,10 +210,11 @@ class NodeInterceptor(Protocol):
 # Carrier field consumed by SPEC-05 cite-or-fail (set by SPEC-02 PullInterceptor)
 #   ctx.surfaced_sources: tuple[CiteableChunk, ...]
 
-# DEFAULT chain order — SPEC-00 §3 Invariant 9 canonical reference
-DEFAULT_PRE_ORDER  = ("legitimacy", "pull", "blueprint", "task_inject")
-DEFAULT_POST_ORDER = ("cite_or_fail", "tool_verify", "online_eval", "goal_completion", "audit")
-RECOVERY_PRE_ORDER  = ("legitimacy", "pull", "blueprint", "task_inject")
+# Canonical chain order — single source of truth. SPEC-01 ChainConfig
+# pre_order/post_order SHALL equal these tuples for the matching profile.
+DEFAULT_PRE_ORDER   = ("legitimacy", "pull", "blueprint", "task_inject", "audit")
+DEFAULT_POST_ORDER  = ("cite_or_fail", "tool_verify", "online_eval", "goal_completion", "audit")
+RECOVERY_PRE_ORDER  = ("legitimacy", "pull", "blueprint", "task_inject", "audit")
 RECOVERY_POST_ORDER = ("cite_or_fail", "tool_verify", "audit")
 ```
 
@@ -205,8 +234,17 @@ This table is the single source of truth — child specs consume these.
 | `authorization_policy` | `AuthorizationPolicy \| None` | SPEC-05 | Legitimacy gate backend |
 | `goal_completion_evaluator` | `GoalCompletionEvaluator \| None` | SPEC-05 | Terminal-node goal check |
 | `tool_output_verifier` | `ToolOutputVerifier \| None` | SPEC-05 | Tool-layer hallucination gate |
+| `claim_extractor` | `ClaimExtractor \| None` | SPEC-05 | Claim segmentation for cite-or-fail |
+| `structured_generator` | `StructuredGenerator \| None` | SPEC-03 | Blueprint → typed result generator |
 | `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
 | `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds |
+
+`RuntimeServices` is a frozen dataclass; mutation is forbidden. Per-call
+state (e.g., active `ChainProfile` for a specific `DAGExecutor.run` call)
+SHALL be passed as a method parameter, not stored on `services`. The
+`chain_profile` field on `RuntimeServices` is the *default* profile a new
+executor uses; child specs that need to override (SPEC-06) do so via
+`DAGExecutor.run(..., chain_profile=ChainProfile.RECOVERY)`.
 
 ## 3. Invariants (DbC)
 
@@ -312,7 +350,7 @@ Build order (each row is a child spec; later rows depend on earlier):
 | 3 | SPEC-03 Blueprint-as-LLM-input | structured generation | SPEC-01, SPEC-02 (consumes ctx.surfaced_sources), `blueprint/`, `generation/` |
 | 4 | SPEC-04 Task state machine | long-horizon awareness | SPEC-01, `persistence/`, `replay/` |
 | 5 | SPEC-05 Guardian mesh + gates | quality/safety/grounding | SPEC-01..04, `evals/`, `citation/`, `moderation/`, `audit/` |
-| 6 | SPEC-06 Self-resolving DAG | framework-uses-itself mid-run | SPEC-01, SPEC-05, `meta/` |
+| 6 | SPEC-06 Self-resolving DAG | framework-uses-itself mid-run | SPEC-01, SPEC-04, SPEC-05, `meta/` |
 
 POC decisions feed the context layer: model-catalog (selection),
 anchored-compaction (session memory), tool-output-bucket (context budgeting).

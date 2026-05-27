@@ -75,11 +75,21 @@ class TaskContext:
     step_index: int                                # 0-based, into the executed step sequence
     step_count: int
     prior_decisions: tuple[Decision, ...]
-    retry_ledger: dict[NodeID, int] = field(default_factory=dict)   # SPEC-05 reads/writes
-    budget_remaining: TokenBudget = ...
+    budget_remaining: TokenBudget                  # required, no default
+    started_at: datetime                           # required, no default
+    correlation_id: CorrelationID                  # required, no default
+    retry_ledger: dict[NodeID, int] = field(default_factory=dict)   # SPEC-05 reads, executor writes
     state: TaskState = TaskState.RUNNING
-    started_at: datetime = ...
-    correlation_id: CorrelationID = ...
+
+@dataclass(frozen=True, slots=True)
+class AcquireToken:
+    """Returned by TaskRepository.acquire — releases on context exit."""
+    task_id: TaskID
+    holder_id: str                                 # executor instance id
+    acquired_at: datetime
+    lease_ttl_ms: int = 60_000                     # auto-released after TTL on holder crash
+    async def __aenter__(self) -> "AcquireToken": ...
+    async def __aexit__(self, *exc) -> None: ...   # calls TaskRepository.release(token)
 
 @dataclass(frozen=True, slots=True)
 class TaskSnapshot:
@@ -103,11 +113,17 @@ class TaskRepository(Protocol):
                          reason: str | None = None) -> Task:
         """Raises InvalidTransitionError if (from, to) violates §3 Invariant 1."""
     async def append_decision(self, task_id: TaskID, decision: Decision) -> None: ...
-    async def increment_retry(self, task_id: TaskID, node_id: NodeID) -> int: ...
     async def snapshot(self, task_id: TaskID) -> TaskSnapshot: ...
     async def restore(self, snapshot: TaskSnapshot) -> Task: ...
-    async def acquire(self, task_id: TaskID) -> AcquireToken:
-        """Exclusive resume lock; raises TaskInUseError when already held."""
+    async def acquire(self, task_id: TaskID, *, holder_id: str) -> AcquireToken:
+        """Exclusive resume lock with TTL-bounded lease. Use as async context
+        manager (`async with repo.acquire(task_id, holder_id=...) as token:`).
+        Raises TaskInUseError when already held by a different holder with a
+        non-expired lease."""
+    async def release(self, token: AcquireToken) -> None: ...
+    async def increment_retry(self, task_id: TaskID, node_id: NodeID) -> int:
+        """Called by the executor at re-dispatch time, BEFORE the chain runs
+        for the new attempt — so guardians observe the incremented value."""
 
 class TaskInjectInterceptor(NodeInterceptor):
     """PRE phase, position 4 — runs LAST in DEFAULT_PRE_ORDER."""
@@ -124,12 +140,14 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 2. `WHEN a Task is HALTED or COMPLETED, transition() SHALL raise InvalidTransitionError on any further state change.`
 3. `Every TaskContext.step_index SHALL satisfy 0 ≤ step_index < step_count.`
 4. `TaskContext.prior_decisions SHALL be append-only and ordered by node execution sequence.`
-5. `WHEN restoring from a snapshot, THE restored Task SHALL preserve task_id, goal, state, prior_decisions, retry_ledger, and budget_remaining byte-for-byte.`
+5. `WHEN restoring from a snapshot, THE restored Task SHALL be structurally equal to the snapshot under canonical sorted-key JSON serialization for task_id, goal, state, prior_decisions, retry_ledger, and budget_remaining.`
 6. `TaskContext.budget_remaining SHALL be monotonically non-increasing across the parent task's steps. Sub-DAG (recovery) consumption SHALL NOT decrement it (SPEC-06 metering boundary).`
 7. `Every node SHALL receive a TaskContext via TaskInjectInterceptor — even single-step DAGs (step_count=1).`
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`
 9. `TaskRepository.acquire SHALL be exclusive — concurrent resumption attempts on the same task SHALL fail with TaskInUseError.`
 10. `THE retry_ledger SHALL be append/increment-only; counters never decrement.`
+11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) BEFORE running the interceptor chain for a re-dispatched node, so guardians observe the post-increment value.`
+12. `WHEN AcquireToken.lease_ttl_ms elapses without explicit release, THE TaskRepository SHALL treat the lease as expired and permit a new acquire — preventing dead executors from holding tasks indefinitely.`
 
 ## 4. Acceptance Criteria (BDD)
 

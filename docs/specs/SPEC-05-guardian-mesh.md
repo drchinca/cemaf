@@ -67,9 +67,19 @@ class Claim:
 @runtime_checkable
 class ClaimExtractor(Protocol):
     """Deterministic given a fixed implementation. Two impls in v1:
-       - SchemaFieldClaimExtractor: each non-trivial field of a Pydantic output is one Claim.
-       - SentenceClaimExtractor: regex-segment raw_text into sentences; classify factual vs hedge via deterministic rules.
-       Default is SchemaFieldClaimExtractor when output_schema is set, else SentenceClaimExtractor.
+       - SchemaFieldClaimExtractor: each non-trivial field (non-None,
+         non-empty, non-default) of a Pydantic output is one Claim.
+       - SentenceClaimExtractor: segment raw_text via the pinned rules in
+         `evals/claim_extractor.py::SENTENCE_RULES_V1`:
+           * sentence boundary: `(?<=[.!?])\s+(?=[A-Z])`
+           * hedge phrases (skipped, not Claims): {"i think", "perhaps",
+             "maybe", "it is possible that", "likely", "probably", "i'm not
+             sure", "could be"} (case-insensitive prefix match)
+           * factual: any remaining sentence with ≥1 token whose
+             POS-tag-equivalent is NOUN, PROPN, NUM, or DATE per the
+             `en_core_web_sm` tagger pinned in `cemaf/data/eval_pins/`.
+       Default is SchemaFieldClaimExtractor when output_schema is set, else
+       SentenceClaimExtractor. Pluggable via RuntimeServices.claim_extractor.
     """
     def extract(self, *, result: AgentResult) -> tuple[Claim, ...]: ...
 ```
@@ -137,8 +147,21 @@ class VerifyResult:
     reason: str | None = None
 
 class ToolOutputVerifierInterceptor(NodeInterceptor):
-    """POST position 2. Active when result.tool_calls is non-empty AND any
-    tool output is consumed by a downstream node (per dag.edges).
+    """POST position 2. Active when any element of result.tool_calls has
+    consumed_by_node != None (set by the executor when an edge feeds the
+    output to a downstream node). The interceptor itself does NOT inspect
+    dag.edges directly — the executor pre-populates `consumed_by_node` so
+    the gate is purely local to AgentResult.
+
+    Deterministic schema check: each ToolCallOutput.output is validated
+    against the registered ToolSchema.output_schema; a schema-mismatch
+    contributes one entry to VerifyResult.unverified_outputs with
+    reason="schema_mismatch".
+
+    LLM-judge plausibility check (pinned `prompts/tool_verify_v1.md`,
+    `claude-haiku-4-5`, temp=0) runs only on outputs that pass schema
+    validation, scoring fabrication likelihood.
+
     REJECT(reason="tool_unverified", strategy=RETRY_WITH_HINTS) on failure.
     """
     interceptor_id = "tool_verify"
@@ -162,7 +185,13 @@ class OnlineEvalInterceptor(NodeInterceptor):
 @runtime_checkable
 class GoalCompletionEvaluator(Protocol):
     async def evaluate(self, *, task: TaskContext,
-                       outputs: tuple[AgentResult, ...]) -> GoalCompletionResult: ...
+                       outputs: tuple[AgentResult, ...],
+                       surfaced_sources: tuple[CiteableChunk, ...]
+                       ) -> GoalCompletionResult:
+        """surfaced_sources is the membership set the judge MUST cite from
+        (Inv 12). The interceptor passes ctx.surfaced_sources of the terminal
+        node — the judge is structurally barred from inventing citations.
+        """
 
 @dataclass(frozen=True, slots=True)
 class GoalCompletionResult:
@@ -203,7 +232,7 @@ class AuditInterceptor(NodeInterceptor):
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
 7. `WHEN GoalCompletionResult.achieved == False AND task.retry_ledger[node_id] < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
-8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation that runs. Audit completeness expectation: nodes ACCEPTED end-to-end emit 2 entries (PRE + POST). Nodes REJECTED in pre-flight emit 1 entry (PRE only).`
+8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation that runs, scoped per ATTEMPT (a re-dispatch under RECOVER is a separate attempt with its own PRE/POST entries). Audit completeness per attempt: ACCEPTED end-to-end → 2 entries (PRE + POST); REJECTED/RECOVERED/HALTED in post-flight → 2 entries; REJECTED in pre-flight → 1 entry (PRE only — audit is the LAST PRE interceptor and SHALL still emit when an earlier PRE rejected, per SPEC-01 Inv 5).`
 9. `Recovery via RETRY_WITH_HINTS SHALL pass RecoveryHint instances in goal.metadata["remediation"] to the re-dispatched agent (per SPEC-01 Inv 10).`
 10. `Guardian interceptors SHALL be auto-injected at bootstrap when the corresponding RuntimeServices.* field is non-None; opting out requires an explicit ChainConfig override.`
 11. `Citation membership check (Inv 2) SHALL be replay-safe: identical surfaced_sources + identical cited_evidence_refs yield identical decisions.`
@@ -279,6 +308,12 @@ Feature: Guardian mesh
     When the chain finishes
     Then exactly 1 AuditEntry is emitted (PRE only)
 
+  Scenario: Audit completeness — recover then accept (per attempt)
+    Given a node whose first attempt RECOVERS in post-flight
+    And whose second attempt is ACCEPTED end-to-end
+    When the chain finishes both attempts
+    Then exactly 4 AuditEntries are emitted (2 PRE + 2 POST across attempts)
+
   Scenario: Recovery hints reach the next attempt
     Given a CiteOrFail rejection with hint code "non_member_citation"
     When the agent is re-dispatched via RETRY_WITH_HINTS
@@ -326,11 +361,13 @@ until the Task is reset or aborted. Same predicate as SPEC-04 halt monotonicity.
 
 **Validates: §3 Invariant 5 / SPEC-00 Property 3 / SPEC-04 Property 1**
 
-### Property 3: Audit completeness by status
-*For any* node end-to-end-ACCEPTED, exactly 2 AuditEntries persist (PRE + POST).
-*For any* node REJECTED in pre-flight, exactly 1 AuditEntry persists (PRE only).
-*For any* node REJECTED/RECOVERED/HALTED in post-flight, exactly 2 entries
-(PRE + POST).
+### Property 3: Audit completeness by status (per attempt)
+*Per ATTEMPT* on a given node: ACCEPTED end-to-end → exactly 2 AuditEntries
+(PRE + POST); REJECTED in pre-flight → exactly 1 entry (PRE only — audit
+runs last in PRE and is exempt from short-circuit per SPEC-01 Inv 5);
+REJECTED/RECOVERED/HALTED in post-flight → exactly 2 entries. A node that
+recovers once and then accepts produces 4 total entries across its 2
+attempts.
 
 **Validates: §3 Invariant 8 / §4 audit-completeness scenarios**
 
@@ -368,9 +405,9 @@ LLM-judge evaluators are fully pinned. Prompts and corpora live under
 | Evaluator | Node | Mode | Threshold | Method | Pinned |
 |---|---|---|---|---|---|
 | GroundingEvaluator | every REQUIRED-grounding node | GATE | membership_violations == 0 | deterministic | n/a |
-| GoalCompletionEvaluator | terminal node | GATE | achieved == true ∧ confidence ≥ 0.8 ∧ judge_citations ⊆ surfaced | LLM judge | prompt `prompts/goal_completion_v1.md`, model `claude-sonnet-4-6`, temp=0, top_p=1 |
+| GoalCompletionEvaluator | terminal node | GATE | achieved == true ∧ confidence ≥ τ ∧ judge_citations ⊆ surfaced; τ derived from `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` (≥100 labeled tasks) at the Youden-J optimal point, default 0.8 floor | LLM judge | prompt `prompts/goal_completion_v1.md`, model `claude-sonnet-4-6`, temp=0, top_p=1 |
 | LegitimacyEvaluator | every node (pre) | GATE | authorized == true | deterministic (rule-based AuthorizationPolicy) | n/a |
-| HallucinationProbe | every generative node | OBSERVE | rate ≤ 0.02 with 95% CI on labeled corpus | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans), prompt `prompts/halluc_judge_v1.md`, model `claude-sonnet-4-6`, temp=0; baseline release on first measure |
+| HallucinationProbe | every generative node | OBSERVE while corpus is missing; GATE once corpus is checked in | rate ≤ 0.02 with Wilson 95% CI upper bound on labeled corpus | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans — landing this fixture is a precondition for SPEC-05 implementation start), prompt `prompts/halluc_judge_v1.md`, model `claude-sonnet-4-6`, temp=0; baseline JSON `cemaf/data/eval_pins/halluc_baseline.json` updated by explicit PR only |
 | QualityTrendMonitor | per-Task | GATE | no HALT alert | deterministic z-score (QualityPolice rolling window) | window 30 nodes, z=−2.5 ⇒ HALT |
 | AuditCompletenessEvaluator | every node | GATE | entries == expected_for_status (2 for ACCEPTED, 1 for pre-rejected, 2 otherwise) | deterministic | n/a |
 | RecoveryBoundEvaluator | every node | GATE | retry_ledger[node_id] ≤ retry_budget | deterministic | n/a |

@@ -130,9 +130,12 @@ class NodeInterceptor(ABC):
                                   interceptor_id=self.interceptor_id,
                                   correlation_id=ctx.correlation_id)
 
-    async def post(self, *, node: DAGNode, result: AgentResult, ctx: Context,
+    async def post(self, *, node: DAGNode, dag: DAG, result: AgentResult, ctx: Context,
                    task: TaskContext, services: RuntimeServices) -> PostflightDecision:
-        """Default no-op ACCEPT. Override when phase in {POST, BOTH}."""
+        """Default no-op ACCEPT. Override when phase in {POST, BOTH}.
+        `dag` is provided so post-flight interceptors (e.g., tool_verify) can
+        inspect downstream edges without reaching into shared services state.
+        """
         return PostflightDecision(kind=PostflightKind.ACCEPT,
                                    interceptor_id=self.interceptor_id,
                                    correlation_id=ctx.correlation_id)
@@ -143,28 +146,36 @@ class NodeInterceptor(ABC):
 ```python
 @dataclass(frozen=True, slots=True)
 class ChainConfig:
-    profile: ChainProfile
-    pre_order: tuple[str, ...]                     # interceptor_ids in order
-    post_order: tuple[str, ...]
+    """Per-call chain configuration. The chain instance itself is profile-agnostic;
+    the profile is passed at run_pre/run_post so a single chain serves both
+    DEFAULT (parent) and RECOVERY (sub-DAG) calls without mutating services.
+    """
+    pre_order: tuple[str, ...]                     # interceptor_ids in order; SHALL equal SPEC-00 *_PRE_ORDER for the active profile
+    post_order: tuple[str, ...]                    # SHALL equal SPEC-00 *_POST_ORDER for the active profile
     per_interceptor_timeout_ms: int = 5_000
     chain_timeout_ms: int = 30_000
+    # Precedence vs services.token_budget.timeout_ms: the smaller of
+    # (chain_timeout_ms, services.token_budget.timeout_ms) wins for the chain
+    # bound; per_interceptor_timeout_ms always applies to a single interceptor.
 
 class InterceptorChain:
-    """
-    Sequential, reentrant. State lives on services, not the chain.
-    A single chain instance can serve concurrent node executions.
-    """
-    def __init__(self, interceptors: tuple[NodeInterceptor, ...], config: ChainConfig) -> None: ...
+    """Sequential, reentrant. No mutable state on the chain or services."""
+    def __init__(self, interceptors: tuple[NodeInterceptor, ...]) -> None: ...
 
-    async def run_pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
-                      task: TaskContext, services: RuntimeServices
+    async def run_pre(self, *, node: DAGNode, dag: DAG, goal: Goal, ctx: Context,
+                      task: TaskContext, services: RuntimeServices,
+                      chain_profile: ChainProfile, config: ChainConfig
                       ) -> tuple[PreflightDecision, ...]:
-        """Returns the full sequence; first REJECT short-circuits the rest."""
+        """Returns the full sequence; first REJECT short-circuits remaining
+        guardians except `audit`, which SHALL still emit its PRE entry so
+        SPEC-05 audit-completeness invariants hold for pre-rejected nodes."""
 
-    async def run_post(self, *, node: DAGNode, result: AgentResult, ctx: Context,
-                       task: TaskContext, services: RuntimeServices
+    async def run_post(self, *, node: DAGNode, dag: DAG, result: AgentResult,
+                       ctx: Context, task: TaskContext, services: RuntimeServices,
+                       chain_profile: ChainProfile, config: ChainConfig
                        ) -> tuple[PostflightDecision, ...]:
-        """Returns the full sequence; first REJECT/RECOVER/HALT short-circuits."""
+        """Returns the full sequence; first REJECT/RECOVER/HALT short-circuits
+        remaining guardians except `audit`."""
 
 # Outcome propagated to DAGExecutor
 class NodeStatus(Enum):
@@ -194,7 +205,7 @@ class NodeOutcome:
 2. `WHEN any PostflightDecision has kind == HALT, THE DAGExecutor SHALL stop dispatching new nodes.`
 3. `THE chain SHALL run interceptors in the order specified by ChainConfig; the order is observable on every NodeOutcome.`
 4. `Every PreflightDecision and PostflightDecision SHALL carry interceptor_id and correlation_id.`
-5. `WHEN an interceptor raises an exception, THE chain SHALL convert it to REJECT(reason="<id>:exception:<class>") and emit an audit entry; subsequent interceptors in the same phase SHALL NOT run.`
+5. `WHEN an interceptor raises an exception, THE chain SHALL convert it to REJECT(reason="<id>:exception:<class>") and emit an audit entry; subsequent NON-AUDIT interceptors in the same phase SHALL NOT run, BUT THE audit interceptor SHALL still emit its phase entry.`
 6. `WHILE in PRE phase, an interceptor SHALL NOT mutate the AgentResult; WHILE in POST phase, an interceptor SHALL NOT re-issue the agent.`
 7. `IF an interceptor declares phase=PRE, THEN only its pre() is invoked. IF phase=POST, only post(). IF phase=BOTH, both.`
 8. `THE chain SHALL be deterministic: same inputs (including services_snapshot + RNG seed) produce the same decision sequence (replay-safe). LLM-judge interceptors satisfy this via cassettes per SPEC-00 Property 6.`
@@ -243,9 +254,10 @@ Feature: Interceptor pipeline
     And subsequent interceptors are not invoked
 
   Scenario: Default DEFAULT order is observed
-    Given ChainProfile.DEFAULT and the canonical pre_order ("legitimacy","pull","blueprint","task_inject")
+    Given ChainProfile.DEFAULT and the canonical pre_order ("legitimacy","pull","blueprint","task_inject","audit")
     When pre() runs end-to-end (all ACCEPT)
     Then decisions appear in that exact order
+    And audit emits its PRE entry last
 
   Scenario: Phase filtering — PRE-only interceptor
     Given an interceptor with phase=PRE and only pre() overridden

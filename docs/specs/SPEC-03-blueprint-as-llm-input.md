@@ -110,7 +110,7 @@ class StructuredGenerator(Protocol):
 3. `BlueprintRequest.grounding_refs SHALL equal tuple(c.citation for c in ctx.surfaced_sources) at the moment BlueprintInterceptor runs.`
 4. `THE BlueprintRequest SHALL be structurally equal under canonical serialization given the same Blueprint, goal, entities, and ctx.surfaced_sources (replay-deterministic).`
 5. `Every StructuredResult SHALL carry the source blueprint_id and version (provenance).`
-6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → REJECT or RECOVER per node policy.`
+6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → PostflightDecision determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER).`
 7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to retry budget.`
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
 9. `THE generator SHALL NOT introduce Citations in cited_evidence_refs that are absent from BlueprintRequest.grounding_refs; SPEC-05 cite-or-fail enforces the same invariant at post-flight.`
@@ -221,7 +221,7 @@ serialization (sorted-key JSON).
 | BlueprintResolutionEvaluator | every LLM node | GATE | resolved == true | deterministic | n/a |
 | SchemaConformanceEvaluator | nodes with output_schema | GATE | validation_errors == 0 | deterministic | n/a |
 | PolicyAdherenceEvaluator | every generative node | GATE | violations == 0 | hybrid | LLM judge prompt `prompts/policy_judge_v1.md`, model `claude-haiku-4-5`, temp=0 |
-| BlueprintEffectivenessEvaluator | per-blueprint cohort | OBSERVE | quality_score ≥ baseline (median of last 30 days for same blueprint_id; absolute floor 0.6 if no history) | LLM judge | judge `claude-sonnet-4-6` temp=0, prompt `prompts/blueprint_quality_v1.md` |
+| BlueprintEffectivenessEvaluator | per-blueprint cohort | OBSERVE | quality_score ≥ baseline from `cemaf/data/eval_pins/blueprint_baselines_vN.json` (versioned snapshot, refreshed only by explicit PR; absolute floor 0.6 if no entry) | LLM judge | judge `claude-sonnet-4-6` temp=0, prompt `prompts/blueprint_quality_v1.md` |
 
 Baselines and prompts are versioned artifacts under `cemaf/data/eval_pins/`.
 

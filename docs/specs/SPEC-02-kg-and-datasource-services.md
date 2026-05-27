@@ -62,8 +62,14 @@ class DataSource(Protocol):
     async def health(self) -> HealthStatus: ...
 
 class DataSourceRegistry:
+    """Static read-only-port enforcement happens at register() — see Inv 1."""
+    ALLOWED_PUBLIC: frozenset[str] = frozenset({"retrieve", "health", "source_id", "capabilities"})
+
     def register(self, source: DataSource) -> None:
-        """Raises DuplicateSourceError if source.source_id is already registered."""
+        """Reject sources whose concrete class exposes any public attribute
+        outside ALLOWED_PUBLIC (where 'public' = name not starting with '_').
+        Raises DuplicateSourceError if source.source_id is already registered.
+        Raises ReadOnlyViolationError if extra public surface is present."""
     def get(self, source_id: str) -> DataSource: ...
     def list_capable(self, capability: DataSourceCapability) -> tuple[DataSource, ...]: ...
 
@@ -74,7 +80,10 @@ class PullInterceptor(NodeInterceptor):
     """PRE phase, runs at position 2 — BEFORE BlueprintInterceptor.
 
     Strategy:
-      1. Extract entities/keywords from goal.text (raw goal, not Blueprint).
+      1. Extract entities/keywords from goal.text (raw goal, not Blueprint)
+         via the pinned EntityExtractor (deterministic regex+gazetteer
+         implementation in `retrieval/entity_extractor.py`; LLM-based
+         extractors require fixture cassettes per SPEC-00 Property 6).
       2. Query KG.neighbors() for each entity → CiteableChunks.
       3. Query each capable, healthy DataSource within per-source sub-budget.
       4. Query MemoryContextProvider for project/session memory.
@@ -87,7 +96,7 @@ class PullInterceptor(NodeInterceptor):
 
 ## 3. Invariants (DbC)
 
-1. `THE DataSource Protocol surface SHALL contain only retrieve() and health() — verified by dir(DataSource) at module load.`
+1. `WHEN DataSourceRegistry.register(source) is called, THE registry SHALL reject any source whose concrete class exposes a public attribute (name not starting with '_') outside DataSourceRegistry.ALLOWED_PUBLIC = {retrieve, health, source_id, capabilities} — i.e., set(name for name in dir(type(source)) if not name.startswith('_')) - ALLOWED_PUBLIC == ∅. Violations raise ReadOnlyViolationError.`
 2. `WHEN PullInterceptor runs, sum(chunk.token_count for chunk in returned) SHALL be ≤ node.budget.pull_tokens.`
 3. `Every CiteableChunk in ctx.surfaced_sources SHALL have a Citation with non-empty source_id and locator.`
 4. `THE knowledge_graph service SHALL be queryable from any node — meta or non-meta — through RuntimeServices.knowledge_graph.`
@@ -121,10 +130,11 @@ Feature: Pull-not-push context
     Then sum(chunk.token_count) ≤ 2000
     And per-source sums each ≤ 1000
 
-  Scenario: Read-only enforcement (static)
-    Given the DataSource Protocol
-    When inspecting its public method names
-    Then the set is exactly {"retrieve", "health"}
+  Scenario: Read-only enforcement at registry
+    Given a DataSource subclass exposing a public method "write"
+    When DataSourceRegistry.register(source) is called
+    Then ReadOnlyViolationError is raised
+    And no source is registered
 
   Scenario: Unhealthy DataSource is skipped
     Given DataSource A.health() returns UNHEALTHY
@@ -177,11 +187,12 @@ Feature: Pull-not-push context
 ## 7. Correctness Properties
 
 ### Property 1: Read-only boundary
-*For any* `DataSource` implementation, the public Protocol surface contains
-exactly `{"retrieve", "health"}`. Static check at module load + runtime check
-at registry.register().
+*For any* `DataSource` registered via `DataSourceRegistry.register`, the
+concrete class's public attribute set is a subset of
+`{"retrieve","health","source_id","capabilities"}`. Enforced at registration
+time; `@runtime_checkable` Protocol presence-check alone is insufficient.
 
-**Validates: §3 Invariant 1 / §4 "Read-only enforcement (static)"**
+**Validates: §3 Invariant 1 / §4 "Read-only enforcement at registry"**
 
 ### Property 2: Budget conservation
 *For any* PullInterceptor invocation, sum of returned chunk token_counts ≤

@@ -108,11 +108,20 @@ is None, any `RECOVER(INVOKE_META_ARCHITECT)` decision downgrades to
 ### Parent metering point
 
 Token consumption inside a recovery run is metered by `MetaInvocationBudget`
-and **does not** decrement `task.budget_remaining`. SPEC-04 Inv 6 already
-declares this isolation. The boundary lives at `DAGExecutor.run(...,
-chain_profile=RECOVERY)`: when this profile is active, the executor switches
-its budget guard from `services.token_budget` to `services.meta_budget` for
-the duration of the sub-DAG.
+and **does not** decrement `task.budget_remaining`. SPEC-04 Inv 6 declares
+the isolation. `RuntimeServices` is frozen — the budget guard is NOT swapped
+in shared state. Instead, `DAGExecutor.run(dag, *, chain_profile, budget)`
+takes the active `TokenBudget`/`MetaInvocationBudget` as a per-call
+parameter; the parent run passes `services.token_budget`, the recovery run
+passes `services.meta_budget`. Reentrancy on the same executor instance is
+preserved (SPEC-01 Inv 12).
+
+### Concurrency model
+
+Sub-DAG execution is sequential w.r.t. the parent: while a recovery sub-DAG
+is running, the parent `DAGExecutor` SHALL NOT dispatch peer nodes. The
+executor pauses parent dispatch on `RECOVER(INVOKE_META_ARCHITECT)` and
+resumes only after `MetaDispatcher.dispatch` returns.
 
 ## 3. Invariants (DbC)
 
@@ -127,6 +136,9 @@ the duration of the sub-DAG.
 9. `MetaDispatcher SHALL be invocable from any node — no separate executor path. The same DAGExecutor instance SHALL run both parent and sub-DAGs.`
 10. `THE total tokens consumed across all nested recoveries for one parent Task SHALL NOT exceed MetaInvocationBudget.max_token_total; on breach the dispatcher SHALL return halt=True.`
 11. `RecoveryResult.retry_hints SHALL be propagated to the re-dispatched parent node via goal.metadata["remediation"] (SPEC-01 §3 Inv 10).`
+12. `WHILE a recovery sub-DAG is executing, THE parent DAGExecutor SHALL NOT dispatch peer parent nodes — sub-DAG execution is sequential w.r.t. the parent.`
+13. `THE active ChainProfile SHALL be passed as a parameter to DAGExecutor.run, NOT mutated on RuntimeServices — services is frozen.`
+14. `Depth check semantics: a new recovery is permitted iff (parent.depth + 1) ≤ MetaInvocationBudget.max_depth. With max_depth=2: depth 0→1 allowed, 1→2 allowed, 2→3 rejected with halt=True.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -142,10 +154,17 @@ Feature: Self-resolving DAG
     And the second attempt passes CiteOrFail
 
   Scenario: Depth limit triggers escalation
-    Given a parent at depth 0 and a recovery already at depth 2
-    When a third recovery would be dispatched
-    Then RecoveryResult.halt == True
+    Given MetaInvocationBudget.max_depth == 2
+    And a recovery currently executing at depth 2
+    When a nested guardian inside it emits RECOVER(INVOKE_META_ARCHITECT) (would reach depth 3)
+    Then RecoveryResult.halt == True with reason "meta_depth_exceeded"
     And the parent task transitions to HALTED
+
+  Scenario: Sub-DAG runs sequentially with parent paused
+    Given a parent run with peer nodes ready to dispatch
+    When a recovery sub-DAG is executing
+    Then the parent DAGExecutor does not dispatch any peer node
+    And resumes only after MetaDispatcher.dispatch returns
 
   Scenario: Reduced guardian chain inside recovery
     Given a recovery DAG running under ChainProfile.RECOVERY
