@@ -281,13 +281,30 @@ Feature: Long-horizon task awareness
     Then the lease is treated as expired
     And B receives a fresh AcquireToken without TaskInUseError
 
-  Scenario: Stale-lease write is rejected (Inv 15)
+  Scenario: Stale-lease release is rejected (Inv 15 — release path)
     Given executor A's lease has expired and executor B has acquired
-    When A's slow callback calls release(token_A) or transition(token=token_A, ...)
+    When A's slow callback calls release(token_A)
     Then the Repository raises StaleLeaseError
     And Task state is unchanged
     And a "task.stale_lease_write" log event is emitted
     And cemaf_task_stale_lease_writes_total is incremented
+
+  Scenario: Stale-lease transition is rejected (Inv 15 — transition path)
+    Given executor A's lease has expired and executor B has acquired
+    When A's slow callback calls transition(token=token_A, to=RUNNING)
+    Then the Repository raises StaleLeaseError
+    And Task state is unchanged
+    And a "task.stale_lease_write" log event is emitted
+    And cemaf_task_stale_lease_writes_total is incremented
+
+  Scenario: First-attempt HALT when retry_budget == 0 (Inv 11 boundary)
+    Given a node N with retry_budget=0
+    And the agent emits an ungrounded Claim on attempt 1
+    When CiteOrFailInterceptor evaluates the post-flight (SPEC-05 Inv 15)
+    Then get_retry(task.retry_ledger, N.id) == 0
+    And 0 ≥ N.retry_budget
+    And PostflightDecision is HALT(scope=TASK)
+    And TaskRepository.increment_retry is NOT called
 
   Scenario: Recovery sub-DAG budget is metered separately (cross-ref SPEC-06)
     Given a parent Task with budget_remaining=10000

@@ -212,6 +212,27 @@ Feature: Pull-not-push context
     Then the returned EntityRefs are identical
     And both calls flow through RuntimeServices.knowledge_graph
 
+  Scenario: Meta-recovery patches union into surfaced_sources (Inv 13)
+    Given the Executor sets ctx.pending_meta_patches = (m1, m2) before re-dispatch (SPEC-06 Inv 17)
+    And both m1 and m2 are CiteableChunks within node.budget.pull_tokens
+    When PullInterceptor.pre runs
+    Then ctx.surfaced_sources is the merge of (kg+datasource+memory) candidates ∪ {m1, m2}
+    And the merge follows the Inv 11 sort and eviction
+    And the returned PreflightDecision.enriched_context sets ctx.pending_meta_patches = ()
+
+  Scenario: Pending meta patches cleared idempotently (Inv 13)
+    Given PullInterceptor.pre has already run once for this attempt
+    And ctx.pending_meta_patches was cleared to ()
+    When PullInterceptor.pre is invoked a second time within the same attempt
+    Then the merge proceeds as if no patches existed
+    And ctx.surfaced_sources is byte-identical to the first run
+
+  Scenario: Tenant priority offset bounded to ±10 (Inv 12)
+    Given a tenant config that sets per-source priority offset = +12 for source_kind=datasource
+    When PullInterceptor merges candidates
+    Then registration validation rejects the offset
+    And bootstrap raises StartupError(reason='priority_offset_overflow')
+
   Scenario: Duplicate source_id rejected
     Given a registry with source_id "salesforce_prod" registered
     When register() is called again with the same source_id

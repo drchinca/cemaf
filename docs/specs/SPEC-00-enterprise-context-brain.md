@@ -241,7 +241,9 @@ Adapters SHALL implement this mapping at the boundary; downstream specs SHALL re
 | Anthropic | `end_turn`, `stop_sequence` | TERMINAL_STOP |
 | Anthropic | `tool_use` | TERMINAL_TOOL |
 | Anthropic | `max_tokens` | PARTIAL_LENGTH |
+| Anthropic | `pause_turn` (extended-thinking pause) | PARTIAL_ERROR |
 | Adapter | (stream error / cancellation) | PARTIAL_ERROR |
+| Adapter | `null` / unknown / unmapped provider value | PARTIAL_ERROR (+ adapter SHALL emit log event `finish_reason.unmapped{provider, native_value}`; SHALL NOT produce a TERMINAL_* mapping for unknown values) |
 
 ### Provider-native tool-call envelope mapping (canonical)
 
@@ -264,21 +266,38 @@ class NodeBudget:
     generation_tokens: TokenCount
     timeout_ms: int
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class EvalBudgetCounter:
     """Live per-(node_id, attempt_idx) counter cloned from the eval_budget template
     (services.eval_budget). Owned by the Executor; passed by reference to every
     guardian judge in the active attempt's chain. Not shared across nodes or
-    attempts; not serialized into RuntimeServices."""
+    attempts; not serialized into RuntimeServices.
+
+    INTENTIONALLY NOT frozen — `reserve()` / `true_up()` mutate `remaining` in
+    place under the executor-held `(node_id, attempt_idx)` `asyncio.Lock`
+    (SPEC-05 Inv 17b). A frozen dataclass returning copies would defeat
+    serialization (each judge would observe its own copy and never see peer
+    debits). The counter object identity is the synchronization anchor."""
     template: TokenBudget        # source it was cloned from (read-only reference)
     remaining: int               # generation_tokens budget left, debited per-judge
 
-    def reserve(self, tokens: int) -> "EvalBudgetCounter":
-        """Pre-flight reservation; returns a new counter with remaining -= tokens. Caller serialises under counter-lock per Inv 17b."""
+    async def reserve(self, *, tokens: int, lock: "asyncio.Lock") -> int:
+        """Pre-flight reservation under the caller's lock.
+
+        Returns the post-debit `remaining`. Caller MUST hold `lock` for the
+        duration of the reserve+await-call+true_up cycle; the lock is keyed on
+        `(node_id, attempt_idx)` and held by the Executor for that attempt's
+        lifetime (SPEC-05 Inv 17b). On `tokens > self.remaining`, raises
+        `EvalBudgetExhausted` without debiting (judge MUST then return
+        `score=0, level='budget_exhausted'`)."""
         ...
 
-    def true_up(self, reserved: int, actual: int) -> "EvalBudgetCounter":
-        """Post-flight true-up; refunds (reserved - actual) to remaining."""
+    async def true_up(self, *, reserved: int, actual: int, lock: "asyncio.Lock") -> int:
+        """Post-flight true-up under the caller's lock.
+
+        Refunds `reserved - actual` to `remaining` (delta MAY be negative if
+        the call exceeded reservation; in that case the over-debit stands).
+        Returns the post-true-up `remaining`."""
         ...
 
 # Chain primitives — full detail in SPEC-01
@@ -386,6 +405,36 @@ class RunResult:
 # constructor is the contract code.
 class ChainContractError(RuntimeError):
     """Raised on chain-phase contract violations; reason string is the contract code."""
+
+# Per-recovery / per-attempt tool-loop bound (SPEC-03 Inv 11 enforcement).
+# Default; child specs MAY override per node via BlueprintRequest.tool_loop_budget.
+MAX_PARALLEL_TOOL_CALLS: int = 8
+"""Hard cap on parallel tool_use blocks emitted by the LLM in a single
+TERMINAL_TOOL turn (SPEC-03 Inv 11 — both Anthropic and OpenAI emit parallel
+tool calls). Exceeding raises StreamingIncompleteError(PARTIAL_ERROR)."""
+
+# PatchDropReason — closed enum for ContextPatch application drops, owned by
+# SPEC-00 type registry per shared-types rule. Referenced by SPEC-05 Inv 14/22
+# (drop on unverified promotion) and SPEC-06 Inv 15/§9 (cemaf_meta_patch_drops_total).
+# Adding a new reason is a SPEC-00 amendment (same governance pattern as
+# §9 outcome-enum); child specs cite members only.
+class PatchDropReason(Enum):
+    PATCH_UNVERIFIED_PROMOTION       = "patch_unverified_promotion"        # SPEC-05 Inv 14
+    TOOL_OUTPUT_UNVERIFIED_PROMOTION = "tool_output_unverified_promotion"  # SPEC-05 Inv 22
+
+# ToolLoopFabricationError — SPEC-03 Inv 11 sub-clause: a tool output produced
+# inside the structured-generator tool loop fails ToolOutputVerifier inspection
+# BEFORE being fed back into the LLM. Converted by post-flight to
+# RECOVER(RETRY_WITH_HINTS, reason='tool_unverified_in_loop'); subject to
+# SPEC-05 Inv 15 budget escalation.
+class ToolLoopFabricationError(RuntimeError):
+    """Raised when an intra-loop tool output fails grounding-membership check.
+
+    Carries (tool_call_id, tool_name, fabricated_citation_ids: tuple[str, ...]).
+    Caller MUST NOT feed the unverified output back into the LLM stream;
+    the structured generator stops, emits StreamingIncompleteError(PARTIAL_ERROR)
+    with a chained ToolLoopFabricationError, and the chain converts to
+    RECOVER per SPEC-05."""
 
 # get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
 # Single source of truth so child specs cite the same signature.
@@ -911,11 +960,12 @@ each:
 | §10 copy-coverage | SPEC-05 §10 user-facing copy table + `normalize_reason()` | Build fails when any reason string emitted in code is missing a §10 row, or any §10 row is unreachable |
 | Cassette presence | SPEC-00 Property 6 | Build fails when an LLM-judge interceptor has no cassette file matching its hash key |
 | Hallucination-baseline diff | SPEC-05 §8 HallucinationProbe | PR fails when current rate > baseline + 0.5pp |
+| Judge–agent family isolation | SPEC-05 §3 Inv 23 | Build fails when any registered judge's `model_id` family equals the family of any agent bound to a node the judge gates (cross-referenced via `OnlineEvalPipeline.list_judges()` × `AgentRegistry.list_bindings()`) |
 
 **Audit script contract** (`scripts/spec_audit.py`):
 
 - **Invocation**: `python -m scripts.spec_audit [--audit <name>...] [--allowlist <path>]`. With no `--audit` flag, runs all four. Reads emitted-reason allowlist from `scripts/spec_audit.allowlist.txt` (one canonical reason per line, `#` comments allowed); the file is required to exist (empty file is valid); missing file is itself an audit failure.
-- **Discovery**: blueprints are enumerated by importing `cemaf.blueprint.registry` and iterating `BlueprintLibrary.list_all() -> tuple[Blueprint, ...]` (added to SPEC-03 BlueprintLibrary protocol below). LLM-judge interceptors are enumerated by importing `cemaf.evals.registry` and iterating `OnlineEvalPipeline.list_judges() -> tuple[JudgeDescriptor, ...]` (`JudgeDescriptor` carries `prompt_template_version, model_id, decoding_params`). Reason strings are discovered by `ast`-walking `cemaf/**/*.py` for `PreflightDecision(...)` / `PostflightDecision(...)` constructor calls and collecting their `reason=` literal string arguments.
+- **Discovery**: blueprints are enumerated by importing `cemaf.blueprint.registry` and iterating `BlueprintLibrary.list_all() -> tuple[Blueprint, ...]` (added to SPEC-03 BlueprintLibrary protocol below). LLM-judge interceptors are enumerated by importing `cemaf.evals.registry` and iterating `OnlineEvalPipeline.list_judges() -> tuple[JudgeDescriptor, ...]` (`JudgeDescriptor` carries `prompt_template_version, model_id, decoding_params`, and the `node_pattern` it gates). Agent-to-node bindings are enumerated by importing `cemaf.agents.registry` and iterating `AgentRegistry.list_bindings() -> tuple[AgentBinding, ...]` where `AgentBinding = (NodeID, model_id: str, model_family: str)`; this surface is REQUIRED for the judge–agent family isolation audit (Inv 23). Reason strings are discovered by `ast`-walking `cemaf/**/*.py` for `PreflightDecision(...)` / `PostflightDecision(...)` constructor calls and collecting their `reason=` literal string arguments.
 - **Exit codes**: `0` all audits pass, `1` any audit fails (CI failure), `2` configuration error (missing allowlist, broken import, malformed blueprint registry). `1` is a normal PR failure; `2` is an infra failure that pages the on-call.
 - **Output**: each failure emits one line to stderr in the form `<audit_name>: <file_or_artifact>: <message>`; stdout summarises `<n_pass>/<n_total>` audits. CI surfaces stderr in the PR check annotation.
 - **Make target**: `make check` includes `python -m scripts.spec_audit` as a non-skippable step.
@@ -1001,7 +1051,7 @@ are part of the test contract.
 `tests/fixtures/cassettes/<spec_id>/<judge_name>/<input_hash>.json` where
 `input_hash = sha256(canonical_json({prompt_template_version, model_id,
 decoding_params, judge_input_projection_version, input_projected, attempt_kind}))[:16]`.
-`attempt_kind ∈ {first, retry_after_hints, retry_after_meta}` makes
+`attempt_kind ∈ {first, retry_after_hints, retry_after_meta, retry_after_reroute}` makes
 attempt-class cassettes deterministic without including drifting integers.
 Missing cassette in CI fails the test loud, not silent regenerate.
 Cassettes are checked into git.
@@ -1053,6 +1103,13 @@ class CassettePayload(TypedDict, total=False):
     # Truncation evidence (REQUIRED when input_projection truncates — Inv 17, §6)
     truncation_applied: bool
     dropped_chunk_ids: list[str]
+
+    # Sanitizer pinning (REQUIRED — see "Sanitizer version pinning" below)
+    judge_input_sanitizer_version: str            # JudgeInputSanitizer.version at capture
+    judge_input_projection_version: str           # per-judge projection version (Inv 16)
+
+    # Judge dispatch ordering (REQUIRED for replay determinism per Inv 17b)
+    judge_id: str                                 # the judge that produced this cassette entry
 ```
 
 A judge that surfaces an output field at runtime (e.g.
@@ -1063,13 +1120,22 @@ ONLY for judges whose entire surface is `(score, level, attempt_idx)`.
 
 The budget-accounting trio (`denom_judge_sites`, `eval_budget_snapshot_at_judge`, `input_tokens_recorded`) is required for `online_eval`, `goal_completion`, `tool_verify`, and `blueprint_policy` judge types. The truncation pair (`truncation_applied`, `dropped_chunk_ids`) is required when `truncation_applied=True`; loaders SHALL accept `truncation_applied=False` with empty `dropped_chunk_ids` as the no-truncation case.
 
+**Sanitizer version pinning.** `judge_input_sanitizer_version` records `JudgeInputSanitizer.version` (SPEC-00 §2) and `judge_input_projection_version` records the per-judge projection version (SPEC-05 Inv 16) at capture. Replay loaders SHALL fail loud (`CassetteDivergenceError(kind="sanitizer_version")`) when either pinned version differs from the runtime version — a sanitizer or projection bump invalidates pre-existing cassettes by design. Both versions also participate in `input_hash` per Inv 16.
+
 ```python
 class CassetteDivergenceError(AssertionError):
-    """Replay-time fail-loud: cassette payload diverges from runtime span/counter
-    by >= 1 token (input_tokens_recorded mismatch, eval_budget_snapshot drift,
-    or denom_judge_sites mismatch). Test-only; never raised in production code
-    paths. Carries: kind ∈ {input_tokens, eval_budget, denom}, expected, actual,
-    cassette_path, span_id."""
+    """Replay-time fail-loud: cassette payload diverges from runtime span/counter.
+    Test-only; never raised in production code paths. Carries:
+      kind ∈ {input_tokens,        # input_tokens_recorded mismatch ≥ 1 token
+              eval_budget,         # eval_budget_snapshot_at_judge drift
+              denom,               # denom_judge_sites mismatch
+              truncation,          # truncation_applied flag mismatch
+              dropped_chunks,      # dropped_chunk_ids set differs
+              sanitizer_version,   # judge_input_sanitizer_version mismatch
+              projection_version,  # judge_input_projection_version mismatch
+              judge_dispatch_order # cassette judge_id ordering ≠ lex-ascending
+                                   # runtime dispatch (Inv 17b)},
+      expected, actual, cassette_path, span_id."""
 ```
 
 **Recording mode.** `CEMAF_CASSETTE_RECORD=1` enables developer-mode
@@ -1111,7 +1177,9 @@ Per-evaluator SLO compliance is exposed as `cemaf_eval_pass_rate{evaluator_id, w
 - For agent-execute spans: `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reason`.
 - Guardian spans use the namespace `gen_ai.guardian.<name>` as a documented CEMAF extension to the GenAI conv; they additionally set `gen_ai.operation.name = "guardian.<name>"` so standard GenAI dashboards still slice them.
 
-**Token usage canonical source.** On every span emitting `gen_ai.usage.input_tokens` (`gen_ai.generate.structured`, `gen_ai.guardian.online_eval`, `gen_ai.guardian.goal_completion`, `gen_ai.guardian.tool_verify`), the value SHALL equal the token count of the **post-sanitization, post-truncation** prompt actually sent to the provider — i.e., the same byte sequence whose hash feeds the cassette `input_hash`. `gen_ai.usage.output_tokens` reflects the provider's reported output. Cassette payloads SHALL additionally record `input_tokens_recorded` matching the span attribute; replay loaders SHALL fail loud on cassette/span divergence ≥ 1 token.
+**Token usage canonical source.** On every span emitting `gen_ai.usage.input_tokens` (`gen_ai.generate.structured`, `gen_ai.guardian.online_eval`, `gen_ai.guardian.goal_completion`, `gen_ai.guardian.tool_verify`), the value SHALL equal the token count of the **post-sanitization, post-truncation** prompt actually sent to the provider — i.e., the same byte sequence whose hash feeds the cassette `input_hash`. `gen_ai.usage.output_tokens` reflects the provider's reported output. Cassette payloads SHALL additionally record `input_tokens_recorded` matching the span attribute; replay loaders SHALL fail loud on cassette/runtime divergence ≥ 1 token.
+
+**Budget-exhausted (no provider dispatch).** WHEN a guardian judge returns `level="budget_exhausted"` (SPEC-05 Inv 17) without dispatching to the provider, the span SHALL still emit `gen_ai.usage.*` attributes. `gen_ai.usage.input_tokens` SHALL equal the projected-prompt token count that *would have been* sent (count of the post-sanitization, post-truncation projection); `gen_ai.usage.output_tokens` SHALL equal `0`; the span SHALL carry `gen_ai.skipped_dispatch = true`. This makes budget-exhaustion attribution observable while keeping cassette parity (no provider call → no provider-reported usage to compare).
 
 **Required baggage on every span.** `task.id`, `tenant.id`, `workspace.id`, `correlation_id`, `chain_profile`, `dag.id`, `node.id`, `attempt`. Set once at executor entry, propagated via OTel baggage so child specs do not redeclare them.
 
@@ -1126,7 +1194,7 @@ Per-evaluator SLO compliance is exposed as `cemaf_eval_pass_rate{evaluator_id, w
 - `source_kind` (bounded enum: kg, vector, memory, datasource), NOT `source_id`.
 - Hashed bucket label `tenant_bucket = int.from_bytes(sha256(tenant.id.encode("utf-8")).digest()[:8], "big") % 64` when per-tenant slicing is needed (hash function, byte slice, and modulus are part of the contract for telemetry replay determinism); raw `tenant.id` is span-attribute-only.
 - `evaluator` label (used by `cemaf_eval_halts_total`) is bounded by the `services.online_eval_pipeline` registry — implementations SHALL cap the registry at ≤32 distinct evaluator IDs; over-cap is a startup error, not a metric explosion.
-- `attempt_kind ∈ {first, retry_after_hints, retry_after_meta}` is allowlisted; combined cap with `evaluator` is `evaluator (≤32) × attempt_kind (3) = 96`.
+- `attempt_kind ∈ {first, retry_after_hints, retry_after_meta, retry_after_reroute}` is allowlisted; combined cap with `evaluator` is `evaluator (≤32) × attempt_kind (4) = 128`.
 - `interceptor_id` label (used by SPEC-01 `cemaf_node_interceptor_*` metrics) is bounded by the resolved chain — `bootstrap.create_executor()` enforces ≤16 distinct IDs across PRE+POST after user-supplied additions; over-cap is a `StartupError` (see "Startup-error owner"). Custom interceptors past the cap are a hard fail, not a silent metric explosion.
 - `outcome` label (used by `cemaf_recovery_attempts_total`, `cemaf_meta_dispatches_total`, `cemaf_datasource_duration_seconds`, `cemaf_node_execute_*`) SHALL be drawn from the closed enum `{success, rejected, recovered, halted, failed, timeout, skipped}` — child specs MAY use a strict subset but SHALL NOT introduce new outcome values without a SPEC-00 amendment.
 - `strategy ∈ {retry_with_hints, reroute_to_agent, invoke_meta_architect, skip_node}` — authorized on `cemaf_recovery_attempts_total` (mirrors SPEC-01 RecoveryStrategy enum; cardinality bound 4).

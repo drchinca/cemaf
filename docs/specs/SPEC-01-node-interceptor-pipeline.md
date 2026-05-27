@@ -382,6 +382,23 @@ Feature: Interceptor pipeline
     When the class body is evaluated
     Then TypeError is raised with message containing "display_name"
 
+  Scenario: Recovery hint citations are filtered to surfaced membership (Inv 18)
+    Given a RecoveryHint h carrying citations (c1, c2) and a non-empty detail
+    And after re-dispatch PullInterceptor produces ctx.surfaced_sources whose Citation set contains c1 but not c2
+    When the executor splices hints into goal.metadata['remediation']
+    Then the spliced hint carries citations (c1,) only
+    And one "recovery.hint_citation_dropped" event is emitted with hint_code=h.code, dropped_count=1
+    And the agent prompt observes no fabricated Citation
+    And replay reproduces the same dropped_count
+
+  Scenario: Recovery target unavailable downgrades to REJECT (Inv 16)
+    Given a PostflightDecision is RECOVER(strategy=INVOKE_META_ARCHITECT)
+    And services.meta_dispatcher is None
+    When InterceptorChain.run_post returns
+    Then the chain converts the decision to REJECT(reason="meta_unavailable")
+    And one AuditEntry records the converted decision with original recovery_strategy in metadata
+    And cemaf_recovery_downgrades_total{strategy="invoke_meta_architect"} is incremented
+
   Scenario: Reentrant under concurrent dispatch
     Given an InterceptorChain instance shared by two concurrent execute_node calls
     When both run to completion
@@ -440,6 +457,13 @@ another's NodeOutcome.
 
 **Validates: §3 Invariant 12 / §4 "Reentrant under concurrent dispatch"**
 
+### Property 6: Recovery-hint hygiene
+*For any* re-dispatched node attempt, `goal.metadata['remediation']` carries
+≤8 hints, each with citations ⊆ ctx.surfaced_sources after the next
+PullInterceptor pass. No fabricated Citation reaches the agent prompt.
+
+**Validates: §3 Invariants 10, 17, 18 / §4 "Recover strategy re-dispatches with hints", "Recovery hint citations are filtered to surfaced membership"**
+
 ## 8. Eval Criteria
 
 All evaluators in this table are eval_kind=`repository` unless explicitly marked `online` (per SPEC-05 Inv 20).
@@ -449,6 +473,7 @@ All evaluators in this table are eval_kind=`repository` unless explicitly marked
 | ChainOrderEvaluator | every node | GATE | order matches ChainConfig 100% | deterministic |
 | ExceptionContainmentEvaluator | every node | GATE | escaped exceptions == 0 | deterministic |
 | TimeoutContainmentEvaluator | every node | GATE | hangs past chain_timeout_ms == 0 | deterministic |
+| RecoveryHintBoundednessEvaluator | every RECOVER re-dispatch | GATE | hints ≤ 8 ∧ all citations ∈ surfaced_sources | deterministic |
 
 ## 9. Observability Contract
 

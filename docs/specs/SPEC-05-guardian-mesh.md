@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤730 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
+budget_override: "≤770 lines (scenarios ≤27) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
 ---
 
 # SPEC-05: Guardian Mesh
@@ -331,7 +331,7 @@ class AuditInterceptor(NodeInterceptor):
 20. `EVERY evaluator declared with mode=GATE AND eval_kind='online' (i.e., bound through OnlineEvalInterceptor — node-scoped synchronous evaluators per the "Online eval + halt" subsection above) SHALL be bound to every applicable LLM node in the registered DAG. Guardian-internal, repository-internal, and audit-completeness evaluators are auto-bound by their owning interceptor and SHALL NOT appear in node.online_evaluators. bootstrap.create_executor SHALL emit StartupError(reason='gate_evaluator_unbound', evaluator_id=..., node_id=...) only for the eval_kind='online' subset when an LLM node's online_evaluators tuple omits any GATE-mode online evaluator whose node-pattern matches that node. §8 tables across the spec set SHALL carry an eval_kind column ∈ {online, guardian, repository, audit} so the gate is unambiguous; mode-flip from GATE→OBSERVE within eval_kind='online' requires a spec amendment, never a missing tuple element.`
 21. `AuthorizationPolicy.authorize SHALL NOT mutate Task, Context, or RuntimeServices — it is a read-only predicate. Implementations that need to record audit data SHALL emit through the AuditInterceptor surface, not via direct service mutation.`
 22. `Tool outputs whose verification status is NOT verified SHALL NOT be promoted into any downstream node's ctx.surfaced_sources. The Executor SHALL drop offending ContextPatch entries with reason='tool_output_unverified_promotion' (parallel to Inv 14 for unverified_claims).`
-23. `Judge–agent isolation. For every LLM-judge guardian (GoalCompletionEvaluator, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge, HallucinationProbe), JudgeDescriptor.model_id SHALL identify a model FAMILY distinct from the producing node's agent model. Spec audit (SPEC-00 §6) SHALL fail when any registered judge's model family equals the family of any agent bound to a node the judge gates. Family is parsed as the prefix before '@' in model_id (e.g. 'claude-sonnet-4-6'). Cross-family pairs (agent claude-sonnet-4-6@... judged by claude-haiku-4-5@... or gpt-5-mini@... or llama-3.3-70b@...) are conformant.`
+23. `Judge–agent isolation. For every LLM-judge guardian (GoalCompletionEvaluator, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge, HallucinationProbe), JudgeDescriptor.model_id SHALL identify a model FAMILY distinct from the producing node's agent model. Spec audit (SPEC-00 §6) SHALL fail when any registered judge's model family equals the family of any agent bound to a node the judge gates; the audit script SHALL discover node→agent bindings via AgentRegistry.list_bindings() (SPEC-00 §6 audit-discovery contract) — no string-scan of DAG source files. Family is parsed as the prefix before '@' in model_id (e.g. 'claude-sonnet-4-6'). Cross-family pairs (agent claude-sonnet-4-6@... judged by claude-haiku-4-5@... or gpt-5-mini@... or llama-3.3-70b@...) are conformant.`
 24. `Every guardian judge with eval_kind='guardian' that has a pinned calibration corpus SHALL have a per-PR replay check comparing current judge_agreement_rate to the pinned baseline JSON in cemaf/data/eval_pins/<judge_id>_baseline.json. PR fails on regression beyond the per-judge tolerance (default 2 percentage points). Closes the silent-drift hole where a model revision-pin bump or prompt edit lands without a measurable quality check.`
 25. `THE ToolOutputVerifier / OnlineEval / GoalCompletion guardians SHALL emit their respective gen_ai.guardian.* spans carrying gen_ai.request.model and gen_ai.usage.input_tokens / gen_ai.usage.output_tokens for every judge call (including budget_exhausted returns from Inv 17).`
 
@@ -532,6 +532,23 @@ Feature: Guardian mesh
     Given an OnlineEval guardian invokes a judge
     Then the gen_ai.guardian.online_eval span carries non-null gen_ai.request.model and gen_ai.usage.input_tokens / gen_ai.usage.output_tokens
 
+  Scenario: Unverified tool output is not promoted to downstream surfaced_sources (Inv 22)
+    Given node A produces ToolCallOutput(t1) flagged unverified by ToolOutputVerifier
+    And node B is a downstream consumer of A's output
+    When the executor assembles ContextPatches from A → B
+    Then the patch carrying t1 is dropped with reason="tool_output_unverified_promotion"
+    And ctx.surfaced_sources at node B contains no chunk derived from t1
+    And the drop is recorded as an AuditEntry but NOT surfaced as user copy
+    And `tool_output_unverified_promotion` is in `scripts/spec_audit.allowlist.txt`
+
+  Scenario: Calibration regression PR fails on judge_agreement_rate drop (Inv 24)
+    Given the pinned baseline `cemaf/data/eval_pins/goal_completion_baseline.json` records judge_agreement_rate=0.92
+    And per-judge tolerance is 2 percentage points
+    When a PR replays GoalCompletionEvaluator over `goal_completion_calibration_v1.jsonl` and observes 0.89
+    Then the calibration regression check FAILS the PR
+    And the failure references baseline 0.92, observed 0.89, tolerance 0.02
+    And no merge is allowed without an explicit baseline-update PR
+
   Scenario: Concurrent judges serialize the reserve step
     Given a node attempt with two OnlineEval judges A and B running concurrently
     And EvalBudgetCounter.remaining == 4000 at attempt start
@@ -720,6 +737,9 @@ allowlist `scripts/spec_audit.allowlist.txt` from the §10 comparison;
 | `ungrounded_claim_exhausted` | "After repeated retries part of the answer remained ungrounded." | "Attach a document with the missing context, or ask your administrator to allow unconfirmed statements for this kind of request." |
 | `tool_unverified_exhausted` | "After repeated retries the tool output remained unreliable." | "Investigate the tool's recent behavior; raise the retry allowance; or disable the offending tool for this workflow." |
 | `tool_loop_exhausted` | "We're going in circles checking facts — pausing this run." | "Simplify the request, narrow the question, or raise the tool-call budget for this kind of request." |
+| `tool_unverified_in_loop` | "A tool call inside the answering loop returned something we couldn't verify — retrying with hints." | "We're retrying automatically. If it persists, check the tool's recent behavior or disable it for this workflow." |
+| `agent:timeout_exhausted` | "That step kept timing out across retries — pausing this run." | "Check service health for that subsystem; raise the retry allowance; or simplify the request." |
+| `meta_unconsumable_no_pull` | "A fix-up plan needed to pull fresh evidence, but evidence pulling isn't configured here." | "Either install a PullInterceptor in this deployment or accept the partial result and retry manually." |
 | `generation_incomplete` | "The response cut off before it finished — retrying." | "We're retrying automatically. No action needed." |
 | `agent:timeout` | "That step took too long — retrying." | "We're retrying automatically. If it persists, check service health for that subsystem." |
 | `<id>:timeout` | "An internal step (`<display_name>`) took too long." | "Retry. If it persists, check service health for that subsystem." |
