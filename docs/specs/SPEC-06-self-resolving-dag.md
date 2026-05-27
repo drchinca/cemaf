@@ -2,7 +2,7 @@
 title: Self-Resolving DAG — meta-agents invocable mid-run
 spec_id: SPEC-06
 status: Draft
-last_reviewed: 2026-05-26
+last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-04, SPEC-05
@@ -90,7 +90,7 @@ class RecoveryResult:
 
 @dataclass(frozen=True, slots=True)
 class MetaInvocationBudget:
-    max_depth: int = 2                               # depth semantics (canonical): the parent run occupies depth 0; each nested recovery increments by 1. With max_depth=2, allowed depths are 0/1/2 — i.e. parent + up to 2 nested recoveries. Inv 14 enforces (parent.depth + 1) ≤ max_depth.
+    max_depth: int = 2                               # depth semantics (canonical): parent run = depth 0; each nested recovery increments by 1. With max_depth=2, allowed depths are 0/1/2; depth 3 is rejected. Inv 14 enforces (parent.depth + 1) ≤ max_depth. Worked example: parent (depth 0) → first recovery (depth 1, allowed) → nested recovery (depth 2, allowed) → nested-nested (depth 3, rejected → HALT). "max_depth=N" therefore means N nested recoveries, NOT N+1 attempts.
     max_token_total: TokenCount = TokenCount(50_000) # global cap across all nested recoveries for one parent task
     max_wall_time_ms: int = 30_000
 

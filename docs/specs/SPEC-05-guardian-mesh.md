@@ -2,11 +2,11 @@
 title: Guardian Mesh — legitimacy, cite-or-fail, tool-verify, eval-halt, goal-completion
 spec_id: SPEC-05
 status: Draft
-last_reviewed: 2026-05-26
+last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤610 lines (scenarios ≤25) — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
+budget_override: "≤625 lines (scenarios ≤25) — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
 ---
 
 # SPEC-05: Guardian Mesh
@@ -61,7 +61,9 @@ types without a layer inversion). SPEC-05 owns the extraction algorithms and
 policy below; the dataclass shape lives in the umbrella.
 
 ```python
-# Claim is imported from SPEC-00 §2; do not redefine.
+# Claim is defined in SPEC-00 §2 (single source of truth). At implementation:
+#   from cemaf.core.types import Claim
+# This spec owns the extraction protocol + grounding-annotation policy below.
 
 @runtime_checkable
 class ClaimExtractor(Protocol):
@@ -427,6 +429,15 @@ Feature: Guardian mesh
     Then get_retry(task.retry_ledger, N.id) ≥ N.retry_budget
     And PostflightDecision is HALT(scope=TASK, reason="ungrounded_claim_exhausted")
     And the §10 copy row for "ungrounded_claim_exhausted" exists
+
+  Scenario: Cite-or-fail HALTs immediately when retry_budget == 0 (Inv 15 boundary)
+    Given a node N with retry_budget=0 and grounding=REQUIRED
+    And the agent emits an ungrounded Claim on attempt 1
+    When CiteOrFailInterceptor runs
+    Then get_retry(task.retry_ledger, N.id) == 0
+    And 0 ≥ N.retry_budget holds
+    And PostflightDecision is HALT(scope=TASK, reason="ungrounded_claim_exhausted")
+    And TaskRepository.increment_retry is NOT called
 
   Scenario: Online-eval HALT triggered by AlertLevel.HALT
     Given an OnlineEvalInterceptor bound to evaluator E with rolling-window N=30

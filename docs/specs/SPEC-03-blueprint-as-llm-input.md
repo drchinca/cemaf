@@ -2,7 +2,7 @@
 title: Blueprint as LLM Input
 spec_id: SPEC-03
 status: Draft
-last_reviewed: 2026-05-26
+last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02

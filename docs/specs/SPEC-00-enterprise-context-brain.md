@@ -2,7 +2,7 @@
 title: Enterprise Context Brain (umbrella)
 spec_id: SPEC-00
 status: Draft
-last_reviewed: 2026-05-26
+last_reviewed: 2026-05-27
 owner: drchinca
 budget_override: "≤560 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim, canonical MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
@@ -195,6 +195,7 @@ class DAGNode:
     retry_budget: int = 1                           # max RECOVER dispatches before HALT escalation
     grounding: GroundingPolicy = GroundingPolicy.REQUIRED
     schema_failure_policy: SchemaFailurePolicy = SchemaFailurePolicy.RECOVER
+    online_evaluators: tuple[str, ...] = ()         # SPEC-05 OnlineEvalInterceptor binding — names of evaluators registered with QualityPolice that score this node's output
 
 # TaskContext is fully defined in SPEC-04. SPEC-00 declares the type symbol so
 # protocol signatures here resolve without forward-referencing implementation.

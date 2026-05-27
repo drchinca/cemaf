@@ -2,7 +2,7 @@
 title: Long-Horizon Task State Machine
 spec_id: SPEC-04
 status: Draft
-last_reviewed: 2026-05-26
+last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01
@@ -176,7 +176,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`
 9. `TaskRepository.acquire SHALL be exclusive — concurrent resumption attempts on the same task SHALL fail with TaskInUseError.`
 10. `THE retry_ledger SHALL be append/increment-only; counters never decrement. Storage is tuple[tuple[NodeID, int], ...]; read access is via a helper get_retry(ledger, node_id) -> int (default 0); writes happen by rebuilding the Task aggregate via dataclasses.replace, not in-place mutation.`
-11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) AFTER the post-flight chain emits RECOVER on attempt N AND BEFORE re-dispatching attempt N+1. Semantics: on attempt N (N starting at 1), guardians observe retry_ledger value (N-1). Combined with DAGNode.retry_budget, "budget=K" means up to K recoveries (i.e., attempts 1..K+1); on attempt N+1 a guardian sees value N, and (N < K) determines RECOVER vs HALT.`
+11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) AFTER the post-flight chain emits RECOVER on attempt N AND BEFORE re-dispatching attempt N+1. Semantics: on attempt N (N starting at 1), guardians observe retry_ledger value (N-1). Combined with DAGNode.retry_budget, "budget=K" means up to K recoveries → up to (K+1) total attempts. Worked example with retry_budget=2: attempt 1 sees ledger=0 (RECOVER, ledger→1), attempt 2 sees ledger=1 (RECOVER, ledger→2), attempt 3 sees ledger=2 (HALT — 2 ≥ 2). With retry_budget=0: attempt 1 sees ledger=0 (HALT — 0 ≥ 0). SPEC-05 Inv 15 reads (ledger < retry_budget) → RECOVER, (ledger ≥ retry_budget) → HALT, which is the same boundary inverted.`
 12. `WHEN AcquireToken.lease_ttl_ms elapses without explicit release, THE TaskRepository SHALL treat the lease as expired and permit a new acquire — preventing dead executors from holding tasks indefinitely.`
 13. `WHEN a PostflightDecision is RECOVER(INVOKE_META_ARCHITECT), THE Executor SHALL call increment_retry(task_id, node_id) BEFORE invoking MetaDispatcher.dispatch (SPEC-06). Combined with Inv 11, the meta sub-DAG observes the incremented attempt counter via task.retry_ledger from its first node, so nested recoveries see correct attempt accounting.`
 14. `task.correlation_id (per-task, assigned at create()) and ctx.correlation_id (per-attempt, assigned by DAGExecutor at node dispatch — SPEC-00 §2) are intentionally distinct scopes. Audit and recovery references resolve as follows: SPEC-05 §3 attempt-level audit SHALL use ctx.correlation_id; SPEC-06 §3 Inv 6 parent_correlation_id SHALL be the parent attempt's ctx.correlation_id (NOT task.correlation_id). On resume across PAUSED→RUNNING, task.correlation_id persists; new attempts mint fresh ctx.correlation_id. Every AuditEntry SHALL carry both fields explicitly so query paths over either are deterministic.`
