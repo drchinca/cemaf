@@ -92,9 +92,7 @@ class DataSourceRegistry:
 class PullInterceptor(NodeInterceptor):
     """PRE phase, runs at position 2 — BEFORE BlueprintInterceptor.
 
-    Strategy (accepts optional `pending_patch` of meta-recovery CiteableChunks
-    spliced from a recovery sub-DAG per SPEC-06 Inv 17; default empty tuple
-    preserves the non-recovery path):
+    Strategy:
       1. Extract entities/keywords from goal.text (raw goal, not Blueprint)
          via the pinned EntityExtractor (deterministic regex+gazetteer
          implementation in `retrieval/entity_extractor.py`; LLM-based
@@ -102,11 +100,15 @@ class PullInterceptor(NodeInterceptor):
       2. Query KG.neighbors() for each entity → CiteableChunks.
       3. Query each capable, healthy DataSource within per-source sub-budget.
       4. Query MemoryContextProvider for project/session memory.
-      5. Union `pending_patch` (when non-empty) into the candidate set as
-         additional input to the merge — patch chunks participate in the same
-         (priority desc, confidence desc, retrieved_at asc) sort and
-         eviction (Inv 11). PullInterceptor remains the sole atomic writer
-         of ctx.surfaced_sources.
+      5. Read any meta-recovery candidates from `ctx.pending_meta_patches`
+         (a transient `tuple[CiteableChunk, ...]` field set by the Executor
+         before re-dispatch per SPEC-06 Inv 17; defaults to `()`); union
+         into the candidate set BEFORE merge+eviction — patch chunks
+         participate in the same (priority desc, confidence desc,
+         retrieved_at asc) sort and eviction (Inv 11). PullInterceptor
+         remains the sole atomic writer of ctx.surfaced_sources. The
+         Executor SHALL clear `ctx.pending_meta_patches` after PullInterceptor
+         consumes it (single-use).
       6. Merge into ctx.surfaced_sources, sorted by (priority desc,
          confidence desc, retrieved_at asc) — see Inv 11 eviction order.
       7. Apply ContextCompiler with tool_output_reserve_fraction (POC #2).
@@ -115,12 +117,14 @@ class PullInterceptor(NodeInterceptor):
     interceptor_id = "pull"
     phase = InterceptorPhase.PRE
 
-    async def run(
+    async def pre(
         self,
-        ctx: Context,
-        node: DAGNode,
         *,
-        pending_patch: tuple[CiteableChunk, ...] = (),
+        node: DAGNode,
+        goal: Goal,
+        ctx: Context,
+        task: TaskContext,
+        services: RuntimeServices,
     ) -> PreflightDecision: ...
 ```
 
@@ -138,7 +142,7 @@ class PullInterceptor(NodeInterceptor):
 10. `PullInterceptor SHALL set ctx.surfaced_sources atomically — either fully populated or absent on REJECT — never partial.`
 11. `WHEN merged candidates exceed node.budget.pull_tokens, PullInterceptor SHALL evict in deterministic order: sort by (priority desc, confidence desc, retrieved_at asc); include greedily until next chunk's token_count would exceed the cap; remainder dropped with log event "pull.evicted{chunk_id,reason="over_budget"}". Two compliant implementations SHALL produce identical surfaced_sources for identical inputs (closes SPEC-00 Property 6 replay determinism). Terminal tiebreaker when (priority, confidence, retrieved_at) all tie: chunk_id ASC. Required for SPEC-05 Inv 17 truncation determinism and SPEC-06 Inv 16 union-then-cap determinism.`
 12. `CiteableChunk SHALL carry priority: int derived from source_kind via the canonical mapping {kg: 100, datasource: 80, memory: 60, vector: 40}. Implementations MAY add per-tenant offsets up to ±10, no overflow into adjacent bands. ContextCompiler.compile() SHALL use this field as its drop key (closes the SPEC-02 step 6 implementation-defined gap).`
-13. `WHEN PullInterceptor.run is invoked with a non-empty `pending_patch` tuple of CiteableChunks (spliced by the Executor from a SPEC-06 recovery sub-DAG before re-dispatch per SPEC-06 Inv 17), THE PullInterceptor SHALL union those chunks into the candidate set BEFORE the merge+eviction step, and the same (priority desc, confidence desc, retrieved_at asc; chunk_id ASC tiebreaker) ordering and node.budget.pull_tokens cap from Inv 11 SHALL apply to the unioned set. PullInterceptor remains the sole atomic writer of ctx.surfaced_sources; no other interceptor or executor path mutates that field. WHERE pending_patch is empty (the default), PullInterceptor SHALL behave identically to the non-recovery path.`
+13. `WHEN ctx.pending_meta_patches is non-empty at the moment PullInterceptor.pre is invoked (set by the Executor before re-dispatch per SPEC-06 Inv 17), THE PullInterceptor SHALL union those CiteableChunks into the candidate set, apply the same merge+eviction rules from Inv 11 (priority desc, confidence desc, retrieved_at asc; chunk_id ASC tiebreaker; node.budget.pull_tokens cap), and SHALL remain the sole atomic writer of ctx.surfaced_sources. The Executor SHALL clear ctx.pending_meta_patches exactly once after consumption (idempotency: a re-run within the same attempt SHALL observe an empty tuple). WHERE ctx.pending_meta_patches is empty (the default), PullInterceptor SHALL behave identically to the non-recovery path.`
 
 ## 4. Acceptance Criteria (BDD)
 
