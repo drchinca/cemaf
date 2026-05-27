@@ -320,6 +320,17 @@ class RunResult:
 # SPEC-01, SPEC-06 respectively) — no `core.types` re-export, avoiding the
 # import cycle that would arise from a single-module home.
 
+# ChainContractError — single source of truth for chain-phase contract
+# violations. Owned here per shared type registry (round-42 budget_override);
+# child specs (SPEC-01 §2 import list) reference this declaration without
+# redefining. Raised when an interceptor or executor observes a chain-contract
+# violation (correlation_id_unset, PRE mutating AgentResult, POST re-issuing
+# agent.run, etc.). The chain catches it and converts to REJECT with
+# reason="<id>:exception:ChainContractError". The reason string passed to the
+# constructor is the contract code.
+class ChainContractError(RuntimeError):
+    """Raised on chain-phase contract violations; reason string is the contract code."""
+
 # get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
 # Single source of truth so child specs cite the same signature.
 def get_retry(ledger: tuple[tuple[NodeID, int], ...], node_id: NodeID) -> int:
