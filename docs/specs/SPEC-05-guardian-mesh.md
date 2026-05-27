@@ -6,6 +6,7 @@ last_reviewed: 2026-05-26
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
+budget_override: "≤540 lines — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
 ---
 
 # SPEC-05: Guardian Mesh
@@ -136,14 +137,16 @@ class CiteOrFailInterceptor(NodeInterceptor):
                                                        hints=[fix=cite source X for claim Y])
       if node.grounding == BEST_EFFORT and ungrounded:
           # ACCEPT. The chain returns the ungrounded tuple on the
-          # PostflightDecision; per SPEC-01 Inv 6 + Inv 15 the Executor
-          # constructs a NEW AgentResult with
-          # `unverified_claims = prior + ungrounded` and persists it as
+          # PostflightDecision.derived_unverified_claims; per SPEC-01 Inv 6
+          # the Executor constructs a NEW AgentResult with
+          # `unverified_claims = ungrounded` (the agent-emitted AgentResult
+          # MUST have unverified_claims == () — see SPEC-00 §2 ownership note
+          # below; agents do not self-flag, the chain does) and persists it as
           # NodeOutcome.result. The agent-emitted AgentResult is unchanged in
           # audit storage. Downstream consumers and user-facing copy SHALL
           # annotate these claims as "[unverified]"; per Inv 14 they are NOT
           # promoted into any downstream node's ctx.surfaced_sources.
-                                            -> ACCEPT(unverified_claims=ungrounded)
+                                            -> ACCEPT(derived_unverified_claims=ungrounded)
       # OPTIONAL and DISABLED: no claim-level enforcement.
     """
     interceptor_id = "cite_or_fail"
@@ -256,7 +259,7 @@ class AuditInterceptor(NodeInterceptor):
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
 7. `WHEN GoalCompletionResult.achieved == False AND get_retry(task.retry_ledger, node.id) < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
-8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation that runs, scoped per ATTEMPT. Definition: an ATTEMPT is one (PRE → optional EXECUTE → POST) pass through the parent node's chain. A SPEC-06 recovery sub-DAG dispatched mid-attempt is NOT a new attempt of the parent — it is a separate run with its own audit entries (linked via parent_correlation_id, SPEC-06 Inv 6); the parent's RECOVER decision plus the executor's increment_retry then begin attempt N+1, which is a fresh PRE/POST audit pair. Audit completeness per attempt: ACCEPTED end-to-end → 2 entries (PRE + POST); REJECTED/RECOVERED/HALTED in post-flight → 2 entries; REJECTED in pre-flight → 1 entry (PRE only — audit is the LAST PRE interceptor and SHALL still emit when an earlier PRE rejected, per SPEC-01 Inv 5).`
+8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation, scoped per ATTEMPT (one PRE→optional EXECUTE→POST pass). A SPEC-06 recovery sub-DAG is a separate run with its own entries linked via parent_correlation_id (SPEC-06 Inv 6); the parent's next attempt begins after RECOVER + increment_retry. Per-attempt completeness: ACCEPTED end-to-end → 2 entries; post-flight REJECT/RECOVER/HALT → 2 entries; pre-flight REJECT → 1 entry (audit runs last in PRE and is exempt from SPEC-01 Inv 5 short-circuit).`
 9. `Recovery via RETRY_WITH_HINTS SHALL pass RecoveryHint instances in goal.metadata["remediation"] to the re-dispatched agent (per SPEC-01 Inv 10).`
 10. `Guardian interceptors SHALL be auto-injected at bootstrap when the corresponding RuntimeServices.* field is non-None; opting out requires an explicit ChainConfig override.`
 11. `Citation membership check (Inv 2) SHALL be replay-safe: identical surfaced_sources + identical cited_evidence_refs yield identical decisions.`
@@ -406,7 +409,7 @@ Feature: Guardian mesh
 - SPEC-04 (`task.retry_ledger`, `node.retry_budget`)
 - `evals/online.py`, `evals/police.py`, `evals/grounding.py`, `evals/judge.py` (extend)
 - `citation/`, `moderation/`, `audit/`
-- `spacy==3.7.4` + `en_core_web_sm==3.7.1` (exact pins; mirrored in `pyproject.toml` and `cemaf/data/eval_pins/spacy_model_version.txt`) — required by `SentenceClaimExtractor`'s POS-tag pass. Two CI runs MUST produce byte-identical sentence segmentation given identical input; absence of the pinned model file aborts SPEC-05 test suite startup.
+- `spacy==3.7.4` + `en_core_web_sm==3.7.1` (exact pins, mirrored in `pyproject.toml` + `cemaf/data/eval_pins/spacy_model_version.txt`) for `SentenceClaimExtractor`. Two CI runs MUST produce byte-identical segmentation; missing model aborts test startup.
 - New code:
   - `evals/goal_completion.py` (LLM-judge with pinned prompt)
   - `evals/tool_output_verifier.py` (hybrid)
@@ -481,15 +484,7 @@ LLM-judge evaluators are fully pinned. Prompts and corpora live under
 
 ### Hallucination measurement protocol
 
-To support the `rate ≤ 0.02` claim:
-1. **Corpus**: `tests/fixtures/hallucination_corpus_v1.jsonl` — ≥500 generative
-   outputs from CEMAF nodes, each with claim-level human labels {grounded,
-   ungrounded}.
-2. **Run**: HallucinationProbe over the corpus end-to-end with the pinned judge.
-3. **Statistic**: Wilson 95% CI on the unlabeled-as-ungrounded rate.
-4. **Pass**: upper CI bound ≤ 0.02.
-5. **Baseline**: first measure on `main` is the recorded baseline; subsequent
-   PRs cannot regress beyond +0.5pp without explicit waiver.
+Corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 generative outputs with claim-level {grounded, ungrounded} labels) → run HallucinationProbe end-to-end with the pinned judge → Wilson 95% CI on the ungrounded rate → pass when upper bound ≤ 0.02. First `main` measurement is the recorded baseline; subsequent PRs SHALL NOT regress beyond +0.5pp without an explicit waiver.
 
 ## 9. Observability Contract
 
@@ -505,13 +500,9 @@ To support the `rate ≤ 0.02` claim:
 
 ## 10. User-facing failure copy
 
-Reason strings emitted by guardians (`PreflightDecision.reason`,
-`PostflightDecision.reason`) are engineer-facing identifiers. Every consumer
-(BrightAgent Slack notifications, dashboards, CLI run summaries) SHALL render
-them via this single mapping — no ad-hoc paraphrasing per surface. Suggested
-actions are imperative and address the *user*, not the developer. The mapping
-is the source of truth; tests assert that every reason string emitted in code
-appears as a row here.
+Reason strings are engineer-facing IDs; every consumer SHALL render them via
+this single mapping — no ad-hoc paraphrasing. Tests assert every reason
+emitted in code appears as a row here.
 
 | Reason | Human message | Suggested next action |
 |---|---|---|
@@ -531,33 +522,17 @@ appears as a row here.
 | `<id>:timeout` | "An internal step (`<display_name>`) took too long." | "Retry. If it persists, check service health for that subsystem." |
 | `<id>:exception:<class>` | "An internal step (`<display_name>`) hit an error." | "Retry. If it persists, the error is logged with `correlation_id` for engineering follow-up — no user action available." |
 
-Per SPEC-01 Inv 16, `<display_name>` is the interceptor's declared
-human-readable name (e.g. `cite_or_fail` → "citation check", `tool_verify` →
-"tool result check", `goal_completion` → "answer review", `legitimacy` →
-"permission check", `pull` → "evidence retrieval", `blueprint` →
-"answer plan", `task_inject` → "task setup", `audit` → "audit"). The
-internal `interceptor_id` is preserved in `correlation_id`/audit only.
+`<display_name>` resolves via SPEC-01 Inv 15 (`InterceptorChain.display_name_for(id)`); built-ins: cite_or_fail→"citation check", tool_verify→"tool result check", goal_completion→"answer review", legitimacy→"permission check", pull→"evidence retrieval", blueprint→"answer plan", task_inject→"task setup", audit→"audit".
 
-Implementations of `AuthorizationPolicy` and `ModerationPipeline` SHALL
-return human-readable `denied_scope` / rule labels (≤40 chars, no
-namespacing or numeric IDs — e.g. "knowledge graph writes" not
-`cemaf.kg.write_relation`; "personally identifiable info" not
-`MOD_RULE_8421`). Internal IDs are kept in `correlation_id`/audit only.
+`AuthorizationPolicy` and `ModerationPipeline` SHALL return human-readable scope/rule labels (≤40 chars, no namespacing/numeric IDs — "knowledge graph writes" not `cemaf.kg.write_relation`).
 
-In addition to reason-strings, the following per-retry status events
-(SPEC-04 §9 `task.retry_started`, SPEC-06 §9 `task.recovery_started` /
-`task.recovery_finished`) render as informational status copy, NOT as
-failures:
+Per-retry status events (SPEC-04 §9, SPEC-06 §9) — informational, not failures:
 
 | Event | Human message |
 |---|---|
-| `task.retry_started` | "Retrying step (`<friendly node label>`), attempt N of M." (suppress in digest mode after attempt 1) |
+| `task.retry_started` | "Retrying step (`<DAGNode.display_name>`), attempt N of M." (surfaces MAY collapse repeats; underlying event SHALL be emitted on every re-dispatch per SPEC-04 §9) |
 | `task.recovery_started` | "We hit a snag — retrying with a fix-up plan." |
 | `task.recovery_finished` (accepted=True) | "Fix-up succeeded — continuing." |
 | `task.recovery_finished` (halt=True) | "Fix-up couldn't recover the run." |
 
-Unverified-claim rendering (under `GroundingPolicy.BEST_EFFORT`): each claim
-in `AgentResult.unverified_claims` SHALL be rendered with a leading
-`[unverified]` tag in any surface that displays the claim's text, AND the
-surface SHALL show a one-line footer: "Some statements above couldn't be
-matched to a cited source — treat them as unconfirmed."
+Unverified-claim rendering (`GroundingPolicy.BEST_EFFORT`): each claim in `AgentResult.unverified_claims` SHALL render with a leading `[unverified]` tag, and the surface SHALL show a one-line footer: "Some statements above couldn't be matched to a cited source — treat them as unconfirmed."

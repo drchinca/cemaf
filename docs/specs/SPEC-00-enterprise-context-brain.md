@@ -4,6 +4,7 @@ spec_id: SPEC-00
 status: Draft
 last_reviewed: 2026-05-26
 owner: drchinca
+budget_override: "≤525 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06; splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -159,7 +160,7 @@ class AgentResult:
     raw_text: str | None
     cited_evidence_refs: tuple[Citation, ...] = ()
     tool_calls: tuple[ToolCallOutput, ...] = ()     # consumed by SPEC-05 ToolOutputVerifier
-    unverified_claims: tuple["Claim", ...] = ()      # claims accepted under GroundingPolicy.BEST_EFFORT but lacking citation membership; surfaced to users as "[unverified]". Claim type defined in SPEC-05 §2.
+    unverified_claims: tuple["Claim", ...] = ()      # OWNED BY THE EXECUTOR, NOT THE AGENT. Agents SHALL emit unverified_claims=(); the chain (SPEC-05 CiteOrFail under GroundingPolicy.BEST_EFFORT) populates this tuple via PostflightDecision.derived_unverified_claims, which the executor merges into a NEW AgentResult per SPEC-01 Inv 6. Surfaced to users as "[unverified]". Claim type defined in SPEC-05 §2.
     metadata: dict[str, str] = field(default_factory=dict)
 
 class GroundingPolicy(Enum):
@@ -177,6 +178,7 @@ class SchemaFailurePolicy(Enum):
 @dataclass(frozen=True, slots=True)
 class DAGNode:
     node_id: NodeID
+    display_name: str                               # ≤40 chars, human-readable; rendered in user-facing copy (SPEC-05 §10) e.g. task.retry_started, halt notifications. NEVER node_id.
     is_terminal: bool
     is_llm_node: bool
     retry_budget: int = 1                           # max RECOVER dispatches before HALT escalation
@@ -388,6 +390,21 @@ Build order (each row is a child spec; later rows depend on earlier):
 
 POC decisions feed the context layer: model-catalog (selection),
 anchored-compaction (session memory), tool-output-bucket (context budgeting).
+
+### Spec Audit (build-time gate)
+
+A CI-level audit (`scripts/spec_audit.py`) SHALL run on every PR touching
+`docs/specs/**` or `cemaf/blueprint/**`. Audits and the spec rule that owns
+each:
+
+| Audit | Owner | Failure mode |
+|---|---|---|
+| Grounding-annotation gate | SPEC-03 §3 Inv 10 | Build fails when a registered blueprint output_schema has a free-text factual field without `grounding_required=True` and no waiver in `cemaf/data/eval_pins/grounding_audit_waivers.json` |
+| §10 copy-coverage | SPEC-05 §4 "Every emitted reason string maps…" | Build fails when any reason string emitted in code is missing a §10 row, or any §10 row is unreachable |
+| Cassette presence | SPEC-00 Property 6 | Build fails when an LLM-judge interceptor has no cassette file matching its hash key |
+| Hallucination-baseline diff | SPEC-05 §8 HallucinationProbe | PR fails when current rate > baseline + 0.5pp |
+
+The audit script is part of `make check` and the GitHub Actions workflow.
 
 ## 7. Correctness Properties
 
