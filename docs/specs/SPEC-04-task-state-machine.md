@@ -185,6 +185,38 @@ class TaskRepository(Protocol):
     async def decrement_retry(self, task_id: TaskID, node_id: NodeID) -> None:
         """SHALL only be callable during shutdown drain — repository asserts
         is_shutting_down flag; otherwise raises InvariantViolationError."""
+    async def atomic_fetch_add_metadata(
+        self,
+        *,
+        task_id: TaskID,
+        key: str,
+        delta: int,
+    ) -> int:
+        """Atomic fetch-and-add on integer-valued task.metadata[key].
+        Returns the new value AFTER the increment.
+        Single round-trip; no read-modify-CAS retry loop.
+        Raises TaskNotFoundError if task_id absent.
+        Raises MetadataTypeError if existing value is non-int."""
+    async def spawn_child_task(
+        self,
+        *,
+        parent_task_id: TaskID,
+        child_goal: Goal,
+        inherit_keys: frozenset[str] = frozenset({
+            "chain_correlation_id",
+            "chain_profile_id",
+            "chain_profile_version",
+        }),
+    ) -> TaskID:
+        """Atomically create a child Task with parent linkage and propagated metadata.
+
+        SHALL: (1) read parent.metadata; (2) create child Task with task.correlation_id
+        fresh per Inv 14; (3) copy keys in inherit_keys from parent.metadata to
+        child.metadata; (4) set child.metadata['parent_task_id'] = parent_task_id;
+        (5) emit TaskSpawned event with parent_task_id + child_task_id linkage.
+        All five operations execute under a single persistence transaction.
+        Raises TaskNotFoundError if parent_task_id absent.
+        Raises ParentNotActiveError if parent.state ∉ {ACTIVE, PAUSED_HITL}."""
     async def health(self) -> HealthStatus:
         """Liveness probe consumed by SPEC-00 readiness contract."""
 
@@ -203,7 +235,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 2. `WHEN a Task is HALTED or COMPLETED, transition() SHALL raise InvalidTransitionError on any further state change.`
 3. `Every TaskContext.step_index SHALL satisfy 0 ≤ step_index < step_count.`
 4. `TaskContext.prior_decisions SHALL be append-only and ordered by node execution sequence.`
-5. `WHEN restoring from a snapshot, THE restored Task SHALL be structurally equal to the snapshot under canonical sorted-key JSON serialization for task_id, goal, dag_id, state, step_index, step_count, prior_decisions, retry_ledger, budget_remaining, correlation_id, and created_at. Task.updated_at is repository-managed and SHALL be set to utc_now() at restore time (not required to equal the pre-snapshot value).`
+5. `WHEN restoring from a snapshot, THE restored Task SHALL be structurally equal to the snapshot under canonical sorted-key JSON serialization for task_id, goal, dag_id, state, step_index, step_count, prior_decisions, retry_ledger, budget_remaining, correlation_id, created_at, chain_profile_id (ChainProfileId | None), chain_profile_version (str | None), and eval_cost_state (EvalCostState | None). The three trailing fields SHALL appear in this exact tail order. Task.updated_at is repository-managed and SHALL be set to utc_now() at restore time (not required to equal the pre-snapshot value).`
 6. `TaskContext.budget_remaining SHALL be monotonically non-increasing across the parent task's steps. Sub-DAG (recovery) consumption SHALL NOT decrement it (SPEC-06 metering boundary).`
 7. `Every node SHALL receive a TaskContext via TaskInjectInterceptor — even single-step DAGs (step_count=1).`
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`
@@ -216,6 +248,9 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 15. `WHEN a holder calls TaskRepository.release(token) OR TaskRepository.transition(token=...) AFTER the lease has expired (Inv 12) and a new holder has acquired, THE Repository SHALL raise StaleLeaseError and SHALL NOT mutate Task state. Detection: every release/transition call carries the original AcquireToken; the repository compares the persisted current_holder_id against token.holder_id and raises if they differ. This closes the multi-pod race where holder A's lease expires, holder B acquires, then A's slow callback writes — A's write is discarded with a logged event "task.stale_lease_write".`
 16. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority by Decision.kind: HALT > REJECT > RECOVER > ACCEPT (within the window cap; entries outside the window are kept only when retention upgrades them). Within the same Decision.kind, retention prefers Decision.at desc; ties broken by node_id ASC. This makes per-node injection deterministic for replay (SPEC-00 Property 6). Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed. Closes the long-horizon-task ballooning hazard (CE rule RULE CE-1: token budgets are first-class invariants).`
 17. `TaskContext.retry_ledger injected by TaskInjectInterceptor SHALL be filtered to entries where get_retry > 0 — nodes never retried do not occupy injection slots. Persistent Task.retry_ledger is unfiltered for audit determinism.`
+18. `TaskRepository.atomic_fetch_add_metadata SHALL be implemented via the persistence layer's native atomic increment primitive (e.g., Redis INCRBY, PostgreSQL `metadata = metadata || jsonb_build_object($key, COALESCE((metadata->>$key)::int, 0) + $delta)`); read-modify-CAS implementations are forbidden under high-fanout (autonomous chains spawn 8+ concurrent CAS contenders).`
+19. `Child Task creation in autonomous / multi-agent chains SHALL go through TaskRepository.spawn_child_task exclusively. Direct TaskRepository.create(...) calls in autonomy/analyst code paths are forbidden by semgrep tools/semgrep/no_direct_child_task_create.yml.`
+20. `Pre-cutover Tasks (created before SPEC-RUNTIME phase 5) project NULL for the three new tail fields (chain_profile_id, chain_profile_version, eval_cost_state). Post-cutover Tasks (created after phase 5) project verbatim. Legacy snapshot comparators that ignore trailing nulls remain valid; post-cutover comparators include the new fields verbatim. The cutover is atomic per workspace via TaskRepository migration tag.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -333,6 +368,48 @@ Feature: Long-horizon task awareness
     When TaskInjectInterceptor projects retry_ledger
     Then ctx.retry_ledger contains exactly the 3 entries with count > 0
     And the 9 zero-count entries are dropped
+
+  Scenario: Atomic increment under concurrent contention
+    Given a Task with metadata["eval_cost_counter"] absent or 0
+    When 16 concurrent callers invoke atomic_fetch_add_metadata(key="eval_cost_counter", delta=1)
+    Then the final persisted value is exactly 16
+    And no caller observes a lost update
+    And the returned values across callers are the set {1, 2, ..., 16}
+
+  Scenario: spawn_child_task propagates chain metadata atomically
+    Given a parent Task with metadata containing chain_correlation_id="CC-1", chain_profile_id="prof-7", chain_profile_version="v3"
+    And parent.state == RUNNING
+    When spawn_child_task(parent_task_id=parent.id, child_goal=G) is called
+    Then a child Task is created with metadata.chain_correlation_id == "CC-1"
+    And child.metadata.chain_profile_id == "prof-7"
+    And child.metadata.chain_profile_version == "v3"
+    And child.metadata.parent_task_id == parent.id
+    And child.task.correlation_id is freshly minted (≠ parent.task.correlation_id) per Inv 14
+    And a TaskSpawned event is emitted carrying both parent_task_id and child_task_id
+    And all five operations executed under a single persistence transaction
+
+  Scenario: spawn_child_task rejects inactive parent
+    Given a parent Task with state == HALTED
+    When spawn_child_task(parent_task_id=parent.id, child_goal=G) is called
+    Then ParentNotActiveError is raised
+    And no child Task is created
+    And no TaskSpawned event is emitted
+
+  Scenario: Pre-cutover task projects NULL for new tail fields
+    Given a Task created before the SPEC-RUNTIME phase-5 cutover for its workspace
+    When canonical_projection is computed
+    Then chain_profile_id projects to None
+    And chain_profile_version projects to None
+    And eval_cost_state projects to None
+    And legacy snapshot comparators that ignore trailing nulls accept the projection
+
+  Scenario: Post-cutover task projects chain_profile_id + version + eval_cost_state verbatim
+    Given a Task created after the SPEC-RUNTIME phase-5 cutover with chain_profile_id="prof-7", chain_profile_version="v3", eval_cost_state set
+    When canonical_projection is computed
+    Then chain_profile_id projects to "prof-7"
+    And chain_profile_version projects to "v3"
+    And eval_cost_state projects verbatim
+    And the three fields appear as the trailing fields in the canonical sorted-key serialization
 ```
 
 ## 5. Out of Scope
@@ -348,6 +425,11 @@ Feature: Long-horizon task awareness
 - SPEC-00 §2 (TokenBudget, Goal, Citation)
 - `persistence/entities.py`, `persistence/protocols.py`
 - `replay/replayer.py` (deterministic step replay reuses Decision provenance)
+
+**Downstream consumers** (this spec's primitives are consumed by):
+- brightagent-v2 SPEC-EVAL-eval-budget-counter Inv 10 — consumes `TaskRepository.atomic_fetch_add_metadata` as the atomic FETCH_ADD primitive replacing read-modify-CAS.
+- brightagent-v2 SPEC-AGENT-analyst Inv 16, SPEC-EVAL Inv 3, SPEC-RUNTIME Inv 2 — consume `TaskRepository.spawn_child_task` as the sole child-task creation seam in autonomous / multi-agent chains.
+- brightagent-v2 SPEC-RUNTIME-chain-profiles + SPEC-EVAL-eval-budget-counter — consume the canonical_projection extension (chain_profile_id, chain_profile_version, eval_cost_state).
 
 ## 7. Correctness Properties
 
