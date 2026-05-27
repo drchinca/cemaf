@@ -4,6 +4,8 @@
 
 CEMAF is a **protocol-first, multi-agent orchestration framework** for context engineering. It has two layers:
 
+> **Target architecture**: SPEC-00..06 (`docs/specs/SPEC-00-enterprise-context-brain.md` and siblings) define the Enterprise Context Brain — the umbrella architecture this codebase is converging toward (interceptor pipeline, datasource registry, blueprint-as-LLM-input, task state machine, guardian mesh, self-resolving DAG). For where each spec concept lands in the codebase and the phased build-out, see [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
+
 ### Layer 1: Base Framework (the engine)
 
 The base framework provides composable primitives for building multi-agent systems. Every integration point is a `@runtime_checkable` Protocol — bring your own LLM, vector store, memory backend, etc.
