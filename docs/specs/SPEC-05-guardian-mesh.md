@@ -273,9 +273,9 @@ class AuditInterceptor(NodeInterceptor):
 ## 3. Invariants (DbC)
 
 1. `WHEN AuthorizationPolicy.authorize returns authorized=False, THE LegitimacyInterceptor SHALL emit REJECT(reason="out_of_scope:<denied_scope>") and the agent SHALL NOT be invoked.`
-2. `WHEN any element of result.cited_evidence_refs ∉ {c.citation for c in ctx.surfaced_sources}, THE CiteOrFailInterceptor SHALL REJECT(reason="non_member_citation").`
-3. `WHEN node.grounding == REQUIRED AND ClaimExtractor.extract yields a Claim with citations==(), THE CiteOrFailInterceptor SHALL REJECT(reason="ungrounded_claim"). WHEN node.grounding == BEST_EFFORT AND ungrounded claims exist, THE CiteOrFailInterceptor SHALL ACCEPT and the executor SHALL persist a derived AgentResult whose unverified_claims tuple includes those claims; user-facing surfaces SHALL render them as "[unverified]". WHEN node.grounding ∈ {OPTIONAL, DISABLED}, ungrounded claims SHALL NOT trigger any decision change.`
-4. `WHEN ToolOutputVerifier.verify returns verified=False, THE ToolOutputVerifierInterceptor SHALL REJECT(reason="tool_unverified").`
+2. `WHEN any element of result.cited_evidence_refs ∉ {c.citation for c in ctx.surfaced_sources}, THE CiteOrFailInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="non_member_citation") subject to Inv 15 budget escalation (which converts RECOVER → HALT once the retry ledger reaches node.retry_budget).`
+3. `WHEN node.grounding == REQUIRED AND ClaimExtractor.extract yields a Claim with citations==(), THE CiteOrFailInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="ungrounded_claim") subject to Inv 15 budget escalation. WHEN node.grounding == BEST_EFFORT AND ungrounded claims exist, THE CiteOrFailInterceptor SHALL ACCEPT and the executor SHALL persist a derived AgentResult whose unverified_claims tuple includes those claims; user-facing surfaces SHALL render them as "[unverified]". WHEN node.grounding ∈ {OPTIONAL, DISABLED}, ungrounded claims SHALL NOT trigger any decision change.`
+4. `WHEN ToolOutputVerifier.verify returns verified=False, THE ToolOutputVerifierInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="tool_unverified") subject to Inv 15 budget escalation.`
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
 7. `WHEN GoalCompletionResult.achieved == False AND get_retry(task.retry_ledger, node.id) < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
@@ -306,18 +306,19 @@ Feature: Guardian mesh
     When LegitimacyInterceptor runs
     Then PreflightDecision is REJECT with reason "moderation:PII"
 
-  Scenario: Cite-or-fail rejects non-member citation
+  Scenario: Cite-or-fail recovers on non-member citation
     Given ctx.surfaced_sources Citations = {a, b, c}
     And result.cited_evidence_refs = {d}
+    And get_retry(task.retry_ledger, node.id) < node.retry_budget
     When CiteOrFailInterceptor runs
-    Then PostflightDecision is REJECT(reason="non_member_citation")
-    And recovery_strategy is RETRY_WITH_HINTS
+    Then PostflightDecision is RECOVER(RETRY_WITH_HINTS, reason="non_member_citation")
 
-  Scenario: Cite-or-fail rejects ungrounded claim
+  Scenario: Cite-or-fail recovers on ungrounded claim
     Given node.grounding == REQUIRED
     And SchemaFieldClaimExtractor extracts a Claim with citations==()
+    And get_retry(task.retry_ledger, node.id) < node.retry_budget
     When CiteOrFailInterceptor runs
-    Then PostflightDecision is REJECT(reason="ungrounded_claim")
+    Then PostflightDecision is RECOVER(RETRY_WITH_HINTS, reason="ungrounded_claim")
 
   Scenario: Cite-or-fail downgrades ungrounded claim under BEST_EFFORT
     Given node.grounding == BEST_EFFORT
@@ -330,8 +331,9 @@ Feature: Guardian mesh
   Scenario: Tool-output verifier catches fabricated tool result
     Given a tool output consumed by the next node
     And ToolOutputVerifier.verify returns verified=False with one unverified output
+    And get_retry(task.retry_ledger, node.id) < node.retry_budget
     When ToolOutputVerifierInterceptor runs
-    Then PostflightDecision is REJECT(reason="tool_unverified")
+    Then PostflightDecision is RECOVER(RETRY_WITH_HINTS, reason="tool_unverified")
     And recovery_hints reference the unverified output
 
   Scenario: Online eval triggers DAG halt

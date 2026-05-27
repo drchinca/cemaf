@@ -40,8 +40,8 @@ stateDiagram-v2
 ```
 
 `RUNNING` is the running state — there is no `RESUMED` state; `resume()` is a
-transition (PAUSED → RUNNING), not a state. SPEC-00 §2 has been corrected to
-match.
+transition (PAUSED → RUNNING), not a state. SPEC-00 §2 forwards `TaskState`
+here as the single source of truth.
 
 ## 2. Interface Contract (MDE)
 

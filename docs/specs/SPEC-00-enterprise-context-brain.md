@@ -423,7 +423,7 @@ each:
 | Audit | Owner | Failure mode |
 |---|---|---|
 | Grounding-annotation gate | SPEC-03 §3 Inv 10 | Build fails when a registered blueprint output_schema has a free-text factual field without `grounding_required=True` and no waiver in `cemaf/data/eval_pins/grounding_audit_waivers.json` |
-| §10 copy-coverage | SPEC-05 §4 "Every emitted reason string maps…" | Build fails when any reason string emitted in code is missing a §10 row, or any §10 row is unreachable |
+| §10 copy-coverage | SPEC-05 §10 user-facing copy table + `normalize_reason()` | Build fails when any reason string emitted in code is missing a §10 row, or any §10 row is unreachable |
 | Cassette presence | SPEC-00 Property 6 | Build fails when an LLM-judge interceptor has no cassette file matching its hash key |
 | Hallucination-baseline diff | SPEC-05 §8 HallucinationProbe | PR fails when current rate > baseline + 0.5pp |
 
