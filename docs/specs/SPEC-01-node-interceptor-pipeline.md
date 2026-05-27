@@ -272,7 +272,7 @@ class NodeOutcome:
 7. `IF an interceptor declares phase=PRE, THEN only its pre() is invoked. IF phase=POST, only post(). IF phase=BOTH, both.`
 8. `THE chain SHALL be deterministic: same inputs (including services_snapshot + RNG seed) produce the same decision sequence (replay-safe). LLM-judge interceptors satisfy this via cassettes per SPEC-00 Property 6.`
 9. `An interceptor SHALL NOT depend on a later interceptor's output (no forward references).`
-10. `RECOVER decisions SHALL specify a RecoveryStrategy; recovery_hints SHALL be passed to the re-dispatched agent via goal.metadata["remediation"].`
+10. `RECOVER decisions SHALL specify a RecoveryStrategy; recovery_hints SHALL be passed to the re-dispatched agent via goal.metadata["remediation"]. Across retry attempts, the executor SHALL REPLACE (not append) the "remediation" entry — each attempt sees ONLY the hints from the most-recent failing attempt. Cap: ≤8 hints per attempt; surplus is dropped with log event "recovery.hints_truncated{node_id,dropped_count}". This bounds prompt growth across retries (CE rule RULE CE-1 token budgets) and stops nested recoveries (SPEC-06) from producing multiplicative hint accumulation.`
 11. `WHEN per_interceptor_timeout_ms is exceeded for any interceptor, THE chain SHALL convert it to REJECT(reason="<id>:timeout") and emit an audit entry.`
 12. `THE InterceptorChain SHALL be reentrant: concurrent invocations on the same chain instance SHALL NOT share mutable state.`
 13. `Successive PRE interceptors SHALL observe the cumulative enrichment from earlier interceptors (ctx and goal carry forward).`

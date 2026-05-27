@@ -246,9 +246,9 @@ class GoalCompletionEvaluator(Protocol):
 class GoalCompletionResult:
     achieved: bool
     confidence: Confidence
-    missing_criteria: tuple[str, ...] = ()
+    missing_criteria: tuple[str, ...] = ()         # ≤10 entries; surplus dropped at judge boundary
     reason: str | None = None
-    judge_citations: tuple[Citation, ...] = ()       # judge cites surfaced sources for its reasoning
+    judge_citations: tuple[Citation, ...] = ()       # ≤10 entries; judge cites surfaced sources for its reasoning. Both tuples are user-facing copy + audit payload, capped to bound prompt + UI growth.
 
 class GoalCompletionInterceptor(NodeInterceptor):
     """POST, runs only when node.is_terminal == True.

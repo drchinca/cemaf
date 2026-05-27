@@ -100,8 +100,10 @@ class PullInterceptor(NodeInterceptor):
       2. Query KG.neighbors() for each entity → CiteableChunks.
       3. Query each capable, healthy DataSource within per-source sub-budget.
       4. Query MemoryContextProvider for project/session memory.
-      5. Merge into ctx.surfaced_sources, sorted by confidence desc.
+      5. Merge into ctx.surfaced_sources, sorted by (priority desc,
+         confidence desc, retrieved_at asc) — see Inv 11 eviction order.
       6. Apply ContextCompiler with tool_output_reserve_fraction (POC #2).
+         Compiler drop key: CiteableChunk.priority (Inv 12 mapping).
     """
     interceptor_id = "pull"
     phase = InterceptorPhase.PRE
@@ -119,6 +121,8 @@ class PullInterceptor(NodeInterceptor):
 8. `Per-source token sub-budget SHALL default to a uniform split across capable+healthy sources; pluggable via PullInterceptor config.`
 9. `THE registry SHALL reject duplicate source_id with DuplicateSourceError.`
 10. `PullInterceptor SHALL set ctx.surfaced_sources atomically — either fully populated or absent on REJECT — never partial.`
+11. `WHEN merged candidates exceed node.budget.pull_tokens, PullInterceptor SHALL evict in deterministic order: sort by (priority desc, confidence desc, retrieved_at asc); include greedily until next chunk's token_count would exceed the cap; remainder dropped with log event "pull.evicted{chunk_id,reason="over_budget"}". Two compliant implementations SHALL produce identical surfaced_sources for identical inputs (closes SPEC-00 Property 6 replay determinism).`
+12. `CiteableChunk SHALL carry priority: int derived from source_kind via the canonical mapping {kg: 100, datasource: 80, memory: 60, vector: 40}. Implementations MAY add per-tenant offsets up to ±10, no overflow into adjacent bands. ContextCompiler.compile() SHALL use this field as its drop key (closes the SPEC-02 step 6 implementation-defined gap).`
 
 ## 4. Acceptance Criteria (BDD)
 

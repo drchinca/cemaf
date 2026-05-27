@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤850 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤900 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -133,6 +133,7 @@ class CiteableChunk:
     content: str
     token_count: TokenCount
     confidence: Confidence
+    priority: int = 0           # ContextCompiler drop key — set by PullInterceptor per source_kind mapping (SPEC-02 Inv 12); default 0 for chunks not produced by Pull
 
 @dataclass(frozen=True, slots=True)
 class Goal:
@@ -162,9 +163,14 @@ class ToolCallOutput:
     """One observable tool invocation captured on AgentResult."""
     tool_name: str
     arguments: Mapping[str, object]      # JSON-shaped tool-call arguments (numbers/bools/nested objects)
-    output: str
+    output: str                          # producing tool SHALL truncate to ≤ TOOL_OUTPUT_MAX_TOKENS (default 8192) before emitting; downstream verifier rejects untruncated outputs whose token_count > cap and truncated=False
+    truncated: bool = False               # True when the tool truncated; consumed by SPEC-05 ToolOutputVerifier for budget enforcement
     citations: tuple[Citation, ...] = ()
     consumed_by_node: NodeID | None = None          # populated by the executor at the producer's POST chain assembly (BEFORE post() runs) by inspecting static DAG successors of the producing node — see SPEC-05 §2 ToolOutputVerifierInterceptor and SPEC-01 Inv 6e. NOT a runtime consumer-time write; static-DAG-derived so tool_verify can decide whether to gate the output on its first post-chain call.
+
+# Tool-output token cap (single source of truth). Producing tools enforce this
+# at emission; SPEC-05 ToolOutputVerifier rejects on violation.
+TOOL_OUTPUT_MAX_TOKENS: int = 8_192
 
 @dataclass(frozen=True, slots=True)
 class Claim:
@@ -276,13 +282,19 @@ spec named in each row.
 #                              run via patches with source="meta:<sub_dag_id>".
 
 # Context extensions — owned by this umbrella so child specs do not redefine.
-# Both fields are added with defaults to preserve backwards-compatibility with
-# every existing `Context(...)` constructor in the codebase; the chain SHALL
-# assign concrete values before dispatch (see §3 Inv 8 and SPEC-01 Inv 6c):
+# Defaults preserve backwards-compatibility with existing `Context(...)`
+# constructors:
 #   Context.correlation_id   : CorrelationID | None = None
-#                              — assigned by DAGExecutor at node dispatch;
-#                              threaded into every Pre/PostflightDecision and
-#                              AuditEntry of the attempt. None ONLY pre-dispatch.
+#                              — DAGExecutor SHALL replace None with a freshly
+#                              minted CorrelationID via dataclasses.replace
+#                              BEFORE invoking the PRE chain. Any interceptor
+#                              that observes ctx.correlation_id is None SHALL
+#                              raise ChainContractError("correlation_id_unset").
+#                              PreflightDecision.correlation_id and
+#                              PostflightDecision.correlation_id are therefore
+#                              non-Optional; the default-None on Context is
+#                              ONLY a constructor-convenience for non-runtime
+#                              code paths (tests, fixtures, replay loaders).
 #   Context.surfaced_sources : tuple[CiteableChunk, ...] = ()
 #                              — populated by PullInterceptor (SPEC-02) before
 #                              BlueprintInterceptor; canonical membership set

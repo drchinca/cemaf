@@ -162,7 +162,7 @@ should not require grounding) requires an explicit waiver entry in
 
 1. `WHEN node.is_llm_node == True AND BlueprintLibrary.resolve_for_node returns None, THE BlueprintInterceptor SHALL emit REJECT(reason="no_blueprint_resolved").`
 2. `WHEN node.is_llm_node == False, THE BlueprintInterceptor SHALL emit ACCEPT with no enrichment.`
-3. `BlueprintRequest.grounding_refs SHALL equal tuple(c.citation for c in ctx.surfaced_sources) at the moment BlueprintInterceptor runs.`
+3. `BlueprintRequest.grounding_refs SHALL equal tuple(c.citation for c in ctx.surfaced_sources) at the moment BlueprintInterceptor runs. The LLM call carries citation_id only — Citation.locator (which may be a long URL or KG ref) SHALL NOT be inlined into the prompt; this keeps the request size O(citation_id × N) rather than O(locator × N) and preserves enforceability of node.budget.generation_tokens. The generator resolves locator at post-flight from ctx.surfaced_sources for cite-or-fail membership and for user-facing rendering.`
 4. `THE BlueprintRequest SHALL be structurally equal under canonical serialization given the same Blueprint, goal, entities, and ctx.surfaced_sources (replay-deterministic).`
 5. `Every StructuredResult SHALL carry the source blueprint_id and version (provenance).`
 6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → PostflightDecision determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER).`
