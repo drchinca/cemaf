@@ -6,7 +6,7 @@ last_reviewed: 2026-05-26
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤540 lines — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
+budget_override: "≤610 lines (scenarios ≤25) — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
 ---
 
 # SPEC-05: Guardian Mesh
@@ -125,13 +125,21 @@ class CiteOrFailInterceptor(NodeInterceptor):
       cited    = set(result.cited_evidence_refs)
       ungrounded = tuple(c for c in claims if c.citations == ())
 
+      # Decision kinds use SPEC-01 PostflightKind grammar: REJECT carries no
+      # recovery_strategy; RECOVER(strategy=RETRY_WITH_HINTS) does. Budget
+      # escalation is enforced via Inv 15 below — when retry budget is
+      # exhausted the interceptor SHALL emit HALT(scope=TASK) instead of
+      # another RECOVER, closing the infinite-loop hazard.
+      #
       # Membership check applies regardless of grounding policy.
-      if cited - surfaced:                  -> REJECT(reason="non_member_citation",
+      if cited - surfaced:                  -> RECOVER(RETRY_WITH_HINTS,
+                                                       reason="non_member_citation",
                                                        hints=[fix=cite from surfaced])
 
       # Grounding-policy branching (SPEC-00 §2 GroundingPolicy):
       if node.grounding == REQUIRED and ungrounded:
-                                            -> REJECT(reason="ungrounded_claim",
+                                            -> RECOVER(RETRY_WITH_HINTS,
+                                                       reason="ungrounded_claim",
                                                        hints=[fix=cite source X for claim Y])
       if node.grounding == BEST_EFFORT and ungrounded:
           # ACCEPT. The chain returns the ungrounded tuple on the
@@ -186,7 +194,8 @@ class ToolOutputVerifierInterceptor(NodeInterceptor):
     `claude-haiku-4-5`, temp=0) runs only on outputs that pass schema
     validation, scoring fabrication likelihood.
 
-    REJECT(reason="tool_unverified", strategy=RETRY_WITH_HINTS) on failure.
+    RECOVER(RETRY_WITH_HINTS, reason="tool_unverified") on failure; budget
+    exhaustion escalates to HALT(scope=TASK) per Inv 15.
     """
     interceptor_id = "tool_verify"
     phase = InterceptorPhase.POST
@@ -195,10 +204,23 @@ class ToolOutputVerifierInterceptor(NodeInterceptor):
 ### Online eval + halt
 
 ```python
+class AlertLevel(Enum):
+    OK    = "ok"      # rolling-window mean ≥ baseline_mean − 1·σ
+    WARN  = "warn"    # within (baseline_mean − 2.5·σ, baseline_mean − 1·σ)
+    HALT  = "halt"    # rolling-window z-score ≤ −2.5 OR three consecutive WARN scores
+
 class OnlineEvalInterceptor(NodeInterceptor):
     """POST. Runs configured evaluators in GATE mode synchronously, records
     scores into QualityPolice. Returns HALT(scope=DAG, reason="quality_halt")
-    when AlertLevel.HALT.
+    when QualityPolice.alert_level == AlertLevel.HALT.
+
+    Per-node binding: the executor reads `node.online_evaluators: tuple[str, ...]`
+    (declared on DAGNode at design time, default ()); each id resolves through
+    `services.online_eval_pipeline.get(id)`. Empty tuple → no synchronous eval.
+    Threshold mapping is the single source of truth in AlertLevel above; the
+    rolling-window N=30 + z=−2.5 baseline is pinned at SPEC-05 §8 row
+    "QualityTrendMonitor" and SPEC-00 §8 (read-once at executor start; replay
+    cassettes capture (level, score, attempt_idx) tuples).
     """
     interceptor_id = "online_eval"
     phase = InterceptorPhase.POST
@@ -264,6 +286,7 @@ class AuditInterceptor(NodeInterceptor):
 12. `WHEN node.grounding == REQUIRED at the terminal node, THE GoalCompletionEvaluator SHALL self-cite — judge_citations SHALL be a non-empty subset of {c.citation for c in ctx.surfaced_sources at terminal node}; failure → REJECT the judge result and treat as achieved=False with confidence=0. WHERE grounding ∈ {OPTIONAL, DISABLED}, judge_citations MAY be empty.`
 13. `THE AuditInterceptor SHALL NOT be subject to the SPEC-01 Inv 5 short-circuit — its PRE entry SHALL be emitted even when an earlier PRE interceptor REJECTED (Inv 8 above is the per-attempt completeness contract that depends on this).`
 14. `THE Executor SHALL NOT include AgentResult.unverified_claims in any downstream node's ctx.surfaced_sources — unverified_claims have no Citation and SHALL appear only in the originating AgentResult and in user-facing copy (rendered as "[unverified]"). Promotion of an unverified claim into a citable surface SHALL require a fresh PullInterceptor pass that produces a CiteableChunk with a real Citation.`
+15. `Retry budget escalation (closes infinite-loop hazard): WHEN CiteOrFailInterceptor or ToolOutputVerifierInterceptor would emit RECOVER(RETRY_WITH_HINTS), THE interceptor SHALL first check get_retry(task.retry_ledger, node.id). If the value < node.retry_budget, emit RECOVER (executor calls increment_retry per SPEC-04 Inv 11). If the value ≥ node.retry_budget, emit HALT(scope=TASK, reason="<original_reason>_exhausted") with the original reason string suffixed "_exhausted" (e.g. "non_member_citation_exhausted", "ungrounded_claim_exhausted", "tool_unverified_exhausted"). SPEC-05 §10 SHALL carry one user-copy row per *_exhausted reason.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -389,6 +412,27 @@ Feature: Guardian mesh
     When the §10 user-facing copy table is loaded
     Then every r in R matches a row key (with <scope>/<rule>/<class>/<id> placeholders matched by pattern)
     And every row in §10 is reachable from at least one emission site in code
+
+  Scenario: Cite-or-fail RECOVER escalates to HALT on retry-budget exhaustion (Inv 15)
+    Given a node N with retry_budget=2 and grounding=REQUIRED
+    And the agent emits an ungrounded Claim on every attempt
+    When attempt 1 runs CiteOrFailInterceptor
+    Then PostflightDecision is RECOVER(RETRY_WITH_HINTS, reason="ungrounded_claim")
+    And TaskRepository.increment_retry is called (ledger 0→1)
+    When attempt 2 runs and the agent again emits an ungrounded Claim
+    Then PostflightDecision is RECOVER (ledger 1→2)
+    When attempt 3 runs and the agent again emits an ungrounded Claim
+    Then get_retry(task.retry_ledger, N.id) ≥ N.retry_budget
+    And PostflightDecision is HALT(scope=TASK, reason="ungrounded_claim_exhausted")
+    And the §10 copy row for "ungrounded_claim_exhausted" exists
+
+  Scenario: Online-eval HALT triggered by AlertLevel.HALT
+    Given an OnlineEvalInterceptor bound to evaluator E with rolling-window N=30
+    And QualityPolice.alert_level transitions OK → WARN over the last 3 nodes
+    When the next score yields rolling z-score ≤ −2.5
+    Then QualityPolice.alert_level == AlertLevel.HALT
+    And PostflightDecision is HALT(scope=DAG, reason="quality_halt")
+    And the §10 copy row for "quality_halt" is rendered
 ```
 
 ## 5. Out of Scope
@@ -502,6 +546,31 @@ Reason strings are engineer-facing IDs; every consumer SHALL render them via
 this single mapping — no ad-hoc paraphrasing. Tests assert every reason
 emitted in code appears as a row here.
 
+**Reason-string normalization (audit contract):** the SPEC-00 §6 Spec Audit
+"§10 copy-coverage" gate compares emitted reason strings to row keys after
+the following deterministic normalization:
+
+```python
+def normalize_reason(emitted: str) -> str:
+    # Replace parametric segments with their <placeholder> form before lookup.
+    # Patterns are evaluated in declared order; first match wins.
+    PATTERNS = (
+        (r"^out_of_scope:.+$",            "out_of_scope:<scope>"),
+        (r"^moderation:.+$",              "moderation:<rule>"),
+        (r"^([a-z_]+):timeout$",          "<id>:timeout"),
+        (r"^([a-z_]+):exception:[A-Za-z_][A-Za-z0-9_]*$", "<id>:exception:<class>"),
+    )
+    for pat, canonical in PATTERNS:
+        if re.fullmatch(pat, emitted):
+            return canonical
+    return emitted  # exact-match for non-parametric reasons
+```
+
+The audit script (`scripts/spec_audit.py`) SHALL collect emitted reasons from
+codebase string-literal scan + this normalization, then compare to the row
+keys in this section. Build fails on either direction (emitted reason with
+no row, or row with no emitted-reason match in code).
+
 | Reason | Human message | Suggested next action |
 |---|---|---|
 | `out_of_scope:<scope>` | "This action isn't permitted in your current workspace scope (`<scope>`)." | "Ask an admin to grant the scope, or rephrase the request to stay within current permissions." |
@@ -517,6 +586,9 @@ emitted in code appears as a row here.
 | `meta_token_exhausted` | "We hit the recovery budget for this task." | "Either raise the recovery budget for this task class or accept the partial output and retry manually." |
 | `quality_halt` | "We stopped this run — output quality dropped below the safe threshold." | "Check recent runs of this pipeline; the issue likely started earlier." |
 | `goal_unreachable` | "We couldn't satisfy the request after the allowed retries." | "Narrow the request, or raise the retry budget for this task class." |
+| `non_member_citation_exhausted` | "After repeated retries we still couldn't ground the answer in surfaced evidence." | "Check the connected data sources; rephrase the request; or accept a partial result and retry manually." |
+| `ungrounded_claim_exhausted` | "After repeated retries part of the answer remained ungrounded." | "Attach a document with the missing context, or relax this node's grounding policy to BEST_EFFORT." |
+| `tool_unverified_exhausted` | "After repeated retries the tool output remained unreliable." | "Investigate the tool's recent behavior; raise the retry budget; or disable the offending tool for this DAG." |
 | `<id>:timeout` | "An internal step (`<display_name>`) took too long." | "Retry. If it persists, check service health for that subsystem." |
 | `<id>:exception:<class>` | "An internal step (`<display_name>`) hit an error." | "Retry. If it persists, the error is logged with `correlation_id` for engineering follow-up — no user action available." |
 

@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Draft
 last_reviewed: 2026-05-26
 owner: drchinca
-budget_override: "≤550 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim and the canonical MappingProxyType pattern); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤560 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim, canonical MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -511,15 +511,19 @@ baselines) live in child specs.
 
 **Required baggage on every span.** `task.id`, `tenant.id`, `workspace.id`, `correlation_id`, `chain_profile`, `dag.id`, `node.id`, `attempt`. Set once at executor entry, propagated via OTel baggage so child specs do not redeclare them.
 
-**Trace-context propagation across recovery.** Recovery sub-DAG spans (SPEC-06) SHALL carry W3C `traceparent` linkage to the parent attempt's span: `gen_ai.parent.span_id`, `gen_ai.parent.trace_id`, `parent_correlation_id`, `parent_task_id`, `parent_node_id`. Sub-DAG and parent SHALL share one trace.
+**Trace-context propagation across recovery.** Recovery sub-DAG execution is in-process (SPEC-06 Inv 9 — same DAGExecutor instance). Propagation rules:
+- **In-process (default):** the sub-DAG's root span SHALL be a child of the parent node's `gen_ai.node.postflight` span via the SDK parent-context (`opentelemetry.trace.use_span(parent)` or equivalent). Parent and sub-DAG share one trace, no `traceparent` header injection needed.
+- **Cross-process (when `MetaDispatcher` is implemented as RPC):** the dispatcher SHALL inject the W3C `traceparent` header per OTel HTTP/gRPC spec; the receiver SHALL extract and continue the trace.
+- In addition to the OTel-native parent-context linkage above, every recovery span SHALL carry CEMAF-specific denormalization attributes for query-side joins without trace lookups: `parent_correlation_id`, `parent_task_id`, `parent_node_id`. These are CEMAF extensions, NOT replacements for OTel parent-context — they exist to support log-pipeline queries that don't have access to the trace store.
 
 **Metric label cardinality rules.** Unbounded identifiers (`task.id`, `node.id`, `correlation_id`, `parent_task`, `dag.id`, `source_id` in multi-tenant deploys) SHALL appear ONLY as span attributes, NEVER as metric labels. Allowed metric labels are bounded enums or hashed buckets:
 - `chain_profile ∈ {default, recovery}`, `decision ∈ {accept, reject, recover, halt}`, `phase ∈ {pre, post}`.
 - `node_type` (bounded by registry).
 - `source_kind` (bounded enum: kg, vector, memory, datasource), NOT `source_id`.
-- Hashed bucket label `tenant_bucket = sha256(tenant.id) mod 64` when per-tenant slicing is needed; raw `tenant.id` is span-attribute-only.
+- Hashed bucket label `tenant_bucket = int.from_bytes(sha256(tenant.id.encode("utf-8")).digest()[:8], "big") % 64` when per-tenant slicing is needed (hash function, byte slice, and modulus are part of the contract for telemetry replay determinism); raw `tenant.id` is span-attribute-only.
+- `evaluator` label (used by `cemaf_eval_halts_total`) is bounded by the `services.online_eval_pipeline` registry — implementations SHALL cap the registry at ≤32 distinct evaluator IDs; over-cap is a startup error, not a metric explosion.
 
-**Metric units.** All durations are seconds (`*_seconds` histograms, Prometheus convention). The legacy `*_ms` names elsewhere in this document and child specs are **renamed** to `*_seconds` at implementation; spec text retains historic names for traceability but the contract is seconds.
+**Metric units.** All durations are seconds (`*_seconds` histograms, Prometheus convention). The legacy `*_ms` names elsewhere in this document and child specs are **renamed** to `*_seconds` at implementation; spec text retains historic names for traceability but the contract is seconds. Span attributes carrying durations follow the same rule — e.g. `latency_seconds`, `wall_time_seconds`. Any `*_ms` span attribute appearing in a child spec (SPEC-01, SPEC-02 use `latency_ms`) is renamed to `*_seconds` at implementation; spec text retains historic names for traceability.
 
 **Required RED metrics for the orchestration hot path.**
 - `cemaf_node_execute_duration_seconds` (histogram, labels: `chain_profile`, `node_type`, `outcome ∈ {success,rejected,recovered,halted,failed}`).

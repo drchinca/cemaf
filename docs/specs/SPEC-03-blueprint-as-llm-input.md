@@ -115,14 +115,40 @@ field. Built-in conventions:
 | Field name (or role) | Annotation |
 |---|---|
 | `summary`, `answer`, `findings`, `recommendation`, `description`, `analysis`, `narrative`, free-text factual prose | `grounding_required=True` |
-| `id`, `status`, `category`, `kind`, `confidence`, `score`, enums, labels, ids, foreign keys, structural metadata | NOT annotated (these are not Claims) |
+| Names in STRUCTURAL_METADATA_ALLOW_LIST (closed set, see below) | NOT annotated (these are not Claims) |
+
+`STRUCTURAL_METADATA_ALLOW_LIST` (single source of truth for the SPEC-00 §6
+Spec Audit gate; closed set, additions require a spec PR amending this list):
+
+```python
+STRUCTURAL_METADATA_ALLOW_LIST: frozenset[str] = frozenset({
+    # Identifiers
+    "id", "uuid", "external_id", "ref", "ref_id", "key",
+    # Foreign keys
+    "parent_id", "owner_id", "tenant_id", "workspace_id", "task_id",
+    "node_id", "dag_id", "blueprint_id", "correlation_id", "source_id",
+    # Status / classification
+    "status", "state", "kind", "type", "category", "label", "tag",
+    # Numeric scoring (not factual prose)
+    "score", "confidence", "rank", "version", "count", "total",
+    # Timestamps
+    "created_at", "updated_at", "started_at", "finished_at", "at",
+    # Booleans (always non-factual-prose)
+    "enabled", "active", "verified", "achieved",
+})
+```
 
 The spec audit (SPEC-00 §6 Spec Audit) SHALL fail the build when any
-registered blueprint has an `output_schema` whose field set contains a
-free-text factual field (heuristic: `str` typed, `max_length` ≥ 64 or
-unbounded, name ∉ structural-metadata allow-list) WITHOUT
-`grounding_required=True`. Override requires an explicit waiver entry in
-`cemaf/data/eval_pins/grounding_audit_waivers.json`.
+registered blueprint has an `output_schema` field that satisfies ALL of:
+(1) Pydantic field type is `str` or `Optional[str]`; (2) declared
+`max_length ≥ 64` or no `max_length` constraint; (3) field `name`
+NOT in `STRUCTURAL_METADATA_ALLOW_LIST` AND NOT in the
+PR-amendable extension set in `cemaf/data/eval_pins/grounding_allow_list_extensions.json`;
+AND (4) field annotation lacks `Field(json_schema_extra={"grounding_required": True})`.
+Override (i.e., declare a free-text field that is genuinely structural and
+should not require grounding) requires an explicit waiver entry in
+`cemaf/data/eval_pins/grounding_audit_waivers.json` carrying
+`{blueprint_id, field_name, justification}`.
 
 ## 3. Invariants (DbC)
 
