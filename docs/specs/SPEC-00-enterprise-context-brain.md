@@ -216,6 +216,16 @@ class SchemaFailurePolicy(Enum):
     RECOVER = "recover"     # RECOVER(RETRY_WITH_HINTS) on schema failure
     HALT    = "halt"        # HALT(scope=TASK) on schema failure
 
+class FinishReason(Enum):
+    """Provider-normalized terminal/partial reason for an LLM completion. Adapters
+    SHALL map provider-native values to FinishReason at the boundary before
+    constructing AgentResult / StructuredResult."""
+    TERMINAL_STOP  = "stop"             # OpenAI:stop  | Anthropic:end_turn, stop_sequence
+    TERMINAL_TOOL  = "tool"             # OpenAI:tool_calls, function_call | Anthropic:tool_use
+    PARTIAL_LENGTH = "length"           # OpenAI:length | Anthropic:max_tokens
+    PARTIAL_FILTER = "content_filter"   # both providers
+    PARTIAL_ERROR  = "error"            # adapter-emitted on stream failure / cancel
+
 # NodeBudget — per-node pull/generation/timeout caps; required on every DAGNode
 # so SPEC-02 PullInterceptor and SPEC-03 StructuredGenerator have a deterministic
 # bound independent of services.token_budget (parent metering authority).
@@ -733,6 +743,7 @@ Cross-cutting rules that hold regardless of which child subsystem is active.
 9. `Interceptor ordering for ChainProfile.DEFAULT SHALL be DEFAULT_PRE_ORDER then EXECUTE then DEFAULT_POST_ORDER. For ChainProfile.RECOVERY (used by SPEC-06 sub-DAG runs) it SHALL be RECOVERY_PRE_ORDER then EXECUTE then RECOVERY_POST_ORDER.`
 10. `A DataSource SHALL expose read-only retrieval only — no write port exists on the protocol.`
 11. `WHEN tool output is consumed by a downstream node, THE ToolOutputVerifier SHALL inspect it for hallucinated facts before downstream dispatch (SPEC-05).`
+12. `LLM adapters SHALL map provider-native finish_reason values to FinishReason (§2) at the adapter boundary; downstream specs SHALL reference FinishReason members, never provider-native strings.`
 
 Per-subsystem invariants live in child specs.
 
