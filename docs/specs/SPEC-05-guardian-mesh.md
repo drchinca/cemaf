@@ -135,13 +135,14 @@ class CiteOrFailInterceptor(NodeInterceptor):
                                             -> REJECT(reason="ungrounded_claim",
                                                        hints=[fix=cite source X for claim Y])
       if node.grounding == BEST_EFFORT and ungrounded:
-          # ACCEPT. The chain reports `ungrounded` via the PostflightDecision's
-          # `unverified_claims` payload (carve-out to SPEC-01 Inv 6: post-flight
-          # MAY NOT mutate the existing AgentResult, but the executor MAY
-          # construct a NEW AgentResult with `unverified_claims = prior +
-          # ungrounded` before persisting — frozen-dataclass invariant
-          # preserved). Downstream consumers and user-facing copy SHALL
-          # annotate these claims as "[unverified]".
+          # ACCEPT. The chain returns the ungrounded tuple on the
+          # PostflightDecision; per SPEC-01 Inv 6 + Inv 15 the Executor
+          # constructs a NEW AgentResult with
+          # `unverified_claims = prior + ungrounded` and persists it as
+          # NodeOutcome.result. The agent-emitted AgentResult is unchanged in
+          # audit storage. Downstream consumers and user-facing copy SHALL
+          # annotate these claims as "[unverified]"; per Inv 14 they are NOT
+          # promoted into any downstream node's ctx.surfaced_sources.
                                             -> ACCEPT(unverified_claims=ungrounded)
       # OPTIONAL and DISABLED: no claim-level enforcement.
     """
@@ -195,7 +196,8 @@ class ToolOutputVerifierInterceptor(NodeInterceptor):
 ```python
 class OnlineEvalInterceptor(NodeInterceptor):
     """POST. Runs configured evaluators in GATE mode synchronously, records
-    scores into QualityPolice. Returns HALT(scope=DAG) when AlertLevel.HALT.
+    scores into QualityPolice. Returns HALT(scope=DAG, reason="quality_halt")
+    when AlertLevel.HALT.
     """
     interceptor_id = "online_eval"
     phase = InterceptorPhase.POST
@@ -228,7 +230,7 @@ class GoalCompletionInterceptor(NodeInterceptor):
     Decision policy (uses get_retry(task.retry_ledger, node.id), per SPEC-04 Inv 10):
       - achieved AND confidence ≥ 0.8                                              → ACCEPT
       - !achieved AND get_retry(task.retry_ledger, node.id) < node.retry_budget    → RECOVER(INVOKE_META_ARCHITECT)
-      - !achieved AND get_retry(task.retry_ledger, node.id) ≥ node.retry_budget    → HALT(scope=TASK)
+      - !achieved AND get_retry(task.retry_ledger, node.id) ≥ node.retry_budget    → HALT(scope=TASK, reason="goal_unreachable")
     """
     interceptor_id = "goal_completion"
     phase = InterceptorPhase.POST
@@ -260,6 +262,7 @@ class AuditInterceptor(NodeInterceptor):
 11. `Citation membership check (Inv 2) SHALL be replay-safe: identical surfaced_sources + identical cited_evidence_refs yield identical decisions.`
 12. `WHEN node.grounding == REQUIRED at the terminal node, THE GoalCompletionEvaluator SHALL self-cite — judge_citations SHALL be a non-empty subset of {c.citation for c in ctx.surfaced_sources at terminal node}; failure → REJECT the judge result and treat as achieved=False with confidence=0. WHERE grounding ∈ {OPTIONAL, DISABLED}, judge_citations MAY be empty.`
 13. `THE AuditInterceptor SHALL NOT be subject to the SPEC-01 Inv 5 short-circuit — its PRE entry SHALL be emitted even when an earlier PRE interceptor REJECTED (Inv 8 above is the per-attempt completeness contract that depends on this).`
+14. `THE Executor SHALL NOT include AgentResult.unverified_claims in any downstream node's ctx.surfaced_sources — unverified_claims have no Citation and SHALL appear only in the originating AgentResult and in user-facing copy (rendered as "[unverified]"). Promotion of an unverified claim into a citable surface SHALL require a fresh PullInterceptor pass that produces a CiteableChunk with a real Citation.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -498,8 +501,35 @@ appears as a row here.
 | `meta_unavailable` | "The answer needed a fix-up plan, but the recovery engine is offline." | "Retry later. If urgent, escalate — recovery is not configured for this deployment." |
 | `meta_depth_exceeded` | "We tried to fix the run but kept hitting the same wall." | "Simplify the request or break it into smaller steps." |
 | `meta_token_exhausted` | "We hit the recovery budget for this task." | "Either raise the recovery budget for this task class or accept the partial output and retry manually." |
-| `<id>:timeout` | "An internal step (`<id>`) took too long." | "Retry. If it persists, check service health for that subsystem." |
-| `<id>:exception:<class>` | "An internal step (`<id>`) crashed." | "Retry. If it persists, the error is logged with `correlation_id` for engineering follow-up — no user action available." |
+| `quality_halt` | "We stopped this run — output quality dropped below the safe threshold." | "Check recent runs of this pipeline; the issue likely started earlier." |
+| `goal_unreachable` | "We couldn't satisfy the request after the allowed retries." | "Narrow the request, or raise the retry budget for this task class." |
+| `<id>:timeout` | "An internal step (`<display_name>`) took too long." | "Retry. If it persists, check service health for that subsystem." |
+| `<id>:exception:<class>` | "An internal step (`<display_name>`) hit an error." | "Retry. If it persists, the error is logged with `correlation_id` for engineering follow-up — no user action available." |
+
+Per SPEC-01 Inv 16, `<display_name>` is the interceptor's declared
+human-readable name (e.g. `cite_or_fail` → "citation check", `tool_verify` →
+"tool result check", `goal_completion` → "answer review", `legitimacy` →
+"permission check", `pull` → "evidence retrieval", `blueprint` →
+"answer plan", `task_inject` → "task setup", `audit` → "audit"). The
+internal `interceptor_id` is preserved in `correlation_id`/audit only.
+
+Implementations of `AuthorizationPolicy` and `ModerationPipeline` SHALL
+return human-readable `denied_scope` / rule labels (≤40 chars, no
+namespacing or numeric IDs — e.g. "knowledge graph writes" not
+`cemaf.kg.write_relation`; "personally identifiable info" not
+`MOD_RULE_8421`). Internal IDs are kept in `correlation_id`/audit only.
+
+In addition to reason-strings, the following per-retry status events
+(SPEC-04 §9 `task.retry_started`, SPEC-06 §9 `task.recovery_started` /
+`task.recovery_finished`) render as informational status copy, NOT as
+failures:
+
+| Event | Human message |
+|---|---|
+| `task.retry_started` | "Retrying step (`<friendly node label>`), attempt N of M." (suppress in digest mode after attempt 1) |
+| `task.recovery_started` | "We hit a snag — retrying with a fix-up plan." |
+| `task.recovery_finished` (accepted=True) | "Fix-up succeeded — continuing." |
+| `task.recovery_finished` (halt=True) | "Fix-up couldn't recover the run." |
 
 Unverified-claim rendering (under `GroundingPolicy.BEST_EFFORT`): each claim
 in `AgentResult.unverified_claims` SHALL be rendered with a leading

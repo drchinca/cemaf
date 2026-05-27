@@ -222,7 +222,7 @@ class NodeOutcome:
 3. `THE chain SHALL run interceptors in the order specified by ChainConfig; the order is observable on every NodeOutcome.`
 4. `Every PreflightDecision and PostflightDecision SHALL carry interceptor_id and correlation_id.`
 5. `WHEN an interceptor raises an exception, THE chain SHALL convert it to REJECT(reason="<id>:exception:<class>") and emit an audit entry; subsequent NON-AUDIT interceptors in the same phase SHALL NOT run, BUT THE audit interceptor SHALL still emit its phase entry.`
-6. `WHILE in PRE phase, an interceptor SHALL NOT mutate the AgentResult; WHILE in POST phase, an interceptor SHALL NOT re-issue the agent.`
+6. `WHILE in PRE phase, an interceptor SHALL NOT mutate the AgentResult; WHILE in POST phase, an interceptor SHALL NOT re-issue the agent NOR mutate the existing AgentResult — the Executor MAY construct a NEW AgentResult to carry post-flight-derived fields (e.g., unverified_claims per SPEC-05 §2) before persisting; the agent-emitted AgentResult SHALL remain immutable in audit storage.`
 7. `IF an interceptor declares phase=PRE, THEN only its pre() is invoked. IF phase=POST, only post(). IF phase=BOTH, both.`
 8. `THE chain SHALL be deterministic: same inputs (including services_snapshot + RNG seed) produce the same decision sequence (replay-safe). LLM-judge interceptors satisfy this via cassettes per SPEC-00 Property 6.`
 9. `An interceptor SHALL NOT depend on a later interceptor's output (no forward references).`
@@ -231,6 +231,8 @@ class NodeOutcome:
 12. `THE InterceptorChain SHALL be reentrant: concurrent invocations on the same chain instance SHALL NOT share mutable state.`
 13. `Successive PRE interceptors SHALL observe the cumulative enrichment from earlier interceptors (ctx and goal carry forward).`
 14. `Empty chain (no interceptors registered) is a valid configuration; run_pre and run_post SHALL each return an empty tuple and the executor SHALL treat the absence of REJECT as ACCEPT.`
+15. `WHEN a PostflightDecision.kind == ACCEPT carries derived fields (e.g., unverified_claims per SPEC-05), THE Executor SHALL construct a new AgentResult merging those fields with the agent-emitted result, and persist that as NodeOutcome.result; the agent-emitted AgentResult SHALL remain available unchanged in audit storage.`
+16. `Each NodeInterceptor subclass SHALL declare a class attribute display_name: ClassVar[str] (≤30 chars, human-readable, e.g. "citation check") used by SPEC-05 §10 user-facing copy when rendering reasons of the form "<id>:timeout" / "<id>:exception:<class>". Implementations SHALL NOT leak interceptor_id verbatim into user-facing surfaces.`
 
 ## 4. Acceptance Criteria (BDD)
 
