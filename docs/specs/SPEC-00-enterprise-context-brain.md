@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤900 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤950 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification). Round-40 additions: OnlineEvalPipeline protocol, JudgeInputSanitizer service+protocol, RunResult dataclass, DecodingParams split, attempt_kind label, claim_extractor readiness clause."
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -244,6 +244,34 @@ class JudgeDescriptor:
     decoding_params: "DecodingParams"         # canonical TypedDict — see §6 cassette schema
     blueprint_compat: tuple[tuple[BlueprintID, str], ...] = ()   # (blueprint_id, semver-range) pairs the prompt template is validated against. Spec audit fails when a Blueprint's output_schema fields drift outside the declared compat range — closes the judge/schema drift hole where a blueprint adds a grounding_required field the judge prompt never asks about.
 
+# OnlineEvalPipeline — owned here to avoid layer inversion (SPEC-05 consumes
+# without redefining). The .size property is consumed by the per-judge cap
+# formula on `eval_budget` (RuntimeServices table above).
+@runtime_checkable
+class OnlineEvalPipeline(Protocol):
+    def list_judges(self) -> tuple[JudgeDescriptor, ...]: ...
+    def get(self, judge_id: str) -> "Evaluator": ...
+    @property
+    def size(self) -> int: ...  # equals len(self.list_judges()); used by per-judge cap formula
+
+# JudgeInputSanitizer — RuntimeServices.judge_input_sanitizer (see table).
+# Deterministic; version bump invalidates cassettes via SPEC-05 Inv 16.
+@runtime_checkable
+class JudgeInputSanitizer(Protocol):
+    version: ClassVar[str]  # bumping invalidates cassettes
+    def sanitize(self, text: str) -> str: ...
+
+# RunResult — returned by DAGExecutor.run (canonical signature above).
+# Composes terminal outcome + halt scope + recovery summary so child specs
+# (SPEC-04, SPEC-05, SPEC-06) reference one symbol instead of redeclaring.
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    """Returned by DAGExecutor.run."""
+    task: Task
+    terminal_outcome: NodeOutcome | None     # None if HALT before terminal
+    halt_scope: HaltScope | None = None      # set when task ended in HALTED
+    recovery_summary: tuple[RecoveryResult, ...] = ()  # all recoveries, in dispatch order
+
 # get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
 # Single source of truth so child specs cite the same signature.
 def get_retry(ledger: tuple[tuple[NodeID, int], ...], node_id: NodeID) -> int:
@@ -362,6 +390,7 @@ This table is the single source of truth — child specs consume these.
 | `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
 | `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds. **Default**: `MetaInvocationBudget()` (max_depth=2, max_token_total=50_000, max_wall_time_ms=30_000) — applied at dataclass construction so existing tenants do not need to know about the field to remain valid; meta_dispatcher=None still downgrades RECOVER(INVOKE_META_ARCHITECT) to REJECT(meta_unavailable) per SPEC-01 Inv 16. |
 | `eval_budget` | `TokenBudget` | SPEC-05 | Per-attempt cost cap for LLM-judge calls inside the chain (OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge). Judges SHALL debit this budget — NOT `task.budget_remaining` — so adversarial inputs that inflate judge prompts cannot exhaust the parent task's budget. **Default**: `TokenBudget(total=8_000, pull_tokens=0, generation_tokens=8_000, timeout_ms=15_000)`. Per-judge cap = `eval_budget.generation_tokens / max(1, services.online_eval_pipeline.size)`. Judges exceeding the per-judge cap SHALL truncate the prompt with a logged event `eval.judge_input_truncated`; on hard exhaustion the judge returns `score=0, level="budget_exhausted"` (counted in QualityPolice as a non-passing observation, NOT silently dropped). |
+| `judge_input_sanitizer` | `JudgeInputSanitizer \| None` | SPEC-05 | Deterministic regex+heuristic stripper threading untrusted segments through XML envelopes; bumping `version` invalidates cassettes via `judge_input_projection_version` (SPEC-05 Inv 16) |
 
 `RuntimeServices` is a frozen dataclass; mutation is forbidden. Per-call
 state (e.g., active `ChainProfile` for a specific `DAGExecutor.run` call)
@@ -405,7 +434,9 @@ exposed via this factory:
    `authorization_policy`, pull → `data_sources`/`knowledge_graph`,
    blueprint → `blueprint_library`, task_inject → `task_repository`,
    cite_or_fail → `claim_extractor`, tool_verify →
-   `tool_output_verifier`, online_eval → `online_eval_pipeline`,
+   `tool_output_verifier` (activates whenever ToolCallOutput tuple is
+   non-empty — terminal or not, per SPEC-05 Inv updated), online_eval →
+   `online_eval_pipeline`,
    goal_completion → `goal_completion_evaluator`), append the
    corresponding interceptor if not already present.
 3. Append `AuditInterceptor` last — unconditional (SPEC-05 Inv 10) and
@@ -497,6 +528,12 @@ Required-fields rule (per active chain_profile):
 - `ChainProfile.RECOVERY`: same baseline; `meta_dispatcher` is NOT
   required (sub-DAGs run inside the parent's executor and the dispatcher
   is the *invoker*, not a sub-DAG dependency).
+
+Additionally, `ChainProfile.DEFAULT` readiness SHALL fail (`ready=False`,
+reason `"claim_extractor_required"`) when any registered DAGNode has
+`grounding == GroundingPolicy.REQUIRED` and `services.claim_extractor is None`.
+Default construction SHOULD wire `SchemaFieldClaimExtractor()` to satisfy
+this gate without explicit configuration.
 
 `/healthz` (liveness) maps to "process running, no `StartupError`".
 `/readyz` (readiness) maps to `readiness().ready`. Tenants opting out of
@@ -674,13 +711,14 @@ absent field omitted (NOT defaulted) so adding a field later does not
 invalidate every existing cassette:
 
 ```python
-DecodingParams = TypedDict("DecodingParams", {
-    "max_tokens":  int,        # required
-    "temperature": float,      # required (use 0.0 for deterministic judges)
-    "top_p":       float,      # required
-    "top_k":       int,        # optional — omit when not set by adapter
-    "stop":        tuple[str, ...],  # optional — omit when empty
-}, total=False)
+class _DecodingRequired(TypedDict):
+    max_tokens: int
+    temperature: float
+    top_p: float
+
+class DecodingParams(_DecodingRequired, total=False):
+    top_k: int
+    stop: tuple[str, ...]
 ```
 
 Implementations SHALL normalise floats to 6 decimal places (`round(v, 6)`)
@@ -745,7 +783,9 @@ are part of the test contract.
 **Cassette path convention** (single source of truth — child specs inherit):
 `tests/fixtures/cassettes/<spec_id>/<judge_name>/<input_hash>.json` where
 `input_hash = sha256(canonical_json({prompt_template_version, model_id,
-decoding_params, judge_input_projection_version, input_projected}))[:16]`.
+decoding_params, judge_input_projection_version, input_projected, attempt_kind}))[:16]`.
+`attempt_kind ∈ {first, retry_after_hints, retry_after_meta}` makes
+attempt-class cassettes deterministic without including drifting integers.
 Missing cassette in CI fails the test loud, not silent regenerate.
 Cassettes are checked into git.
 
@@ -761,6 +801,7 @@ function that:
 3. Sorts tuples by stable keys (`Citation.citation_id`,
    `CiteableChunk.chunk_id`, `ToolCallOutput.tool_name+arguments_hash`).
 4. Strips `metadata` keys not in a per-judge allowlist.
+5. Truncation applied by SPEC-05 Inv 17's per-judge cap SHALL be reflected in `input_projected` itself — the projection records the post-truncation chunk set with a boolean `truncation_applied` and `dropped_chunk_ids: tuple[str, ...]`. Truncation logic changes SHALL bump `judge_input_projection_version`.
 
 The projection is itself a versioned artifact — bumping it invalidates
 every prior cassette under that judge, forcing deliberate re-record.
@@ -836,6 +877,7 @@ baselines) live in child specs.
 - `source_kind` (bounded enum: kg, vector, memory, datasource), NOT `source_id`.
 - Hashed bucket label `tenant_bucket = int.from_bytes(sha256(tenant.id.encode("utf-8")).digest()[:8], "big") % 64` when per-tenant slicing is needed (hash function, byte slice, and modulus are part of the contract for telemetry replay determinism); raw `tenant.id` is span-attribute-only.
 - `evaluator` label (used by `cemaf_eval_halts_total`) is bounded by the `services.online_eval_pipeline` registry — implementations SHALL cap the registry at ≤32 distinct evaluator IDs; over-cap is a startup error, not a metric explosion.
+- `attempt_kind ∈ {first, retry_after_hints, retry_after_meta}` is allowlisted; combined cap with `evaluator` is `evaluator (≤32) × attempt_kind (3) = 96`.
 - `interceptor_id` label (used by SPEC-01 `cemaf_node_interceptor_*` metrics) is bounded by the resolved chain — `bootstrap.create_executor()` enforces ≤16 distinct IDs across PRE+POST after user-supplied additions; over-cap is a `StartupError` (see "Startup-error owner"). Custom interceptors past the cap are a hard fail, not a silent metric explosion.
 - `outcome` label (used by `cemaf_recovery_attempts_total`, `cemaf_meta_dispatches_total`, `cemaf_datasource_duration_seconds`, `cemaf_node_execute_*`) SHALL be drawn from the closed enum `{success, rejected, recovered, halted, failed, timeout, skipped}` — child specs MAY use a strict subset but SHALL NOT introduce new outcome values without a SPEC-00 amendment.
 - `tenant_bucket` label is allowlisted ONLY on metrics that explicitly declare it in their cardinality contract; the canonical RED metrics in this section do NOT carry `tenant_bucket` (multiplicative explosion against `chain_profile × node_type × outcome`). Child specs adding `tenant_bucket` to a metric SHALL declare the resulting cardinality bound.
@@ -857,7 +899,7 @@ baselines) live in child specs.
   - `gen_ai.node.execute` — `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `task.step_index`, `task.step_count`
   - `gen_ai.node.postflight` — `cite.decision`, `tool_verify.decision`, `eval.score`, `goal.achieved`, `police.alert_level`
 - **Log events**: `preflight.legitimacy_denied`, `pull.completed`, `cite_or_fail.rejected`, `tool_verify.rejected`, `eval.gate_failed`, `task.halted`, `kg.queried`, `datasource.retrieved`, `recovery.dispatched`
-- **Metrics**: `cemaf_node_interceptor_decisions_total{decision,chain_profile}`, `cemaf_grounding_score` (gauge, no labels), `cemaf_task_steps_completed_total` (counter, no labels), `cemaf_eval_halts_total{evaluator}`, `cemaf_tool_verify_rejections_total`
+- **Metrics**: `cemaf_node_interceptor_decisions_total{interceptor_id,decision,chain_profile}` (cardinality bound: interceptor_id ≤ 16 (per startup-error rule); decision ∈ {ACCEPT,REJECT,RECOVER,HALT}; chain_profile ∈ {DEFAULT,RECOVERY}), `cemaf_grounding_score` (gauge, no labels), `cemaf_task_steps_completed_total` (counter, no labels), `cemaf_eval_halts_total{evaluator}`, `cemaf_tool_verify_rejections_total`
 
 Per-subsystem telemetry refines this in the child specs and SHALL inherit the cross-cutting conventions above without redeclaring them.
 

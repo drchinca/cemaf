@@ -179,13 +179,16 @@ class VerifyResult:
     reason: str | None = None
 
 class ToolOutputVerifierInterceptor(NodeInterceptor):
-    """POST position 2. Active when any element of result.tool_calls has
-    consumed_by_node != None. Timing: at post-flight assembly time the
-    executor inspects static DAG successors of `node`, builds a NEW
-    AgentResult whose `tool_calls` tuple has `consumed_by_node` populated,
-    and passes that to the post chain. The original AgentResult is not
-    mutated (frozen-dataclass invariant preserved); the interceptor never
-    touches dag.edges directly.
+    """POST position 2. Active when `result.tool_calls` is non-empty,
+    regardless of `consumed_by_node` value. Terminal-node tool outputs are
+    also verified — the agent's `raw_text` may ingest tool output and emit
+    it as the final answer; skipping verification at terminal nodes opens
+    a citation-laundering path closed by this rule. Timing: at post-flight
+    assembly time the executor inspects static DAG successors of `node`,
+    builds a NEW AgentResult whose `tool_calls` tuple has `consumed_by_node`
+    populated, and passes that to the post chain. The original AgentResult
+    is not mutated (frozen-dataclass invariant preserved); the interceptor
+    never touches dag.edges directly.
 
     Deterministic schema check: each ToolCallOutput.output is validated
     against the registered ToolSchema.output_schema; a schema-mismatch
@@ -303,9 +306,11 @@ class AuditInterceptor(NodeInterceptor):
 13. `THE AuditInterceptor SHALL NOT be subject to the SPEC-01 Inv 5 short-circuit — its PRE entry SHALL be emitted even when an earlier PRE interceptor REJECTED (Inv 8 above is the per-attempt completeness contract that depends on this).`
 14. `THE Executor SHALL NOT include AgentResult.unverified_claims in any downstream node's ctx.surfaced_sources — unverified_claims have no Citation and SHALL appear only in the originating AgentResult and in user-facing copy (rendered as "[unverified]"). Promotion of an unverified claim into a citable surface SHALL require a fresh PullInterceptor pass that produces a CiteableChunk with a real Citation.`
 15. `Retry budget escalation (closes infinite-loop hazard): WHEN CiteOrFailInterceptor or ToolOutputVerifierInterceptor would emit RECOVER(RETRY_WITH_HINTS), THE interceptor SHALL first check get_retry(task.retry_ledger, node.id). If the value < node.retry_budget, emit RECOVER (executor calls increment_retry per SPEC-04 Inv 11). If the value ≥ node.retry_budget, emit HALT(scope=TASK, reason="<original_reason>_exhausted") with the original reason string suffixed "_exhausted" (e.g. "non_member_citation_exhausted", "ungrounded_claim_exhausted", "tool_unverified_exhausted"). SPEC-05 §10 SHALL carry one user-copy row per *_exhausted reason.`
-16. `LLM-judge prompt-injection isolation. Every judge that consumes adversarial-controlled text (AgentResult.raw_text, AgentResult.output, ToolCallOutput.output, CiteableChunk.content) SHALL: (a) wrap untrusted segments in delimited envelopes — judge prompts use canonical XML-like markers <untrusted-input id="..."> ... </untrusted-input> with content-hash echo verification; (b) pass through services.judge_input_sanitizer (a deterministic regex+heuristic stripper for known directive patterns: "ignore previous", "system:", "</untrusted-input>", base64-encoded directives); (c) include the sanitizer version in the cassette key (judge_input_projection_version per SPEC-00 §7). Judges that consume CiteableChunk.content SHALL NOT trust citation_id selection from inside untrusted segments — judge_citations SHALL be re-validated against ctx.surfaced_sources by the Executor before recording the GoalCompletionResult. Closes the cite-or-fail bypass where an attacker emits "achieved=true, judge_citations=[<real_id>]" inside their output.`
+16. `LLM-judge prompt-injection isolation. Every judge that consumes adversarial-controlled text (AgentResult.raw_text, AgentResult.output, ToolCallOutput.output, CiteableChunk.content) SHALL: (a) wrap untrusted segments in delimited envelopes — judge prompts use canonical XML-like markers <untrusted-input id="..."> ... </untrusted-input> with content-hash echo verification; (b) pass through services.judge_input_sanitizer (a deterministic regex+heuristic stripper for known directive patterns: "ignore previous", "system:", "</untrusted-input>", base64-encoded directives); (c) include the sanitizer version in the cassette key (judge_input_projection_version per SPEC-00 §7). Judges that consume CiteableChunk.content SHALL NOT trust citation_id selection from inside untrusted segments — judge_citations SHALL be re-validated against ctx.surfaced_sources by the Executor before recording the GoalCompletionResult. Closes the cite-or-fail bypass where an attacker emits "achieved=true, judge_citations=[<real_id>]" inside their output. The untrusted-source list SHALL also include `goal.text` and every `goal.metadata['remediation'][i].detail` / `.suggested_action` string when present — these flow through the same XML envelope sanitization.`
 17. `LLM-judge token budget. OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifierInterceptor, and BlueprintInterceptor's policy judge SHALL debit services.eval_budget — NOT task.budget_remaining (SPEC-00 §"RuntimeServices additions"). Per-judge cap = eval_budget.generation_tokens / max(1, services.online_eval_pipeline.size). On per-judge cap exceedance, judges SHALL truncate the prompt input projection by dropping lowest-priority CiteableChunks first (SPEC-02 Inv 11 sort) and emit "eval.judge_input_truncated{judge_id,dropped_chunks}". On hard exhaustion, judges SHALL return score=0, level="budget_exhausted" — counted as a non-passing observation in QualityPolice (NOT silently dropped).`
 18. `OnlineEvalInterceptor rolling-window scoping (closes attempt mis-attribution): QualityPolice.record_score SHALL accept (node_id, score, attempt_kind) and bucket the rolling window separately by attempt_kind. The default N=30, z=−2.5 HALT trigger fires only on the "first" bucket; "retry_after_hints" and "retry_after_meta" maintain independent windows scored OBSERVE-only with separate metric labels (SPEC-05 §9 cemaf_eval_score{attempt_kind}). Mixed-bucket aggregation across attempt kinds is forbidden — prevents post-recovery scores from masking pre-recovery regressions.`
+19. `THE QualityPolice rolling window SHALL be keyed by (node_id, attempt_kind, judge_id, prompt_template_version, model_id). Bumping any of {prompt_template_version, model_id} SHALL start a fresh window in OBSERVE mode for that key; window transitions back to GATE only after N samples (default 30) accumulate under the new pin. Mixed-regime samples SHALL NOT enter z-score baseline computation.`
+20. `EVERY evaluator declared with mode=GATE in any §8 Eval Criteria table across the spec set SHALL be bound to every applicable LLM node in the registered DAG. bootstrap.create_executor SHALL emit StartupError(reason='gate_evaluator_unbound', evaluator_id=..., node_id=...) when an LLM node's online_evaluators tuple omits any GATE-mode evaluator whose node-pattern matches that node. Mode-flip from GATE to OBSERVE requires a spec amendment, never a missing tuple element.`
 
 ## 4. Acceptance Criteria (BDD)
 

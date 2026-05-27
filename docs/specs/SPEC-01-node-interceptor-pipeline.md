@@ -58,10 +58,8 @@ from dataclasses import dataclass, field
 from abc import ABC
 from enum import Enum
 
-class InterceptorPhase(Enum):
-    PRE = "pre"
-    POST = "post"
-    BOTH = "both"
+# InterceptorPhase imported from SPEC-00 §2 Common Types — SHALL NOT be redefined per umbrella rule.
+# Imports: `InterceptorPhase, Claim, Citation, CorrelationID, Goal, Context, TaskContext, AgentResult, DAGNode, DAG, ChainProfile, RuntimeServices, RecoveryStrategy, RecoveryHint` are all sourced from SPEC-00 §2.
 
 class PreflightKind(Enum):
     ACCEPT = "accept"

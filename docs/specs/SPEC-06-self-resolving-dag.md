@@ -124,8 +124,7 @@ receives a derived TaskContext: same `task_id`, `goal`, `correlation_id`, and
 `prior_decisions` as the parent at the moment of dispatch; `step_index` and
 `step_count` are scoped to the SUB-DAG (0-based across the sub-DAG's own
 node sequence) so guardians inside the recovery see meaningful step
-positions; `budget_remaining` reflects `MetaInvocationBudget` (Inv 5),
-NOT the parent's `TokenBudget`. The recovery TaskContext carries
+positions; the recovery TaskContext carries `budget_remaining` set to the parent's TokenBudget snapshot taken at dispatch time (read-only inside recovery — Inv 5 forbids decrement); a new field `meta_budget_remaining: MetaInvocationBudget | None` is set on the recovery TaskContext only and reflects live MetaInvocationBudget consumption. The recovery TaskContext carries
 `metadata["parent_node_id"]` and `metadata["depth"]` for audit linkage.
 
 ### Concurrency model

@@ -90,6 +90,7 @@ class TaskContext:
     correlation_id: CorrelationID                  # required, no default
     retry_ledger: tuple[tuple[NodeID, int], ...] = ()   # SPEC-05 reads, executor rebuilds via dataclasses.replace; tuple-of-pairs preserves frozen+slots invariants while supporting increment-only updates (Inv 10)
     state: TaskState = TaskState.RUNNING
+    meta_budget_remaining: "MetaInvocationBudget | None" = None  # set only inside recovery sub-DAGs (SPEC-06)
 
 @dataclass(frozen=True, slots=True)
 class AcquireToken:
@@ -107,15 +108,21 @@ class AcquireToken:
 # resolves without TYPE_CHECKING. The CEMAF "no TYPE_CHECKING" rule still
 # holds at the module level: at implementation time, AcquiredLease lives in
 # the same module as TaskRepository or imports it at module top.
+@dataclass(frozen=True, slots=True)
 class AcquiredLease:
-    """Async context manager wrapping an AcquireToken + the owning repository."""
-    def __init__(self, *, repository: TaskRepository, token: AcquireToken) -> None: ...
-    async def __aenter__(self) -> AcquireToken: ...
-    async def __aexit__(self,
-                         exc_type: type[BaseException] | None,
-                         exc_val: BaseException | None,
-                         exc_tb: TracebackType | None) -> None:
-        """Calls repository.release(self._token); re-raises after release."""
+    """Async context manager wrapper around an active lease.
+
+    __aexit__ calls repository.release(self._token); re-raises any pending
+    exception after release.
+    """
+    _repository: TaskRepository
+    _token: AcquireToken
+
+    async def __aenter__(self) -> AcquireToken:
+        return self._token
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self._repository.release(self._token)
 
 @dataclass(frozen=True, slots=True)
 class Task:
@@ -159,8 +166,10 @@ class TaskRepository(Protocol):
                      budget: TokenBudget) -> Task: ...
     async def get(self, task_id: TaskID) -> Task: ...
     async def transition(self, task_id: TaskID, *, to: TaskState,
-                         reason: str | None = None) -> Task:
-        """Raises InvalidTransitionError if (from, to) violates §3 Invariant 1."""
+                         reason: str | None = None,
+                         token: AcquireToken | None = None) -> Task:
+        """Raises InvalidTransitionError if (from, to) violates §3 Invariant 1.
+        When `token` is provided, the repository SHALL validate it against the current lease (Inv 15); when None, only repository-internal callers may invoke."""
     async def append_decision(self, task_id: TaskID, decision: Decision) -> None: ...
     async def snapshot(self, task_id: TaskID) -> TaskSnapshot: ...
     async def restore(self, snapshot: TaskSnapshot) -> Task: ...
