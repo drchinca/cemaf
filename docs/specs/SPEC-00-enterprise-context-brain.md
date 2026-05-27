@@ -460,14 +460,41 @@ baselines) live in child specs.
 
 ## 9. Observability Contract
 
+### Cross-cutting conventions (apply to every child spec)
+
+**OTel GenAI semantic-convention compliance.** Every span SHALL carry:
+- `gen_ai.system = "cemaf"` and `gen_ai.operation.name` (e.g. `"chain.preflight"`, `"agent.run"`, `"meta.dispatch"`).
+- For agent-execute spans: `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reason`.
+- Guardian spans use the namespace `gen_ai.guardian.<name>` as a documented CEMAF extension to the GenAI conv; they additionally set `gen_ai.operation.name = "guardian.<name>"` so standard GenAI dashboards still slice them.
+
+**Required baggage on every span.** `task.id`, `tenant.id`, `workspace.id`, `correlation_id`, `chain_profile`, `dag.id`, `node.id`, `attempt`. Set once at executor entry, propagated via OTel baggage so child specs do not redeclare them.
+
+**Trace-context propagation across recovery.** Recovery sub-DAG spans (SPEC-06) SHALL carry W3C `traceparent` linkage to the parent attempt's span: `gen_ai.parent.span_id`, `gen_ai.parent.trace_id`, `parent_correlation_id`, `parent_task_id`, `parent_node_id`. Sub-DAG and parent SHALL share one trace.
+
+**Metric label cardinality rules.** Unbounded identifiers (`task.id`, `node.id`, `correlation_id`, `parent_task`, `dag.id`, `source_id` in multi-tenant deploys) SHALL appear ONLY as span attributes, NEVER as metric labels. Allowed metric labels are bounded enums or hashed buckets:
+- `chain_profile ∈ {default, recovery}`, `decision ∈ {accept, reject, recover, halt}`, `phase ∈ {pre, post}`.
+- `node_type` (bounded by registry).
+- `source_kind` (bounded enum: kg, vector, memory, datasource), NOT `source_id`.
+- Hashed bucket label `tenant_bucket = sha256(tenant.id) mod 64` when per-tenant slicing is needed; raw `tenant.id` is span-attribute-only.
+
+**Metric units.** All durations are seconds (`*_seconds` histograms, Prometheus convention). The legacy `*_ms` names elsewhere in this document and child specs are **renamed** to `*_seconds` at implementation; spec text retains historic names for traceability but the contract is seconds.
+
+**Required RED metrics for the orchestration hot path.**
+- `cemaf_node_execute_duration_seconds` (histogram, labels: `chain_profile`, `node_type`, `outcome ∈ {success,rejected,recovered,halted,failed}`).
+- `cemaf_node_execute_errors_total` (counter, same labels).
+- `cemaf_guardian_duration_seconds{guardian,phase}` (histogram).
+- `cemaf_chain_duration_seconds{phase,chain_profile}` (histogram).
+
+### Umbrella-level telemetry
+
 - **Spans**:
   - `gen_ai.node.preflight` — `node.id`, `chain_profile`, `legitimacy.decision`, `pull.sources_count`, `pull.tokens`, `blueprint.resolved`
-  - `gen_ai.node.execute` — `gen_ai.request.model`, `task.step_index`, `task.step_count`
+  - `gen_ai.node.execute` — `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `task.step_index`, `task.step_count`
   - `gen_ai.node.postflight` — `cite.decision`, `tool_verify.decision`, `eval.score`, `goal.achieved`, `police.alert_level`
 - **Log events**: `preflight.legitimacy_denied`, `pull.completed`, `cite_or_fail.rejected`, `tool_verify.rejected`, `eval.gate_failed`, `task.halted`, `kg.queried`, `datasource.retrieved`, `recovery.dispatched`
-- **Metrics**: `node_interceptor_decisions_total{decision,chain_profile}`, `grounding_score`, `task_steps_completed`, `eval_halts_total`, `tool_verify_rejections_total`
+- **Metrics**: `cemaf_node_interceptor_decisions_total{decision,chain_profile}`, `cemaf_grounding_score` (gauge, no labels), `cemaf_task_steps_completed_total` (counter, no labels), `cemaf_eval_halts_total{evaluator}`, `cemaf_tool_verify_rejections_total`
 
-Per-subsystem telemetry refines this in the child specs.
+Per-subsystem telemetry refines this in the child specs and SHALL inherit the cross-cutting conventions above without redeclaring them.
 
 ## Next Steps
 

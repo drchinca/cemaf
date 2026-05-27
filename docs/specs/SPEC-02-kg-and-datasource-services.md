@@ -241,4 +241,4 @@ Pinned models / fixtures referenced explicitly so evaluators are replay-determin
 - **Span**: `gen_ai.kg.query` — `entity.id`, `relation.types`, `neighbors.count`
 - **Span**: `gen_ai.datasource.retrieve` — `source.id`, `latency_ms`, `chunks.count`, `tokens.used`
 - **Log events**: `datasource.skipped_unhealthy`, `datasource.timeout`, `pull.no_grounding`, `kg.entity_missing`
-- **Metrics**: `pull_chunks_total{source_id}`, `pull_tokens_used`, `datasource_health{source_id}`, `datasource_latency_ms{source_id}`
+- **Metrics** (per SPEC-00 §9 cardinality rules — `source_id` is span-attribute-only; metric labels use `source_kind ∈ {kg, vector, memory, datasource}` as a bounded enum): `cemaf_pull_chunks_total{source_kind}`, `cemaf_pull_tokens_used` (histogram, no labels), `cemaf_datasource_health{source_kind,status}`, `cemaf_datasource_duration_seconds{source_kind,outcome}` (histogram)

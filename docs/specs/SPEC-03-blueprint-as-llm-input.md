@@ -232,4 +232,4 @@ Baselines and prompts are versioned artifacts under `cemaf/data/eval_pins/`.
 - **Span**: `gen_ai.blueprint.resolve` — `blueprint.id`, `blueprint.version`, `entities.count`, `policies.count`, `grounding_refs.count`
 - **Span**: `gen_ai.generate.structured` — `blueprint.id`, `output_schema`, `validation.passed`, `policy.violations`
 - **Log events**: `blueprint.not_resolved`, `blueprint.policy_violation`, `blueprint.schema_failed`, `blueprint.citation_dropped`
-- **Metrics**: `blueprint_resolutions_total{blueprint_id,version}`, `blueprint_policy_violations_total`, `blueprint_schema_failures_total`
+- **Metrics** (per SPEC-00 §9 cardinality — `blueprint_id` and `version` are bounded by the registry; if the registry exceeds 200 distinct (id,version) pairs in a deployment, swap to `blueprint_kind` enum): `cemaf_blueprint_resolutions_total{blueprint_id,version}` (cap: ≤200 pairs), `cemaf_blueprint_policy_violations_total` (no labels), `cemaf_blueprint_schema_failures_total` (no labels), `cemaf_blueprint_duration_seconds` (histogram, no labels)

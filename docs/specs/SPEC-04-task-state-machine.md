@@ -316,4 +316,4 @@ State-machine spec — deterministic evaluators only.
 - **Span**: `gen_ai.task.lifetime` — `task.id`, `task.state`, `step.index`, `step.count`, `budget.remaining`
 - **Span**: `gen_ai.task.transition` — `from`, `to`, `reason`
 - **Log events**: `task.created`, `task.paused`, `task.resumed`, `task.halted`, `task.completed`, `task.invalid_transition`, `task.acquire_conflict`
-- **Metrics**: `task_state_total{state}`, `task_steps_completed`, `task_budget_remaining`, `task_retries_total{node_id}`
+- **Metrics**: `cemaf_task_state_total{state}`, `cemaf_task_steps_completed_total` (no per-task label), `cemaf_task_budget_remaining_tokens` (gauge, no labels — sampled snapshot only), `cemaf_task_retries_total{node_type,outcome}` — per-`node_id` labels are forbidden by SPEC-00 §9 cardinality rules; `node_id` stays a span attribute only. Also: `cemaf_task_acquire_conflicts_total`, `cemaf_task_lease_expired_total`

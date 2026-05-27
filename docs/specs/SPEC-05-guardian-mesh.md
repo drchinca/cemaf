@@ -445,4 +445,4 @@ To support the `rate ≤ 0.02` claim:
   - `gen_ai.guardian.goal_completion` — `achieved`, `confidence`, `missing_criteria.count`, `judge_citations.count`
   - `gen_ai.guardian.audit` — `phase`, `entry.id`, `node.status_at_emission`
 - **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
-- **Metrics**: `guardian_decisions_total{guardian,decision}`, `grounding_score`, `goal_completion_score`, `recovery_attempts_total`, `tool_verify_rejections_total`, `hallucination_probe_rate`
+- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_hallucination_probe_rate` (gauge, no labels)

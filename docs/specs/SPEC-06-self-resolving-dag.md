@@ -315,7 +315,7 @@ because failure to recover is already covered by parent HALT).
 
 ## 9. Observability Contract
 
-- **Span**: `gen_ai.meta.dispatch` — `parent_task_id`, `parent_node_id`, `failure_category`, `depth`, `accepted`, `halt`, `tokens_consumed`, `wall_time_ms`
-- **Span**: `gen_ai.meta.subdag` — `sub_dag_id`, `nodes`, `chain_profile=recovery`, `tokens_consumed`, `wall_time_ms`
+- **Span**: `gen_ai.meta.dispatch` — inherits cross-cutting baggage from SPEC-00 §9; carries `gen_ai.parent.span_id`, `gen_ai.parent.trace_id`, `parent_correlation_id`, `parent_task_id`, `parent_node_id`, `failure_category`, `depth`, `accepted`, `halt`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `wall_time_seconds` (parent and sub-DAG SHARE one trace via W3C traceparent propagation).
+- **Span**: `gen_ai.meta.subdag` — `sub_dag_id`, `nodes_count`, `chain_profile=recovery`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `wall_time_seconds`; same parent-trace linkage.
 - **Log events**: `meta.dispatched`, `meta.depth_exceeded`, `meta.token_cap_exceeded`, `meta.unavailable_downgrade`, `meta.splice_applied`, `meta.subdag_halted`
-- **Metrics**: `meta_dispatches_total{category,outcome}`, `meta_depth_distribution`, `meta_tokens_total{parent_task}`, `meta_recovery_success_rate`, `meta_wall_time_ms`
+- **Metrics** (per SPEC-00 §9 cardinality — no `parent_task` label): `cemaf_meta_dispatches_total{category,outcome}`, `cemaf_meta_depth` (histogram, no labels), `cemaf_meta_tokens_total` (counter, no labels — per-parent-task slicing happens via span attributes), `cemaf_meta_recovery_success_rate` (gauge, no labels), `cemaf_meta_duration_seconds` (histogram, no labels)
