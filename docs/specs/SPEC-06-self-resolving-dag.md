@@ -241,6 +241,14 @@ Feature: Self-resolving DAG
     And one AuditEntry is recorded carrying parent_correlation_id and the dropped claim_id
     And no downstream node observes X in ctx.surfaced_sources
 
+  Scenario: RecoveryRequest surfaced_sources caps at max_token_total / 4 (Inv 16)
+    Given meta_budget.max_token_total == 20000 (cap == 5000)
+    And the union of cited+hint chunks totals 8000 tokens after Inv 11 sort
+    When MetaDispatcher projects the RecoveryRequest
+    Then RecoveryRequest.surfaced_sources sum(token_count) ≤ 5000
+    And the dropped chunks are the lowest-priority tail per SPEC-02 Inv 11 ordering
+    And replay produces byte-identical projection (Property 6)
+
   Scenario: No PullInterceptor → meta patches unconsumable, decision downgraded (Inv 17)
     Given a deployment whose PRE chain has no PullInterceptor
     And a guardian emits RECOVER(INVOKE_META_ARCHITECT)

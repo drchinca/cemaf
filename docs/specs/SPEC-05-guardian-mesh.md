@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤770 lines (scenarios ≤27) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
+budget_override: "≤810 lines (scenarios ≤32) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
 ---
 
 # SPEC-05: Guardian Mesh
@@ -240,13 +240,15 @@ class OnlineEvalInterceptor(NodeInterceptor):
     Cassette payload SHALL carry (level, score, attempt_idx, attempt_kind)
     where attempt_idx is the get_retry(task.retry_ledger, node.id) value at
     decision time (0 for the first dispatch, 1 for first RECOVER re-dispatch,
-    ...). attempt_kind ∈ {"first", "retry_after_hints", "retry_after_meta"}
-    distinguishes:
+    ...). attempt_kind ∈ {"first", "retry_after_hints", "retry_after_meta", "retry_after_reroute"}
+    distinguishes (canonical enum per SPEC-00 §"Replay/cassette" — 4 values):
       - "first"               : attempt_idx == 0
       - "retry_after_hints"   : attempt_idx > 0, prior RECOVER was
                                 RETRY_WITH_HINTS
       - "retry_after_meta"    : attempt_idx > 0, prior RECOVER was
                                 INVOKE_META_ARCHITECT (SPEC-06 path)
+      - "retry_after_reroute" : attempt_idx > 0, prior RECOVER was
+                                REROUTE_TO_AGENT
     """
     interceptor_id = "online_eval"
     phase = InterceptorPhase.POST
@@ -532,6 +534,35 @@ Feature: Guardian mesh
     Given an OnlineEval guardian invokes a judge
     Then the gen_ai.guardian.online_eval span carries non-null gen_ai.request.model and gen_ai.usage.input_tokens / gen_ai.usage.output_tokens
 
+  Scenario: AuthorizationPolicy is side-effect-free (Inv 21)
+    Given an AuthorizationPolicy implementation
+    And a snapshot of (Task, ctx, services) taken before authorize() is called
+    When LegitimacyInterceptor invokes authorize()
+    Then the post-call snapshot of (Task, ctx, services) is byte-identical to the pre-call snapshot
+    And no MutationDetected error is raised by the contract harness
+
+  Scenario: Budget-exhausted judge still emits skipped-dispatch span (Inv 17 + Inv 25)
+    Given EvalBudgetCounter.remaining == 0 at judge invocation
+    When the judge is invoked
+    Then the judge returns score=0, level="budget_exhausted"
+    And the gen_ai.guardian.* span carries gen_ai.skipped_dispatch=true
+    And gen_ai.usage.output_tokens == 0
+    And gen_ai.usage.input_tokens == projected_prompt_input_tokens (deterministic)
+
+  Scenario: Spec audit fails when judge family equals agent family (Inv 23)
+    Given a node bound to agent model_id "claude-sonnet-4-6@2026-04-12"
+    And a judge gating that node with model_id "claude-sonnet-4-6@2026-05-12"
+    When the judge–agent family isolation audit runs (SPEC-00 §6 spec-audit gate)
+    Then the audit exits non-zero
+    And stderr names both model_ids and the shared family "claude-sonnet-4-6"
+    And AgentRegistry.list_bindings() is the discovery surface (no source-file string-scan)
+
+  Scenario: Rolling window scopes by judge_id and prompt_template_version (Inv 18)
+    Given 30 scores under (node=N, judge_id=J1, prompt_template_version=v1) and 5 under (N, J1, v2)
+    When QualityPolice computes the z-score baseline
+    Then v1 and v2 buckets score independently
+    And the v2 bucket is OBSERVE-only until 30 samples accumulate
+
   Scenario: Unverified tool output is not promoted to downstream surfaced_sources (Inv 22)
     Given node A produces ToolCallOutput(t1) flagged unverified by ToolOutputVerifier
     And node B is a downstream consumer of A's output
@@ -635,6 +666,15 @@ reach a downstream node's surfaced_sources.
 
 **Validates: §3 Invariant 4, Invariant 22 / §4 "Tool-output verifier" / SPEC-00 Invariant 11**
 
+### Property 8: Untrusted-input isolation
+*For any* judge call consuming adversarial-controlled text (raw_text, tool
+output, CiteableChunk content, goal.text, RecoveryHint detail/locator), every
+untrusted segment is wrapped in `<untrusted-input>` envelopes routed through
+`services.judge_input_sanitizer`, and judge-emitted citations are
+re-validated against `ctx.surfaced_sources` by the Executor before recording.
+
+**Validates: §3 Invariant 16 / §4 "Judge prompt-injection sanitizer strips control tokens"**
+
 ### Property 7: Judge self-citation
 *For any* GoalCompletionResult treated as ACCEPT, `judge_citations` is a
 non-empty subset of the terminal node's surfaced_sources citations. This
@@ -674,7 +714,7 @@ Corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 generative outputs
   - `gen_ai.guardian.goal_completion` — `achieved`, `confidence`, `missing_criteria.count`, `judge_citations.count`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
   - `gen_ai.guardian.audit` — `phase`, `entry.id`, `node.status_at_emission`
 - **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `eval.score_recorded{evaluator,attempt_kind,score,correlation_id}` (paired with each `cemaf_eval_score` observation for span exemplar linkage per SPEC-00 §9), `eval.judge_budget_exhausted{judge_id, attempt_kind, correlation_id}`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
-- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_eval_score{evaluator,attempt_kind,judge_id,prompt_template_version,model_id}` (histogram; bounded by §9 cardinality cap — evaluator≤32 × attempt_kind=3 × judge_id≤32 × prompt_template_version (pinned, ≤8 in flight) × model_id (pinned, ≤8 in flight); pin bumps invalidate prior series per Inv 19), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_eval_judge_budget_exhausted_total{judge_id}` (counter; judge_id bounded by online_eval_pipeline registry cap ≤32), `cemaf_hallucination_probe_rate` (gauge, no labels)
+- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_eval_score{evaluator,attempt_kind,judge_id,prompt_template_version,model_id}` (histogram; bounded by §9 cardinality cap — evaluator≤32 × attempt_kind=4 × judge_id≤32 × prompt_template_version (pinned, ≤8 in flight) × model_id (pinned, ≤8 in flight); pin bumps invalidate prior series per Inv 19), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_eval_judge_budget_exhausted_total{judge_id}` (counter; judge_id bounded by online_eval_pipeline registry cap ≤32), `cemaf_hallucination_probe_rate` (gauge, no labels)
 
 ## 10. User-facing failure copy
 

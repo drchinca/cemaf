@@ -404,6 +404,14 @@ consumption is metered separately (SPEC-06).
 
 **Validates: §3 Invariant 10 / §4 "Retry ledger observable to guardians"**
 
+### Property 7: Per-node injection windowing determinism
+*For any* identical `Task.prior_decisions` and `Task.retry_ledger`, two
+invocations of `TaskInjectInterceptor` produce byte-identical
+`TaskContext.prior_decisions` and `retry_ledger` projections (canonical
+sorted-key JSON). Replay-safe across process boundaries.
+
+**Validates: §3 Invariants 16, 17 / §4 "prior_decisions injection caps at PRIOR_DECISIONS_INJECT_WINDOW", "prior_decisions retention priority within budget"**
+
 ## 8. Eval Criteria
 
 State-machine spec — deterministic evaluators only.

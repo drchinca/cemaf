@@ -382,6 +382,14 @@ Feature: Interceptor pipeline
     When the class body is evaluated
     Then TypeError is raised with message containing "display_name"
 
+  Scenario: Recovery hint payload truncated to fit pull_tokens (Inv 17)
+    Given node.budget.pull_tokens == 500
+    And 8 RecoveryHints whose total serialized cost is 700 tokens
+    When the executor splices hints into goal.metadata['remediation'] before BlueprintInterceptor
+    Then hints are dropped in RecoveryHint insertion order until total ≤ 500
+    And one "recovery.hints_truncated{node_id,dropped_count}" event is emitted
+    And BlueprintInterceptor sees the truncated remediation set
+
   Scenario: Recovery hint citations are filtered to surfaced membership (Inv 18)
     Given a RecoveryHint h carrying citations (c1, c2) and a non-empty detail
     And after re-dispatch PullInterceptor produces ctx.surfaced_sources whose Citation set contains c1 but not c2
@@ -477,7 +485,7 @@ All evaluators in this table are eval_kind=`repository` unless explicitly marked
 
 ## 9. Observability Contract
 
-- **Span**: `gen_ai.node.preflight` — `node.id`, `chain_profile`, `interceptor.count`, child span per interceptor with `interceptor.id`, `decision.kind`, `latency_ms`
+- **Span**: `gen_ai.node.preflight` — `node.id`, `chain_profile`, `interceptor.count`, child span per interceptor with `interceptor.id`, `decision.kind`, `latency_seconds` (per SPEC-00 §9 unit rule)
 - **Span**: `gen_ai.node.postflight` — `decision.kind`, `recovery.strategy`, `halt.scope`
 - **Log events**: `interceptor.accepted`, `interceptor.rejected`, `interceptor.recovered`, `interceptor.halted`, `interceptor.exception`, `interceptor.timeout`, `interceptor.recovery_downgraded{strategy,target_field,reason}`
 - **Downgrade metric**: `cemaf_recovery_downgrades_total{strategy}` (counter; bounded by SPEC-00 §9 strategy enum cap 4).

@@ -234,9 +234,28 @@ Feature: Blueprint-driven generation
     Then StructuredResult.blueprint_id and blueprint_version are populated
 
   Scenario: Structural determinism under same inputs
-    Given identical Blueprint, goal, entities, ctx.surfaced_sources
+    Given identical Blueprint, goal, entities, ctx.surfaced_sources, and tool_schemas
     When BlueprintRequest is built twice
     Then the canonical serialization (JSON, sorted keys) of both is byte-identical
+    And the serialization includes tool_schemas in sorted-key form
+
+  Scenario: blueprint.style.max_tokens binds when smaller than node budget (Inv 13)
+    Given node.budget.generation_tokens == 4000 and blueprint.style.max_tokens == 800
+    When StructuredGenerator dispatches the first round
+    Then the LLM request carries max_tokens == 800
+    And gen_tokens_consumed is initialized to 0
+
+  Scenario: eval_budget does not debit task.budget_remaining (Inv 13)
+    Given a node where guardian judges consume 500 tokens of services.eval_budget
+    And the agent itself consumes 1200 tokens of node.budget.generation_tokens
+    When the node completes
+    Then task.budget_remaining decremented by 1200, NOT 1700
+    And eval_budget consumption is observable only on the EvalBudgetCounter snapshot
+
+  Scenario: Blueprint registry over cap fails startup
+    Given BlueprintLibrary.list_all() returns 201 (id, version) pairs
+    When bootstrap.create_executor runs
+    Then StartupError(reason="blueprint_registry_over_cap", count=201) is raised
 
   Scenario: Citation filtered to grounding_refs at generator boundary
     Given a generator draft whose cited_evidence_refs includes a Citation absent from BlueprintRequest.grounding_refs

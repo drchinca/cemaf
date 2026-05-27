@@ -179,6 +179,13 @@ Feature: Pull-not-push context
     When PullInterceptor runs
     Then sum(chunk.token_count) ≤ 2000
     And per-source sums each ≤ 1000
+    And per-source caps are equal under default config (uniform split)
+
+  Scenario: Custom per-source budget weights override uniform split (Inv 8)
+    Given PullInterceptor config sets weights {A: 0.75, B: 0.25} and pull_tokens=2000
+    When PullInterceptor runs over healthy A and B
+    Then A's sub-budget is 1500 and B's is 500
+    And both sub-budgets sum to ≤ pull_tokens
 
   Scenario: Read-only enforcement at registry
     Given a DataSource subclass exposing a public method "write"
@@ -311,6 +318,6 @@ All evaluators in this table are eval_kind=`guardian` unless explicitly marked `
 
 - **Span**: `gen_ai.context.pull` — `node.id`, `kg.queries`, `datasources.queried`, `datasources.skipped`, `chunks.returned`, `tokens.used`, `tokens.budget`
 - **Span**: `gen_ai.kg.query` — `entity.id`, `relation.types`, `neighbors.count`
-- **Span**: `gen_ai.datasource.retrieve` — `source.id`, `latency_ms`, `chunks.count`, `tokens.used`
+- **Span**: `gen_ai.datasource.retrieve` — `source.id`, `latency_seconds` (per SPEC-00 §9 unit rule), `chunks.count`, `tokens.used`
 - **Log events**: `datasource.skipped_unhealthy`, `datasource.timeout`, `pull.no_grounding`, `kg.entity_missing`
 - **Metrics** (per SPEC-00 §9 cardinality rules — `source_id` is span-attribute-only; metric labels use `source_kind ∈ {kg, vector, memory, datasource}` as a bounded enum): `cemaf_pull_chunks_total{source_kind}`, `cemaf_pull_tokens_used` (histogram, no labels), `cemaf_datasource_health{source_kind,status}`, `cemaf_datasource_duration_seconds{source_kind,outcome}` (histogram)
