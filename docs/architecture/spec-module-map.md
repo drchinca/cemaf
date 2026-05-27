@@ -19,7 +19,7 @@
 | `NodeBudget` | SPEC-00 §2 | `cemaf/core/types.py` | scaffold pending |
 | `RunResult` (with `recovery_request`, `failed_node`) | SPEC-00 §2 | `cemaf/core/types.py` | scaffold pending |
 | `RecoveryRequest` (projection type) | SPEC-00 §2, SPEC-06 §2 | `cemaf/core/types.py` | scaffold pending |
-| `AcquiredLease` | SPEC-00 §2, SPEC-04 §2 | `cemaf/task/lease.py` | scaffold pending |
+| `AcquiredLease` | SPEC-00 §2, SPEC-04b §2 | `cemaf/task/lease.py` | scaffold pending |
 | `Citation` + `cited_evidence_refs` predicate | SPEC-00 §2 | `cemaf/citation/` | partial — predicate pending |
 | `RuntimeServices` extensions (datasource_registry, task_repository, guardian_mesh, meta_dispatcher, structured_generator, interceptor_pipeline) | SPEC-00 §2 | `cemaf/orchestration/services.py` | partial — needs new fields |
 | `bootstrap.create_executor()` wiring of new services | SPEC-00 §2 | `cemaf/bootstrap.py` | partial |
@@ -56,16 +56,19 @@
 | Blueprint → JSON Schema compilation | SPEC-03 §2 | `cemaf/blueprint/schema.py` | partial |
 | Blueprint validation / repair loop | SPEC-03 §2 | `cemaf/blueprint/validator.py` | scaffold pending |
 
-## Task state machine (SPEC-04)
+## Task state machine + repository (SPEC-04, SPEC-04b)
 
 | Spec concept | Source spec | Target module | Status |
 |---|---|---|---|
 | `Task` entity (with state machine) | SPEC-04 §2 | `cemaf/task/models.py` | scaffold pending |
 | `TaskState` enum (DRAFT → QUEUED → LEASED → RUNNING → COMPLETED/FAILED) | SPEC-04 §2 | `cemaf/task/enums.py` | scaffold pending |
-| `TaskRepository` Protocol | SPEC-04 §2 | `cemaf/task/repository.py` | scaffold pending |
-| `AcquiredLease` (HITL pause/resume token) | SPEC-04 §2 | `cemaf/task/lease.py` | scaffold pending |
+| `TaskRepository` Protocol | SPEC-04b §2 | `cemaf/task/repository.py` | scaffold pending |
+| `AcquiredLease` (HITL pause/resume token) | SPEC-04b §2 | `cemaf/task/lease.py` | scaffold pending |
 | `TaskContext` (per-task scoped context) | SPEC-04 §2 | `cemaf/task/context.py` | scaffold pending |
-| Lease expiry + reclamation | SPEC-04 §2 | `cemaf/task/scheduler.py` | scaffold pending |
+| Lease expiry + reclamation | SPEC-04b §3 Inv 3 | `cemaf/task/scheduler.py` | scaffold pending |
+| `atomic_fetch_add_metadata` primitive | SPEC-04b §3 Inv 5 | `cemaf/task/repository.py` | scaffold pending |
+| `spawn_child_task` seam | SPEC-04b §3 Inv 6 | `cemaf/task/repository.py` | scaffold pending |
+| `canonical_projection` migration cutover | SPEC-04b §3 Inv 7 | `cemaf/task/snapshot.py` | scaffold pending |
 
 ## Guardian mesh (SPEC-05)
 

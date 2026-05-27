@@ -387,7 +387,7 @@ class RunResult:
 class ChainContractError(RuntimeError):
     """Raised on chain-phase contract violations; reason string is the contract code."""
 
-# get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
+# get_retry helper — consumed by SPEC-04 Inv 7/9 and SPEC-05 Inv 3a/3b/15.
 # Single source of truth so child specs cite the same signature.
 def get_retry(ledger: tuple[tuple[NodeID, int], ...], node_id: NodeID) -> int:
     """Return current attempt count for node_id in retry_ledger, 0 if absent."""
@@ -595,7 +595,7 @@ async def run(
 Resolution rules:
 - `task_id is None` → executor calls `services.task_repository.create(...)`; `task_id is not None` → calls `acquire()` then resumes.
 - `chain_profile` precedence: call-arg > `services.chain_profile` (default `ChainProfile.DEFAULT`).
-- `budget` precedence: call-arg > `services.token_budget`. For recovery calls (SPEC-06) the dispatcher passes `services.meta_budget` here, isolating sub-DAG token consumption from the parent Task's `budget_remaining` (SPEC-04 Inv 6).
+- `budget` precedence: call-arg > `services.token_budget`. For recovery calls (SPEC-06) the dispatcher passes `services.meta_budget` here, isolating sub-DAG token consumption from the parent Task's `budget_remaining` (SPEC-04 Inv 5).
 - The signature is stable across reentrant calls — the same `DAGExecutor` instance runs both parent and sub-DAGs (SPEC-06 Inv 9).
 
 ### Bootstrap composition root
@@ -641,7 +641,7 @@ parent nodes while a recovery sub-DAG runs. This is the *dispatch*
 boundary; nodes already in flight at the moment a guardian emits
 `RECOVER(INVOKE_META_ARCHITECT)` SHALL be allowed to **complete their
 post chain** (so their tokens charge to `task.budget_remaining` cleanly
-per SPEC-04 Inv 6 and their AuditEntries land in causal order per
+per SPEC-04 Inv 5 and their AuditEntries land in causal order per
 SPEC-05 Inv 8) before `MetaDispatcher.dispatch` is invoked. The executor
 maintains a "drain peers, then dispatch sub-DAG" barrier:
 - New parent dispatches: blocked until sub-DAG returns.

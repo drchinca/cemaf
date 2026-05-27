@@ -6,6 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01
+sibling: SPEC-04b — TaskRepository Contract
 ---
 
 # SPEC-04: Long-Horizon Task State Machine
@@ -14,6 +15,11 @@ depends_on: SPEC-01
 > step-aware progress, retry accounting, and resumable execution. Every node
 > receives a `TaskContext` that names its position, prior decisions, and the
 > retry ledger it inherits.
+>
+> This spec covers the **state-machine and lifecycle rules**. The persistence
+> primitives (atomic metadata increment, child-task spawn, canonical projection
+> migration, lease semantics, multi-pod safety) live in SPEC-04b — TaskRepository
+> Contract.
 
 ## 1. Context
 
@@ -46,13 +52,16 @@ here as the single source of truth.
 ## 2. Interface Contract (MDE)
 
 Common types in SPEC-00 §2 (`TaskID`, `NodeID`, `TokenBudget`, `Citation`).
+The `TaskRepository` Protocol surface (create, get, transition, snapshot,
+restore, acquire, release, increment_retry, decrement_retry,
+atomic_fetch_add_metadata, spawn_child_task, health) is defined in
+**SPEC-04b §2**. This spec consumes it; it does not redefine it.
 
 ```python
 from typing import Protocol, runtime_checkable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from types import TracebackType
 
 class TaskState(Enum):
     QUEUED    = "queued"
@@ -62,7 +71,7 @@ class TaskState(Enum):
     HALTED    = "halted"
 
 class DecisionKind(Enum):
-    """Outcome class of a post-flight decision — used by Inv 16 windowing
+    """Outcome class of a post-flight decision — used by Inv 12 windowing
     and SPEC-06 Inv 16 projection to retain HALT/REJECT entries preferentially."""
     ACCEPT  = "accept"
     REJECT  = "reject"
@@ -88,46 +97,13 @@ class TaskContext:
     budget_remaining: TokenBudget                  # required, no default
     started_at: datetime                           # required, no default
     correlation_id: CorrelationID                  # required, no default
-    retry_ledger: tuple[tuple[NodeID, int], ...] = ()   # SPEC-05 reads, executor rebuilds via dataclasses.replace; tuple-of-pairs preserves frozen+slots invariants while supporting increment-only updates (Inv 10)
+    retry_ledger: tuple[tuple[NodeID, int], ...] = ()   # SPEC-05 reads, executor rebuilds via dataclasses.replace; tuple-of-pairs preserves frozen+slots invariants while supporting increment-only updates (Inv 7)
     state: TaskState = TaskState.RUNNING
     meta_budget_remaining: "MetaInvocationBudget | None" = None  # set only inside recovery sub-DAGs (SPEC-06)
 
 @dataclass(frozen=True, slots=True)
-class AcquireToken:
-    """Immutable lease handle returned by TaskRepository.acquire.
-    Carries no behavior — the AcquiredLease wrapper below provides the async
-    context-manager surface that calls TaskRepository.release on exit.
-    """
-    task_id: TaskID
-    holder_id: str                                 # executor instance id
-    acquired_at: datetime
-    lease_ttl_ms: int = 60_000                     # auto-released after TTL on holder crash
-
-# NOTE: this snippet uses `from __future__ import annotations` semantics —
-# all annotations are strings at runtime, so TaskRepository (defined below)
-# resolves without TYPE_CHECKING. The CEMAF "no TYPE_CHECKING" rule still
-# holds at the module level: at implementation time, AcquiredLease lives in
-# the same module as TaskRepository or imports it at module top.
-@dataclass(frozen=True, slots=True)
-class AcquiredLease:
-    """Async context manager wrapper around an active lease.
-
-    __aexit__ calls repository.release(self._token); re-raises any pending
-    exception after release.
-    """
-    _repository: TaskRepository
-    _token: AcquireToken
-
-    async def __aenter__(self) -> AcquireToken:
-        return self._token
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self._repository.release(self._token)
-
-@dataclass(frozen=True, slots=True)
 class Task:
-    """The aggregate persisted by TaskRepository. Mirrors TaskSnapshot fields
-    plus the immutable Goal+DAG binding chosen at create()."""
+    """The aggregate persisted by TaskRepository (SPEC-04b §2)."""
     task_id: TaskID
     goal: Goal
     dag_id: DAGID
@@ -141,93 +117,16 @@ class Task:
     created_at: datetime
     updated_at: datetime
 
-@dataclass(frozen=True, slots=True)
-class TaskSnapshot:
-    """Persistable snapshot for pause/resume across processes. Carries every
-    field required to reconstruct the Task aggregate via restore(); the
-    immutable Goal+DAG binding (dag_id) and creation timestamp must round-trip
-    so the resumed Task is structurally equal to the paused Task."""
-    task_id: TaskID
-    goal: Goal
-    dag_id: DAGID
-    state: TaskState
-    step_index: int
-    step_count: int
-    prior_decisions: tuple[Decision, ...]
-    retry_ledger: tuple[tuple[NodeID, int], ...]
-    budget_remaining: TokenBudget
-    correlation_id: CorrelationID
-    created_at: datetime
-    snapshot_at: datetime
-
-@runtime_checkable
-class TaskRepository(Protocol):
-    async def create(self, *, goal: Goal, dag_id: DAGID,
-                     budget: TokenBudget) -> Task: ...
-    async def get(self, task_id: TaskID) -> Task: ...
-    async def transition(self, task_id: TaskID, *, to: TaskState,
-                         reason: str | None = None,
-                         token: AcquireToken | None = None) -> Task:
-        """Raises InvalidTransitionError if (from, to) violates §3 Invariant 1.
-        When `token` is provided, the repository SHALL validate it against the current lease (Inv 15); when None, only repository-internal callers may invoke."""
-    async def append_decision(self, task_id: TaskID, decision: Decision) -> None: ...
-    async def snapshot(self, task_id: TaskID) -> TaskSnapshot: ...
-    async def restore(self, snapshot: TaskSnapshot) -> Task: ...
-    async def acquire(self, task_id: TaskID, *, holder_id: str) -> AcquiredLease:
-        """Exclusive resume lock with TTL-bounded lease. Returns an AcquiredLease
-        usable as `async with repo.acquire(task_id, holder_id=...) as token:`.
-        Raises TaskInUseError when already held by a different holder with a
-        non-expired lease."""
-    async def release(self, token: AcquireToken) -> None: ...
-    async def increment_retry(self, task_id: TaskID, node_id: NodeID) -> int:
-        """Called by the executor at re-dispatch time, BEFORE the chain runs
-        for the new attempt — so guardians observe the incremented value."""
-    async def decrement_retry(self, task_id: TaskID, node_id: NodeID) -> None:
-        """SHALL only be callable during shutdown drain — repository asserts
-        is_shutting_down flag; otherwise raises InvariantViolationError."""
-    async def atomic_fetch_add_metadata(
-        self,
-        *,
-        task_id: TaskID,
-        key: str,
-        delta: int,
-    ) -> int:
-        """Atomic fetch-and-add on integer-valued task.metadata[key].
-        Returns the new value AFTER the increment.
-        Single round-trip; no read-modify-CAS retry loop.
-        Raises TaskNotFoundError if task_id absent.
-        Raises MetadataTypeError if existing value is non-int."""
-    async def spawn_child_task(
-        self,
-        *,
-        parent_task_id: TaskID,
-        child_goal: Goal,
-        inherit_keys: frozenset[str] = frozenset({
-            "chain_correlation_id",
-            "chain_profile_id",
-            "chain_profile_version",
-        }),
-    ) -> TaskID:
-        """Atomically create a child Task with parent linkage and propagated metadata.
-
-        SHALL: (1) read parent.metadata; (2) create child Task with task.correlation_id
-        fresh per Inv 14; (3) copy keys in inherit_keys from parent.metadata to
-        child.metadata; (4) set child.metadata['parent_task_id'] = parent_task_id;
-        (5) emit TaskSpawned event with parent_task_id + child_task_id linkage.
-        All five operations execute under a single persistence transaction.
-        Raises TaskNotFoundError if parent_task_id absent.
-        Raises ParentNotActiveError if parent.state ∉ {ACTIVE, PAUSED_HITL}."""
-    async def health(self) -> HealthStatus:
-        """Liveness probe consumed by SPEC-00 readiness contract."""
-
 class TaskInjectInterceptor(NodeInterceptor):
     """PRE phase, position 4 — runs LAST in DEFAULT_PRE_ORDER."""
     interceptor_id = "task_inject"
     phase = InterceptorPhase.PRE
 ```
 
-`DAGExecutor.run(dag, *, task_id=None)` either creates a new Task or resumes
-from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
+`DAGExecutor.run(dag, *, task_id=None)` either creates a new Task (via
+`TaskRepository.create`) or resumes from `task_id` (via `TaskRepository.get` +
+`acquire`). Bootstrap composition: `RuntimeServices.task_repository` (the
+Protocol surface lives in SPEC-04b §2).
 
 ## 3. Invariants (DbC)
 
@@ -235,27 +134,20 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 2. `WHEN a Task is HALTED or COMPLETED, transition() SHALL raise InvalidTransitionError on any further state change.`
 3. `Every TaskContext.step_index SHALL satisfy 0 ≤ step_index < step_count.`
 4. `TaskContext.prior_decisions SHALL be append-only and ordered by node execution sequence.`
-5. `WHEN restoring from a snapshot, THE restored Task SHALL be structurally equal to the snapshot under canonical sorted-key JSON serialization for task_id, goal, dag_id, state, step_index, step_count, prior_decisions, retry_ledger, budget_remaining, correlation_id, created_at, chain_profile_id (ChainProfileId | None), chain_profile_version (str | None), and eval_cost_state (EvalCostState | None). The three trailing fields SHALL appear in this exact tail order. Task.updated_at is repository-managed and SHALL be set to utc_now() at restore time (not required to equal the pre-snapshot value).`
-6. `TaskContext.budget_remaining SHALL be monotonically non-increasing across the parent task's steps. Sub-DAG (recovery) consumption SHALL NOT decrement it (SPEC-06 metering boundary).`
-7. `Every node SHALL receive a TaskContext via TaskInjectInterceptor — even single-step DAGs (step_count=1).`
+5. `TaskContext.budget_remaining SHALL be monotonically non-increasing across the parent task's steps. Sub-DAG (recovery) consumption SHALL NOT decrement it (SPEC-06 metering boundary).`
+6. `Every node SHALL receive a TaskContext via TaskInjectInterceptor — even single-step DAGs (step_count=1).`
+7. `THE retry_ledger SHALL be append/increment-only; counters never decrement. Storage is tuple[tuple[NodeID, int], ...]; read access is via a helper get_retry(ledger, node_id) -> int (default 0); writes happen by rebuilding the Task aggregate via dataclasses.replace, not in-place mutation.`
 8. `WHEN any guardian (SPEC-05) emits HALT, THE Repository SHALL transition the Task to HALTED before the next dispatch.`
-9. `TaskRepository.acquire SHALL be exclusive — concurrent resumption attempts on the same task SHALL fail with TaskInUseError.`
-10. `THE retry_ledger SHALL be append/increment-only; counters never decrement. Storage is tuple[tuple[NodeID, int], ...]; read access is via a helper get_retry(ledger, node_id) -> int (default 0); writes happen by rebuilding the Task aggregate via dataclasses.replace, not in-place mutation.`
-11. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) AFTER the post-flight chain emits RECOVER on attempt N AND BEFORE re-dispatching attempt N+1. Semantics: on attempt N (N starting at 1), guardians observe retry_ledger value (N-1). Combined with DAGNode.retry_budget, "budget=K" means up to K recoveries → up to (K+1) total attempts. Worked example with retry_budget=2: attempt 1 sees ledger=0 (RECOVER, ledger→1), attempt 2 sees ledger=1 (RECOVER, ledger→2), attempt 3 sees ledger=2 (HALT — 2 ≥ 2). With retry_budget=0: attempt 1 sees ledger=0 (HALT — 0 ≥ 0). SPEC-05 Inv 15 reads (ledger < retry_budget) → RECOVER, (ledger ≥ retry_budget) → HALT, which is the same boundary inverted.`
-12. `WHEN AcquireToken.lease_ttl_ms elapses without explicit release, THE TaskRepository SHALL treat the lease as expired and permit a new acquire — preventing dead executors from holding tasks indefinitely.`
-13. `WHEN a PostflightDecision is RECOVER(INVOKE_META_ARCHITECT), THE Executor SHALL call increment_retry(task_id, node_id) BEFORE invoking MetaDispatcher.dispatch (SPEC-06). Combined with Inv 11, the meta sub-DAG observes the incremented attempt counter via task.retry_ledger from its first node, so nested recoveries see correct attempt accounting.`
-14. `task.correlation_id (per-task, assigned at create()) and ctx.correlation_id (per-attempt, assigned by DAGExecutor at node dispatch — SPEC-00 §2) are intentionally distinct scopes. Audit and recovery references resolve as follows: SPEC-05 §3 attempt-level audit SHALL use ctx.correlation_id; SPEC-06 §3 Inv 6 parent_correlation_id SHALL be the parent attempt's ctx.correlation_id (NOT task.correlation_id). On resume across PAUSED→RUNNING, task.correlation_id persists; new attempts mint fresh ctx.correlation_id. Every AuditEntry SHALL carry both fields explicitly so query paths over either are deterministic.`
-15. `WHEN a holder calls TaskRepository.release(token) OR TaskRepository.transition(token=...) AFTER the lease has expired (Inv 12) and a new holder has acquired, THE Repository SHALL raise StaleLeaseError and SHALL NOT mutate Task state. Detection: every release/transition call carries the original AcquireToken; the repository compares the persisted current_holder_id against token.holder_id and raises if they differ. This closes the multi-pod race where holder A's lease expires, holder B acquires, then A's slow callback writes — A's write is discarded with a logged event "task.stale_lease_write".`
-16. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority by Decision.kind: HALT > REJECT > RECOVER > ACCEPT (within the window cap; entries outside the window are kept only when retention upgrades them). Within the same Decision.kind, retention prefers Decision.at desc; ties broken by node_id ASC. This makes per-node injection deterministic for replay (SPEC-00 Property 6). Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed. Closes the long-horizon-task ballooning hazard (CE rule RULE CE-1: token budgets are first-class invariants).`
-17. `TaskContext.retry_ledger injected by TaskInjectInterceptor SHALL be filtered to entries where get_retry > 0 — nodes never retried do not occupy injection slots. Persistent Task.retry_ledger is unfiltered for audit determinism.`
-18. `TaskRepository.atomic_fetch_add_metadata SHALL be implemented via the persistence layer's native atomic increment primitive (e.g., Redis INCRBY, PostgreSQL `metadata = metadata || jsonb_build_object($key, COALESCE((metadata->>$key)::int, 0) + $delta)`); read-modify-CAS implementations are forbidden under high-fanout (autonomous chains spawn 8+ concurrent CAS contenders).`
-19. `Child Task creation in autonomous / multi-agent chains SHALL go through TaskRepository.spawn_child_task exclusively. Direct TaskRepository.create(...) calls in autonomy/analyst code paths are forbidden by semgrep tools/semgrep/no_direct_child_task_create.yml.`
-20. `Pre-cutover Tasks (created before SPEC-RUNTIME phase 5) project NULL for the three new tail fields (chain_profile_id, chain_profile_version, eval_cost_state). Post-cutover Tasks (created after phase 5) project verbatim. Legacy snapshot comparators that ignore trailing nulls remain valid; post-cutover comparators include the new fields verbatim. The cutover is atomic per workspace via TaskRepository migration tag.`
+9. `THE executor SHALL call TaskRepository.increment_retry(task_id, node_id) AFTER the post-flight chain emits RECOVER on attempt N AND BEFORE re-dispatching attempt N+1. Semantics: on attempt N (N starting at 1), guardians observe retry_ledger value (N-1). Combined with DAGNode.retry_budget, "budget=K" means up to K recoveries → up to (K+1) total attempts. Worked example with retry_budget=2: attempt 1 sees ledger=0 (RECOVER, ledger→1), attempt 2 sees ledger=1 (RECOVER, ledger→2), attempt 3 sees ledger=2 (HALT — 2 ≥ 2). With retry_budget=0: attempt 1 sees ledger=0 (HALT — 0 ≥ 0). SPEC-05 Inv 15 reads (ledger < retry_budget) → RECOVER, (ledger ≥ retry_budget) → HALT, which is the same boundary inverted.`
+10. `WHEN a PostflightDecision is RECOVER(INVOKE_META_ARCHITECT), THE Executor SHALL call increment_retry(task_id, node_id) BEFORE invoking MetaDispatcher.dispatch (SPEC-06). Combined with Inv 9, the meta sub-DAG observes the incremented attempt counter via task.retry_ledger from its first node, so nested recoveries see correct attempt accounting.`
+11. `task.correlation_id (per-task, assigned at create()) and ctx.correlation_id (per-attempt, assigned by DAGExecutor at node dispatch — SPEC-00 §2) are intentionally distinct scopes. Audit and recovery references resolve as follows: SPEC-05 §3 attempt-level audit SHALL use ctx.correlation_id; SPEC-06 §3 Inv 6 parent_correlation_id SHALL be the parent attempt's ctx.correlation_id (NOT task.correlation_id). On resume across PAUSED→RUNNING, task.correlation_id persists; new attempts mint fresh ctx.correlation_id. Every AuditEntry SHALL carry both fields explicitly so query paths over either are deterministic.`
+12. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority by Decision.kind: HALT > REJECT > RECOVER > ACCEPT (within the window cap; entries outside the window are kept only when retention upgrades them). Within the same Decision.kind, retention prefers Decision.at desc; ties broken by node_id ASC. This makes per-node injection deterministic for replay (SPEC-00 Property 6). Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed.`
+13. `TaskContext.retry_ledger injected by TaskInjectInterceptor SHALL be filtered to entries where get_retry > 0 — nodes never retried do not occupy injection slots. Persistent Task.retry_ledger is unfiltered for audit determinism.`
 
 ## 4. Acceptance Criteria (BDD)
 
 ```gherkin
-Feature: Long-horizon task awareness
+Feature: Long-horizon task state machine
 
   Scenario: Step awareness propagates
     Given a 5-node DAG started as a new Task
@@ -277,7 +169,7 @@ Feature: Long-horizon task awareness
   Scenario: Pause and resume across processes
     Given a Task in state RUNNING with 3 of 10 steps complete
     When the executor pauses the task and the process exits
-    And a new executor acquire() the task and calls resume()
+    And a new executor acquires the task and calls resume()
     Then state transitions PAUSED → RUNNING
     And the next dispatched node has step_index == 3
     And prior_decisions and retry_ledger from steps 0..2 are present
@@ -304,44 +196,24 @@ Feature: Long-horizon task awareness
     When the node executes
     Then it receives a TaskContext with step_index=0 and step_count=1
 
-  Scenario: Concurrent resume rejected
-    Given a Task being resumed by executor A
-    When executor B attempts to acquire() the same task
-    Then the second call raises TaskInUseError
-
-  Scenario: Lease TTL expiry permits re-acquire
-    Given executor A holds an AcquireToken with lease_ttl_ms=100
-    And A crashes without calling release
-    When 200ms elapses and executor B calls acquire()
-    Then the lease is treated as expired
-    And B receives a fresh AcquireToken without TaskInUseError
-
-  Scenario: Stale-lease write is rejected (Inv 15)
-    Given executor A's lease has expired and executor B has acquired
-    When A's slow callback calls release(token_A) or transition(token=token_A, ...)
-    Then the Repository raises StaleLeaseError
-    And Task state is unchanged
-    And a "task.stale_lease_write" log event is emitted
-    And cemaf_task_stale_lease_writes_total is incremented
-
   Scenario: Recovery sub-DAG budget is metered separately (cross-ref SPEC-06)
     Given a parent Task with budget_remaining=10000
     When a recovery sub-DAG runs and consumes 3000 tokens via MetaInvocationBudget
-    Then parent.budget_remaining stays 10000 (Inv 6 — see SPEC-06 §4 "Token budget isolation")
+    Then parent.budget_remaining stays 10000 (Inv 5 — see SPEC-06 §4 "Token budget isolation")
 
   Scenario: Guardian HALT propagates to Task
     Given any guardian post-flight returns HALT
     When the executor finishes the post chain
     Then TaskRepository.transition(to=HALTED) is invoked before next dispatch
 
-  Scenario: increment_retry runs before MetaDispatcher.dispatch (Inv 13)
+  Scenario: increment_retry runs before MetaDispatcher.dispatch (Inv 10)
     Given a node whose post-flight returns RECOVER(INVOKE_META_ARCHITECT)
     And get_retry(task.retry_ledger, node.id) is 0 at decision time
     When the Executor invokes MetaDispatcher.dispatch
     Then TaskRepository.increment_retry(task.id, node.id) was called BEFORE dispatch
     And the meta sub-DAG's first TaskInjectInterceptor observes retry_ledger value 1
 
-  Scenario: correlation_id scopes are distinct and both audited (Inv 14)
+  Scenario: correlation_id scopes are distinct and both audited (Inv 11)
     Given a Task created with task.correlation_id="T-1"
     When attempt 1 of node N runs and Executor mints ctx.correlation_id="C-1"
     Then every AuditEntry for the attempt carries task_correlation_id="T-1" AND ctx_correlation_id="C-1"
@@ -368,68 +240,23 @@ Feature: Long-horizon task awareness
     When TaskInjectInterceptor projects retry_ledger
     Then ctx.retry_ledger contains exactly the 3 entries with count > 0
     And the 9 zero-count entries are dropped
-
-  Scenario: Atomic increment under concurrent contention
-    Given a Task with metadata["eval_cost_counter"] absent or 0
-    When 16 concurrent callers invoke atomic_fetch_add_metadata(key="eval_cost_counter", delta=1)
-    Then the final persisted value is exactly 16
-    And no caller observes a lost update
-    And the returned values across callers are the set {1, 2, ..., 16}
-
-  Scenario: spawn_child_task propagates chain metadata atomically
-    Given a parent Task with metadata containing chain_correlation_id="CC-1", chain_profile_id="prof-7", chain_profile_version="v3"
-    And parent.state == RUNNING
-    When spawn_child_task(parent_task_id=parent.id, child_goal=G) is called
-    Then a child Task is created with metadata.chain_correlation_id == "CC-1"
-    And child.metadata.chain_profile_id == "prof-7"
-    And child.metadata.chain_profile_version == "v3"
-    And child.metadata.parent_task_id == parent.id
-    And child.task.correlation_id is freshly minted (≠ parent.task.correlation_id) per Inv 14
-    And a TaskSpawned event is emitted carrying both parent_task_id and child_task_id
-    And all five operations executed under a single persistence transaction
-
-  Scenario: spawn_child_task rejects inactive parent
-    Given a parent Task with state == HALTED
-    When spawn_child_task(parent_task_id=parent.id, child_goal=G) is called
-    Then ParentNotActiveError is raised
-    And no child Task is created
-    And no TaskSpawned event is emitted
-
-  Scenario: Pre-cutover task projects NULL for new tail fields
-    Given a Task created before the SPEC-RUNTIME phase-5 cutover for its workspace
-    When canonical_projection is computed
-    Then chain_profile_id projects to None
-    And chain_profile_version projects to None
-    And eval_cost_state projects to None
-    And legacy snapshot comparators that ignore trailing nulls accept the projection
-
-  Scenario: Post-cutover task projects chain_profile_id + version + eval_cost_state verbatim
-    Given a Task created after the SPEC-RUNTIME phase-5 cutover with chain_profile_id="prof-7", chain_profile_version="v3", eval_cost_state set
-    When canonical_projection is computed
-    Then chain_profile_id projects to "prof-7"
-    And chain_profile_version projects to "v3"
-    And eval_cost_state projects verbatim
-    And the three fields appear as the trailing fields in the canonical sorted-key serialization
 ```
 
 ## 5. Out of Scope
 
 - Multi-tenant task quotas — separate spec.
-- Distributed task coordination across executors (single-executor MVP via `acquire()` lock only).
+- Distributed task coordination across executors (single-executor MVP via repository `acquire()` lock — see SPEC-04b §3).
 - Human-in-the-loop pause approval workflows — captured at SPEC-05 layer only.
-- Sub-task decomposition (Task spawning Task) — follow-on; recovery sub-DAGs (SPEC-06) are NOT sub-tasks.
+- Sub-task decomposition (Task spawning Task) — see SPEC-04b §3 Inv 6 (`spawn_child_task`); recovery sub-DAGs (SPEC-06) are NOT sub-tasks.
+- Persistence primitives, lease TTL semantics, atomic metadata increment, canonical_projection migration — see **SPEC-04b**.
 
 ## 6. Dependencies
 
 - SPEC-01 (interceptor protocol)
-- SPEC-00 §2 (TokenBudget, Goal, Citation)
+- SPEC-00 §2 (TokenBudget, Goal, Citation, CorrelationID)
+- SPEC-04b — TaskRepository Contract (sibling spec; provides the persistence primitives this spec consumes)
 - `persistence/entities.py`, `persistence/protocols.py`
 - `replay/replayer.py` (deterministic step replay reuses Decision provenance)
-
-**Downstream consumers** (this spec's primitives are consumed by):
-- brightagent-v2 SPEC-EVAL-eval-budget-counter Inv 10 — consumes `TaskRepository.atomic_fetch_add_metadata` as the atomic FETCH_ADD primitive replacing read-modify-CAS.
-- brightagent-v2 SPEC-AGENT-analyst Inv 16, SPEC-EVAL Inv 3, SPEC-RUNTIME Inv 2 — consume `TaskRepository.spawn_child_task` as the sole child-task creation seam in autonomous / multi-agent chains.
-- brightagent-v2 SPEC-RUNTIME-chain-profiles + SPEC-EVAL-eval-budget-counter — consume the canonical_projection extension (chain_profile_id, chain_profile_version, eval_cost_state).
 
 ## 7. Correctness Properties
 
@@ -439,35 +266,28 @@ DAG; no observed transition is outside the allowed set.
 
 **Validates: §3 Invariants 1, 2 / §4 "Halt is terminal"**
 
-### Property 2: Snapshot fidelity
-*For any* snapshot S taken at t1 and restored at t2 > t1, the restored Task's
-`task_id`, `goal`, `state`, `prior_decisions`, `retry_ledger`, and
-`budget_remaining` equal those of S.
-
-**Validates: §3 Invariant 5 / §4 "Pause and resume across processes"**
-
-### Property 3: Decision append-only
+### Property 2: Decision append-only
 *For any* Task, any operation that produces a Task' with a `prior_decisions`
 of shorter length OR with any earlier decision mutated is rejected.
 
 **Validates: §3 Invariant 4 / §4 "Decisions are append-only"**
 
-### Property 4: Budget non-increase (parent metering)
+### Property 3: Budget non-increase (parent metering)
 *For any* sequence of TaskContexts c1..cn for the same parent Task,
 `c_i.budget_remaining ≥ c_{i+1}.budget_remaining` for all i. Recovery sub-DAG
 consumption is metered separately (SPEC-06).
 
-**Validates: §3 Invariant 6 / §4 "Budget monotonicity"**
+**Validates: §3 Invariant 5 / §4 "Budget monotonicity"**
 
-### Property 5: Step bound
+### Property 4: Step bound
 *For any* TaskContext c, `0 ≤ c.step_index < c.step_count`.
 
 **Validates: §3 Invariant 3 / §4 "Step awareness propagates"**
 
-### Property 6: Retry monotonicity
+### Property 5: Retry monotonicity
 *For any* node, `task.retry_ledger[node_id]` is monotonically non-decreasing.
 
-**Validates: §3 Invariant 10 / §4 "Retry ledger observable to guardians"**
+**Validates: §3 Invariant 7 / §4 "Retry ledger observable to guardians"**
 
 ## 8. Eval Criteria
 
@@ -486,5 +306,7 @@ All evaluators in this table are eval_kind=`repository` unless explicitly marked
 
 - **Span**: `gen_ai.task.lifetime` — `task.id`, `task.state`, `step.index`, `step.count`, `budget.remaining`
 - **Span**: `gen_ai.task.transition` — `from`, `to`, `reason`
-- **Log events**: `task.created`, `task.paused`, `task.resumed`, `task.halted`, `task.completed`, `task.invalid_transition`, `task.acquire_conflict`, `task.lease_expired{task_id, holder_id, expired_at_iso, ttl_ms}`, `task.retry_started` (emitted by the executor on every RECOVER re-dispatch — RETRY_WITH_HINTS, REROUTE_TO_AGENT, or post-recovery re-issue — carrying `node_id`, `attempt` (1-based), `retry_budget`, `reason` from the prior PostflightDecision; rendered to users via SPEC-05 §10 status-event copy as "Retrying step (`<DAGNode.display_name>`), attempt N of M". One event per re-dispatch — including each meta-recovered retry — so users see every attempt, not just the first.)
-- **Metrics**: `cemaf_task_state_transitions_total{from,to}` (counter — emitted on every transition; replaces the earlier mis-shaped `cemaf_task_state_total{state}` counter), `cemaf_task_state_current{state}` (gauge — current count of tasks in each state, sampled), `cemaf_task_steps_completed_total` (counter, no per-task label), `cemaf_task_budget_remaining_tokens` (gauge, no labels — sampled snapshot only), `cemaf_task_retries_total{node_type,outcome}` — per-`node_id` labels are forbidden by SPEC-00 §9 cardinality rules; `node_id` stays a span attribute only. Also: `cemaf_task_acquire_conflicts_total`, `cemaf_task_lease_expired_total`, `cemaf_task_stale_lease_writes_total` (no labels — Inv 15 stale-holder writes)
+- **Log events**: `task.created`, `task.paused`, `task.resumed`, `task.halted`, `task.completed`, `task.invalid_transition`, `task.retry_started` (emitted by the executor on every RECOVER re-dispatch — RETRY_WITH_HINTS, REROUTE_TO_AGENT, or post-recovery re-issue — carrying `node_id`, `attempt` (1-based), `retry_budget`, `reason` from the prior PostflightDecision; rendered to users via SPEC-05 §10 status-event copy as "Retrying step (`<DAGNode.display_name>`), attempt N of M". One event per re-dispatch — including each meta-recovered retry — so users see every attempt, not just the first.)
+- **Metrics**: `cemaf_task_state_transitions_total{from,to}` (counter — emitted on every transition; replaces the earlier mis-shaped `cemaf_task_state_total{state}` counter), `cemaf_task_state_current{state}` (gauge — current count of tasks in each state, sampled), `cemaf_task_steps_completed_total` (counter, no per-task label), `cemaf_task_budget_remaining_tokens` (gauge, no labels — sampled snapshot only), `cemaf_task_retries_total{node_type,outcome}` — per-`node_id` labels are forbidden by SPEC-00 §9 cardinality rules; `node_id` stays a span attribute only.
+
+> Lease, acquire, snapshot/restore, and stale-write metrics live in **SPEC-04b §9**.
