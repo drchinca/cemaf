@@ -91,9 +91,17 @@ class RecoveryStrategy(Enum):
 class RecoveryHint:
     """Carried in goal.metadata['remediation'] when re-dispatching."""
     code: str                         # "ungrounded_claim", "schema_failed", ...
-    detail: str                       # human-readable
-    suggested_action: str             # "cite source X", "re-pull KG entity Y"
-    citations: tuple[Citation, ...] = ()   # OPTIONAL — references to surfaced sources the hint draws from. Consumed by SPEC-06 Inv 16 to widen RecoveryRequest.surfaced_sources beyond the failing node's cited_evidence_refs.
+    detail: str                       # human-readable; SHALL be ≤512 chars (validated in __post_init__)
+    suggested_action: str             # "cite source X", "re-pull KG entity Y"; SHALL be ≤256 chars
+    citations: tuple[Citation, ...] = ()   # OPTIONAL — references to surfaced sources the hint draws from. SHALL contain ≤8 entries. Consumed by SPEC-06 Inv 16 to widen RecoveryRequest.surfaced_sources beyond the failing node's cited_evidence_refs.
+
+    def __post_init__(self) -> None:
+        if len(self.detail) > 512:
+            raise ValueError(f"RecoveryHint.detail exceeds 512 chars (got {len(self.detail)})")
+        if len(self.suggested_action) > 256:
+            raise ValueError(f"RecoveryHint.suggested_action exceeds 256 chars (got {len(self.suggested_action)})")
+        if len(self.citations) > 8:
+            raise ValueError(f"RecoveryHint.citations exceeds 8 entries (got {len(self.citations)})")
 
 @dataclass(frozen=True, slots=True)
 class PreflightDecision:
@@ -278,6 +286,7 @@ class NodeOutcome:
 14. `Empty chain (no interceptors registered) is a valid configuration; run_pre and run_post SHALL each return an empty tuple and the executor SHALL treat the absence of REJECT as ACCEPT.`
 15. `Each NodeInterceptor subclass SHALL declare display_name: ClassVar[str] (≤30 chars, human-readable, e.g. "citation check"); InterceptorChain.display_name_for(id) -> str is a pure lookup over registered interceptors (unknown IDs raise KeyError, no fallback to id). User-copy renderers (SPEC-05 §10 "<id>:timeout"/"<id>:exception") SHALL resolve display_name via this surface; interceptor_id SHALL NOT leak verbatim into user-facing copy.`
 16. `Recovery-target availability downgrade: WHEN a PostflightDecision is RECOVER and the RuntimeServices field referenced by its recovery_strategy is None, THE chain SHALL convert the decision to REJECT(reason="<strategy>_unavailable") before returning, and SHALL NOT invoke the absent service. Canonical mapping: RecoveryStrategy.INVOKE_META_ARCHITECT → services.meta_dispatcher → reason "meta_unavailable" (SPEC-06 §3 Inv 8). Strategies whose target is always present in RuntimeServices (RETRY_WITH_HINTS, REROUTE_TO_AGENT, SKIP_NODE) are no-ops under this rule. The downgrade emits one AuditEntry with the converted REJECT and the original recovery_strategy in metadata for traceability.`
+17. `THE serialized goal.metadata['remediation'] (per Inv 10) SHALL debit node.budget.pull_tokens — hints are PRE-phase context injected before generation. Hint payload tokens are accounted before BlueprintInterceptor runs; if the budget would be exceeded, the hint set is truncated by RecoveryHint insertion order (hints have no kind field) until it fits.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -423,9 +432,11 @@ another's NodeOutcome.
 
 ## 8. Eval Criteria
 
+All evaluators in this table are eval_kind=`repository` unless explicitly marked `online` (per SPEC-05 Inv 20).
+
 | Evaluator | Node | Mode | Threshold | Method |
 |---|---|---|---|---|
-| ChainOrderEvaluator | every node | OBSERVE | order matches ChainConfig 100% | deterministic |
+| ChainOrderEvaluator | every node | GATE | order matches ChainConfig 100% | deterministic |
 | ExceptionContainmentEvaluator | every node | GATE | escaped exceptions == 0 | deterministic |
 | TimeoutContainmentEvaluator | every node | GATE | hangs past chain_timeout_ms == 0 | deterministic |
 

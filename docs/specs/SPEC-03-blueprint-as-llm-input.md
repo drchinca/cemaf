@@ -172,6 +172,7 @@ should not require grounding) requires an explicit waiver entry in
 10. `IF a registered blueprint declares an output_schema with a free-text factual field (str-typed, max_length ≥ 64 or unbounded, name ∉ structural-metadata allow-list per §2 "Grounding annotation policy") AND no field on that schema carries grounding_required=True, THEN the SPEC-00 §6 Spec Audit SHALL fail the build. Override requires a waiver entry in cemaf/data/eval_pins/grounding_audit_waivers.json with a justification string.`
 11. `StructuredGenerator.generate SHALL return only after the upstream LLM stream has reached its terminal token (finish_reason ∈ {stop, end_turn, tool_use}). Partial completion due to stream error, client-side cancellation, or finish_reason ∈ {length, content_filter, error} SHALL raise StreamingIncompleteError carrying the partial token count and finish_reason; the post-flight chain converts it to REJECT(reason="generation_incomplete"). Validators, policy checks, and cited_evidence_ref filtering (Invs 6/7/9) SHALL NOT run against partial output — incomplete generations never produce a StructuredResult.`
 12. `WHEN a chain-level or per-interceptor timeout fires during agent.run, THE Executor SHALL cancel the upstream LLM stream, charge consumed input+output tokens to task.budget_remaining (already-paid cost), and emit REJECT(reason='agent:timeout'). A cancelled stream SHALL NOT produce a StructuredResult — same path as Inv 11 (no validators, no policy checks, no cited_evidence_ref filtering on partial output).`
+13. `THE StructuredGenerator SHALL bound the LLM request's effective max_tokens at min(node.budget.generation_tokens, blueprint.style.max_tokens). RuntimeServices.eval_budget applies ONLY to guardian-invoked judges (SPEC-05 Inv 17) and SHALL NOT debit task.budget_remaining or override the StructuredGenerator's per-node cap.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -233,6 +234,22 @@ Feature: Blueprint-driven generation
     Given a blueprint whose output_schema has "summary" annotated grounding_required=True
     When the audit runs
     Then it passes
+
+  Scenario: Partial completion raises StreamingIncompleteError
+    Given an LLM node whose upstream stream errors before the terminal token
+    When StructuredGenerator.generate runs
+    Then it raises StreamingIncompleteError(finish_reason="error", partial_tokens=N>0)
+    And the post-flight chain converts it to REJECT(reason="generation_incomplete")
+    And no validators or policy checks run against partial output
+    And no StructuredResult is produced
+
+  Scenario: Chain timeout cancels the in-flight stream
+    Given a chain-level timeout fires during agent.run
+    When the executor handles the timeout
+    Then the upstream LLM stream is cancelled
+    And consumed input+output tokens are charged to task.budget_remaining
+    And the post-flight emits REJECT(reason="agent:timeout")
+    And no StructuredResult is produced (Inv 11/12 same path)
 ```
 
 ## 5. Out of Scope
@@ -285,6 +302,8 @@ serialization (sorted-key JSON).
 **Validates: §3 Invariant 4 / §4 "Structural determinism under same inputs"**
 
 ## 8. Eval Criteria
+
+All evaluators in this table are eval_kind=`guardian` unless explicitly marked `online` (per SPEC-05 Inv 20).
 
 | Evaluator | Node | Mode | Threshold | Method | Pinned |
 |---|---|---|---|---|---|

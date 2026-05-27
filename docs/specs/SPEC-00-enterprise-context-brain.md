@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤950 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification). Round-40 additions: OnlineEvalPipeline protocol, JudgeInputSanitizer service+protocol, RunResult dataclass, DecodingParams split, attempt_kind label, claim_extractor readiness clause."
+budget_override: "≤960 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification). Round-40 additions: OnlineEvalPipeline protocol, JudgeInputSanitizer service+protocol, RunResult dataclass, DecodingParams split, attempt_kind label, claim_extractor readiness clause. Round-41 additions: Evaluator + EvalScore protocol, NodeBudget dataclass + DAGNode.budget/entities/blueprint_id fields, ContextPatch correlation_id split (parent_task / parent_ctx scopes), DataSourceHealth → HealthStatus correction."
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -203,6 +203,15 @@ class SchemaFailurePolicy(Enum):
     RECOVER = "recover"     # RECOVER(RETRY_WITH_HINTS) on schema failure
     HALT    = "halt"        # HALT(scope=TASK) on schema failure
 
+# NodeBudget — per-node pull/generation/timeout caps; required on every DAGNode
+# so SPEC-02 PullInterceptor and SPEC-03 StructuredGenerator have a deterministic
+# bound independent of services.token_budget (parent metering authority).
+@dataclass(frozen=True, slots=True)
+class NodeBudget:
+    pull_tokens: TokenCount
+    generation_tokens: TokenCount
+    timeout_ms: int
+
 # Chain primitives — full detail in SPEC-01
 @dataclass(frozen=True, slots=True)
 class DAGNode:
@@ -210,10 +219,13 @@ class DAGNode:
     display_name: str                               # ≤40 chars, human-readable; rendered in user-facing copy (SPEC-05 §10) e.g. task.retry_started, halt notifications. NEVER node_id.
     is_terminal: bool
     is_llm_node: bool
+    budget: NodeBudget                              # required — pull/generation/timeout caps for this node
     retry_budget: int = 1                           # max RECOVER dispatches before HALT escalation
     grounding: GroundingPolicy = GroundingPolicy.REQUIRED
     schema_failure_policy: SchemaFailurePolicy = SchemaFailurePolicy.RECOVER
     online_evaluators: tuple[str, ...] = ()         # SPEC-05 OnlineEvalInterceptor binding — names of evaluators registered with QualityPolice that score this node's output
+    entities: tuple[EntityRef, ...] = ()            # optional — for blueprint binding (SPEC-03)
+    blueprint_id: BlueprintID | None = None         # optional — explicit blueprint pin (SPEC-03)
 
 # TaskContext is fully defined in SPEC-04. SPEC-00 declares the type symbol so
 # protocol signatures here resolve without forward-referencing implementation.
@@ -244,13 +256,30 @@ class JudgeDescriptor:
     decoding_params: "DecodingParams"         # canonical TypedDict — see §6 cassette schema
     blueprint_compat: tuple[tuple[BlueprintID, str], ...] = ()   # (blueprint_id, semver-range) pairs the prompt template is validated against. Spec audit fails when a Blueprint's output_schema fields drift outside the declared compat range — closes the judge/schema drift hole where a blueprint adds a grounding_required field the judge prompt never asks about.
 
+# Evaluator — per-attempt evaluator returning a numeric score; consumed by
+# OnlineEvalInterceptor and QualityPolice. Hoisted here so OnlineEvalPipeline.get
+# resolves without a forward reference.
+@runtime_checkable
+class Evaluator(Protocol):
+    """Per-attempt evaluator returning a numeric score; consumed by OnlineEvalInterceptor and QualityPolice."""
+    evaluator_id: ClassVar[str]
+    async def evaluate(self, *, result: AgentResult, ctx: Context, task: TaskContext) -> "EvalScore": ...
+
+@dataclass(frozen=True, slots=True)
+class EvalScore:
+    evaluator_id: str
+    score: float                           # 0.0..1.0
+    confidence: Confidence
+    reason: str | None = None
+    citations: tuple[Citation, ...] = ()   # judge-cited evidence (subject to membership re-validation)
+
 # OnlineEvalPipeline — owned here to avoid layer inversion (SPEC-05 consumes
 # without redefining). The .size property is consumed by the per-judge cap
 # formula on `eval_budget` (RuntimeServices table above).
 @runtime_checkable
 class OnlineEvalPipeline(Protocol):
     def list_judges(self) -> tuple[JudgeDescriptor, ...]: ...
-    def get(self, judge_id: str) -> "Evaluator": ...
+    def get(self, judge_id: str) -> Evaluator: ...
     @property
     def size(self) -> int: ...  # equals len(self.list_judges()); used by per-judge cap formula
 
@@ -306,7 +335,15 @@ spec named in each row.
 #   NodeInterceptor (ABC)    — full def in SPEC-01 §2
 #   Blueprint                — blueprint/base.py::Blueprint (existing)
 #   ContextPatch             — context/patch.py::ContextPatch (existing). Carries
-#                              source: str, correlation_id: CorrelationID, applied_at: datetime;
+#                              source: str, parent_task_correlation_id: CorrelationID,
+#                              parent_ctx_correlation_id: CorrelationID, applied_at: datetime.
+#                              The two correlation_id fields scope distinctly:
+#                                parent_task_correlation_id — task-scoped, replay key
+#                                parent_ctx_correlation_id  — attempt-scoped, audit key
+#                              SPEC-06 Inv 7 / Property 5 use parent_ctx_correlation_id
+#                              as the primary linker (per-attempt audit), with
+#                              parent_task_correlation_id as the secondary index
+#                              for cross-attempt task-level queries.
 #                              SPEC-06 splices recovery outputs back into the parent
 #                              run via patches with source="meta:<sub_dag_id>".
 
@@ -517,7 +554,7 @@ class ReadinessReport:
     chain_profile: ChainProfile
     required_fields_present: Mapping[str, bool]       # field name -> presence; only includes fields required for chain_profile
     optional_fields_present: Mapping[str, bool]
-    datasource_health: Mapping[str, DataSourceHealth] # SPEC-02 — empty when services.data_sources is None
+    datasource_health: Mapping[str, HealthStatus]     # SPEC-02 §2 HealthStatus — empty when services.data_sources is None
     reason: str | None                                # human-readable explanation when ready=False
 ```
 
@@ -845,6 +882,8 @@ forbids network egress in tests; missing/stale cassettes fail the run.
 
 Cross-cutting evaluators. Per-subsystem evaluators (with pinned prompts, models,
 baselines) live in child specs.
+
+All evaluators in this table are eval_kind=`guardian` unless explicitly marked `online` (per SPEC-05 Inv 20). Only `eval_kind='online'` evaluators bind through `node.online_evaluators`; guardian-internal evaluators are auto-bound by their owning interceptor.
 
 | Evaluator | Node | Mode | Threshold | Method |
 |---|---|---|---|---|

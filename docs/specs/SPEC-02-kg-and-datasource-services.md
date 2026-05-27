@@ -121,7 +121,7 @@ class PullInterceptor(NodeInterceptor):
 8. `Per-source token sub-budget SHALL default to a uniform split across capable+healthy sources; pluggable via PullInterceptor config.`
 9. `THE registry SHALL reject duplicate source_id with DuplicateSourceError.`
 10. `PullInterceptor SHALL set ctx.surfaced_sources atomically — either fully populated or absent on REJECT — never partial.`
-11. `WHEN merged candidates exceed node.budget.pull_tokens, PullInterceptor SHALL evict in deterministic order: sort by (priority desc, confidence desc, retrieved_at asc); include greedily until next chunk's token_count would exceed the cap; remainder dropped with log event "pull.evicted{chunk_id,reason="over_budget"}". Two compliant implementations SHALL produce identical surfaced_sources for identical inputs (closes SPEC-00 Property 6 replay determinism).`
+11. `WHEN merged candidates exceed node.budget.pull_tokens, PullInterceptor SHALL evict in deterministic order: sort by (priority desc, confidence desc, retrieved_at asc); include greedily until next chunk's token_count would exceed the cap; remainder dropped with log event "pull.evicted{chunk_id,reason="over_budget"}". Two compliant implementations SHALL produce identical surfaced_sources for identical inputs (closes SPEC-00 Property 6 replay determinism). Terminal tiebreaker when (priority, confidence, retrieved_at) all tie: chunk_id ASC. Required for SPEC-05 Inv 17 truncation determinism and SPEC-06 Inv 16 union-then-cap determinism.`
 12. `CiteableChunk SHALL carry priority: int derived from source_kind via the canonical mapping {kg: 100, datasource: 80, memory: 60, vector: 40}. Implementations MAY add per-tenant offsets up to ±10, no overflow into adjacent bands. ContextCompiler.compile() SHALL use this field as its drop key (closes the SPEC-02 step 6 implementation-defined gap).`
 
 ## 4. Acceptance Criteria (BDD)
@@ -244,12 +244,14 @@ returns within `node.budget.timeout_ms`, surviving sources still populate
 
 Pinned models / fixtures referenced explicitly so evaluators are replay-deterministic.
 
+All evaluators in this table are eval_kind=`guardian` unless explicitly marked `online` (per SPEC-05 Inv 20).
+
 | Evaluator | Node | Mode | Threshold | Method | Pinned |
 |---|---|---|---|---|---|
 | BudgetConservationEvaluator | every PullInterceptor run | GATE | tokens ≤ budget | deterministic | n/a |
 | GroundingCoverageEvaluator | nodes with grounding=REQUIRED | GATE | chunks ≥ 1 | deterministic | n/a |
 | ProtocolSurfaceEvaluator | DataSource implementations | GATE | extra public methods == 0 | deterministic | n/a |
-| RetrievalRelevanceEvaluator | sample of pulls | OBSERVE | mean cos-sim ≥ baseline from `cemaf/data/eval_pins/retrieval_relevance_baseline.json` (absolute floor 0.55); regression > 0.02 fails CI | semantic | embedding model `text-embedding-3-small@2024-01-25` (API version), pinned in `cemaf/llm/factories.py`; corpus `tests/fixtures/retrieval_eval_corpus_v1.jsonl` |
+| RetrievalRelevanceEvaluator | sample of pulls | OBSERVE (PR-diff gate against pinned baseline JSON, not runtime mode flip) | mean cos-sim ≥ baseline from `cemaf/data/eval_pins/retrieval_relevance_baseline.json` (absolute floor 0.55); regression > 0.02 fails CI | semantic | embedding model `text-embedding-3-small@2024-01-25` (API version), pinned in `cemaf/llm/factories.py`; corpus `tests/fixtures/retrieval_eval_corpus_v1.jsonl` |
 
 ## 9. Observability Contract
 

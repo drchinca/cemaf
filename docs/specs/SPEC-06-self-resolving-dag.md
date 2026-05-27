@@ -151,7 +151,8 @@ resumes only after `MetaDispatcher.dispatch` returns.
 13. `THE active ChainProfile SHALL be passed as a parameter to DAGExecutor.run, NOT mutated on RuntimeServices — services is frozen. Precedence: DAGExecutor.run(chain_profile=) > services.chain_profile (default). The same value SHALL be threaded into InterceptorChain.run_pre/run_post (SPEC-01 ChainConfig), so the three call sites see the same profile within one DAG dispatch.`
 14. `Depth check semantics: a new recovery is permitted iff (parent.depth + 1) ≤ MetaInvocationBudget.max_depth. With max_depth=2: depth 0→1 allowed, 1→2 allowed, 2→3 rejected with halt=True.`
 15. `A meta sub-DAG SHALL NOT splice content derived from the parent's AgentResult.unverified_claims into any downstream node's ctx.surfaced_sources, directly or transitively (no citation laundering). SPEC-05 §3 Inv 14 binds this constraint; SPEC-06 ContextPatch payloads SHALL be inspected against this rule before application by the Executor, which SHALL drop offending entries with reason="patch_unverified_promotion" and emit an audit entry.`
-16. `MetaDispatcher.dispatch SHALL project parent context into RecoveryRequest before sub-DAG construction (the canonical "subagent handoff is a write" boundary, CE rule RULE CE-3): (a) prior_decisions windowed to last PRIOR_DECISIONS_INJECT_WINDOW entries (SPEC-04 Inv 16) plus all entries where Decision.kind ∈ {DecisionKind.HALT, DecisionKind.REJECT}; (b) surfaced_sources filtered to CiteableChunks whose Citation appears in the failing node's AgentResult.cited_evidence_refs OR in any RecoveryHint.citations across inbound_hints, capped at sum(token_count) ≤ meta_budget.max_token_total / 4 (drop order: SPEC-02 Inv 11). Projection is deterministic so SPEC-00 Property 6 replay holds across nested recoveries.`
+16. `MetaDispatcher.dispatch SHALL project parent context into RecoveryRequest before sub-DAG construction (the canonical "subagent handoff is a write" boundary, CE rule RULE CE-3): (a) prior_decisions windowed to last PRIOR_DECISIONS_INJECT_WINDOW entries (SPEC-04 Inv 16) plus all entries where Decision.kind ∈ {DecisionKind.HALT, DecisionKind.REJECT}; (b) surfaced_sources: compute the union of {chunks whose Citation appears in failing node's AgentResult.cited_evidence_refs} ∪ {chunks whose Citation appears in any RecoveryHint.citations across inbound_hints}; sort the union by SPEC-02 Inv 11 keys (priority desc, confidence desc, retrieved_at asc, chunk_id asc); greedy-include from the top while sum(token_count) ≤ meta_budget.max_token_total / 4; drop the remainder. Projection is deterministic so SPEC-00 Property 6 replay holds across nested recoveries.`
+17. `ContextPatch payloads from a recovery sub-DAG SHALL be applied to the parent context BEFORE the re-dispatched parent node's PullInterceptor runs. PullInterceptor remains the sole atomic writer of ctx.surfaced_sources — meta-spliced CiteableChunks enter as input candidates subject to the same merge+eviction (SPEC-02 Inv 11). The Executor SHALL NOT permit any other interceptor to mutate ctx.surfaced_sources between PRE and POST chains.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -316,6 +317,8 @@ decision is converted to REJECT before any sub-DAG is dispatched.
 Recovery is structural — deterministic evaluators only. The
 recovery-effectiveness signal lives in OBSERVE mode (no GATE on success rate
 because failure to recover is already covered by parent HALT).
+
+All evaluators in this table are eval_kind=`audit` unless explicitly marked `online` (per SPEC-05 Inv 20).
 
 | Evaluator | Node | Mode | Threshold | Method |
 |---|---|---|---|---|

@@ -209,7 +209,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 13. `WHEN a PostflightDecision is RECOVER(INVOKE_META_ARCHITECT), THE Executor SHALL call increment_retry(task_id, node_id) BEFORE invoking MetaDispatcher.dispatch (SPEC-06). Combined with Inv 11, the meta sub-DAG observes the incremented attempt counter via task.retry_ledger from its first node, so nested recoveries see correct attempt accounting.`
 14. `task.correlation_id (per-task, assigned at create()) and ctx.correlation_id (per-attempt, assigned by DAGExecutor at node dispatch — SPEC-00 §2) are intentionally distinct scopes. Audit and recovery references resolve as follows: SPEC-05 §3 attempt-level audit SHALL use ctx.correlation_id; SPEC-06 §3 Inv 6 parent_correlation_id SHALL be the parent attempt's ctx.correlation_id (NOT task.correlation_id). On resume across PAUSED→RUNNING, task.correlation_id persists; new attempts mint fresh ctx.correlation_id. Every AuditEntry SHALL carry both fields explicitly so query paths over either are deterministic.`
 15. `WHEN a holder calls TaskRepository.release(token) OR TaskRepository.transition(token=...) AFTER the lease has expired (Inv 12) and a new holder has acquired, THE Repository SHALL raise StaleLeaseError and SHALL NOT mutate Task state. Detection: every release/transition call carries the original AcquireToken; the repository compares the persisted current_holder_id against token.holder_id and raises if they differ. This closes the multi-pod race where holder A's lease expires, holder B acquires, then A's slow callback writes — A's write is discarded with a logged event "task.stale_lease_write".`
-16. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority by Decision.kind: HALT > REJECT > RECOVER > ACCEPT (within the window cap; entries outside the window are kept only when retention upgrades them). Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed. Closes the long-horizon-task ballooning hazard (CE rule RULE CE-1: token budgets are first-class invariants).`
+16. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority by Decision.kind: HALT > REJECT > RECOVER > ACCEPT (within the window cap; entries outside the window are kept only when retention upgrades them). Within the same Decision.kind, retention prefers Decision.at desc; ties broken by node_id ASC. This makes per-node injection deterministic for replay (SPEC-00 Property 6). Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed. Closes the long-horizon-task ballooning hazard (CE rule RULE CE-1: token budgets are first-class invariants).`
 17. `TaskContext.retry_ledger injected by TaskInjectInterceptor SHALL be filtered to entries where get_retry > 0 — nodes never retried do not occupy injection slots. Persistent Task.retry_ledger is unfiltered for audit determinism.`
 
 ## 4. Acceptance Criteria (BDD)
@@ -310,6 +310,24 @@ Feature: Long-horizon task awareness
     Then task.correlation_id is still "T-1"
     And the new ctx.correlation_id is freshly minted (≠ "C-1")
     And SPEC-06 parent_correlation_id (when meta dispatched) equals the parent attempt's ctx.correlation_id, NOT task.correlation_id
+
+  Scenario: prior_decisions injection caps at PRIOR_DECISIONS_INJECT_WINDOW
+    Given a Task with 50 historical Decisions
+    When TaskInjectInterceptor builds the per-node TaskContext
+    Then ctx.prior_decisions has at most 32 entries (PRIOR_DECISIONS_INJECT_WINDOW)
+    And HALT and REJECT entries are retained over RECOVER and ACCEPT entries
+
+  Scenario: prior_decisions retention priority within budget
+    Given the window cap is 32 and the Task has 60 decisions: 5 HALT, 10 REJECT, 20 RECOVER, 25 ACCEPT
+    When TaskInjectInterceptor projects them
+    Then all 5 HALT and 10 REJECT entries are present
+    And the remaining 17 slots are filled by most-recent RECOVER first then ACCEPT
+
+  Scenario: retry_ledger injection filters to nodes with prior retries
+    Given a Task whose retry_ledger contains 12 entries, 3 with count > 0
+    When TaskInjectInterceptor projects retry_ledger
+    Then ctx.retry_ledger contains exactly the 3 entries with count > 0
+    And the 9 zero-count entries are dropped
 ```
 
 ## 5. Out of Scope
@@ -367,6 +385,8 @@ consumption is metered separately (SPEC-06).
 ## 8. Eval Criteria
 
 State-machine spec — deterministic evaluators only.
+
+All evaluators in this table are eval_kind=`repository` unless explicitly marked `online` (per SPEC-05 Inv 20).
 
 | Evaluator | Node | Mode | Threshold | Method |
 |---|---|---|---|---|
