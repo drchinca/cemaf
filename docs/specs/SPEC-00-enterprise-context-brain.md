@@ -373,11 +373,23 @@ spec named in each row.
 #                              run via patches with source="meta:<sub_dag_id>".
 
 # Context extensions — owned by this umbrella so child specs do not redefine.
-# Defaults preserve backwards-compatibility with existing `Context(...)`
-# constructors:
+# Context is a Pydantic BaseModel with model_config={"frozen": True}; the
+# canonical declaration (every field including round-46 additions) is:
+#
+#   class Context(BaseModel):
+#       model_config = {"frozen": True}
+#       data: Mapping[str, Any] = Field(default_factory=dict)
+#       patch_history: tuple[ContextPatch, ...] = Field(default_factory=tuple)
+#       correlation_id: CorrelationID | None = None
+#       surfaced_sources: tuple[CiteableChunk, ...] = Field(default_factory=tuple)
+#       pending_meta_patches: tuple[CiteableChunk, ...] = Field(default_factory=tuple)
+#
+# Field semantics (defaults preserve backwards-compatibility with existing
+# `Context(...)` constructors):
 #   Context.correlation_id   : CorrelationID | None = None
 #                              — DAGExecutor SHALL replace None with a freshly
-#                              minted CorrelationID via dataclasses.replace
+#                              minted CorrelationID via
+#                              `ctx = ctx.model_copy(update={"correlation_id": new_id})`
 #                              BEFORE invoking the PRE chain. Any interceptor
 #                              that observes ctx.correlation_id is None SHALL
 #                              raise ChainContractError("correlation_id_unset").
@@ -391,12 +403,26 @@ spec named in each row.
 #                              BlueprintInterceptor; canonical membership set
 #                              for SPEC-05 cite-or-fail. () pre-PullInterceptor.
 #   Context.pending_meta_patches : tuple[CiteableChunk, ...] = ()
-#                              — transient Executor-managed channel set BEFORE
-#                              re-dispatch of a parent node per SPEC-06 Inv 17;
-#                              consumed once by PullInterceptor.pre (SPEC-02
-#                              Inv 13) which unions the chunks into its
-#                              candidate set, then cleared by the Executor
-#                              (single-use; idempotent re-runs observe ()).
+#                              — transient channel set BEFORE re-dispatch of a
+#                              parent node per SPEC-06 Inv 17; consumed once
+#                              by PullInterceptor.pre (SPEC-02 Inv 13), which
+#                              unions the chunks into its candidate set AND
+#                              clears the field via enriched_context in its
+#                              returned PreflightDecision (single-use;
+#                              idempotent re-runs observe ()).
+#
+# Frozen-model replacement idiom.
+# Context is a Pydantic `BaseModel` with `model_config = {"frozen": True}`;
+# in-place attribute assignment raises `ValidationError`. All "set" / "clear"
+# / "replace" mutations described in this umbrella and child specs SHALL be
+# implemented as `ctx = ctx.model_copy(update={...})` returning a new
+# instance. Specifically: (a) Executor mints `correlation_id` via
+# `ctx.model_copy(update={"correlation_id": new_id})`; (b) Executor stages
+# meta patches via `ctx = ctx.model_copy(update={"pending_meta_patches": chunks})`
+# immediately before `chain.run_pre` per SPEC-06 Inv 17; (c) PullInterceptor
+# clears the channel by returning a `PreflightDecision` whose
+# `enriched_context = ctx.model_copy(update={"surfaced_sources": ..., "pending_meta_patches": ()})`
+# per SPEC-02 Inv 13.
 
 # DAG consumed surface — declared here so SPEC-01 Inv 6e and SPEC-05
 # ToolOutputVerifier resolve without forward-referencing implementation:
