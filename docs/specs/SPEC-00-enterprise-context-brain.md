@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤575 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤640 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, and concurrency contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -164,7 +164,7 @@ class ToolCallOutput:
     arguments: Mapping[str, object]      # JSON-shaped tool-call arguments (numbers/bools/nested objects)
     output: str
     citations: tuple[Citation, ...] = ()
-    consumed_by_node: NodeID | None = None          # set by executor when downstream node reads this output
+    consumed_by_node: NodeID | None = None          # populated by the executor at the producer's POST chain assembly (BEFORE post() runs) by inspecting static DAG successors of the producing node — see SPEC-05 §2 ToolOutputVerifierInterceptor and SPEC-01 Inv 6e. NOT a runtime consumer-time write; static-DAG-derived so tool_verify can decide whether to gate the output on its first post-chain call.
 
 @dataclass(frozen=True, slots=True)
 class Claim:
@@ -322,6 +322,72 @@ SHALL be passed as a method parameter, not stored on `services`. The
 `chain_profile` field on `RuntimeServices` is the *default* profile a new
 executor uses; child specs that need to override (SPEC-06) do so via
 `DAGExecutor.run(..., chain_profile=ChainProfile.RECOVERY)`.
+
+### Canonical `DAGExecutor.run` signature
+
+Single source of truth — child specs (SPEC-04, SPEC-05, SPEC-06) reference
+fragments of this signature; the umbrella declares the full contract:
+
+```python
+async def run(
+    self,
+    dag: DAG,
+    *,
+    task_id: TaskID | None = None,                 # SPEC-04: resume an existing Task; None creates a new one
+    chain_profile: ChainProfile | None = None,     # SPEC-05/06: per-call override; falls back to services.chain_profile
+    budget: TokenBudget | MetaInvocationBudget | None = None,  # SPEC-06: per-call metering authority; None → services.token_budget
+) -> RunResult:
+```
+
+Resolution rules:
+- `task_id is None` → executor calls `services.task_repository.create(...)`; `task_id is not None` → calls `acquire()` then resumes.
+- `chain_profile` precedence: call-arg > `services.chain_profile` (default `ChainProfile.DEFAULT`).
+- `budget` precedence: call-arg > `services.token_budget`. For recovery calls (SPEC-06) the dispatcher passes `services.meta_budget` here, isolating sub-DAG token consumption from the parent Task's `budget_remaining` (SPEC-04 Inv 6).
+- The signature is stable across reentrant calls — the same `DAGExecutor` instance runs both parent and sub-DAGs (SPEC-06 Inv 9).
+
+### Bootstrap composition root
+
+`bootstrap.create_executor(*, agent_registry, services) -> DAGExecutor` is
+the sole composition root for both parent and recovery executors.
+Guardian auto-injection (SPEC-05 Inv 10) and chain assembly happen here,
+in this deterministic order — owned by SPEC-05 algorithmically and
+exposed via this factory:
+
+1. Start from `services.interceptors` (caller-provided, may be empty).
+2. For each non-None guardian-related field in `services` (legitimacy →
+   `authorization_policy`, pull → `data_sources`/`knowledge_graph`,
+   blueprint → `blueprint_library`, task_inject → `task_repository`,
+   cite_or_fail → `claim_extractor`, tool_verify →
+   `tool_output_verifier`, online_eval → `online_eval_pipeline`,
+   goal_completion → `goal_completion_evaluator`), append the
+   corresponding interceptor if not already present.
+3. Append `AuditInterceptor` last — unconditional (SPEC-05 Inv 10) and
+   independent of any service field.
+4. Sort the resulting tuple by `(phase, position)` against
+   `DEFAULT_PRE_ORDER` / `DEFAULT_POST_ORDER`. Unknown interceptor IDs
+   are a startup `ValueError`.
+5. Freeze the tuple onto a new `RuntimeServices` instance via
+   `dataclasses.replace(services, interceptors=...)`.
+
+This algorithm is deterministic — two instances of `create_executor`
+called with the same `services` produce byte-identical `interceptors`
+tuples, which is the contract `replay/` depends on.
+
+### Concurrency contract during recovery dispatch
+
+SPEC-06 Inv 12 states the parent `DAGExecutor` SHALL NOT dispatch peer
+parent nodes while a recovery sub-DAG runs. This is the *dispatch*
+boundary; nodes already in flight at the moment a guardian emits
+`RECOVER(INVOKE_META_ARCHITECT)` SHALL be allowed to **complete their
+post chain** (so their tokens charge to `task.budget_remaining` cleanly
+per SPEC-04 Inv 6 and their AuditEntries land in causal order per
+SPEC-05 Inv 8) before `MetaDispatcher.dispatch` is invoked. The executor
+maintains a "drain peers, then dispatch sub-DAG" barrier:
+- New parent dispatches: blocked until sub-DAG returns.
+- In-flight parent nodes: drain to completion (success, REJECT, or HALT)
+  before sub-DAG starts.
+- HALT during drain: if any draining peer emits HALT, the sub-DAG SHALL
+  NOT be dispatched and the Task transitions to HALTED via SPEC-04 Inv 8.
 
 ## 3. Invariants (DbC)
 
