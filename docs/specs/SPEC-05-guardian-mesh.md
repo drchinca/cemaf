@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤625 lines (scenarios ≤25) — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
+budget_override: "≤640 lines (scenarios ≤25) — six guardians + §10 user-facing copy table is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
 ---
 
 # SPEC-05: Guardian Mesh
@@ -479,9 +479,20 @@ Feature: Guardian mesh
 ### Property 1: Citation membership
 *For any* generative result `r` accepted by CiteOrFail with surfaced sources
 `S = {c.citation for c in ctx.surfaced_sources}`, `set(r.cited_evidence_refs) ⊆ S`.
-Rejected results are never stored.
+Non-member-citation results trigger RECOVER and are never accepted as-is.
 
-**Validates: §3 Invariants 2, 3, 11 / §4 cite-or-fail scenarios / SPEC-00 Property 1**
+**Validates: §3 Invariants 2, 11 / §4 cite-or-fail scenarios / SPEC-00 Property 1**
+
+### Property 1a: Grounding-policy matrix
+*For any* node N with ungrounded Claims extracted by ClaimExtractor:
+- `N.grounding == REQUIRED` ⇒ PostflightDecision is RECOVER (Inv 3a) or
+  HALT (Inv 15 escalation).
+- `N.grounding == BEST_EFFORT` ⇒ PostflightDecision is ACCEPT and
+  `derived_unverified_claims` carries the ungrounded set (Inv 3b).
+- `N.grounding ∈ {OPTIONAL, DISABLED}` ⇒ PostflightDecision is ACCEPT
+  with no derived claims (Inv 3c, 3d).
+
+**Validates: §3 Invariants 3a/3b/3c/3d / §4 grounding-policy scenarios**
 
 ### Property 2: Halt safety
 *Once* OnlineEvalInterceptor emits HALT(DAG), no further node is dispatched
