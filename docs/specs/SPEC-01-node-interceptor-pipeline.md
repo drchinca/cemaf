@@ -119,9 +119,11 @@ Junior-dev feedback: a Protocol forces every implementer to define both
 implementers override only what they need.
 
 ```python
+from typing import ClassVar
+
 class NodeInterceptor(ABC):
-    interceptor_id: str       # class attribute, required
-    phase: InterceptorPhase   # class attribute, required
+    interceptor_id: ClassVar[str]       # required class attribute on every subclass
+    phase: ClassVar[InterceptorPhase]   # required class attribute on every subclass
 
     async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
                   task: TaskContext, services: RuntimeServices) -> PreflightDecision:

@@ -83,13 +83,38 @@ class TaskContext:
 
 @dataclass(frozen=True, slots=True)
 class AcquireToken:
-    """Returned by TaskRepository.acquire — releases on context exit."""
+    """Immutable lease handle returned by TaskRepository.acquire.
+    Carries no behavior — the AcquiredLease wrapper below provides the async
+    context-manager surface that calls TaskRepository.release on exit.
+    """
     task_id: TaskID
     holder_id: str                                 # executor instance id
     acquired_at: datetime
     lease_ttl_ms: int = 60_000                     # auto-released after TTL on holder crash
-    async def __aenter__(self) -> "AcquireToken": ...
-    async def __aexit__(self, *exc) -> None: ...   # calls TaskRepository.release(token)
+
+class AcquiredLease:
+    """Async context manager wrapping an AcquireToken + the owning repository."""
+    def __init__(self, *, repository: "TaskRepository", token: AcquireToken) -> None: ...
+    async def __aenter__(self) -> AcquireToken: ...
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Calls repository.release(self._token); re-raises after release."""
+
+@dataclass(frozen=True, slots=True)
+class Task:
+    """The aggregate persisted by TaskRepository. Mirrors TaskSnapshot fields
+    plus the immutable Goal+DAG binding chosen at create()."""
+    task_id: TaskID
+    goal: Goal
+    dag_id: DAGID
+    state: TaskState
+    step_index: int
+    step_count: int
+    prior_decisions: tuple[Decision, ...]
+    retry_ledger: dict[NodeID, int]
+    budget_remaining: TokenBudget
+    correlation_id: CorrelationID
+    created_at: datetime
+    updated_at: datetime
 
 @dataclass(frozen=True, slots=True)
 class TaskSnapshot:
@@ -115,9 +140,9 @@ class TaskRepository(Protocol):
     async def append_decision(self, task_id: TaskID, decision: Decision) -> None: ...
     async def snapshot(self, task_id: TaskID) -> TaskSnapshot: ...
     async def restore(self, snapshot: TaskSnapshot) -> Task: ...
-    async def acquire(self, task_id: TaskID, *, holder_id: str) -> AcquireToken:
-        """Exclusive resume lock with TTL-bounded lease. Use as async context
-        manager (`async with repo.acquire(task_id, holder_id=...) as token:`).
+    async def acquire(self, task_id: TaskID, *, holder_id: str) -> AcquiredLease:
+        """Exclusive resume lock with TTL-bounded lease. Returns an AcquiredLease
+        usable as `async with repo.acquire(task_id, holder_id=...) as token:`.
         Raises TaskInUseError when already held by a different holder with a
         non-expired lease."""
     async def release(self, token: AcquireToken) -> None: ...
@@ -136,7 +161,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 
 ## 3. Invariants (DbC)
 
-1. `Task state transitions SHALL follow: QUEUED → RUNNING → (PAUSED ↔ RUNNING)* → (COMPLETED | HALTED). Reverse and skip transitions are forbidden.`
+1. `Task state transitions SHALL follow this set: QUEUED→RUNNING, RUNNING→PAUSED, PAUSED→RUNNING, RUNNING→COMPLETED, RUNNING→HALTED, PAUSED→HALTED (timeout/cancel). All other transitions are forbidden.`
 2. `WHEN a Task is HALTED or COMPLETED, transition() SHALL raise InvalidTransitionError on any further state change.`
 3. `Every TaskContext.step_index SHALL satisfy 0 ≤ step_index < step_count.`
 4. `TaskContext.prior_decisions SHALL be append-only and ordered by node execution sequence.`

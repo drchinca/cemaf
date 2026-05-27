@@ -148,10 +148,12 @@ class VerifyResult:
 
 class ToolOutputVerifierInterceptor(NodeInterceptor):
     """POST position 2. Active when any element of result.tool_calls has
-    consumed_by_node != None (set by the executor when an edge feeds the
-    output to a downstream node). The interceptor itself does NOT inspect
-    dag.edges directly — the executor pre-populates `consumed_by_node` so
-    the gate is purely local to AgentResult.
+    consumed_by_node != None. Timing: at post-flight assembly time the
+    executor inspects static DAG successors of `node`, builds a NEW
+    AgentResult whose `tool_calls` tuple has `consumed_by_node` populated,
+    and passes that to the post chain. The original AgentResult is not
+    mutated (frozen-dataclass invariant preserved); the interceptor never
+    touches dag.edges directly.
 
     Deterministic schema check: each ToolCallOutput.output is validated
     against the registered ToolSchema.output_schema; a schema-mismatch
@@ -236,7 +238,8 @@ class AuditInterceptor(NodeInterceptor):
 9. `Recovery via RETRY_WITH_HINTS SHALL pass RecoveryHint instances in goal.metadata["remediation"] to the re-dispatched agent (per SPEC-01 Inv 10).`
 10. `Guardian interceptors SHALL be auto-injected at bootstrap when the corresponding RuntimeServices.* field is non-None; opting out requires an explicit ChainConfig override.`
 11. `Citation membership check (Inv 2) SHALL be replay-safe: identical surfaced_sources + identical cited_evidence_refs yield identical decisions.`
-12. `THE GoalCompletionEvaluator SHALL self-cite — judge_citations SHALL be a non-empty subset of {c.citation for c in ctx.surfaced_sources at terminal node}; failure → REJECT the judge result and treat as achieved=False with confidence=0.`
+12. `WHEN node.grounding == REQUIRED at the terminal node, THE GoalCompletionEvaluator SHALL self-cite — judge_citations SHALL be a non-empty subset of {c.citation for c in ctx.surfaced_sources at terminal node}; failure → REJECT the judge result and treat as achieved=False with confidence=0. WHERE grounding ∈ {OPTIONAL, DISABLED}, judge_citations MAY be empty.`
+13. `THE AuditInterceptor SHALL NOT be subject to the SPEC-01 Inv 5 short-circuit — its PRE entry SHALL be emitted even when an earlier PRE interceptor REJECTED (Inv 8 above is the per-attempt completeness contract that depends on this).`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -341,6 +344,7 @@ Feature: Guardian mesh
 - SPEC-04 (`task.retry_ledger`, `node.retry_budget`)
 - `evals/online.py`, `evals/police.py`, `evals/grounding.py`, `evals/judge.py` (extend)
 - `citation/`, `moderation/`, `audit/`
+- `spacy>=3.7` + `en_core_web_sm` model — required by `SentenceClaimExtractor`'s POS-tag pass; pinned in `pyproject.toml` and `cemaf/data/eval_pins/spacy_model_version.txt`
 - New code:
   - `evals/goal_completion.py` (LLM-judge with pinned prompt)
   - `evals/tool_output_verifier.py` (hybrid)

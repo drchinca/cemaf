@@ -182,6 +182,7 @@ Feature: Pull-not-push context
 - SPEC-00 §2 (TokenBudget, CiteableChunk, Citation)
 - `knowledge/graph.py`, `knowledge/protocols.py`
 - `retrieval/protocols.py`
+- `retrieval/entity_extractor.py` (NEW — pinned deterministic extractor for PullInterceptor step 1)
 - `context/source.py` (`ContextSource`)
 
 ## 7. Correctness Properties

@@ -90,7 +90,7 @@ class RecoveryResult:
 
 @dataclass(frozen=True, slots=True)
 class MetaInvocationBudget:
-    max_depth: int = 2                               # parent (0) → recovery (1) → grand-recovery (2)
+    max_depth: int = 2                               # allowed depths: 0 (parent run), 1 (recovery), 2 (recovery-of-recovery). depth 3 is rejected.
     max_token_total: TokenCount = TokenCount(50_000) # global cap across all nested recoveries for one parent task
     max_wall_time_ms: int = 30_000
 
@@ -137,7 +137,7 @@ resumes only after `MetaDispatcher.dispatch` returns.
 10. `THE total tokens consumed across all nested recoveries for one parent Task SHALL NOT exceed MetaInvocationBudget.max_token_total; on breach the dispatcher SHALL return halt=True.`
 11. `RecoveryResult.retry_hints SHALL be propagated to the re-dispatched parent node via goal.metadata["remediation"] (SPEC-01 §3 Inv 10).`
 12. `WHILE a recovery sub-DAG is executing, THE parent DAGExecutor SHALL NOT dispatch peer parent nodes — sub-DAG execution is sequential w.r.t. the parent.`
-13. `THE active ChainProfile SHALL be passed as a parameter to DAGExecutor.run, NOT mutated on RuntimeServices — services is frozen.`
+13. `THE active ChainProfile SHALL be passed as a parameter to DAGExecutor.run, NOT mutated on RuntimeServices — services is frozen. Precedence: DAGExecutor.run(chain_profile=) > services.chain_profile (default). The same value SHALL be threaded into InterceptorChain.run_pre/run_post (SPEC-01 ChainConfig), so the three call sites see the same profile within one DAG dispatch.`
 14. `Depth check semantics: a new recovery is permitted iff (parent.depth + 1) ≤ MetaInvocationBudget.max_depth. With max_depth=2: depth 0→1 allowed, 1→2 allowed, 2→3 rejected with halt=True.`
 
 ## 4. Acceptance Criteria (BDD)

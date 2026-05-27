@@ -72,7 +72,7 @@ sequenceDiagram
     participant Svc as RuntimeServices
 
     Ex->>NE: run(node, ctx, task_context)
-    NE->>Pre: legitimacy → pull → blueprint → task_inject
+    NE->>Pre: legitimacy → pull → blueprint → task_inject → audit
     Pre->>Svc: KG / DataSource / Memory (token-budgeted)
     Pre-->>NE: enriched(goal, ctx, surfaced_sources)
     NE->>Ag: agent.run(blueprint_request, enriched_ctx, task_context)
@@ -187,8 +187,20 @@ class DAGNode:
 # RuntimeServices (orchestration/services.py).
 
 class ChainProfile(Enum):
-    DEFAULT  = "default"    # legitimacy → pull → blueprint → task_inject ; cite_or_fail → tool_verify → online_eval → goal_completion → audit
-    RECOVERY = "recovery"   # legitimacy → pull → blueprint → task_inject ; cite_or_fail → tool_verify → audit  (no online_eval, no goal_completion)
+    DEFAULT  = "default"    # legitimacy → pull → blueprint → task_inject → audit ; cite_or_fail → tool_verify → online_eval → goal_completion → audit
+    RECOVERY = "recovery"   # legitimacy → pull → blueprint → task_inject → audit ; cite_or_fail → tool_verify → audit  (no online_eval, no goal_completion)
+
+class InterceptorPhase(Enum):
+    PRE  = "pre"
+    POST = "post"
+    BOTH = "both"
+
+class TaskState(Enum):
+    QUEUED    = "queued"
+    RUNNING   = "running"
+    PAUSED    = "paused"
+    COMPLETED = "completed"
+    HALTED    = "halted"
 ```
 
 ### Cross-cutting seams
@@ -197,18 +209,25 @@ This umbrella declares only the seams. Field-level schemas live in the child
 spec named in each row.
 
 ```python
-# The seam — SPEC-01 owns the detail
-@runtime_checkable
-class NodeInterceptor(Protocol):
-    interceptor_id: str
-    phase: InterceptorPhase            # PRE | POST | BOTH
-    async def pre(self, *, node: DAGNode, goal: Goal, ctx: Context,
-                  task: TaskContext, services: RuntimeServices) -> PreflightDecision: ...
-    async def post(self, *, node: DAGNode, result: AgentResult, ctx: Context,
-                   task: TaskContext, services: RuntimeServices) -> PostflightDecision: ...
+# NodeInterceptor: full ABC definition lives in SPEC-01 §2 (single source of
+# truth). SPEC-00 only declares that the symbol exists and what fields it
+# carries. Do not duplicate the class body here.
 
-# Carrier field consumed by SPEC-05 cite-or-fail (set by SPEC-02 PullInterceptor)
-#   ctx.surfaced_sources: tuple[CiteableChunk, ...]
+# Symbols declared in SPEC-00 referenced by child specs but owned elsewhere:
+#   DAG                      — orchestration/dag.py::DAG (existing CEMAF type)
+#   Context                  — context/context.py::Context (existing); SPEC-02
+#                              adds typed field `surfaced_sources: tuple[CiteableChunk, ...]`
+#                              and `correlation_id: CorrelationID`.
+#   RuntimeServices          — orchestration/services.py (existing)
+#   TaskContext, Task        — full def in SPEC-04 §2
+#   Decision                 — full def in SPEC-04 §2
+#   PreflightDecision/PostflightDecision — full def in SPEC-01 §2
+#   NodeInterceptor (ABC)    — full def in SPEC-01 §2
+#   Blueprint                — blueprint/base.py::Blueprint (existing)
+#
+# Mutable-collection fields on frozen dataclasses (e.g. metadata: dict[str, str])
+# are wrapped at construction with types.MappingProxyType to honor the
+# "increment-only / append-only" invariants stated in §3 and child specs.
 
 # Canonical chain order — single source of truth. SPEC-01 ChainConfig
 # pre_order/post_order SHALL equal these tuples for the matching profile.
@@ -226,7 +245,7 @@ This table is the single source of truth — child specs consume these.
 | Field | Type | Owning spec | Purpose |
 |---|---|---|---|
 | `interceptors` | `tuple[NodeInterceptor, ...]` | SPEC-01 | Ordered chain |
-| `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Selects DEFAULT vs RECOVERY ordering |
+| `chain_profile` | `ChainProfile` | SPEC-01 / SPEC-06 | Default profile a new executor uses; per-call `DAGExecutor.run(..., chain_profile=)` overrides (SPEC-06). Precedence: call-arg > services-default. |
 | `knowledge_graph` | `KnowledgeGraph \| None` | SPEC-02 | Shared KG (meta + non-meta) |
 | `data_sources` | `DataSourceRegistry \| None` | SPEC-02 | Read-only enterprise connectors |
 | `blueprint_library` | `BlueprintLibrary \| None` | SPEC-03 | Blueprint resolution |

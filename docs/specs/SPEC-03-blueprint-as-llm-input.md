@@ -111,7 +111,7 @@ class StructuredGenerator(Protocol):
 4. `THE BlueprintRequest SHALL be structurally equal under canonical serialization given the same Blueprint, goal, entities, and ctx.surfaced_sources (replay-deterministic).`
 5. `Every StructuredResult SHALL carry the source blueprint_id and version (provenance).`
 6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → PostflightDecision determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER).`
-7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to retry budget.`
+7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to BlueprintRequest.metadata["policy_retry_budget"] (default 2). On exhaustion the generator SHALL raise PolicyExhaustedError; the post-flight chain converts it to REJECT(reason="policy_exhausted").`
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
 9. `THE generator SHALL NOT introduce Citations in cited_evidence_refs that are absent from BlueprintRequest.grounding_refs; SPEC-05 cite-or-fail enforces the same invariant at post-flight.`
 
