@@ -1,7 +1,7 @@
 ---
 title: Node Interceptor Pipeline
 spec_id: SPEC-01
-status: Draft
+status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain

@@ -1,7 +1,7 @@
 ---
 title: KG and DataSource as Shared RuntimeServices
 spec_id: SPEC-02
-status: Draft
+status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain

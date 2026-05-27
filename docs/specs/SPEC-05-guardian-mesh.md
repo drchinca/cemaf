@@ -1,7 +1,7 @@
 ---
 title: Guardian Mesh — legitimacy, cite-or-fail, tool-verify, eval-halt, goal-completion
 spec_id: SPEC-05
-status: Draft
+status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain

@@ -1,7 +1,7 @@
 ---
 title: Enterprise Context Brain (umbrella)
 spec_id: SPEC-00
-status: Draft
+status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
 budget_override: "≤560 lines — umbrella spec owns the shared type registry referenced by SPEC-01..06 (incl. hoisted Claim, canonical MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
