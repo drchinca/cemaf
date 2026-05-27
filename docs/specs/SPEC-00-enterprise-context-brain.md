@@ -240,8 +240,9 @@ class InterceptorPhase(Enum):
 class JudgeDescriptor:
     judge_id: str                            # stable name, used as metric label (bounded ≤32; see §9)
     prompt_template_version: str             # semver-pinned, content-addressed in eval_pins/
-    model_id: str                             # e.g. "claude-haiku-4-5", "claude-sonnet-4-6"
+    model_id: str                             # MUST encode model + revision pin: "<family>@<YYYY-MM-DD>" (e.g. "claude-sonnet-4-6@2026-04-12"). The bare family form is NOT valid because point-release greedy tokens drift across silent provider revisions; baselines would be falsely attributed without the revision pin. Spec audit (§6) SHALL fail when any registered judge has a bare-family model_id without a revision suffix.
     decoding_params: "DecodingParams"         # canonical TypedDict — see §6 cassette schema
+    blueprint_compat: tuple[tuple[BlueprintID, str], ...] = ()   # (blueprint_id, semver-range) pairs the prompt template is validated against. Spec audit fails when a Blueprint's output_schema fields drift outside the declared compat range — closes the judge/schema drift hole where a blueprint adds a grounding_required field the judge prompt never asks about.
 
 # get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
 # Single source of truth so child specs cite the same signature.
@@ -360,6 +361,7 @@ This table is the single source of truth — child specs consume these.
 | `structured_generator` | `StructuredGenerator \| None` | SPEC-03 | Blueprint → typed result generator |
 | `meta_dispatcher` | `MetaDispatcher \| None` | SPEC-06 | Mid-run self-resolving recovery |
 | `meta_budget` | `MetaInvocationBudget` | SPEC-06 | Recursion bounds. **Default**: `MetaInvocationBudget()` (max_depth=2, max_token_total=50_000, max_wall_time_ms=30_000) — applied at dataclass construction so existing tenants do not need to know about the field to remain valid; meta_dispatcher=None still downgrades RECOVER(INVOKE_META_ARCHITECT) to REJECT(meta_unavailable) per SPEC-01 Inv 16. |
+| `eval_budget` | `TokenBudget` | SPEC-05 | Per-attempt cost cap for LLM-judge calls inside the chain (OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge). Judges SHALL debit this budget — NOT `task.budget_remaining` — so adversarial inputs that inflate judge prompts cannot exhaust the parent task's budget. **Default**: `TokenBudget(total=8_000, pull_tokens=0, generation_tokens=8_000, timeout_ms=15_000)`. Per-judge cap = `eval_budget.generation_tokens / max(1, services.online_eval_pipeline.size)`. Judges exceeding the per-judge cap SHALL truncate the prompt with a logged event `eval.judge_input_truncated`; on hard exhaustion the judge returns `score=0, level="budget_exhausted"` (counted in QualityPolice as a non-passing observation, NOT silently dropped). |
 
 `RuntimeServices` is a frozen dataclass; mutation is forbidden. Per-call
 state (e.g., active `ChainProfile` for a specific `DAGExecutor.run` call)
@@ -743,8 +745,26 @@ are part of the test contract.
 **Cassette path convention** (single source of truth — child specs inherit):
 `tests/fixtures/cassettes/<spec_id>/<judge_name>/<input_hash>.json` where
 `input_hash = sha256(canonical_json({prompt_template_version, model_id,
-decoding_params, input}))[:16]`. Missing cassette in CI fails the test loud,
-not silent regenerate. Cassettes are checked into git.
+decoding_params, judge_input_projection_version, input_projected}))[:16]`.
+Missing cassette in CI fails the test loud, not silent regenerate.
+Cassettes are checked into git.
+
+**Canonical judge input projection** (closes the timestamp/non-determinism
+gap). Raw judge inputs (`AgentResult`, `tuple[CiteableChunk, ...]`,
+`tuple[ToolCallOutput, ...]`) carry mutable fields like `Citation.retrieved_at`
+and `CiteableChunk.confidence` that drift across runs. Each judge SHALL
+declare a `judge_input_projection_version: str` and a pure projection
+function that:
+
+1. Drops `retrieved_at` (replay-irrelevant timestamps).
+2. Rounds `confidence` and any float to 4 decimals.
+3. Sorts tuples by stable keys (`Citation.citation_id`,
+   `CiteableChunk.chunk_id`, `ToolCallOutput.tool_name+arguments_hash`).
+4. Strips `metadata` keys not in a per-judge allowlist.
+
+The projection is itself a versioned artifact — bumping it invalidates
+every prior cassette under that judge, forcing deliberate re-record.
+Projection drift without version bump is a spec audit (§6) failure.
 
 **Cassette payload schema** (canonical, per-judge-type):
 

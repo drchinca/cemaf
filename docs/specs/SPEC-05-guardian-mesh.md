@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤650 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary is the integrity layer's single contract; splitting §10 fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
+budget_override: "≤700 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification)"
 ---
 
 # SPEC-05: Guardian Mesh
@@ -221,8 +221,18 @@ class OnlineEvalInterceptor(NodeInterceptor):
     `services.online_eval_pipeline.get(id)`. Empty tuple → no synchronous eval.
     Threshold mapping is the single source of truth in AlertLevel above; the
     rolling-window N=30 + z=−2.5 baseline is pinned at SPEC-05 §8 row
-    "QualityTrendMonitor" and SPEC-00 §8 (read-once at executor start; replay
-    cassettes capture (level, score, attempt_idx) tuples).
+    "QualityTrendMonitor" and SPEC-00 §8 (read-once at executor start).
+
+    Cassette payload SHALL carry (level, score, attempt_idx, attempt_kind)
+    where attempt_idx is the get_retry(task.retry_ledger, node.id) value at
+    decision time (0 for the first dispatch, 1 for first RECOVER re-dispatch,
+    ...). attempt_kind ∈ {"first", "retry_after_hints", "retry_after_meta"}
+    distinguishes:
+      - "first"               : attempt_idx == 0
+      - "retry_after_hints"   : attempt_idx > 0, prior RECOVER was
+                                RETRY_WITH_HINTS or RETRY_FRESH
+      - "retry_after_meta"    : attempt_idx > 0, prior RECOVER was
+                                INVOKE_META_ARCHITECT (SPEC-06 path)
     """
     interceptor_id = "online_eval"
     phase = InterceptorPhase.POST
@@ -293,6 +303,9 @@ class AuditInterceptor(NodeInterceptor):
 13. `THE AuditInterceptor SHALL NOT be subject to the SPEC-01 Inv 5 short-circuit — its PRE entry SHALL be emitted even when an earlier PRE interceptor REJECTED (Inv 8 above is the per-attempt completeness contract that depends on this).`
 14. `THE Executor SHALL NOT include AgentResult.unverified_claims in any downstream node's ctx.surfaced_sources — unverified_claims have no Citation and SHALL appear only in the originating AgentResult and in user-facing copy (rendered as "[unverified]"). Promotion of an unverified claim into a citable surface SHALL require a fresh PullInterceptor pass that produces a CiteableChunk with a real Citation.`
 15. `Retry budget escalation (closes infinite-loop hazard): WHEN CiteOrFailInterceptor or ToolOutputVerifierInterceptor would emit RECOVER(RETRY_WITH_HINTS), THE interceptor SHALL first check get_retry(task.retry_ledger, node.id). If the value < node.retry_budget, emit RECOVER (executor calls increment_retry per SPEC-04 Inv 11). If the value ≥ node.retry_budget, emit HALT(scope=TASK, reason="<original_reason>_exhausted") with the original reason string suffixed "_exhausted" (e.g. "non_member_citation_exhausted", "ungrounded_claim_exhausted", "tool_unverified_exhausted"). SPEC-05 §10 SHALL carry one user-copy row per *_exhausted reason.`
+16. `LLM-judge prompt-injection isolation. Every judge that consumes adversarial-controlled text (AgentResult.raw_text, AgentResult.output, ToolCallOutput.output, CiteableChunk.content) SHALL: (a) wrap untrusted segments in delimited envelopes — judge prompts use canonical XML-like markers <untrusted-input id="..."> ... </untrusted-input> with content-hash echo verification; (b) pass through services.judge_input_sanitizer (a deterministic regex+heuristic stripper for known directive patterns: "ignore previous", "system:", "</untrusted-input>", base64-encoded directives); (c) include the sanitizer version in the cassette key (judge_input_projection_version per SPEC-00 §7). Judges that consume CiteableChunk.content SHALL NOT trust citation_id selection from inside untrusted segments — judge_citations SHALL be re-validated against ctx.surfaced_sources by the Executor before recording the GoalCompletionResult. Closes the cite-or-fail bypass where an attacker emits "achieved=true, judge_citations=[<real_id>]" inside their output.`
+17. `LLM-judge token budget. OnlineEvalInterceptor, GoalCompletionInterceptor, ToolOutputVerifierInterceptor, and BlueprintInterceptor's policy judge SHALL debit services.eval_budget — NOT task.budget_remaining (SPEC-00 §"RuntimeServices additions"). Per-judge cap = eval_budget.generation_tokens / max(1, services.online_eval_pipeline.size). On per-judge cap exceedance, judges SHALL truncate the prompt input projection by dropping lowest-priority CiteableChunks first (SPEC-02 Inv 11 sort) and emit "eval.judge_input_truncated{judge_id,dropped_chunks}". On hard exhaustion, judges SHALL return score=0, level="budget_exhausted" — counted as a non-passing observation in QualityPolice (NOT silently dropped).`
+18. `OnlineEvalInterceptor rolling-window scoping (closes attempt mis-attribution): QualityPolice.record_score SHALL accept (node_id, score, attempt_kind) and bucket the rolling window separately by attempt_kind. The default N=30, z=−2.5 HALT trigger fires only on the "first" bucket; "retry_after_hints" and "retry_after_meta" maintain independent windows scored OBSERVE-only with separate metric labels (SPEC-05 §9 cemaf_eval_score{attempt_kind}). Mixed-bucket aggregation across attempt kinds is forbidden — prevents post-recovery scores from masking pre-recovery regressions.`
 
 ## 4. Acceptance Criteria (BDD)
 
