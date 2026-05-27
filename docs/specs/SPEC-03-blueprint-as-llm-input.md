@@ -309,8 +309,8 @@ All evaluators in this table are eval_kind=`guardian` unless explicitly marked `
 |---|---|---|---|---|---|
 | BlueprintResolutionEvaluator | every LLM node | GATE | resolved == true | deterministic | n/a |
 | SchemaConformanceEvaluator | nodes with output_schema | GATE | validation_errors == 0 | deterministic | n/a |
-| PolicyAdherenceEvaluator | every generative node | GATE | violations == 0 | hybrid | LLM judge prompt `prompts/policy_judge_v1.md`, model `claude-haiku-4-5`, temp=0 |
-| BlueprintEffectivenessEvaluator | per-blueprint cohort | OBSERVE | quality_score ≥ baseline from `cemaf/data/eval_pins/blueprint_baselines_vN.json` (versioned snapshot, refreshed only by explicit PR; absolute floor 0.6 if no entry) | LLM judge | judge `claude-sonnet-4-6` temp=0, prompt `prompts/blueprint_quality_v1.md` |
+| PolicyAdherenceEvaluator | every generative node | GATE | violations == 0 | hybrid | LLM judge prompt `prompts/policy_judge_v1.md`, model `claude-haiku-4-5@2026-04-12`, temp=0 |
+| BlueprintEffectivenessEvaluator | per-blueprint cohort | OBSERVE | quality_score ≥ baseline from `cemaf/data/eval_pins/blueprint_baselines_vN.json` (versioned snapshot, refreshed only by explicit PR; absolute floor 0.6 if no entry) | LLM judge | judge `claude-haiku-4-5@2026-04-12` (cross-family from default agent per SPEC-05 Inv 23) temp=0, prompt `prompts/blueprint_quality_v1.md` |
 
 Baselines and prompts are versioned artifacts under `cemaf/data/eval_pins/`.
 

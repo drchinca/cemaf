@@ -207,7 +207,7 @@ class ToolOutputVerifierInterceptor(NodeInterceptor):
     reason="schema_mismatch".
 
     LLM-judge plausibility check (pinned `prompts/tool_verify_v1.md`,
-    `claude-haiku-4-5`, temp=0) runs only on outputs that pass schema
+    `claude-haiku-4-5@2026-04-12`, temp=0) runs only on outputs that pass schema
     validation, scoring fabrication likelihood.
 
     RECOVER(RETRY_WITH_HINTS, reason="tool_unverified") on failure; budget
@@ -493,8 +493,9 @@ Feature: Guardian mesh
     And judge_citations are re-validated against ctx.surfaced_sources after the judge returns
 
   Scenario: Judge per-cap truncation logs and drops chunks
-    Given eval_budget.generation_tokens = 8000 and online_eval_pipeline.size = 4
+    Given eval_budget.generation_tokens = 8000 and count_active_judge_sites(node) = 4
     When a judge prompt would exceed 2000 tokens (8000/4)
+    And the cassette payload records denom_judge_sites = 4
     Then the lowest-priority CiteableChunks are dropped per SPEC-02 Inv 11 sort
     And eval.judge_input_truncated is logged with dropped_chunk_ids
     And the cassette payload records truncation_applied=True
@@ -609,11 +610,11 @@ LLM-judge evaluators are fully pinned. Prompts and corpora live under
 | GoalCompletionEvaluator (calibration regression) | terminal node | GATE | guardian | judge_agreement_rate ≥ baseline − 2pp on pinned calibration corpus (Inv 24) | deterministic replay | baseline `cemaf/data/eval_pins/goal_completion_baseline.json`, corpus `cemaf/data/eval_pins/goal_completion_calibration_v1.jsonl` |
 | QualityTrendMonitor (SLO rollback) | per-Task | GATE | guardian | When `cemaf_eval_halts_total{evaluator='QualityTrendMonitor'}` rate exceeds the `halt_rate_threshold` declared in `cemaf/data/eval_pins/slo/quality_trend_monitor.yaml` (default 0.05/min over 5min window), deployment automation SHALL roll back to the prior revision pin. Threshold and window are encoded in the SLO file (per SPEC-00 §8 GATE evaluator SLOs). | deterministic | SLO file `cemaf/data/eval_pins/slo/quality_trend_monitor.yaml` |
 | LegitimacyEvaluator | every node (pre) | GATE | guardian | authorized == true | deterministic (rule-based AuthorizationPolicy) | n/a |
-| HallucinationProbe | every generative node | OBSERVE (always — gating happens via per-PR diff against pinned baseline JSON, not via runtime mode flip) | online | rate ≤ 0.02 with Wilson 95% CI upper bound on labeled corpus; PR-time check fails when current rate regresses beyond baseline + 0.5pp | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans — landing this fixture is a precondition for SPEC-05 implementation start), prompt `prompts/halluc_judge_v1.md`, model `claude-sonnet-4-6`, temp=0; baseline JSON `cemaf/data/eval_pins/halluc_baseline.json` updated by explicit PR only |
+| HallucinationProbe | every generative node | OBSERVE (always — gating happens via per-PR diff against pinned baseline JSON, not via runtime mode flip) | online | rate ≤ 0.02 with Wilson 95% CI upper bound on labeled corpus; PR-time check fails when current rate regresses beyond baseline + 0.5pp | LLM judge | corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 labeled spans — landing this fixture is a precondition for SPEC-05 implementation start), prompt `prompts/halluc_judge_v1.md`, model `claude-haiku-4-5@2026-04-12` (cross-family from default agent claude-sonnet-4-6 per Inv 23), temp=0; baseline JSON `cemaf/data/eval_pins/halluc_baseline.json` updated by explicit PR only |
 | QualityTrendMonitor | per-Task | GATE | guardian | no HALT alert | deterministic z-score (QualityPolice rolling window) | window 30 nodes, z=−2.5 ⇒ HALT |
 | AuditCompletenessEvaluator | every node | GATE | audit | entries == expected_for_status (2 for ACCEPTED, 1 for pre-rejected, 2 otherwise) | deterministic | n/a |
 | RecoveryBoundEvaluator | every node | GATE | repository | retry_ledger[node_id] ≤ retry_budget | deterministic | n/a |
-| ToolOutputVerifierEvaluator | every node consuming tool output | GATE | guardian | unverified == 0 | hybrid | LLM judge prompt `prompts/tool_verify_v1.md`, model `claude-haiku-4-5`, temp=0; deterministic schema check |
+| ToolOutputVerifierEvaluator | every node consuming tool output | GATE | guardian | unverified == 0 | hybrid | LLM judge prompt `prompts/tool_verify_v1.md`, model `claude-haiku-4-5@2026-04-12`, temp=0; deterministic schema check |
 
 ### Hallucination measurement protocol
 
@@ -671,7 +672,7 @@ unverified ContextPatch entry — are out of scope for §10 copy coverage. They
 remain auditable via the AuditEntry stream but do not require user-facing
 copy. The audit script SHALL exclude any reason string declared in the
 allowlist `scripts/spec_audit.allowlist.txt` from the §10 comparison;
-`patch_unverified_promotion` is the canonical entry in that allowlist.
+`patch_unverified_promotion` and `tool_output_unverified_promotion` (SPEC-05 §3 Inv 22, parallel executor-internal drop reason) are the canonical entries in that allowlist.
 
 | Reason | Human message | Suggested next action |
 |---|---|---|
