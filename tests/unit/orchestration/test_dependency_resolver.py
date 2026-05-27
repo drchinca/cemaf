@@ -74,14 +74,18 @@ class TestDependencyResolver:
         assert resolved["items"][1] == "static"
 
     def test_resolve_missing_placeholder(self):
-        """Test handling missing placeholder in context."""
+        """Missing placeholder resolves to None — lets Pydantic defaults kick in.
+
+        Before: kept the raw $$STEP_1_OUTPUT$$ string which would then fail
+        Pydantic validation on downstream goal construction. None is the
+        signal to _build_goal to use the field's default value.
+        """
         context = Context(data={})
         input_params = {"blueprint": "$$STEP_1_OUTPUT$$"}
 
         resolved = resolve_dependencies(input_params, context)
 
-        # Should keep placeholder if not found
-        assert resolved["blueprint"] == "$$STEP_1_OUTPUT$$"
+        assert resolved["blueprint"] is None
 
     def test_resolve_no_placeholders(self):
         """Test resolving input with no placeholders."""

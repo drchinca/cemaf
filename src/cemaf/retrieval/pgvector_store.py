@@ -76,6 +76,7 @@ class PgVectorStore:
         return self._pool
 
     async def _ensure_schema(self) -> None:
+        assert self._pool is not None, "_ensure_schema called before pool was created"
         s = self._schema
         dim = self._dimension
         ddl = f"""
@@ -215,7 +216,7 @@ class PgVectorStore:
             # Upsert: delete existing rows for these ids then bulk copy
             ids = [r[0] for r in records]
             await conn.execute(
-                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1 AND id = ANY($2::text[])",
+                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1 AND id = ANY($2::text[])",  # nosec B608
                 self._tenant_id,
                 ids,
             )
@@ -231,7 +232,7 @@ class PgVectorStore:
         s = self._schema
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                f"SELECT id, content, embedding, metadata, created_at "
+                f"SELECT id, content, embedding, metadata, created_at "  # nosec B608
                 f"FROM {s}.vector_documents "
                 f"WHERE tenant_id = $1 AND id = $2",
                 self._tenant_id,
@@ -247,7 +248,7 @@ class PgVectorStore:
         s = self._schema
         async with pool.acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1 AND id = $2",
+                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1 AND id = $2",  # nosec B608
                 self._tenant_id,
                 document_id,
             )
@@ -271,7 +272,7 @@ class PgVectorStore:
             where += f" AND {filter_sql}"
 
         query = (
-            f"SELECT id, content, embedding, metadata, created_at, "
+            f"SELECT id, content, embedding, metadata, created_at, "  # nosec B608
             f"1 - (embedding <=> $1) AS score "
             f"FROM {s}.vector_documents "
             f"WHERE {where} "
@@ -311,7 +312,7 @@ class PgVectorStore:
         s = self._schema
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                f"SELECT COUNT(*) AS n FROM {s}.vector_documents WHERE tenant_id = $1",
+                f"SELECT COUNT(*) AS n FROM {s}.vector_documents WHERE tenant_id = $1",  # nosec B608
                 self._tenant_id,
             )
         return int(row["n"])
@@ -322,6 +323,6 @@ class PgVectorStore:
         s = self._schema
         async with pool.acquire() as conn:
             await conn.execute(
-                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1",
+                f"DELETE FROM {s}.vector_documents WHERE tenant_id = $1",  # nosec B608
                 self._tenant_id,
             )

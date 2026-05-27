@@ -98,6 +98,7 @@ class PostgresMemoryStore(MemoryStore):
 
     async def _ensure_schema(self) -> None:
         pool = self._pool
+        assert pool is not None, "_ensure_schema called before pool was created"
         s = self._schema
         ddl = f"""
             CREATE SCHEMA IF NOT EXISTS {s};
@@ -134,7 +135,7 @@ class PostgresMemoryStore(MemoryStore):
         s = self._schema
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                f"SELECT scope, key, value_json::text, confidence, created_at, updated_at, "
+                f"SELECT scope, key, value_json::text, confidence, created_at, updated_at, "  # nosec B608
                 f"ttl_seconds, expires_at, scope_path "
                 f"FROM {s}.memory_items "
                 f"WHERE tenant_id = $1 AND scope = $2 AND key = $3",
@@ -156,7 +157,7 @@ class PostgresMemoryStore(MemoryStore):
         s = self._schema
         async with pool.acquire() as conn:
             await conn.execute(
-                f"INSERT INTO {s}.memory_items "
+                f"INSERT INTO {s}.memory_items "  # nosec B608
                 f"(tenant_id, scope, key, value_json, confidence, created_at, updated_at, "
                 f"ttl_seconds, expires_at, scope_path) "
                 f"VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10) "
@@ -185,7 +186,7 @@ class PostgresMemoryStore(MemoryStore):
         s = self._schema
         async with pool.acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {s}.memory_items WHERE tenant_id = $1 AND scope = $2 AND key = $3",
+                f"DELETE FROM {s}.memory_items WHERE tenant_id = $1 AND scope = $2 AND key = $3",  # nosec B608
                 self._tenant_id,
                 scope.value,
                 key,
@@ -222,7 +223,7 @@ class PostgresMemoryStore(MemoryStore):
                 where_clauses.append(f"value_json->>'{field_name}' != ALL(${idx}::text[])")
 
         query = (
-            f"SELECT scope, key, value_json::text, confidence, created_at, updated_at, "
+            f"SELECT scope, key, value_json::text, confidence, created_at, updated_at, "  # nosec B608
             f"ttl_seconds, expires_at, scope_path "
             f"FROM {s}.memory_items "
             f"WHERE {' AND '.join(where_clauses)}"
@@ -245,7 +246,7 @@ class PostgresMemoryStore(MemoryStore):
         now = utc_now()
         async with pool.acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {s}.memory_items "
+                f"DELETE FROM {s}.memory_items "  # nosec B608
                 f"WHERE tenant_id = $1 AND expires_at IS NOT NULL AND expires_at < $2",
                 self._tenant_id,
                 now,

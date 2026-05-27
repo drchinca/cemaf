@@ -281,7 +281,7 @@ class BlueprintBuilder:
             Self for method chaining.
         """
         self._execution_policy = ExecutionPolicy(
-            incremental_strategy=incremental_strategy,  # type: ignore
+            incremental_strategy=incremental_strategy,
             incremental_field=incremental_field,
             checkpoint_location=checkpoint_location,
             idempotency_key=idempotency_key,
@@ -320,9 +320,9 @@ class BlueprintBuilder:
         """
         self._security_policy = SecurityPolicy(
             pii_fields=pii_fields,
-            encryption=encryption,  # type: ignore
+            encryption=encryption,
             secret_rotation=secret_rotation,
-            secret_provider=secret_provider,  # type: ignore
+            secret_provider=secret_provider,
             secret_rotation_days=secret_rotation_days,
             compliance_frameworks=compliance_frameworks,
             metadata=dict(metadata),

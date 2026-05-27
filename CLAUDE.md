@@ -4,6 +4,8 @@
 
 CEMAF is a **protocol-first, multi-agent orchestration framework** for context engineering. It has two layers:
 
+> **Target architecture**: SPEC-00..06 (`docs/specs/SPEC-00-enterprise-context-brain.md` and siblings) define the Enterprise Context Brain — the umbrella architecture this codebase is converging toward (interceptor pipeline, datasource registry, blueprint-as-LLM-input, task state machine, guardian mesh, self-resolving DAG). For where each spec concept lands in the codebase and the phased build-out, see [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
+
 ### Layer 1: Base Framework (the engine)
 
 The base framework provides composable primitives for building multi-agent systems. Every integration point is a `@runtime_checkable` Protocol — bring your own LLM, vector store, memory backend, etc.
@@ -226,7 +228,7 @@ return Result.fail(error="Rate limit exceeded")
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `llm` | LLMClient protocol, Anthropic adapter, resilient wrapper | `protocols.py`, `anthropic.py`, `resilient.py`, `factories.py` |
+| `llm` | LLMClient protocol, Anthropic / OpenAI-compat / Ollama adapters, resilient wrapper, complexity-based ModelRouter | `protocols.py`, `anthropic.py`, `openai_compat.py`, `ollama.py`, `resilient.py`, `model_router.py`, `factories.py` |
 | `mcp` | Model Context Protocol bridges and adapter | `bridges/`, `adapter.py` |
 | `generation` | Content generation strategies | `base.py`, `protocols.py` |
 | `streaming` | Streaming response handling | `base.py`, `protocols.py` |

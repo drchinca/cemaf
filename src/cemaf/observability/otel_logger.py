@@ -61,8 +61,11 @@ class OTelLogger:
 
             # Attach current span context if available
             span_ctx = trace.get_current_span().get_span_context()
-            self._otel_logger.emit(
-                self._otel_logger.create_log_record(
+            otel_logger = self._otel_logger
+            if otel_logger is None:
+                return
+            otel_logger.emit(
+                otel_logger.create_log_record(
                     body=body,
                     severity_number=severity,
                     attributes={k: str(v) for k, v in attributes.items()},
