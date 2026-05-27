@@ -220,6 +220,8 @@ class ToolOutputVerifierInterceptor(NodeInterceptor):
 ### Online eval + halt
 
 ```python
+from enum import Enum
+
 class AlertLevel(Enum):
     OK    = "ok"      # rolling-window mean ≥ baseline_mean − 1·σ
     WARN  = "warn"    # within (baseline_mean − 2.5·σ, baseline_mean − 1·σ)

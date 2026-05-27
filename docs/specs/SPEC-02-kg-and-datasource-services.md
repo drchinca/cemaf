@@ -33,6 +33,7 @@ Common types in SPEC-00 §2 (`Citation`, `CiteableChunk`, `TokenBudget`).
 from typing import ClassVar, Protocol, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 
 class DataSourceCapability(Enum):
     READ      = "read"

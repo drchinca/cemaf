@@ -38,6 +38,7 @@ CEMAF `tools/` layer (CLAUDE.md "Module Map → Agent System").
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 from pydantic import BaseModel
 from cemaf.tools import ToolSchema, ToolRegistry           # tools/base.py, tools/registry.py
 
