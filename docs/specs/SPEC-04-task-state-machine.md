@@ -61,10 +61,19 @@ class TaskState(Enum):
     COMPLETED = "completed"
     HALTED    = "halted"
 
+class DecisionKind(Enum):
+    """Outcome class of a post-flight decision — used by Inv 16 windowing
+    and SPEC-06 Inv 16 projection to retain HALT/REJECT entries preferentially."""
+    ACCEPT  = "accept"
+    REJECT  = "reject"
+    RECOVER = "recover"
+    HALT    = "halt"
+
 @dataclass(frozen=True, slots=True)
 class Decision:
     """A material choice or output from a prior step worth carrying forward."""
     node_id: NodeID
+    kind: DecisionKind                             # mirrors PostflightDecision.kind on the attempt that produced this entry; populated by the executor when appending to Task.prior_decisions
     summary: str                                   # one-liner
     cited_evidence_refs: tuple[Citation, ...]
     at: datetime
@@ -191,7 +200,7 @@ from `task_id`. Bootstrap composition: `RuntimeServices.task_repository`.
 13. `WHEN a PostflightDecision is RECOVER(INVOKE_META_ARCHITECT), THE Executor SHALL call increment_retry(task_id, node_id) BEFORE invoking MetaDispatcher.dispatch (SPEC-06). Combined with Inv 11, the meta sub-DAG observes the incremented attempt counter via task.retry_ledger from its first node, so nested recoveries see correct attempt accounting.`
 14. `task.correlation_id (per-task, assigned at create()) and ctx.correlation_id (per-attempt, assigned by DAGExecutor at node dispatch — SPEC-00 §2) are intentionally distinct scopes. Audit and recovery references resolve as follows: SPEC-05 §3 attempt-level audit SHALL use ctx.correlation_id; SPEC-06 §3 Inv 6 parent_correlation_id SHALL be the parent attempt's ctx.correlation_id (NOT task.correlation_id). On resume across PAUSED→RUNNING, task.correlation_id persists; new attempts mint fresh ctx.correlation_id. Every AuditEntry SHALL carry both fields explicitly so query paths over either are deterministic.`
 15. `WHEN a holder calls TaskRepository.release(token) OR TaskRepository.transition(token=...) AFTER the lease has expired (Inv 12) and a new holder has acquired, THE Repository SHALL raise StaleLeaseError and SHALL NOT mutate Task state. Detection: every release/transition call carries the original AcquireToken; the repository compares the persisted current_holder_id against token.holder_id and raises if they differ. This closes the multi-pod race where holder A's lease expires, holder B acquires, then A's slow callback writes — A's write is discarded with a logged event "task.stale_lease_write".`
-16. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority: HALT-relevant > terminal-relevant (REJECT/RECOVER) > recent ACCEPTs. Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed. Closes the long-horizon-task ballooning hazard (CE rule RULE CE-1: token budgets are first-class invariants).`
+16. `TaskContext.prior_decisions injected by TaskInjectInterceptor SHALL be windowed to the most-recent PRIOR_DECISIONS_INJECT_WINDOW (default 32) entries before injection — older entries remain in Task.prior_decisions for audit/replay but are NOT shipped to per-node chains. Window retention priority by Decision.kind: HALT > REJECT > RECOVER > ACCEPT (within the window cap; entries outside the window are kept only when retention upgrades them). Persistent storage (Task aggregate) is unbounded; only the per-node injection is windowed. Closes the long-horizon-task ballooning hazard (CE rule RULE CE-1: token budgets are first-class invariants).`
 17. `TaskContext.retry_ledger injected by TaskInjectInterceptor SHALL be filtered to entries where get_retry > 0 — nodes never retried do not occupy injection slots. Persistent Task.retry_ledger is unfiltered for audit determinism.`
 
 ## 4. Acceptance Criteria (BDD)

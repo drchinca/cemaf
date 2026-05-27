@@ -95,6 +95,7 @@ class RecoveryHint:
     code: str                         # "ungrounded_claim", "schema_failed", ...
     detail: str                       # human-readable
     suggested_action: str             # "cite source X", "re-pull KG entity Y"
+    citations: tuple[Citation, ...] = ()   # OPTIONAL — references to surfaced sources the hint draws from. Consumed by SPEC-06 Inv 16 to widen RecoveryRequest.surfaced_sources beyond the failing node's cited_evidence_refs.
 
 @dataclass(frozen=True, slots=True)
 class PreflightDecision:
