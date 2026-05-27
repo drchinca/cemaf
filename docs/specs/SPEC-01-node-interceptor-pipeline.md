@@ -116,8 +116,23 @@ class PostflightDecision:
     recovery_strategy: RecoveryStrategy | None = None   # required when kind == RECOVER
     recovery_hints: tuple[RecoveryHint, ...] = ()
     halt_scope: HaltScope | None = None                 # required when kind == HALT
-    derived_unverified_claims: tuple[Claim, ...] = ()   # Claim type from SPEC-00 §2; set by CiteOrFailInterceptor under GroundingPolicy.BEST_EFFORT. Per Inv 6 the Executor merges these into NodeOutcome.result.unverified_claims; per SPEC-05 Inv 14 they are NOT promoted to downstream surfaced_sources.
+    derived_unverified_claims: tuple[Claim, ...] = ()   # see "Executor merge semantics" below
 ```
+
+#### Executor merge semantics for derived fields
+
+`PostflightDecision.derived_unverified_claims` (Claim type defined in SPEC-00 §2)
+is set by `CiteOrFailInterceptor` when `node.grounding == BEST_EFFORT` and
+ungrounded claims appear. Its lifecycle:
+
+1. The interceptor returns ACCEPT with this tuple populated (it does not
+   mutate the agent's `AgentResult` — Inv 6 forbids in-place mutation).
+2. The Executor builds a NEW `AgentResult` via `dataclasses.replace`, merging
+   `derived_unverified_claims` into `result.unverified_claims`.
+3. The merged result becomes the canonical `NodeOutcome.result`.
+4. Per SPEC-05 Inv 14, these claims are NOT promoted into downstream
+   `ctx.surfaced_sources` — they have no Citation and surface only as
+   user-facing `[unverified]` copy.
 
 ### NodeInterceptor — abstract base, not bare Protocol
 
@@ -238,7 +253,11 @@ class NodeOutcome:
 3. `THE chain SHALL run interceptors in the order specified by ChainConfig; the order is observable on every NodeOutcome.`
 4. `Every PreflightDecision and PostflightDecision SHALL carry interceptor_id and correlation_id.`
 5. `WHEN an interceptor raises an exception, THE chain SHALL convert it to REJECT(reason="<id>:exception:<class>") and emit an audit entry; subsequent NON-AUDIT interceptors in the same phase SHALL NOT run, BUT THE audit interceptor SHALL still emit its phase entry.`
-6. `AgentResult immutability + executor-side construction: WHILE in PRE phase, an interceptor SHALL NOT mutate the AgentResult; WHILE in POST phase, an interceptor SHALL NOT re-issue the agent NOR mutate the existing AgentResult. The Executor MAY (and, when a PostflightDecision.kind == ACCEPT carries derived fields like unverified_claims per SPEC-05 §2, SHALL) construct a NEW AgentResult merging those fields with the agent-emitted result, and persist that as NodeOutcome.result; the agent-emitted AgentResult SHALL remain unchanged in audit storage.`
+6. `AgentResult immutability + executor-side construction. Four sub-rules, each independently testable:
+   - 6a. WHILE in PRE phase, an interceptor SHALL NOT touch AgentResult (it does not exist yet).
+   - 6b. WHILE in POST phase, an interceptor SHALL NOT re-issue the agent.
+   - 6c. WHILE in POST phase, an interceptor SHALL NOT mutate the existing AgentResult in place.
+   - 6d. WHEN a PostflightDecision.kind == ACCEPT carries derived fields (e.g. derived_unverified_claims under GroundingPolicy.BEST_EFFORT per SPEC-05 §2), THE Executor SHALL construct a NEW AgentResult via dataclasses.replace merging those fields with the agent-emitted result, and persist that as NodeOutcome.result; the agent-emitted AgentResult SHALL remain unchanged in audit storage.`
 7. `IF an interceptor declares phase=PRE, THEN only its pre() is invoked. IF phase=POST, only post(). IF phase=BOTH, both.`
 8. `THE chain SHALL be deterministic: same inputs (including services_snapshot + RNG seed) produce the same decision sequence (replay-safe). LLM-judge interceptors satisfy this via cassettes per SPEC-00 Property 6.`
 9. `An interceptor SHALL NOT depend on a later interceptor's output (no forward references).`

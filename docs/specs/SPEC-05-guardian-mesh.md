@@ -276,7 +276,11 @@ class AuditInterceptor(NodeInterceptor):
 
 1. `WHEN AuthorizationPolicy.authorize returns authorized=False, THE LegitimacyInterceptor SHALL emit REJECT(reason="out_of_scope:<denied_scope>") and the agent SHALL NOT be invoked.`
 2. `WHEN any element of result.cited_evidence_refs ∉ {c.citation for c in ctx.surfaced_sources}, THE CiteOrFailInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="non_member_citation") subject to Inv 15 budget escalation (which converts RECOVER → HALT once the retry ledger reaches node.retry_budget).`
-3. `WHEN node.grounding == REQUIRED AND ClaimExtractor.extract yields a Claim with citations==(), THE CiteOrFailInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="ungrounded_claim") subject to Inv 15 budget escalation. WHEN node.grounding == BEST_EFFORT AND ungrounded claims exist, THE CiteOrFailInterceptor SHALL ACCEPT and the executor SHALL persist a derived AgentResult whose unverified_claims tuple includes those claims; user-facing surfaces SHALL render them as "[unverified]". WHEN node.grounding ∈ {OPTIONAL, DISABLED}, ungrounded claims SHALL NOT trigger any decision change.`
+3. `Grounding-policy decision matrix for ungrounded Claims. Four sub-rules, each independently testable:
+   - 3a. WHEN node.grounding == REQUIRED AND ClaimExtractor.extract yields a Claim with citations==(), THE CiteOrFailInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="ungrounded_claim") subject to Inv 15 budget escalation.
+   - 3b. WHEN node.grounding == BEST_EFFORT AND ungrounded claims exist, THE CiteOrFailInterceptor SHALL ACCEPT and PostflightDecision.derived_unverified_claims SHALL include those claims (executor merges per SPEC-01 Inv 6d); user-facing surfaces render them as "[unverified]".
+   - 3c. WHEN node.grounding == OPTIONAL, ungrounded claims SHALL NOT trigger any decision change.
+   - 3d. WHEN node.grounding == DISABLED, ClaimExtractor SHALL NOT be invoked at all.`
 4. `WHEN ToolOutputVerifier.verify returns verified=False, THE ToolOutputVerifierInterceptor SHALL emit RECOVER(RETRY_WITH_HINTS, reason="tool_unverified") subject to Inv 15 budget escalation.`
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True.`
