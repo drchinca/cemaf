@@ -4,7 +4,7 @@ spec_id: SPEC-00
 status: Reviewed
 last_reviewed: 2026-05-27
 owner: drchinca
-budget_override: "≤700 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
+budget_override: "≤770 lines — umbrella spec owns the shared type registry, canonical DAGExecutor.run signature, bootstrap composition root, concurrency contract, startup-error owner, and readiness/health contract referenced by SPEC-01..06 (incl. hoisted Claim, canonical Mapping/MappingProxyType pattern, OTel-Span-Links/traceparent rules, evaluator-label cap, drain-then-dispatch barrier, ReadinessReport); splitting fragments cross-spec invariants (rules/context-engineering.md permits override with justification)"
 derives:
   - SPEC-01 — Node interceptor pipeline
   - SPEC-02 — KG + DataSource as shared RuntimeServices
@@ -95,7 +95,7 @@ These types are referenced by every child spec. Child specs may extend them but
 SHALL NOT redefine them.
 
 ```python
-from typing import NewType, Protocol, runtime_checkable
+from typing import ClassVar, NewType, Protocol, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -226,6 +226,25 @@ class InterceptorPhase(Enum):
 # TaskState lives in SPEC-04 §2 (single source of truth). Listed here only as
 # a forward-referenced symbol for completeness of the umbrella common-types
 # block — do NOT redefine the enum body.
+
+# JudgeDescriptor — referenced by §6 spec audit's discovery surface
+# (OnlineEvalPipeline.list_judges). Owned here to avoid a layer inversion;
+# SPEC-05 OnlineEvalInterceptor consumes it without redefining.
+@dataclass(frozen=True, slots=True)
+class JudgeDescriptor:
+    judge_id: str                            # stable name, used as metric label (bounded ≤32; see §9)
+    prompt_template_version: str             # semver-pinned, content-addressed in eval_pins/
+    model_id: str                             # e.g. "claude-haiku-4-5", "claude-sonnet-4-6"
+    decoding_params: "DecodingParams"         # canonical TypedDict — see §6 cassette schema
+
+# get_retry helper — consumed by SPEC-04 Inv 10/11 and SPEC-05 Inv 3a/3b/15.
+# Single source of truth so child specs cite the same signature.
+def get_retry(ledger: tuple[tuple[NodeID, int], ...], node_id: NodeID) -> int:
+    """Return current attempt count for node_id in retry_ledger, 0 if absent."""
+    for nid, count in ledger:
+        if nid == node_id:
+            return count
+    return 0
 ```
 
 ### Cross-cutting seams
@@ -257,14 +276,28 @@ spec named in each row.
 #                              run via patches with source="meta:<sub_dag_id>".
 
 # Context extensions — owned by this umbrella so child specs do not redefine.
-# Both fields are required at construction time once the chain runs:
-#   Context.correlation_id   : CorrelationID  — assigned by DAGExecutor at node
-#                              dispatch; threaded into every PreflightDecision /
-#                              PostflightDecision and AuditEntry of the attempt.
-#   Context.surfaced_sources : tuple[CiteableChunk, ...] — populated by the
-#                              PullInterceptor (SPEC-02) before BlueprintInterceptor;
-#                              the canonical membership set for SPEC-05 cite-or-fail.
-#                              Defaults to () pre-PullInterceptor.
+# Both fields are added with defaults to preserve backwards-compatibility with
+# every existing `Context(...)` constructor in the codebase; the chain SHALL
+# assign concrete values before dispatch (see §3 Inv 8 and SPEC-01 Inv 6c):
+#   Context.correlation_id   : CorrelationID | None = None
+#                              — assigned by DAGExecutor at node dispatch;
+#                              threaded into every Pre/PostflightDecision and
+#                              AuditEntry of the attempt. None ONLY pre-dispatch.
+#   Context.surfaced_sources : tuple[CiteableChunk, ...] = ()
+#                              — populated by PullInterceptor (SPEC-02) before
+#                              BlueprintInterceptor; canonical membership set
+#                              for SPEC-05 cite-or-fail. () pre-PullInterceptor.
+
+# DAG consumed surface — declared here so SPEC-01 Inv 6e and SPEC-05
+# ToolOutputVerifier resolve without forward-referencing implementation:
+#   class DAG (Protocol, runtime_checkable):
+#       dag_id: DAGID
+#       def successors(self, node_id: NodeID) -> tuple[NodeID, ...]: ...
+#       def predecessors(self, node_id: NodeID) -> tuple[NodeID, ...]: ...
+#       def get_node(self, node_id: NodeID) -> DAGNode: ...
+#       def topological_order(self) -> tuple[NodeID, ...]: ...
+# Existing orchestration/dag.py::DAG SHALL satisfy this protocol structurally;
+# additions to that protocol require a SPEC-00 amendment.
 #
 # Mutable-collection fields on frozen dataclasses SHALL be:
 #   (a) annotated as `Mapping[K, V]` (NOT `dict[K, V]`) — `dict[...]` would

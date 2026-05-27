@@ -33,10 +33,12 @@ as the typed call shape.
 Common types in SPEC-00 §2 (`Goal`, `AgentResult`, `Citation`, `BlueprintID`).
 
 ```python
-from typing import Protocol, runtime_checkable
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 @dataclass(frozen=True, slots=True)
 class GoalSpec:
@@ -58,22 +60,24 @@ class PolicySpec:
     description: str
 
 @dataclass(frozen=True, slots=True)
-class BlueprintRequest:
-    """The structured LLM request derived from a Blueprint."""
+class BlueprintRequest(Generic[T]):
+    """The structured LLM request derived from a Blueprint.
+    Generic in T: BaseModel so callers get typed access to StructuredResult.output.
+    Untyped sites use BlueprintRequest[BaseModel]."""
     blueprint_id: BlueprintID
     blueprint_version: str
     goal: GoalSpec
     entities: tuple[EntityRef, ...]                  # informational — SPEC-02 PullInterceptor extracts entities from goal.text; BlueprintRequest.entities does NOT feed retrieval. This is intentional (Pull runs at PRE position 2, Blueprint at position 3); declare any required entities in goal.metadata for upstream extraction.
     style: StyleSpec
     policies: tuple[PolicySpec, ...]
-    output_schema: type[BaseModel] | None           # see "Grounding annotation policy" below
+    output_schema: type[T] | None                    # see "Grounding annotation policy" below
     grounding_refs: tuple[Citation, ...]            # derived from ctx.surfaced_sources
     policy_retry_budget: int = 2                     # consumed by StructuredGenerator (Inv 7)
     metadata: Mapping[str, str] = field(default_factory=dict)   # Mapping per SPEC-00 §2 canonical wrap pattern
 
 @dataclass(frozen=True, slots=True)
-class StructuredResult:
-    output: BaseModel | None                        # validated when output_schema is set
+class StructuredResult(Generic[T]):
+    output: T | None                                 # validated when output_schema is set; typed to the schema
     raw_text: str
     cited_evidence_refs: tuple[Citation, ...]
     blueprint_id: BlueprintID
@@ -83,6 +87,9 @@ class StructuredResult:
 class BlueprintLibrary(Protocol):
     def get(self, blueprint_id: BlueprintID, *, version: str | None = None) -> Blueprint: ...
     def list_for_capability(self, capability: str) -> tuple[Blueprint, ...]: ...
+    def list_all(self) -> tuple[Blueprint, ...]:
+        """Enumerate every registered (blueprint_id, version) pair.
+        Consumed by SPEC-00 §6 spec audit; cardinality cap ≤200 per §9."""
     def resolve_for_node(self, *, node: DAGNode, goal: Goal) -> Blueprint | None:
         """Resolution policy: explicit node.blueprint_id > capability match > None."""
 
@@ -102,7 +109,7 @@ class BlueprintInterceptor(NodeInterceptor):
     phase = InterceptorPhase.PRE
 
 class StructuredGenerator(Protocol):
-    async def generate(self, *, request: BlueprintRequest, client: LLMClient) -> StructuredResult: ...
+    async def generate(self, *, request: BlueprintRequest[T], client: LLMClient) -> StructuredResult[T]: ...
 ```
 
 ### Grounding annotation policy

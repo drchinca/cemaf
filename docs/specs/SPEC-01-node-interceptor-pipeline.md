@@ -53,7 +53,7 @@ Common types (`Goal`, `AgentResult`, `DAGNode`, `TokenBudget`, `Citation`,
 references them.
 
 ```python
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 from dataclasses import dataclass, field
 from abc import ABC
 from enum import Enum
@@ -147,35 +147,35 @@ by the chain assembler. The required-attribute enforcement (Inv 15) lives in
 class-level `ClassVar`s, not methods.
 
 ```python
-from typing import ClassVar
-
 class NodeInterceptor(ABC):
-    interceptor_id: ClassVar[str]       # required class attribute on every subclass
-    phase: ClassVar[InterceptorPhase]   # required class attribute on every subclass
-    display_name: ClassVar[str]         # required, ≤30 chars, human-readable; per Inv 15
+    # Sentinel defaults satisfy strict pyright/mypy (ClassVar[str] cannot be
+    # uninitialized on a non-abstract attribute) without weakening the runtime
+    # guard: empty-string / None sentinels are rejected by __init_subclass__
+    # so any concrete subclass MUST overwrite all three.
+    interceptor_id: ClassVar[str] = ""
+    phase: ClassVar[InterceptorPhase | None] = None
+    display_name: ClassVar[str] = ""
 
     def __init__(self) -> None:
         """Block direct instantiation of the abstract base. ABC alone does not
         prevent instantiation when no method is decorated @abstractmethod;
-        pre()/post() carry default ACCEPT bodies and cannot be abstract. This
-        guard short-circuits `NodeInterceptor()` so the AttributeError on
-        self.interceptor_id never surfaces from the default methods."""
+        pre()/post() carry default ACCEPT bodies and cannot be abstract."""
         if type(self) is NodeInterceptor:
             raise TypeError("NodeInterceptor is abstract; subclass and assign "
                             "interceptor_id/phase/display_name")
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Runtime guard: subclasses without interceptor_id/phase/display_name fail
-        at class creation rather than at first dispatch. Uses cls.__dict__ rather
-        than getattr so annotation-only declarations (no value) are caught — pure
-        annotations populate __annotations__ but not __dict__, so an unassigned
-        ClassVar would otherwise pass hasattr() and AttributeError at first use.
+        """Runtime guard: subclasses must overwrite the sentinel defaults at
+        class scope. cls.__dict__.get distinguishes "declared on this subclass"
+        from "inherited sentinel from base" — base-only sentinels fail here.
         """
         super().__init_subclass__(**kwargs)
         for attr in ("interceptor_id", "phase", "display_name"):
-            value = cls.__dict__.get(attr)
-            if value is None:
+            if attr not in cls.__dict__:
                 raise TypeError(f"{cls.__name__} must assign a value to {attr!r}")
+            value = cls.__dict__[attr]
+            if value is None or value == "":
+                raise TypeError(f"{cls.__name__}.{attr} must not be empty/None")
         display_name = cls.__dict__["display_name"]
         if not isinstance(display_name, str) or len(display_name) > 30:
             raise TypeError(f"{cls.__name__}.display_name must be a str ≤30 chars")

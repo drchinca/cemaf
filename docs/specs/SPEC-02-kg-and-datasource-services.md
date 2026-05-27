@@ -30,7 +30,7 @@ This spec:
 Common types in SPEC-00 §2 (`Citation`, `CiteableChunk`, `TokenBudget`).
 
 ```python
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -56,12 +56,18 @@ class DataSource(Protocol):
     """Read-only enterprise connector. Protocol surface contains NO write methods.
 
     Note: NOT @runtime_checkable. PEP 544 forbids issubclass() against protocols
-    with non-method members (`source_id`, `capabilities`); structural validation
-    instead happens explicitly in DataSourceRegistry.register() per Inv 1, which
-    inspects the concrete class's public surface.
+    with non-method members; structural validation instead happens explicitly in
+    DataSourceRegistry.register() per Inv 1, which inspects the concrete class's
+    public surface.
+
+    `source_id` and `capabilities` are declared `ClassVar[...]` so concrete
+    implementations set them at class scope (not in __init__) — this is what
+    makes the Inv 1 `vars(type(source))` introspection check work; instance-set
+    attributes would not appear in the class dict and the registry would
+    spuriously reject them.
     """
-    source_id: str
-    capabilities: frozenset[DataSourceCapability]
+    source_id: ClassVar[str]
+    capabilities: ClassVar[frozenset[DataSourceCapability]]
 
     async def retrieve(self, *, query: RetrievalQuery,
                        budget: TokenBudget) -> tuple[CiteableChunk, ...]: ...
