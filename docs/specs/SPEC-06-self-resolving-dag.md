@@ -141,8 +141,8 @@ resumes only after `MetaDispatcher.dispatch` returns.
 3. `Recovery sub-DAGs SHALL run with chain_profile=ChainProfile.RECOVERY (SPEC-05) — online_eval and goal_completion guardians SHALL NOT be active inside a recovery run.`
 4. `THE MetaDispatcher SHALL share RuntimeServices.knowledge_graph and data_sources with the parent — no isolated meta-only handles.`
 5. `Token consumption inside a recovery run SHALL be charged to MetaInvocationBudget; parent task.budget_remaining SHALL be unchanged across the recovery boundary (SPEC-04 §3 Inv 6).`
-6. `Recovery run AuditEntries SHALL carry parent_task_id, parent_node_id, and parent_correlation_id.`
-7. `Splicing back into the parent SHALL be via ContextPatch with source="meta:<sub_dag_id>" and correlation_id linking parent and sub-run.`
+6. `Recovery run AuditEntries SHALL carry parent_task_id, parent_node_id, and parent_correlation_id, where parent_correlation_id is the parent attempt's ctx.correlation_id (per SPEC-04 Inv 14 — attempt-scoped, NOT task.correlation_id). Audit-side joins over task scope SHALL use parent_task_id; the audit entry carries both fields explicitly so neither query path requires a join.`
+7. `Splicing back into the parent SHALL be via ContextPatch carrying source="meta:<sub_dag_id>", parent_task_correlation_id (= parent task.correlation_id, per SPEC-00 §2 ContextPatch dual-scope schema) AND parent_ctx_correlation_id (= parent attempt's ctx.correlation_id). Replay keys on parent_task_correlation_id; audit keys on parent_ctx_correlation_id.`
 8. `WHEN meta_dispatcher is None, RECOVER(INVOKE_META_ARCHITECT) SHALL downgrade to REJECT(reason="meta_unavailable") at the chain layer (SPEC-01).`
 9. `MetaDispatcher SHALL be invocable from any node — no separate executor path. The same DAGExecutor instance SHALL run both parent and sub-DAGs.`
 10. `THE total tokens consumed across all nested recoveries for one parent Task SHALL NOT exceed MetaInvocationBudget.max_token_total; on breach the dispatcher SHALL return halt=True.`
@@ -152,7 +152,7 @@ resumes only after `MetaDispatcher.dispatch` returns.
 14. `Depth check semantics: a new recovery is permitted iff (parent.depth + 1) ≤ MetaInvocationBudget.max_depth. With max_depth=2: depth 0→1 allowed, 1→2 allowed, 2→3 rejected with halt=True.`
 15. `A meta sub-DAG SHALL NOT splice content derived from the parent's AgentResult.unverified_claims into any downstream node's ctx.surfaced_sources, directly or transitively (no citation laundering). SPEC-05 §3 Inv 14 binds this constraint; SPEC-06 ContextPatch payloads SHALL be inspected against this rule before application by the Executor, which SHALL drop offending entries with reason="patch_unverified_promotion" and emit an audit entry.`
 16. `MetaDispatcher.dispatch SHALL project parent context into RecoveryRequest before sub-DAG construction (the canonical "subagent handoff is a write" boundary, CE rule RULE CE-3): (a) prior_decisions windowed to last PRIOR_DECISIONS_INJECT_WINDOW entries (SPEC-04 Inv 16) plus all entries where Decision.kind ∈ {DecisionKind.HALT, DecisionKind.REJECT}; (b) surfaced_sources: compute the union of {chunks whose Citation appears in failing node's AgentResult.cited_evidence_refs} ∪ {chunks whose Citation appears in any RecoveryHint.citations across inbound_hints}; sort the union by SPEC-02 Inv 11 keys (priority desc, confidence desc, retrieved_at asc, chunk_id asc); greedy-include from the top while sum(token_count) ≤ meta_budget.max_token_total / 4; drop the remainder. Projection is deterministic so SPEC-00 Property 6 replay holds across nested recoveries.`
-17. `ContextPatch payloads from a recovery sub-DAG SHALL be applied to the parent context BEFORE the re-dispatched parent node's PullInterceptor runs, via the transient ctx.pending_meta_patches channel (SPEC-00 §2 Context extensions): the Executor SHALL set ctx.pending_meta_patches to the meta-spliced CiteableChunks immediately before invoking the PRE chain, and PullInterceptor SHALL clear it via enriched_context within its returned PreflightDecision (single-use; SPEC-02 Inv 13). PullInterceptor remains the sole atomic writer of ctx.surfaced_sources — meta-spliced CiteableChunks enter as input candidates subject to the same merge+eviction (SPEC-02 Inv 11). The Executor SHALL NOT permit any other interceptor to mutate ctx.surfaced_sources between PRE and POST chains.`
+17. `ContextPatch payloads from a recovery sub-DAG SHALL be applied to the parent context BEFORE the re-dispatched parent node's PullInterceptor runs, via the transient ctx.pending_meta_patches channel (SPEC-00 §2 Context extensions): the Executor SHALL set ctx.pending_meta_patches to the meta-spliced CiteableChunks immediately before invoking the PRE chain, and PullInterceptor SHALL clear it via enriched_context within its returned PreflightDecision (single-use; SPEC-02 Inv 13). PullInterceptor remains the sole atomic writer of ctx.surfaced_sources — meta-spliced CiteableChunks enter as input candidates subject to the same merge+eviction (SPEC-02 Inv 11). The Executor SHALL NOT permit any other interceptor to mutate ctx.surfaced_sources between PRE and POST chains. WHERE the active PRE chain has no PullInterceptor (deployment without retrieval), the Executor SHALL detect that pending_meta_patches would be unconsumable and downgrade the originating RECOVER decision to REJECT(reason="meta_unconsumable_no_pull") BEFORE re-dispatch — never silently dropping patches. The detection is post-chain composition (executor-side clearance), not interceptor-side. SPEC-05 §10 carries the user-facing copy row.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -240,6 +240,24 @@ Feature: Self-resolving DAG
     Then the offending entry is dropped with reason "patch_unverified_promotion"
     And one AuditEntry is recorded carrying parent_correlation_id and the dropped claim_id
     And no downstream node observes X in ctx.surfaced_sources
+
+  Scenario: RecoveryRequest surfaced_sources caps at max_token_total / 4 (Inv 16)
+    Given meta_budget.max_token_total == 20000 (cap == 5000)
+    And the union of cited+hint chunks totals 8000 tokens after Inv 11 sort
+    When MetaDispatcher projects the RecoveryRequest
+    Then RecoveryRequest.surfaced_sources sum(token_count) ≤ 5000
+    And the dropped chunks are the lowest-priority tail per SPEC-02 Inv 11 ordering
+    And replay produces byte-identical projection (Property 6)
+
+  Scenario: No PullInterceptor → meta patches unconsumable, decision downgraded (Inv 17)
+    Given a deployment whose PRE chain has no PullInterceptor
+    And a guardian emits RECOVER(INVOKE_META_ARCHITECT)
+    And MetaDispatcher returns RecoveryResult.patches with two CiteableChunks
+    When the Executor inspects post-chain composition before re-dispatch
+    Then the originating decision downgrades to REJECT(reason="meta_unconsumable_no_pull")
+    And ctx.pending_meta_patches remains empty
+    And no parent re-dispatch occurs
+    And one AuditEntry records the downgrade with parent_correlation_id
 
   Scenario: Same DAGExecutor instance handles both
     Given a parent run on DAGExecutor instance X

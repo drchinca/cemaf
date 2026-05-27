@@ -6,7 +6,7 @@ last_reviewed: 2026-05-27
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02, SPEC-03, SPEC-04
-budget_override: "≤730 lines (scenarios ≤25) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
+budget_override: "≤810 lines (scenarios ≤32) — six guardians + §10 user-facing copy table + §10 audit-gate scope boundary + judge prompt-injection isolation (Inv 16) + judge token budget routing (Inv 17) + attempt_kind rolling-window scoping (Inv 18) is the integrity layer's single contract; splitting fragments the cross-spec coverage scenario (rules/context-engineering.md permits override with justification). Round-42 additions: Inv 23 judge-agent isolation, Inv 24 calibration regression gate, ClaimExtractor.health_check, eval_score metric + judge_budget_exhausted log/metric, GoalCompletionEvaluator family flip + calibration row, QualityTrendMonitor SLO rollback row, hint-citation locator added to untrusted source list, cite-or-fail 3-tuple membership."
 ---
 
 # SPEC-05: Guardian Mesh
@@ -16,6 +16,32 @@ budget_override: "≤730 lines (scenarios ≤25) — six guardians + §10 user-f
 > **online-eval** (post), **goal-completion** (post-on-terminal),
 > **audit** (both). Together they enforce the **low-to-zero hallucination,
 > total awareness, audited-and-assertive** property of the Context Brain.
+
+## Contents
+
+- [Glossary](#glossary)
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+- [10. User-facing failure copy](#10-user-facing-failure-copy)
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| **Legitimacy** | Pre-flight authorization gate via `AuthorizationPolicy.authorize`; rejects out-of-scope actions before agent invocation. |
+| **Cite-or-fail** | Post-flight enforcement that every `cited_evidence_ref` is a member of `ctx.surfaced_sources` (3-tuple membership predicate from SPEC-00 §2). |
+| **Tool-verify** | Post-flight `ToolOutputVerifier` check; unverified tool outputs trigger RECOVER and are barred from downstream surfaced_sources (Inv 22). |
+| **Online eval** | Per-attempt synchronous LLM-judge scoring with rolling-window halt via `QualityPolice` (z-score ≤ −2.5 or 3× WARN). |
+| **Attempt kind** | Member of SPEC-00 §2 `AttemptKind` enum; rolling-window key dimension preventing pre/post-recovery score mixing. |
+| **Judge–agent isolation** | Spec-audit invariant: every guardian judge's model FAMILY differs from the agent it gates (Inv 23). |
+| **Cassette** | Fixture file under `tests/fixtures/cassettes/<spec_id>/<judge>/<input_hash>.json` — pinned LLM-judge replay, fail-loud on divergence. |
 
 ## 1. Context
 
@@ -220,6 +246,8 @@ class ToolOutputVerifierInterceptor(NodeInterceptor):
 ### Online eval + halt
 
 ```python
+from enum import Enum
+
 class AlertLevel(Enum):
     OK    = "ok"      # rolling-window mean ≥ baseline_mean − 1·σ
     WARN  = "warn"    # within (baseline_mean − 2.5·σ, baseline_mean − 1·σ)
@@ -240,13 +268,15 @@ class OnlineEvalInterceptor(NodeInterceptor):
     Cassette payload SHALL carry (level, score, attempt_idx, attempt_kind)
     where attempt_idx is the get_retry(task.retry_ledger, node.id) value at
     decision time (0 for the first dispatch, 1 for first RECOVER re-dispatch,
-    ...). attempt_kind ∈ {"first", "retry_after_hints", "retry_after_meta"}
-    distinguishes:
+    ...). attempt_kind ∈ {"first", "retry_after_hints", "retry_after_meta", "retry_after_reroute"}
+    distinguishes (canonical enum per SPEC-00 §"Replay/cassette" — 4 values):
       - "first"               : attempt_idx == 0
       - "retry_after_hints"   : attempt_idx > 0, prior RECOVER was
                                 RETRY_WITH_HINTS
       - "retry_after_meta"    : attempt_idx > 0, prior RECOVER was
                                 INVOKE_META_ARCHITECT (SPEC-06 path)
+      - "retry_after_reroute" : attempt_idx > 0, prior RECOVER was
+                                REROUTE_TO_AGENT
     """
     interceptor_id = "online_eval"
     phase = InterceptorPhase.POST
@@ -315,7 +345,7 @@ class AuditInterceptor(NodeInterceptor):
 5. `WHEN OnlineEvalInterceptor records a score that triggers QualityPolice HALT, THE PostflightDecision SHALL be HALT(scope=DAG).`
 6. `WHEN chain_profile == ChainProfile.DEFAULT, THE GoalCompletionInterceptor SHALL run iff node.is_terminal == True. Under ChainProfile.RECOVERY the interceptor is absent from the chain (per §1 ChainProfile table and SPEC-00 RECOVERY_POST_ORDER) — terminal recovery sub-DAG nodes therefore SHALL NOT trigger goal completion evaluation.`
 7. `WHEN GoalCompletionResult.achieved == False AND get_retry(task.retry_ledger, node.id) < node.retry_budget, THE PostflightDecision SHALL be RECOVER(INVOKE_META_ARCHITECT). Otherwise HALT(scope=TASK).`
-8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation, scoped per ATTEMPT (one PRE→optional EXECUTE→POST pass). A SPEC-06 recovery sub-DAG is a separate run with its own entries linked via parent_correlation_id (SPEC-06 Inv 6); the parent's next attempt begins after RECOVER + increment_retry. Per-attempt completeness: ACCEPTED end-to-end → 2 entries; post-flight REJECT/RECOVER/HALT → 2 entries; pre-flight REJECT → 1 entry (audit runs last in PRE and is exempt from SPEC-01 Inv 5 short-circuit).`
+8. `THE AuditInterceptor SHALL emit one AuditEntry per phase invocation, scoped per ATTEMPT (one PRE→optional EXECUTE→POST pass). A SPEC-06 recovery sub-DAG is a separate run with its own entries linked via parent_correlation_id (= parent attempt's ctx.correlation_id per SPEC-04 Inv 14 / SPEC-06 Inv 6 — attempt-scoped, NOT task-scoped); the parent's next attempt begins after RECOVER + increment_retry. Per-attempt completeness: ACCEPTED end-to-end → 2 entries; post-flight REJECT/RECOVER/HALT → 2 entries; pre-flight REJECT → 1 entry (audit runs last in PRE and is exempt from SPEC-01 Inv 5 short-circuit).`
 9. `Recovery via RETRY_WITH_HINTS SHALL pass RecoveryHint instances in goal.metadata["remediation"] to the re-dispatched agent (per SPEC-01 Inv 10).`
 10. `Guardian interceptors SHALL be auto-injected at bootstrap when the corresponding RuntimeServices.* field is non-None; opting out requires an explicit ChainConfig override. EXCEPTION: THE AuditInterceptor SHALL be auto-injected unconditionally — it has no backing service flag, so per-attempt audit completeness (Inv 8) and §9 telemetry hold regardless of RuntimeServices configuration. When no AuditLog backing is configured, AuditInterceptor SHALL bind to an in-memory NullSafeAuditLog default (defined here, not in SPEC-00 §6 — that is the build-time spec-audit gate, a separate concern).`
 11. `Citation membership check (Inv 2) SHALL be replay-safe: identical surfaced_sources + identical cited_evidence_refs yield identical decisions.`
@@ -331,9 +361,10 @@ class AuditInterceptor(NodeInterceptor):
 20. `EVERY evaluator declared with mode=GATE AND eval_kind='online' (i.e., bound through OnlineEvalInterceptor — node-scoped synchronous evaluators per the "Online eval + halt" subsection above) SHALL be bound to every applicable LLM node in the registered DAG. Guardian-internal, repository-internal, and audit-completeness evaluators are auto-bound by their owning interceptor and SHALL NOT appear in node.online_evaluators. bootstrap.create_executor SHALL emit StartupError(reason='gate_evaluator_unbound', evaluator_id=..., node_id=...) only for the eval_kind='online' subset when an LLM node's online_evaluators tuple omits any GATE-mode online evaluator whose node-pattern matches that node. §8 tables across the spec set SHALL carry an eval_kind column ∈ {online, guardian, repository, audit} so the gate is unambiguous; mode-flip from GATE→OBSERVE within eval_kind='online' requires a spec amendment, never a missing tuple element.`
 21. `AuthorizationPolicy.authorize SHALL NOT mutate Task, Context, or RuntimeServices — it is a read-only predicate. Implementations that need to record audit data SHALL emit through the AuditInterceptor surface, not via direct service mutation.`
 22. `Tool outputs whose verification status is NOT verified SHALL NOT be promoted into any downstream node's ctx.surfaced_sources. The Executor SHALL drop offending ContextPatch entries with reason='tool_output_unverified_promotion' (parallel to Inv 14 for unverified_claims).`
-23. `Judge–agent isolation. For every LLM-judge guardian (GoalCompletionEvaluator, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge, HallucinationProbe), JudgeDescriptor.model_id SHALL identify a model FAMILY distinct from the producing node's agent model. Spec audit (SPEC-00 §6) SHALL fail when any registered judge's model family equals the family of any agent bound to a node the judge gates. Family is parsed as the prefix before '@' in model_id (e.g. 'claude-sonnet-4-6'). Cross-family pairs (agent claude-sonnet-4-6@... judged by claude-haiku-4-5@... or gpt-5-mini@... or llama-3.3-70b@...) are conformant.`
+23. `Judge–agent isolation. For every LLM-judge guardian (GoalCompletionEvaluator, ToolOutputVerifier policy judge, BlueprintInterceptor policy judge, HallucinationProbe), JudgeDescriptor.model_id SHALL identify a model FAMILY distinct from the producing node's agent model. Spec audit (SPEC-00 §6) SHALL fail when any registered judge's model family equals the family of any agent bound to a node the judge gates; the audit script SHALL discover node→agent bindings via AgentRegistry.list_bindings() (SPEC-00 §6 audit-discovery contract) — no string-scan of DAG source files. Family is parsed as the prefix before '@' in model_id (e.g. 'claude-sonnet-4-6'). Cross-family pairs (agent claude-sonnet-4-6@... judged by claude-haiku-4-5@... or gpt-5-mini@... or llama-3.3-70b@...) are conformant.`
 24. `Every guardian judge with eval_kind='guardian' that has a pinned calibration corpus SHALL have a per-PR replay check comparing current judge_agreement_rate to the pinned baseline JSON in cemaf/data/eval_pins/<judge_id>_baseline.json. PR fails on regression beyond the per-judge tolerance (default 2 percentage points). Closes the silent-drift hole where a model revision-pin bump or prompt edit lands without a measurable quality check.`
 25. `THE ToolOutputVerifier / OnlineEval / GoalCompletion guardians SHALL emit their respective gen_ai.guardian.* spans carrying gen_ai.request.model and gen_ai.usage.input_tokens / gen_ai.usage.output_tokens for every judge call (including budget_exhausted returns from Inv 17).`
+26. `AuditLog retention contract. THE AuditLog backing SHALL declare a bounded retention policy at construction: (a) max_entries (default 100_000) — FIFO-evicted on overflow with a single "audit.log.retention_evicted{count}" log event per cap breach; (b) ttl_days (default 30) — entries older than ttl_days SHALL be reaped on a scheduled cleanup pass (configurable via RuntimeServices, default once per hour). The default NullSafeAuditLog SHALL honor the same caps using an in-memory deque. Implementations that persist to durable storage (SQLite, Postgres, S3) SHALL document their retention behavior in the implementation README and SHALL fail loud on construction if max_entries ≤ 0 or ttl_days ≤ 0. Closes the unbounded-growth vector for long-running deployments — audit completeness (Inv 8) is a per-attempt invariant, not a forever-retention invariant.`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -532,6 +563,52 @@ Feature: Guardian mesh
     Given an OnlineEval guardian invokes a judge
     Then the gen_ai.guardian.online_eval span carries non-null gen_ai.request.model and gen_ai.usage.input_tokens / gen_ai.usage.output_tokens
 
+  Scenario: AuthorizationPolicy is side-effect-free (Inv 21)
+    Given an AuthorizationPolicy implementation
+    And a snapshot of (Task, ctx, services) taken before authorize() is called
+    When LegitimacyInterceptor invokes authorize()
+    Then the post-call snapshot of (Task, ctx, services) is byte-identical to the pre-call snapshot
+    And no MutationDetected error is raised by the contract harness
+
+  Scenario: Budget-exhausted judge still emits skipped-dispatch span (Inv 17 + Inv 25)
+    Given EvalBudgetCounter.remaining == 0 at judge invocation
+    When the judge is invoked
+    Then the judge returns score=0, level="budget_exhausted"
+    And the gen_ai.guardian.* span carries gen_ai.skipped_dispatch=true
+    And gen_ai.usage.output_tokens == 0
+    And gen_ai.usage.input_tokens == projected_prompt_input_tokens (deterministic)
+
+  Scenario: Spec audit fails when judge family equals agent family (Inv 23)
+    Given a node bound to agent model_id "claude-sonnet-4-6@2026-04-12"
+    And a judge gating that node with model_id "claude-sonnet-4-6@2026-05-12"
+    When the judge–agent family isolation audit runs (SPEC-00 §6 spec-audit gate)
+    Then the audit exits non-zero
+    And stderr names both model_ids and the shared family "claude-sonnet-4-6"
+    And AgentRegistry.list_bindings() is the discovery surface (no source-file string-scan)
+
+  Scenario: Rolling window scopes by judge_id and prompt_template_version (Inv 18)
+    Given 30 scores under (node=N, judge_id=J1, prompt_template_version=v1) and 5 under (N, J1, v2)
+    When QualityPolice computes the z-score baseline
+    Then v1 and v2 buckets score independently
+    And the v2 bucket is OBSERVE-only until 30 samples accumulate
+
+  Scenario: Unverified tool output is not promoted to downstream surfaced_sources (Inv 22)
+    Given node A produces ToolCallOutput(t1) flagged unverified by ToolOutputVerifier
+    And node B is a downstream consumer of A's output
+    When the executor assembles ContextPatches from A → B
+    Then the patch carrying t1 is dropped with reason="tool_output_unverified_promotion"
+    And ctx.surfaced_sources at node B contains no chunk derived from t1
+    And the drop is recorded as an AuditEntry but NOT surfaced as user copy
+    And `tool_output_unverified_promotion` is in `scripts/spec_audit.allowlist.txt`
+
+  Scenario: Calibration regression PR fails on judge_agreement_rate drop (Inv 24)
+    Given the pinned baseline `cemaf/data/eval_pins/goal_completion_baseline.json` records judge_agreement_rate=0.92
+    And per-judge tolerance is 2 percentage points
+    When a PR replays GoalCompletionEvaluator over `goal_completion_calibration_v1.jsonl` and observes 0.89
+    Then the calibration regression check FAILS the PR
+    And the failure references baseline 0.92, observed 0.89, tolerance 0.02
+    And no merge is allowed without an explicit baseline-update PR
+
   Scenario: Concurrent judges serialize the reserve step
     Given a node attempt with two OnlineEval judges A and B running concurrently
     And EvalBudgetCounter.remaining == 4000 at attempt start
@@ -539,6 +616,29 @@ Feature: Guardian mesh
     Then judge A reserves first (lexicographic id ordering), B reserves second
     And both eval_budget_snapshot_at_judge values are deterministic across replay
     And no concurrent over-spend is observable
+
+  Scenario: AuditLog FIFO eviction at max_entries cap (Inv 26)
+    Given an AuditLog backing constructed with max_entries=100
+    And 100 AuditEntry records have been appended
+    When the 101st AuditEntry is appended
+    Then the oldest entry is evicted FIFO
+    And exactly one "audit.log.retention_evicted{count=1}" log event is emitted
+    And the log holds 100 entries with the newest 100 retained
+
+  Scenario: AuditLog ttl_days reaping (Inv 26)
+    Given an AuditLog with ttl_days=30 and entries dated 31, 25, and 5 days ago
+    When the scheduled cleanup pass runs
+    Then the 31-day entry is reaped
+    And the 25-day and 5-day entries are retained
+    And the reaper emits "audit.log.retention_reaped{count=1}"
+
+  Scenario: GATE online evaluator unbound at startup raises StartupError (Inv 20)
+    Given a registered DAG with an LLM node N1 whose online_evaluators tuple is empty
+    And an Evaluator E1 declared mode=GATE, eval_kind='online' whose node-pattern matches N1
+    When bootstrap.create_executor runs
+    Then a StartupError is raised with reason='gate_evaluator_unbound'
+    And the error carries evaluator_id='E1' and node_id='N1'
+    And no DAGExecutor instance is returned
 ```
 
 ## 5. Out of Scope
@@ -625,6 +725,15 @@ prevents the judge LLM from being a hallucination surface itself.
 
 **Validates: §3 Invariant 12 / §4 "Goal-completion judge must self-cite"**
 
+### Property 8: Untrusted-input isolation
+*For any* judge call consuming adversarial-controlled text (raw_text, tool
+output, CiteableChunk content, goal.text, RecoveryHint detail/locator), every
+untrusted segment is wrapped in `<untrusted-input>` envelopes routed through
+`services.judge_input_sanitizer`, and judge-emitted citations are
+re-validated against `ctx.surfaced_sources` by the Executor before recording.
+
+**Validates: §3 Invariant 16 / §4 "Judge prompt-injection sanitizer strips control tokens"**
+
 ## 8. Eval Criteria
 
 LLM-judge evaluators are fully pinned. Prompts and corpora live under
@@ -657,7 +766,7 @@ Corpus `tests/fixtures/hallucination_corpus_v1.jsonl` (≥500 generative outputs
   - `gen_ai.guardian.goal_completion` — `achieved`, `confidence`, `missing_criteria.count`, `judge_citations.count`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
   - `gen_ai.guardian.audit` — `phase`, `entry.id`, `node.status_at_emission`
 - **Log events**: `legitimacy.denied`, `cite.ungrounded_claim`, `cite.non_member_citation`, `tool_verify.unverified`, `eval.halt`, `eval.score_recorded{evaluator,attempt_kind,score,correlation_id}` (paired with each `cemaf_eval_score` observation for span exemplar linkage per SPEC-00 §9), `eval.judge_budget_exhausted{judge_id, attempt_kind, correlation_id}`, `goal.recover`, `goal.halted`, `goal.judge_uncited`, `audit.entry_emitted`
-- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_eval_score{evaluator,attempt_kind,judge_id,prompt_template_version,model_id}` (histogram; bounded by §9 cardinality cap — evaluator≤32 × attempt_kind=3 × judge_id≤32 × prompt_template_version (pinned, ≤8 in flight) × model_id (pinned, ≤8 in flight); pin bumps invalidate prior series per Inv 19), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_eval_judge_budget_exhausted_total{judge_id}` (counter; judge_id bounded by online_eval_pipeline registry cap ≤32), `cemaf_hallucination_probe_rate` (gauge, no labels)
+- **Metrics** (per SPEC-00 §9 — `guardian` is bounded ≤6, safe; node_id, task_id forbidden as labels): `cemaf_guardian_decisions_total{guardian,decision}`, `cemaf_guardian_duration_seconds{guardian,phase}` (histogram — required RED metric for hot-path alerting), `cemaf_grounding_score` (gauge, no labels), `cemaf_goal_completion_score` (gauge, no labels), `cemaf_eval_score{evaluator,attempt_kind,judge_id,prompt_template_version,model_id}` (histogram; bounded by §9 cardinality cap — evaluator≤32 × attempt_kind=4 × judge_id≤32 × prompt_template_version (pinned, ≤8 in flight) × model_id (pinned, ≤8 in flight); pin bumps invalidate prior series per Inv 19), `cemaf_recovery_attempts_total{strategy,outcome}`, `cemaf_tool_verify_rejections_total`, `cemaf_eval_judge_budget_exhausted_total{judge_id}` (counter; judge_id bounded by online_eval_pipeline registry cap ≤32), `cemaf_hallucination_probe_rate` (gauge, no labels)
 
 ## 10. User-facing failure copy
 
@@ -720,6 +829,9 @@ allowlist `scripts/spec_audit.allowlist.txt` from the §10 comparison;
 | `ungrounded_claim_exhausted` | "After repeated retries part of the answer remained ungrounded." | "Attach a document with the missing context, or ask your administrator to allow unconfirmed statements for this kind of request." |
 | `tool_unverified_exhausted` | "After repeated retries the tool output remained unreliable." | "Investigate the tool's recent behavior; raise the retry allowance; or disable the offending tool for this workflow." |
 | `tool_loop_exhausted` | "We're going in circles checking facts — pausing this run." | "Simplify the request, narrow the question, or raise the tool-call budget for this kind of request." |
+| `tool_unverified_in_loop` | "A tool call inside the answering loop returned something we couldn't verify — retrying with hints." | "We're retrying automatically. If it persists, check the tool's recent behavior or disable it for this workflow." |
+| `agent:timeout_exhausted` | "That step kept timing out across retries — pausing this run." | "Check service health for that subsystem; raise the retry allowance; or simplify the request." |
+| `meta_unconsumable_no_pull` | "A fix-up plan needed to pull fresh evidence, but evidence pulling isn't configured here." | "Either install a PullInterceptor in this deployment or accept the partial result and retry manually." |
 | `generation_incomplete` | "The response cut off before it finished — retrying." | "We're retrying automatically. No action needed." |
 | `agent:timeout` | "That step took too long — retrying." | "We're retrying automatically. If it persists, check service health for that subsystem." |
 | `<id>:timeout` | "An internal step (`<display_name>`) took too long." | "Retry. If it persists, check service health for that subsystem." |

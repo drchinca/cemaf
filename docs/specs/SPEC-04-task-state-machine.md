@@ -15,6 +15,18 @@ depends_on: SPEC-01
 > receives a `TaskContext` that names its position, prior decisions, and the
 > retry ledger it inherits.
 
+## Contents
+
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+
 ## 1. Context
 
 DAGs run today; tasks do not. There is no first-class concept of "this is step 3
@@ -48,6 +60,7 @@ here as the single source of truth.
 Common types in SPEC-00 §2 (`TaskID`, `NodeID`, `TokenBudget`, `Citation`).
 
 ```python
+from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -121,7 +134,12 @@ class AcquiredLease:
     async def __aenter__(self) -> AcquireToken:
         return self._token
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self._repository.release(self._token)
 
 @dataclass(frozen=True, slots=True)
@@ -281,13 +299,30 @@ Feature: Long-horizon task awareness
     Then the lease is treated as expired
     And B receives a fresh AcquireToken without TaskInUseError
 
-  Scenario: Stale-lease write is rejected (Inv 15)
+  Scenario: Stale-lease release is rejected (Inv 15 — release path)
     Given executor A's lease has expired and executor B has acquired
-    When A's slow callback calls release(token_A) or transition(token=token_A, ...)
+    When A's slow callback calls release(token_A)
     Then the Repository raises StaleLeaseError
     And Task state is unchanged
     And a "task.stale_lease_write" log event is emitted
     And cemaf_task_stale_lease_writes_total is incremented
+
+  Scenario: Stale-lease transition is rejected (Inv 15 — transition path)
+    Given executor A's lease has expired and executor B has acquired
+    When A's slow callback calls transition(token=token_A, to=RUNNING)
+    Then the Repository raises StaleLeaseError
+    And Task state is unchanged
+    And a "task.stale_lease_write" log event is emitted
+    And cemaf_task_stale_lease_writes_total is incremented
+
+  Scenario: First-attempt HALT when retry_budget == 0 (Inv 11 boundary)
+    Given a node N with retry_budget=0
+    And the agent emits an ungrounded Claim on attempt 1
+    When CiteOrFailInterceptor evaluates the post-flight (SPEC-05 Inv 15)
+    Then get_retry(task.retry_ledger, N.id) == 0
+    And 0 ≥ N.retry_budget
+    And PostflightDecision is HALT(scope=TASK)
+    And TaskRepository.increment_retry is NOT called
 
   Scenario: Recovery sub-DAG budget is metered separately (cross-ref SPEC-06)
     Given a parent Task with budget_remaining=10000
@@ -386,6 +421,14 @@ consumption is metered separately (SPEC-06).
 *For any* node, `task.retry_ledger[node_id]` is monotonically non-decreasing.
 
 **Validates: §3 Invariant 10 / §4 "Retry ledger observable to guardians"**
+
+### Property 7: Per-node injection windowing determinism
+*For any* identical `Task.prior_decisions` and `Task.retry_ledger`, two
+invocations of `TaskInjectInterceptor` produce byte-identical
+`TaskContext.prior_decisions` and `retry_ledger` projections (canonical
+sorted-key JSON). Replay-safe across process boundaries.
+
+**Validates: §3 Invariants 16, 17 / §4 "prior_decisions injection caps at PRIOR_DECISIONS_INJECT_WINDOW", "prior_decisions retention priority within budget"**
 
 ## 8. Eval Criteria
 
