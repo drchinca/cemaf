@@ -10,7 +10,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMClient,
@@ -58,8 +58,13 @@ class CachedAnthropicLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Complete with prompt-caching applied when the inner client supports it."""
+        del fidelity, token_budget, correlation_id  # forward-compat; opaque to cemaf
         from cemaf.llm.anthropic import AnthropicLLMClient, _convert_messages
 
         if not isinstance(self._client, AnthropicLLMClient):
@@ -140,6 +145,8 @@ class CachedAnthropicLLMClient:
             completion_tokens=response.usage.output_tokens,
             model=response.model,
             finish_reason=response.stop_reason or "end_turn",
+            finish_reason_native=response.stop_reason or "end_turn",
+            provider=LLMProvider.ANTHROPIC,
             latency_ms=latency_ms,
         )
 

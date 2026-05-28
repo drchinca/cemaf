@@ -6,7 +6,7 @@ Provides deterministic responses for unit tests.
 
 from collections.abc import AsyncIterator
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import FinishReason, TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -117,7 +117,7 @@ class MockLLMClient:
                 content=chunk_content,
                 accumulated_content=accumulated,
                 is_final=i == len(words) - 1,
-                finish_reason="stop" if i == len(words) - 1 else None,
+                finish_reason=FinishReason.TERMINAL_STOP if i == len(words) - 1 else None,
             )
 
     async def count_tokens_exact(

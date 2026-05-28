@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from cemaf.core.types import FinishReason
 from cemaf.llm.moderating import ModeratingLLMClient
 from cemaf.llm.protocols import (
     CompletionResult,
@@ -98,7 +99,7 @@ async def test_clean_stream_passes_through() -> None:
             [
                 StreamChunk(content="Hello world. "),
                 StreamChunk(content="How are you? "),
-                StreamChunk(content="", is_final=True, finish_reason="stop"),
+                StreamChunk(content="", is_final=True, finish_reason=FinishReason.TERMINAL_STOP),
             ]
         ),
         moderation=pipeline,
