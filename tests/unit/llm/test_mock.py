@@ -10,6 +10,7 @@ Uses fixtures from conftest.py:
 
 import pytest
 
+from cemaf.core.types import FinishReason
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import Message
 
@@ -45,7 +46,7 @@ class TestMockLLMClient:
 
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0].name == "test_tool"
-        assert result.finish_reason == "tool_calls"
+        assert result.finish_reason is FinishReason.TERMINAL_TOOL
 
     @pytest.mark.asyncio
     async def test_stream_yields_chunks(self, user_message: Message):

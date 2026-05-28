@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -13,6 +13,7 @@ from cemaf.llm.protocols import (
     StreamChunk,
     ToolCall,
     ToolDefinition,
+    coerce_finish_reason,
 )
 
 
@@ -87,12 +88,15 @@ class OpenAILLMClient:
         prompt_tokens = response.usage.prompt_tokens if response.usage else 0
         completion_tokens = response.usage.completion_tokens if response.usage else 0
 
+        native = choice.finish_reason or "stop"
         return CompletionResult.ok(
             message=message,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             model=response.model,
-            finish_reason=choice.finish_reason or "stop",
+            finish_reason=coerce_finish_reason(native),
+            finish_reason_native=native,
+            provider=LLMProvider.OPENAI,
             latency_ms=latency_ms,
         )
 
@@ -130,7 +134,7 @@ class OpenAILLMClient:
                 content="",
                 accumulated_content="",
                 is_final=True,
-                finish_reason="error",
+                finish_reason=coerce_finish_reason("error"),
             )
             return
 
@@ -197,7 +201,7 @@ class OpenAILLMClient:
             accumulated_content=accumulated_text,
             tool_calls=tuple(final_tool_calls),
             is_final=True,
-            finish_reason=finish_reason or "stop",
+            finish_reason=coerce_finish_reason(finish_reason or "stop"),
             prompt_tokens=TokenCount(prompt_tokens),
             completion_tokens=TokenCount(completion_tokens),
         )
