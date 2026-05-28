@@ -128,7 +128,8 @@ class GeminiClient:
                 prompt_tokens=usage.get("promptTokenCount", 0),
                 completion_tokens=usage.get("candidatesTokenCount", 0),
                 model=cfg.model,
-                finish_reason=candidates[0].get("finishReason", ""),
+                finish_reason=candidates[0].get("finishReason", "") or "stop",
+                finish_reason_native=candidates[0].get("finishReason", "") or "",
                 latency_ms=latency_ms,
             )
 

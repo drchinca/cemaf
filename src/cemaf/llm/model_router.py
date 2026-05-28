@@ -110,7 +110,12 @@ class ModelRouter:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
+        del fidelity, token_budget, correlation_id  # forward-compat; ignored by router
         score = self._estimator.estimate(messages, tools)
         candidates = self._select_route(score)
 
