@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from cemaf.core.types import FinishReason, LLMProvider
 from cemaf.llm.anthropic import AnthropicLLMClient, _convert_messages
 from cemaf.llm.protocols import (
     Message,
@@ -179,7 +180,9 @@ class TestComplete:
         assert result.model == "claude-sonnet-4-20250514"
         assert result.prompt_tokens == 10
         assert result.completion_tokens == 20
-        assert result.finish_reason == "end_turn"
+        assert result.finish_reason is FinishReason.TERMINAL_STOP
+        assert result.finish_reason_native == "end_turn"
+        assert result.provider is LLMProvider.ANTHROPIC
 
         # Verify API was called with correct format
         call_kwargs = client._client.messages.create.call_args[1]
@@ -213,7 +216,8 @@ class TestComplete:
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0].name == "calculator"
         assert result.tool_calls[0].arguments == {"expression": "2+2"}
-        assert result.finish_reason == "tool_use"
+        assert result.finish_reason is FinishReason.TERMINAL_TOOL
+        assert result.finish_reason_native == "tool_use"
 
     @pytest.mark.asyncio
     async def test_complete_handles_api_error(self) -> None:
@@ -297,7 +301,7 @@ class TestStream:
         assert chunks[1].content == " world"
         assert chunks[1].accumulated_content == "Hello world"
         assert chunks[2].is_final is True
-        assert chunks[2].finish_reason == "end_turn"
+        assert chunks[2].finish_reason is FinishReason.TERMINAL_STOP
 
     @pytest.mark.asyncio
     async def test_stream_yields_tool_calls(self) -> None:

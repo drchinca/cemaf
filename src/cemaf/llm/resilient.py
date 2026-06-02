@@ -64,8 +64,13 @@ class ResilientLLMClient:
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
         source: QuerySource = QuerySource.FOREGROUND,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Complete with rate_limit -> circuit_breaker -> retry -> client.complete."""
+        del fidelity, token_budget, correlation_id  # forward-compat; opaque to cemaf
         start = perf_counter()
 
         try:

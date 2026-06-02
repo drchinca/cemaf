@@ -15,7 +15,40 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from cemaf.core.types import JSON, TokenCount
+from cemaf.core.types import JSON, FinishReason, LLMProvider, TokenCount
+
+# Native provider stop strings → FinishReason. Provider-agnostic best-effort
+# fallback used by `coerce_finish_reason`; strict per-provider mapping lives
+# in adapter-side normalizers (see SPEC-LLM-finish-reason-normalization).
+_NATIVE_FINISH_REASON_MAP: dict[str, FinishReason] = {
+    "stop": FinishReason.TERMINAL_STOP,
+    "end_turn": FinishReason.TERMINAL_STOP,
+    "stop_sequence": FinishReason.TERMINAL_STOP,
+    "tool_use": FinishReason.TERMINAL_TOOL,
+    "tool_calls": FinishReason.TERMINAL_TOOL,
+    "function_call": FinishReason.TERMINAL_TOOL,
+    "length": FinishReason.PARTIAL_LENGTH,
+    "max_tokens": FinishReason.PARTIAL_LENGTH,
+    "pause_turn": FinishReason.PARTIAL_LENGTH,
+    "content_filter": FinishReason.PARTIAL_FILTER,
+    "content_filtered": FinishReason.PARTIAL_FILTER,
+    "guardrail_intervened": FinishReason.PARTIAL_FILTER,
+    "refusal": FinishReason.PARTIAL_FILTER,
+}
+
+
+def coerce_finish_reason(raw: str | FinishReason | None) -> FinishReason:
+    """Normalize a provider-native or legacy string into a FinishReason.
+
+    Unknown / None / empty inputs collapse to PARTIAL_ERROR (fail-loud
+    diagnostic). FinishReason inputs pass through unchanged.
+    """
+    if isinstance(raw, FinishReason):
+        return raw
+    if not raw:
+        return FinishReason.PARTIAL_ERROR
+    return _NATIVE_FINISH_REASON_MAP.get(raw, FinishReason.PARTIAL_ERROR)
+
 
 # Type alias for message content - supports text and structured content (multimodal)
 MessageContent = str | list[dict[str, Any]]
@@ -204,13 +237,9 @@ class LLMConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CompletionResult:
-    """
-    Result of a completion request.
-
-    Contains the response and metadata.
-    """
+    """Result of a completion request — response payload and metadata."""
 
     success: bool
     message: Message | None = None
@@ -226,7 +255,9 @@ class CompletionResult:
 
     # Model info
     model: str = ""
-    finish_reason: str = ""
+    finish_reason: FinishReason = FinishReason.PARTIAL_ERROR
+    finish_reason_native: str = ""
+    provider: LLMProvider = LLMProvider.ADAPTER
 
     metadata: JSON = field(default_factory=dict)
 
@@ -237,10 +268,18 @@ class CompletionResult:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         model: str = "",
-        finish_reason: str = "stop",
+        finish_reason: FinishReason | str = FinishReason.TERMINAL_STOP,
+        finish_reason_native: str = "",
+        provider: LLMProvider = LLMProvider.ADAPTER,
         latency_ms: float = 0.0,
     ) -> CompletionResult:
-        """Create a successful result."""
+        """Create a successful result. `finish_reason` may be a raw provider string; it is coerced."""
+        if isinstance(finish_reason, FinishReason):
+            normalized = finish_reason
+            native = finish_reason_native
+        else:
+            normalized = coerce_finish_reason(finish_reason)
+            native = finish_reason_native or finish_reason
         return cls(
             success=True,
             message=message,
@@ -248,7 +287,9 @@ class CompletionResult:
             completion_tokens=TokenCount(completion_tokens),
             total_tokens=TokenCount(prompt_tokens + completion_tokens),
             model=model,
-            finish_reason=finish_reason,
+            finish_reason=normalized,
+            finish_reason_native=native,
+            provider=provider,
             latency_ms=latency_ms,
         )
 
@@ -268,17 +309,13 @@ class CompletionResult:
         return self.message.tool_calls if self.message else ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StreamChunk:
-    """
-    A single chunk from a streaming response.
-
-    Used for incremental output display.
-    """
+    """A single chunk from a streaming response — used for incremental output display."""
 
     content: str = ""
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)
-    finish_reason: str | None = None
+    finish_reason: FinishReason | None = None
     is_final: bool = False
 
     # Running totals (updated each chunk)
@@ -310,18 +347,12 @@ class LLMClient(Protocol):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
-        """
-        Generate a completion.
-
-        Args:
-            messages: Conversation history
-            tools: Available tools for function calling
-            config_override: Override default config for this request
-
-        Returns:
-            CompletionResult with response or error
-        """
+        """Generate a completion — `fidelity`/`token_budget` opaque to cemaf, used by adapters."""
         ...
 
     async def stream(

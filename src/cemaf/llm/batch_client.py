@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.core.utils import utc_now
 from cemaf.llm.protocols import (
     CompletionResult,
@@ -165,6 +165,8 @@ class BatchLLMClient:
                     completion_tokens=msg_result.usage.output_tokens,
                     model=msg_result.model,
                     finish_reason=msg_result.stop_reason or "end_turn",
+                    finish_reason_native=msg_result.stop_reason or "end_turn",
+                    provider=LLMProvider.ANTHROPIC,
                 )
             else:
                 error_detail = getattr(result.result, "error", None)

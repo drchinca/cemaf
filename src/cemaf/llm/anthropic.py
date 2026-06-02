@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -13,6 +13,7 @@ from cemaf.llm.protocols import (
     StreamChunk,
     ToolCall,
     ToolDefinition,
+    coerce_finish_reason,
 )
 
 
@@ -81,12 +82,15 @@ class AnthropicLLMClient:
             tuple(tool_calls),
         )
 
+        native = response.stop_reason or "end_turn"
         return CompletionResult.ok(
             message=message,
             prompt_tokens=response.usage.input_tokens,
             completion_tokens=response.usage.output_tokens,
             model=response.model,
-            finish_reason=response.stop_reason or "end_turn",
+            finish_reason=coerce_finish_reason(native),
+            finish_reason_native=native,
+            provider=LLMProvider.ANTHROPIC,
             latency_ms=latency_ms,
         )
 
@@ -153,7 +157,7 @@ class AnthropicLLMClient:
                 accumulated_content=accumulated_text,
                 tool_calls=tuple(tool_calls),
                 is_final=True,
-                finish_reason=final_message.stop_reason or "end_turn",
+                finish_reason=coerce_finish_reason(final_message.stop_reason or "end_turn"),
                 prompt_tokens=TokenCount(final_message.usage.input_tokens),
                 completion_tokens=TokenCount(final_message.usage.output_tokens),
             )

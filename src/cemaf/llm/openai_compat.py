@@ -38,7 +38,7 @@ from collections.abc import AsyncIterator
 from time import perf_counter
 from typing import Any
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import LLMProvider, TokenCount
 
 try:
     import httpx
@@ -156,7 +156,9 @@ class OpenAICompatClient:
                 prompt_tokens=usage.get("prompt_tokens", 0),
                 completion_tokens=usage.get("completion_tokens", 0),
                 model=data.get("model", cfg.model),
-                finish_reason=choice.get("finish_reason", ""),
+                finish_reason=choice.get("finish_reason", "") or "stop",
+                finish_reason_native=choice.get("finish_reason", "") or "",
+                provider=LLMProvider.OPENAI,
                 latency_ms=latency_ms,
             )
 
