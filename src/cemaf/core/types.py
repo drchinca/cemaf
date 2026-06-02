@@ -28,6 +28,7 @@ class LLMProvider(StrEnum):
 
     BEDROCK = "bedrock"
     ANTHROPIC = "anthropic"
+    HUGGINGFACE = "huggingface"
     OPENAI = "openai"
     ADAPTER = "adapter"
 

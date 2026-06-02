@@ -23,9 +23,11 @@ Usage:
 
 from cemaf.retrieval.embedding_providers import HashEmbeddingProvider
 from cemaf.retrieval.factories import (
+    create_embedding_provider_from_config,
     create_in_memory_vector_store,
     create_vector_store_from_config,
 )
+from cemaf.retrieval.huggingface_embeddings import HuggingFaceEmbeddingProvider
 from cemaf.retrieval.hybrid import HybridRetriever, RetrievalConfig
 from cemaf.retrieval.memory_store import InMemoryVectorStore
 from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
@@ -48,8 +50,10 @@ __all__ = [
     "RetrievalConfig",
     "InMemoryVectorStore",
     "HashEmbeddingProvider",
+    "HuggingFaceEmbeddingProvider",
     "OpenAIEmbeddingProvider",
     # Factories
+    "create_embedding_provider_from_config",
     "create_in_memory_vector_store",
     "create_vector_store_from_config",
 ]
