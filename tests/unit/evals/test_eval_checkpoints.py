@@ -149,6 +149,7 @@ class TestEvalTrigger:
                 source="test",
             )
         )
+        await pipeline.flush()
 
         assert len(pipeline.results) == 1
         assert pipeline.results[0]["trigger"] == "checkpoint"
@@ -209,6 +210,7 @@ class TestEvalContext:
                 source="test",
             )
         )
+        await pipeline.flush()
 
         assert len(structured_eval.received_outputs) == 1
         received = structured_eval.received_outputs[0]
@@ -361,5 +363,6 @@ class TestEveryNodeBackwardCompat:
                 source="test",
             )
         )
+        await pipeline.flush()
 
         assert len(pipeline.results) == 1

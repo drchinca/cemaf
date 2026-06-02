@@ -36,6 +36,7 @@ def with_retry(
     initial_delay: float = 1.0,
     max_delay: float = 60.0,
     exponential: bool = True,
+    retry_on_exceptions: tuple[type[BaseException], ...] | None = None,
 ) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
     """
     Decorator to add retry behavior to an async function.
@@ -44,15 +45,25 @@ def with_retry(
         @with_retry(max_attempts=3, initial_delay=1.0)
         async def flaky_function():
             ...
-    """
-    from cemaf.resilience.retry import BackoffStrategy
 
-    config = RetryConfig(
-        max_attempts=max_attempts,
-        initial_delay_seconds=initial_delay,
-        max_delay_seconds=max_delay,
-        backoff_strategy=BackoffStrategy.EXPONENTIAL if exponential else BackoffStrategy.CONSTANT,
-    )
+        # Extend the default transient set (network errors) with service-specific errors
+        @with_retry(retry_on_exceptions=(ClientError, ConnectionError))
+        async def aws_call(): ...
+    """
+    from cemaf.resilience.retry import DEFAULT_TRANSIENT_EXCEPTIONS, BackoffStrategy
+
+    kwargs: dict[str, Any] = {
+        "max_attempts": max_attempts,
+        "initial_delay_seconds": initial_delay,
+        "max_delay_seconds": max_delay,
+        "backoff_strategy": BackoffStrategy.EXPONENTIAL if exponential else BackoffStrategy.CONSTANT,
+    }
+    if retry_on_exceptions is not None:
+        kwargs["retry_on_exceptions"] = retry_on_exceptions
+    else:
+        kwargs["retry_on_exceptions"] = DEFAULT_TRANSIENT_EXCEPTIONS
+
+    config = RetryConfig(**kwargs)
     policy = RetryPolicy(config)
 
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:

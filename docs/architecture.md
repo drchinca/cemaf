@@ -13,6 +13,7 @@ Related docs: [**Design Patterns**](patterns.md) · [**Module Layout**](modules.
 - [Composition root](#composition-root)
 - [Data flow for a single run](#data-flow-for-a-single-run)
 - [What we say no to](#what-we-say-no-to)
+- [Cost model: PULL context and unit-of-work nodes](#cost-model-pull-context-and-unit-of-work-nodes)
 - [How to extend CEMAF](#how-to-extend-cemaf)
 
 ---
@@ -223,6 +224,82 @@ Being explicit about what this architecture rejects is as important as saying wh
 - **Bare `except Exception`.** Every exception catch names the types it handles. `asyncio.CancelledError` re-raises. Silent swallows are a correctness bug (they hide tenant data or cost corruption).
 - **`Any` in public APIs.** Protocol methods, dataclass fields, registry keys all use concrete types. `Any` in tests is acceptable; in public types it's a design smell.
 - **Mocking with `patch()`.** If a test needs `unittest.mock.patch()`, the code under test has hidden coupling. Refactor it to take the dep as a parameter.
+
+---
+
+## Cost model: PULL context and unit-of-work nodes
+
+This is a structural claim, not a tuning knob. It is what makes CEMAF different from message-bus agent frameworks, and it is the reason the same executor runs `2 + 2` and a multi-agent SQL-generation pipeline without the former subsidizing the latter's infrastructure cost.
+
+### The thing we reject
+
+Message-bus agent frameworks (the dominant shape in 2025) are PUSH systems. Each step is an LLM turn against a rolling shared state; every capability you attach — intent detection, routing, judges, memory recall, quality gates, tool choice — fires on **every** step because the framework doesn't know which steps need it. Ask the system `2 + 2`, and it still pays for all of it. Floor cost equals ceiling cost. This is the hidden tax of the "everything is a chatty message turn" abstraction.
+
+The consequence in production: adding one evaluator, one gate, one memory tier multiplies the cost of every trivial step. Teams respond by disabling infrastructure, not by expressing where it should run.
+
+### The thing we build
+
+CEMAF is PULL. Four rails enforce it:
+
+1. **Typed node types with separate handlers.** `NodeType.TOOL`, `NodeType.AGENT`, `NodeType.ROUTER`, `NodeType.LOOP`, `NodeType.PARALLEL`, `NodeType.CONDITIONAL`, `NodeType.CHECKPOINT` each dispatch to a different handler in `node_handlers.py`. Deterministic work (`TOOL`) cannot accidentally become an LLM call; LLM-backed work (`AGENT`) is a different code path. The type system makes it structurally impossible to pay LLM cost on a tool node.
+
+2. **`input_mapping` is a PULL contract.** Nodes declare the context keys they consume: `input_mapping={"a": 2, "b": 2}` or `input_mapping={"text": "$$analysis$$"}`. The executor resolves exactly those keys. There is no "give this step all the accumulated state" default — the rolling-history firehose pattern is inexpressible.
+
+3. **Services are opt-in `| None` fields on `RuntimeServices`.** `online_eval_pipeline`, `memory_manager`, `budget_guard`, `moderation_pipeline`, `quality_police` — all absent by default. The executor checks for `None` before every call site. `create_executor(agent_registry=registry)` with no services attached pays zero infrastructure cost. You don't disable features; you simply don't compose them.
+
+4. **Evaluators bind to node patterns, not the whole DAG.** `NodeEvalBinding(node_pattern="generate_sql", ...)` attaches a judge to one node. `node_pattern="*"` is *available*, not the default. The author declares *where* quality matters. Checkpoints are explicit `NodeType.CHECKPOINT` nodes — you place them where they earn their cost.
+
+```python
+# Trivial work, trivial cost — no LLM, no eval, no memory recall, no router.
+DAG(
+    name="arithmetic",
+    nodes=(Node(
+        id=NodeID("add"),
+        type=NodeType.TOOL,
+        ref_id="add",
+        input_mapping={"a": 2, "b": 2},
+    ),),
+    edges=(),
+    entry_node=NodeID("add"),
+)
+executor = create_executor(agent_registry=registry)  # no RuntimeServices → nothing attached
+await executor.run(dag=dag)  # → 4, one tool call, nothing else billed
+
+# LLM work with quality telemetry — judge runs in the background, does not block the hot path.
+pipeline = OnlineEvalPipeline(
+    bindings=(NodeEvalBinding(
+        node_pattern="generate_sql",
+        evaluators=(LLMJudge(),),
+        mode=EvalMode.OBSERVE,   # fire-and-forget; GATE would serialize
+    ),),
+    event_bus=bus,
+)
+executor = create_executor(
+    agent_registry=registry,
+    services=RuntimeServices(event_bus=bus, online_eval_pipeline=pipeline),
+)
+```
+
+### `OBSERVE` vs `GATE` — the temporal dimension
+
+Every cross-cutting signal has two distinct semantics the framework exposes:
+
+- **`OBSERVE`** — I want this telemetry, but it must not serialize the pipeline. Evaluator runs in a task the pipeline tracks in its `_pending` set; `TASK_COMPLETED` publish returns immediately; next node starts; judge completes in the background; `EVAL_COMPLETED` lands whenever it lands. `OnlineEvalPipeline.flush()` awaits every in-flight OBSERVE task for this pipeline — production graceful shutdown, tests, or any code that needs to know all scheduled evals have landed. Used for quality monitoring, SLO tracking, drift detection.
+- **`GATE`** — this signal *must* land before the next node runs. Evaluator runs inline; `QUALITY_ALERT` publishes before `publish()` returns; `should_halt()` observes the alert; the executor honors the halt. Used for safety-critical gates: a failing eval must stop downstream work.
+
+Both modes exist in the same pipeline, per-binding. One node can be OBSERVE, its downstream node can be GATE. This is the control you do not get from a message-bus framework, where "run a judge after this step" means "block the pipeline on the judge" unconditionally.
+
+### The claim
+
+The payoff is not "CEMAF makes `2 + 2` cheap." Any framework can skip infrastructure on a trivial task if the author remembers to flag it. The structural payoff is:
+
+> A pipeline containing both `2+2` and an LLM-backed SQL generator pays appropriately for each.
+
+The trivial node cannot subsidize the expensive node's infrastructure. The expensive node's judge cannot block the trivial node. The author expresses *where* each capability runs, and the framework composes that expression without leaking cost across boundaries.
+
+This is how we think context engineering should be done. Context is a compiled, auditable asset with provenance (`Context` + `ContextPatch` + `ContextCompiler` against a `TokenBudget`) — not a prompt you glue together with f-strings. Agents are typed units of work with declared input/output contracts — not opaque turns on a chatty loop. Quality, cost, memory, and safety are cross-cutting services injected at the composition root — not sprinkled implicitly between every step. If a framework does not give you these separations, the cost model is an accident of its abstraction; you cannot reason about it without reading the dispatch loop.
+
+We treat this as the default. It is not a tuning setting.
 
 ---
 
