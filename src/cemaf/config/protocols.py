@@ -60,7 +60,20 @@ class LLMSettings(BaseModel):
 
     model_config = {"frozen": True}
 
-    provider: Literal["mock", "openai", "anthropic", "azure", "bedrock", "vertex", "ollama"] = "mock"
+    provider: Literal[
+        "mock",
+        "openai",
+        "anthropic",
+        "azure",
+        "bedrock",
+        "vertex",
+        "ollama",
+        "ollama-tiered",
+        "groq",
+        "together",
+        "gemini",
+        "huggingface",
+    ] = "mock"
     default_model: str = "gpt-4"
     api_key: str = ""
     base_url: str = ""
@@ -377,6 +390,18 @@ class EvalsSettings(BaseModel):
     similarity_threshold: float = 0.8
 
 
+class CatalogSettings(BaseModel):
+    """Settings for external model and artifact catalogs."""
+
+    model_config = {"frozen": True}
+
+    backend: Literal["huggingface"] = "huggingface"
+    endpoint: str = "https://huggingface.co"
+    api_key: str = ""
+    timeout_seconds: float = 30.0
+    default_limit: int = 25
+
+
 class Settings(BaseModel):
     """
     Main application settings.
@@ -418,6 +443,7 @@ class Settings(BaseModel):
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     generation: GenerationSettings = Field(default_factory=GenerationSettings)
     evals: EvalsSettings = Field(default_factory=EvalsSettings)
+    catalog: CatalogSettings = Field(default_factory=CatalogSettings)
 
     # Custom settings (extensible)
     custom: JSON = Field(default_factory=dict)

@@ -168,6 +168,8 @@ class ContextNodeExecutor:
 
             if result.success:
                 output = self._extract_output(result=result)
+                # context_output is the dict form for downstream node resolution
+                context_output = self._extract_output_for_context(result=result)
 
                 # Ingest successful result into session memory
                 await self._ingest_result(
@@ -184,6 +186,7 @@ class ContextNodeExecutor:
                 merged_metadata: dict[str, Any] = dict(result.metadata or {})
                 merged_metadata["agent_id"] = agent_name
                 merged_metadata["context_hash"] = context_hash
+                merged_metadata["_context_output"] = context_output
                 if context_warnings:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
                 return NodeResult(
@@ -214,7 +217,13 @@ class ContextNodeExecutor:
             )
 
     def _build_goal(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> BaseModel | None:
-        """Build a goal model from resolved inputs."""
+        """Build a goal model from resolved inputs.
+
+        Filters out None values (unresolved optional $$refs$$) so Pydantic
+        field defaults are used. This enables optional DAG nodes — if a node
+        didn't run, its output_key won't be in context, the ref resolves to
+        None, and the downstream goal uses its declared default value.
+        """
         goal_type = self._registry.get_goal_type(agent_name=agent_name)
         if goal_type is None:
             return None
@@ -222,8 +231,11 @@ class ContextNodeExecutor:
         if not isinstance(inputs, dict):
             return None
 
+        # Drop None values so Pydantic uses field defaults for optional inputs
+        filtered = {k: v for k, v in inputs.items() if v is not None}
+
         try:
-            return goal_type(**inputs)
+            return goal_type(**filtered)
         except Exception as e:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
@@ -238,14 +250,35 @@ class ContextNodeExecutor:
         return ""
 
     def _extract_output(self, *, result: AgentResult[Any]) -> str | None:
-        """Extract serializable output from agent result."""
+        """Extract serializable output string for NodeResult.output.
+
+        NodeResult.output is a string consumed by tests, loggers, and the
+        event payload 'output' field. It must remain JSON-stringified.
+        """
         output = result.output
         if output is None:
             return None
         if hasattr(output, "model_dump"):
-            dumped = output.model_dump()
-            return json.dumps(dumped)
+            return json.dumps(output.model_dump())
         return str(output)
+
+    def _extract_output_for_context(self, *, result: AgentResult[Any]) -> Any | None:
+        """Extract output for Context storage — dict form for Pydantic models.
+
+        Returns model_dump() for Pydantic output so downstream nodes can do
+        $$scrape_result.posts$$ via dot-path resolution. For non-Pydantic
+        outputs (plain strings, already-dicts), returns None — signaling
+        the executor should use result.output (the string) for context too.
+        This preserves backward compat for existing CEMAF agents that return
+        plain text while giving kyi's typed agents dict-form context.
+        """
+        output = result.output
+        if output is None:
+            return None
+        if hasattr(output, "model_dump"):
+            return output.model_dump()
+        # Non-Pydantic: return None so executor falls back to result.output
+        return None
 
     def _compute_context_hash(self, *, inputs: dict[str, Any] | Any) -> str:
         """Compute deterministic hash of context inputs."""

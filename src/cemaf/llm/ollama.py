@@ -82,10 +82,7 @@ class CharBasedEstimator:
     ) -> float:
         if tools:
             return 1.0
-        total_chars = sum(
-            len(m.content) if isinstance(m.content, str) else 0
-            for m in messages
-        )
+        total_chars = sum(len(m.content) if isinstance(m.content, str) else 0 for m in messages)
         return 1.0 if total_chars >= self.escalation_chars else 0.0
 
 

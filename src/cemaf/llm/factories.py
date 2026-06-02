@@ -1,12 +1,13 @@
 """Factory functions for LLM client components.
 
-Supports 6 providers out of the box:
+Supports 7 providers out of the box:
     client = create_llm_client("ollama", model="qwen3.5")
     client = create_llm_client("openai", api_key="sk-...")
     client = create_llm_client("anthropic", api_key="sk-ant-...")
     client = create_llm_client("gemini", api_key="AIza...")
     client = create_llm_client("groq", api_key="gsk-...")
     client = create_llm_client("together", api_key="...")
+    client = create_llm_client("huggingface", api_key="hf_...")
 """
 
 import os
@@ -15,6 +16,7 @@ from typing import Any
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.provider_registry import ProviderRegistry
+from cemaf.core.types import LLMProvider
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import LLMClient
 
@@ -71,7 +73,7 @@ def _create_ollama_tiered(**kwargs: Any) -> LLMClient:
         create_tiered_ollama_router,
     )
 
-    return create_tiered_ollama_router(  # type: ignore[return-value]
+    return create_tiered_ollama_router(
         small_model=kwargs.get("small_model", DEFAULT_SMALL_MODEL),
         large_model=kwargs.get("large_model", DEFAULT_LARGE_MODEL),
         base_url=kwargs.get("base_url", DEFAULT_BASE_URL),
@@ -102,6 +104,23 @@ def _create_together(**kwargs: Any) -> LLMClient:
     )
 
 
+def _create_huggingface(**kwargs: Any) -> LLMClient:
+    from cemaf.llm.openai_compat import OpenAICompatClient
+
+    api_key: str = str(
+        kwargs.get("api_key")
+        or os.getenv("HF_TOKEN")
+        or os.getenv("HUGGINGFACE_API_KEY")
+        or os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
+    )
+    return OpenAICompatClient(  # type: ignore[return-value]
+        base_url=kwargs.get("base_url", "https://router.huggingface.co/v1"),
+        api_key=api_key,
+        model=kwargs.get("model", "google/gemma-2-2b-it"),
+        provider=LLMProvider.HUGGINGFACE,
+    )
+
+
 def _create_gemini(**kwargs: Any) -> LLMClient:
     from cemaf.llm.gemini import GeminiClient
 
@@ -122,6 +141,7 @@ llm_registry.register(backend="ollama", factory=_create_ollama)
 llm_registry.register(backend="ollama-tiered", factory=_create_ollama_tiered)
 llm_registry.register(backend="groq", factory=_create_groq)
 llm_registry.register(backend="together", factory=_create_together)
+llm_registry.register(backend="huggingface", factory=_create_huggingface)
 llm_registry.register(backend="gemini", factory=_create_gemini)
 
 
@@ -137,13 +157,14 @@ def create_llm_client(
     """Create an LLM client for any supported provider.
 
     Args:
-        provider: One of: openai, anthropic, ollama, gemini, groq, together, mock
+        provider: One of: openai, anthropic, ollama, gemini, groq, together, huggingface, mock
         **kwargs: Provider-specific args (api_key, model, base_url, etc.)
 
     Examples:
         client = create_llm_client("ollama", model="qwen3.5")
         client = create_llm_client("openai", api_key="sk-...", model="gpt-4o")
         client = create_llm_client("gemini", api_key="AIza...", model="gemini-2.5-flash")
+        client = create_llm_client("huggingface", api_key="hf_...", model="google/gemma-2-2b-it")
     """
     return llm_registry.create(backend=provider, **kwargs)
 

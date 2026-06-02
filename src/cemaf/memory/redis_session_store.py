@@ -13,6 +13,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Any
 
 from cemaf.core.utils import utc_now
 from cemaf.memory.session import SessionPhase, SessionState
@@ -30,9 +31,9 @@ class RedisSessionStore:
         self._redis_url = redis_url
         self._ttl_seconds = ttl_seconds
         self._key_prefix = key_prefix
-        self._redis: object | None = None
+        self._redis: Any | None = None
 
-    async def _client(self) -> object:
+    async def _client(self) -> Any:
         if self._redis is not None:
             return self._redis
         try:
@@ -83,19 +84,18 @@ class RedisSessionStore:
 
         Returns True if the key was set (new session), False if it already existed.
         """
-
         client = await self._client()
         key = self._session_key(session_id)
         payload = self._serialize(state)
         # SET NX EX: atomic create-only with TTL
-        result = await client.set(key, payload, nx=True, ex=self._ttl_seconds)  # type: ignore[union-attr]
+        result = await client.set(key, payload, nx=True, ex=self._ttl_seconds)
         return result is not None
 
     async def get_state(self, session_id: str) -> SessionState | None:
         """Retrieve session state, returning None if absent or expired."""
         client = await self._client()
         key = self._session_key(session_id)
-        raw = await client.get(key)  # type: ignore[union-attr]
+        raw = await client.get(key)
         if raw is None:
             return None
         return self._deserialize(raw)
@@ -105,20 +105,20 @@ class RedisSessionStore:
         client = await self._client()
         key = self._session_key(session_id)
         payload = self._serialize(state)
-        await client.set(key, payload, ex=self._ttl_seconds)  # type: ignore[union-attr]
+        await client.set(key, payload, ex=self._ttl_seconds)
 
     async def delete_state(self, session_id: str) -> bool:
         """Delete session state, returning True if the key existed."""
         client = await self._client()
         key = self._session_key(session_id)
-        deleted = await client.delete(key)  # type: ignore[union-attr]
+        deleted = await client.delete(key)
         return bool(deleted > 0)
 
     async def renew_ttl(self, session_id: str) -> None:
         """Reset the TTL for an existing session key without touching the value."""
         client = await self._client()
         key = self._session_key(session_id)
-        await client.expire(key, self._ttl_seconds)  # type: ignore[union-attr]
+        await client.expire(key, self._ttl_seconds)
 
     @asynccontextmanager
     async def acquire_lock(
@@ -138,7 +138,7 @@ class RedisSessionStore:
         lock_key = self._lock_key(session_id)
         lock_value = f"{utc_now().isoformat()}:{session_id}"
 
-        acquired = await client.set(  # type: ignore[union-attr]
+        acquired = await client.set(
             lock_key,
             lock_value,
             nx=True,
@@ -149,12 +149,12 @@ class RedisSessionStore:
         finally:
             if acquired is not None:
                 # Only delete if we still own the lock (value matches)
-                current = await client.get(lock_key)  # type: ignore[union-attr]
+                current = await client.get(lock_key)
                 if current == lock_value:
-                    await client.delete(lock_key)  # type: ignore[union-attr]
+                    await client.delete(lock_key)
 
     async def close(self) -> None:
         """Close the Redis connection. Idempotent."""
         if self._redis is not None:
-            await self._redis.aclose()  # type: ignore[union-attr]
+            await self._redis.aclose()
             self._redis = None

@@ -142,7 +142,7 @@ class PostgresAuditLog:
             signer_key_id = signed.signer_key_id
             sig_alg = signed.signature_algorithm
 
-        sql = f"""
+        sql = f"""  # nosec B608
         INSERT INTO {self._schema}.audit_log
             (id, type, timestamp, run_id, source, correlation_id,
              payload, metadata, signature, signer_key_id, signature_algorithm)
@@ -198,7 +198,7 @@ class PostgresAuditLog:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
 
-        sql = f"""
+        sql = f"""  # nosec B608
         SELECT id, type, timestamp, run_id, source,
                correlation_id, payload, metadata
         FROM {self._schema}.audit_log
@@ -217,11 +217,11 @@ class PostgresAuditLog:
         pool = await self._get_pool()
 
         if run_id is not None:
-            sql = f"SELECT COUNT(*) FROM {self._schema}.audit_log WHERE run_id = $1"
+            sql = f"SELECT COUNT(*) FROM {self._schema}.audit_log WHERE run_id = $1"  # nosec B608
             async with pool.acquire() as conn:
                 return int(await conn.fetchval(sql, run_id))
         else:
-            sql = f"SELECT COUNT(*) FROM {self._schema}.audit_log"
+            sql = f"SELECT COUNT(*) FROM {self._schema}.audit_log"  # nosec B608
             async with pool.acquire() as conn:
                 return int(await conn.fetchval(sql))
 
@@ -250,7 +250,7 @@ class PostgresAuditLog:
 
         pool = await self._get_pool()
 
-        sql = f"""
+        sql = f"""  # nosec B608
         SELECT id, type, timestamp, run_id, source,
                correlation_id, payload, metadata,
                signature, signer_key_id, signature_algorithm

@@ -4,7 +4,34 @@ Core type aliases for the framework.
 Using NewType for type safety - these catch bugs at type-check time.
 """
 
+from enum import StrEnum
 from typing import Any, NewType
+
+
+class FinishReason(StrEnum):
+    """Closed enum classifying how an LLM turn ended (CEMAF v1.0).
+
+    Single source of truth for the normalized finish_reason carried end-to-end
+    across adapters, audit, and stream consumers. Adapter implementations
+    SHALL map provider-native stop reasons into one of these 5 members.
+    """
+
+    TERMINAL_STOP = "stop"
+    TERMINAL_TOOL = "tool"
+    PARTIAL_LENGTH = "length"
+    PARTIAL_FILTER = "filter"
+    PARTIAL_ERROR = "error"
+
+
+class LLMProvider(StrEnum):
+    """Closed enum of provider families recognized at the adapter boundary."""
+
+    BEDROCK = "bedrock"
+    ANTHROPIC = "anthropic"
+    HUGGINGFACE = "huggingface"
+    OPENAI = "openai"
+    ADAPTER = "adapter"
+
 
 # JSON-compatible dict type
 JSON = dict[str, Any]

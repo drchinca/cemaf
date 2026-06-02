@@ -135,6 +135,11 @@ class Node:
     input_mapping: JSON = field(default_factory=dict)  # Map from context to node input
     output_key: str = ""  # Key to store output in context
 
+    # When True, Pydantic model outputs are stored as dicts in context (not
+    # JSON strings). Enables dot-path resolution: $$output_key.field$$.
+    # Default False preserves backward compat with existing string-output DAGs.
+    structured_output: bool = False
+
     # Retry configuration
     max_retries: int = 3
     retry_on_failure: bool = True

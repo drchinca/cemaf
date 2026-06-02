@@ -1,0 +1,116 @@
+# Spec → Module Map
+
+> One-page index from SPEC-00..06 (Enterprise Context Brain) concepts to the modules that house them. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
+
+## Conventions
+
+- **Status** values:
+  - `scaffold pending` — module/file does not exist yet
+  - `partial` — module exists but lacks fields/methods called out in the spec
+  - `landed` — concept implemented per spec
+  - `landed (needs review)` — implemented but not yet aligned to current spec text
+- All target paths are under `src/` (e.g., `cemaf/interceptors/` → `src/cemaf/interceptors/`).
+- "Source spec" cites the *primary* defining section. Cross-cutting concepts may be referenced in multiple specs.
+
+## Common types and runtime (SPEC-00)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `NodeBudget` | SPEC-00 §2 | `cemaf/core/types.py` | scaffold pending |
+| `RunResult` (with `recovery_request`, `failed_node`) | SPEC-00 §2 | `cemaf/core/types.py` | scaffold pending |
+| `RecoveryRequest` (projection type) | SPEC-00 §2, SPEC-06 §2 | `cemaf/core/types.py` | scaffold pending |
+| `AcquiredLease` | SPEC-00 §2, SPEC-04 §2 | `cemaf/task/lease.py` | scaffold pending |
+| `Citation` + `cited_evidence_refs` predicate | SPEC-00 §2 | `cemaf/citation/` | partial — predicate pending |
+| `RuntimeServices` extensions (datasource_registry, task_repository, guardian_mesh, meta_dispatcher, structured_generator, interceptor_pipeline) | SPEC-00 §2 | `cemaf/orchestration/services.py` | partial — needs new fields |
+| `bootstrap.create_executor()` wiring of new services | SPEC-00 §2 | `cemaf/bootstrap.py` | partial |
+| OTel GenAI spans (`gen_ai.tool.execute`, `gen_ai.agent.run`, `cemaf.interceptor.*`) | SPEC-00 §9 | `cemaf/observability/` | partial |
+| GATE evaluator SLOs registry | SPEC-00 §8 | `cemaf/evals/gate.py` | scaffold pending |
+
+## Interceptor pipeline (SPEC-01)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `NodeInterceptor` Protocol (PRE / POST phases) | SPEC-01 §2 | `cemaf/interceptors/protocols.py` | scaffold pending |
+| `InterceptorPipeline` | SPEC-01 §2 | `cemaf/interceptors/pipeline.py` | scaffold pending |
+| `ChainProfile` enum (DEFAULT / RECOVERY) | SPEC-01 §2 | `cemaf/interceptors/profiles.py` | scaffold pending |
+| `InterceptorContext` (PRE/POST payload) | SPEC-01 §2 | `cemaf/interceptors/context.py` | scaffold pending |
+| Pipeline integration into `ContextNodeExecutor` | SPEC-01 §2 | `cemaf/orchestration/context_node_executor.py` | partial — hooks pending |
+
+## KG and DataSource services (SPEC-02)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `DataSource` Protocol | SPEC-02 §2 | `cemaf/datasources/protocols.py` | scaffold pending |
+| `DataSourceRegistry` | SPEC-02 §2 | `cemaf/datasources/registry.py` | scaffold pending |
+| `PullInterceptor` (PRE-phase, hydrates context) | SPEC-02 §2 | `cemaf/datasources/pull_interceptor.py` | scaffold pending |
+| Deterministic eviction policy | SPEC-02 §2 | `cemaf/datasources/eviction.py` | scaffold pending |
+| KG-as-DataSource adapter | SPEC-02 §2 | `cemaf/datasources/kg_adapter.py` | scaffold pending |
+
+## Blueprint as LLM input (SPEC-03)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `BlueprintRequest[T]` (typed structured-output request) | SPEC-03 §2 | `cemaf/blueprint/request.py` | scaffold pending |
+| `StructuredGenerator` Protocol | SPEC-03 §2 | `cemaf/blueprint/generator.py` | scaffold pending |
+| `BlueprintInterceptor` (POST-phase, validates structured output) | SPEC-03 §2 | `cemaf/blueprint/interceptor.py` | scaffold pending |
+| Blueprint → JSON Schema compilation | SPEC-03 §2 | `cemaf/blueprint/schema.py` | partial |
+| Blueprint validation / repair loop | SPEC-03 §2 | `cemaf/blueprint/validator.py` | scaffold pending |
+
+## Task state machine (SPEC-04)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `Task` entity (with state machine) | SPEC-04 §2 | `cemaf/task/models.py` | scaffold pending |
+| `TaskState` enum (DRAFT → QUEUED → LEASED → RUNNING → COMPLETED/FAILED) | SPEC-04 §2 | `cemaf/task/enums.py` | scaffold pending |
+| `TaskRepository` Protocol | SPEC-04 §2 | `cemaf/task/repository.py` | scaffold pending |
+| `AcquiredLease` (HITL pause/resume token) | SPEC-04 §2 | `cemaf/task/lease.py` | scaffold pending |
+| `TaskContext` (per-task scoped context) | SPEC-04 §2 | `cemaf/task/context.py` | scaffold pending |
+| Lease expiry + reclamation | SPEC-04 §2 | `cemaf/task/scheduler.py` | scaffold pending |
+
+## Guardian mesh (SPEC-05)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `Guardian` Protocol | SPEC-05 §2 | `cemaf/guardian/protocols.py` | scaffold pending |
+| `GuardianMesh` (composes 6 guardians) | SPEC-05 §2 | `cemaf/guardian/mesh.py` | scaffold pending |
+| `CiteOrFailGuardian` | SPEC-05 §2 | `cemaf/guardian/cite_or_fail.py` | scaffold pending |
+| `UngroundedClaimGuardian` | SPEC-05 §2 | `cemaf/guardian/ungrounded_claim.py` | scaffold pending |
+| `SchemaGuardian` | SPEC-05 §2 | `cemaf/guardian/schema.py` | scaffold pending |
+| `PolicyGuardian` | SPEC-05 §2 | `cemaf/guardian/policy.py` | scaffold pending |
+| `HallucinationGuardian` | SPEC-05 §2 | `cemaf/guardian/hallucination.py` | scaffold pending |
+| `CalibrationGuardian` | SPEC-05 §2 | `cemaf/guardian/calibration.py` | scaffold pending |
+| Guardian → POST-interceptor adapter | SPEC-05 §2 | `cemaf/guardian/interceptor.py` | scaffold pending |
+
+## Self-resolving DAG (SPEC-06)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `MetaDispatcher` (decides recovery routing) | SPEC-06 §2 | `cemaf/meta/dispatcher.py` | scaffold pending |
+| `RecoveryRequest` projection | SPEC-06 §2 | `cemaf/core/types.py` | scaffold pending |
+| Self-resolution loop in `DAGExecutor` (RECOVERY profile) | SPEC-06 §2 | `cemaf/orchestration/executor.py` | partial |
+| Recovery DAG factory | SPEC-06 §2 | `cemaf/meta/recovery_dag.py` | scaffold pending |
+| Audit-gate on recovery acceptance | SPEC-06 §2 | `cemaf/audit/recovery_gate.py` | scaffold pending |
+
+## Phase 2+ implementation plan
+
+The map above is a target. The build-out is sequenced so each phase is independently mergeable and testable. Approximate ordering — phases may overlap when dependencies are satisfied.
+
+| Phase | Scope | Gate |
+|---|---|---|
+| **Phase 1** (this doc) | Surface self-hosting + spec→module map | Docs land, reviewers sign off on trajectory |
+| **Phase 2** | Scaffolding — empty Protocol files, type stubs, `__init__.py` exports for `interceptors/`, `datasources/`, `task/`, `guardian/`, `meta/dispatcher.py`. Add `NodeBudget`, `RunResult`, `RecoveryRequest` to `core/types.py`. Extend `RuntimeServices`. | All new modules import cleanly; mypy passes; no behavior changes |
+| **Phase 3** | Interceptor pipeline (SPEC-01) — implement `NodeInterceptor`, `InterceptorPipeline`, `ChainProfile`. Wire into `ContextNodeExecutor` behind a feature flag. | Contract + integration tests prove PRE/POST ordering; default profile is no-op |
+| **Phase 4** | Blueprint as LLM input (SPEC-03) — `BlueprintRequest[T]`, `StructuredGenerator`, `BlueprintInterceptor` (POST). | Round-trip test: typed request → structured response → validated payload |
+| **Phase 5** | DataSources + KG (SPEC-02) — registry, `PullInterceptor`, eviction policy, KG adapter. | Pull interceptor hydrates a node's context from a registered source; eviction is deterministic across runs |
+| **Phase 6** | Task state machine (SPEC-04) — `TaskRepository`, `AcquiredLease`, HITL pause/resume. | State transitions enforce SPEC-04 invariants; lease expiry reclaims orphaned tasks |
+| **Phase 7** | Guardian mesh (SPEC-05) — six guardians as POST-interceptors, composed by `GuardianMesh`. | Each guardian has unit tests + a Gherkin scenario from SPEC-05 §4 |
+| **Phase 8** | MetaDispatcher + self-resolving DAG (SPEC-06) — recovery routing, RECOVERY profile, audit-gated acceptance. | Failed node emits `RecoveryRequest`; dispatcher selects recovery DAG; audit gate blocks unsafe accepts |
+| **Phase 9** | Audit-gate hardening + GATE evaluator SLOs (SPEC-00 §8) — promote OBSERVE evaluators to GATE once thresholds are stable. | All target evaluators in GATE mode with documented thresholds and incident playbooks |
+
+Each phase ends with: (a) integration tests proving the seam, (b) updates to this map flipping rows from `scaffold pending` → `landed`, (c) any spec drift reflected back into SPEC-00..06.
+
+## See also
+
+- [`docs/self-hosting.md`](../self-hosting.md) — meta-layer catalog and extension pattern
+- [`docs/specs/SPEC-00`..`SPEC-06`](../specs/) — source specs
+- [`CLAUDE.md`](../../CLAUDE.md) — project contract (architecture overview, module map, testing discipline)

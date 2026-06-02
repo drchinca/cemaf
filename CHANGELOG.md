@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-27
+
+**Enterprise Context Brain — spec-driven stability commitment.**
+
+CEMAF crosses 1.0 on the back of seven converged specifications (SPEC-00..06) that define the Enterprise Context Brain target architecture: pull-not-push enterprise data, Blueprint-as-LLM-input, DAG-node task awareness, shared knowledge graph, internal guardian agents, low/zero-hallucination grounding. Specs landed after eight cross-agent review rounds (SA, senior-python, QA, junior-dev, AI/ML, LLM-systems, DevOps, context-engineering) covering ~3,600 lines of formal contracts.
+
+**Added:**
+- `SPEC-00` Enterprise Context Brain umbrella — common types, `RuntimeServices`, bootstrap, observability, GATE evaluator SLOs, citation membership predicate, `FinishReason` provider-mapping table, `EvalBudgetCounter`, `CassettePayload` schema with budget-accounting trio + truncation pair, `CassetteDivergenceError`
+- `SPEC-01` Node Interceptor Pipeline — PRE/POST phases, `ChainProfile` (DEFAULT/RECOVERY), `ChainContractError`, deterministic chain semantics
+- `SPEC-02` KG + DataSource services — `DataSource` Protocol, `PullInterceptor` (sole atomic writer of `ctx.surfaced_sources`), `EntityExtractor` Protocol, deterministic eviction order
+- `SPEC-03` Blueprint as LLM Input — `BlueprintRequest[T]`, `StructuredGenerator` Protocol with `tool_registry` binding, tool-loop semantics with `tool_loop_budget`, structured-output validation, grounding annotation policy
+- `SPEC-04` Task State Machine — `TaskRepository` Protocol, `AcquiredLease`, `TaskContext`, retry-ledger, decision windowing
+- `SPEC-05` Guardian Mesh — six guardians (cite-or-fail, ungrounded-claim, schema, policy, hallucination, calibration), per-(node, attempt) `EvalBudgetCounter` clones with pre-flight reservation, judge–agent isolation
+- `SPEC-06` Self-Resolving DAG — `MetaDispatcher`, `RecoveryRequest` projection, `pending_meta_patches` channel
+- `docs/self-hosting.md` — meta-agent + meta-tool catalog, pre-built DAG walkthroughs (self_audit, feature_synthesis, knowledge_refresh)
+- `docs/architecture/spec-module-map.md` — every SPEC concept → target module, Phase 2-9 implementation trajectory
+- `README.md` "CEMAF runs on CEMAF" hero — surfaces self-hosting layer (meta/, audit/, knowledge/) above the fold
+- Ollama tiered LLM router with Gemma 4b/12b local inference (`feat(llm)`)
+- `structured_output` flag on executor; optional-node `None` resolution (`feat(executor)`)
+- Generalized `$$key$$` placeholder resolution beyond `STEP_N_OUTPUT` (`feat(resolver)`)
+- Blueprint triad: `BlueprintLibrary` curated entries, `WritableBlueprintSource` + `SqliteBlueprintSource`, `BlueprintSelectorHook` autonomous retrieval, `BlueprintHarvesterEngine` protocol-first harvest
+
+**Changed:**
+- Provider-native `finish_reason` strings normalized to `FinishReason` enum at adapter boundary; downstream specs reference enum members only
+- `services.eval_budget` reclassified as TEMPLATE; live counters cloned per `(node_id, attempt_idx)` with `asyncio.Lock`-serialized reservation
+- `gen_ai.usage.input_tokens` canonical source pinned to post-sanitization, post-truncation byte sequence; cassette/span divergence ≥1 token raises `CassetteDivergenceError`
+
+**Stability:**
+- Public `Agent`, `Tool`, `Skill`, `LLMClient`, `MemoryManager`, `ContextCompiler`, `EventBus`, `RuntimeServices`, `bootstrap.create_executor()` surfaces are now stable per semver. Breaking changes from this point require a major version bump.
+- Phase 2-9 implementation against SPEC-00..06 is in flight; new optional protocols added under `RuntimeServices` ride the minor version.
+
+
+
 ### Added
 
 **Evals System (PRs #61-65)**

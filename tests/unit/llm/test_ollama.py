@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 from cemaf.llm.factories import create_llm_client, llm_registry
-from cemaf.llm.model_router import ModelRouter
+from cemaf.llm.mock import MockLLMClient
+from cemaf.llm.model_router import ModelRoute, ModelRouter
 from cemaf.llm.ollama import (
     DEFAULT_ESCALATION_CHARS,
     CharBasedEstimator,
@@ -14,6 +15,7 @@ from cemaf.llm.ollama import (
 )
 from cemaf.llm.openai_compat import OpenAICompatClient
 from cemaf.llm.protocols import LLMClient, Message
+from cemaf.resilience.circuit_breaker import CircuitOpenError
 
 
 class TestCharBasedEstimator:
@@ -124,3 +126,129 @@ class TestFactoryIntegration:
             router._estimator.escalation_chars  # type: ignore[attr-defined]
             == DEFAULT_ESCALATION_CHARS
         )
+
+
+class TestTieredRouterResilience:
+    """Router behavior under circuit-breaker failures — fallback path."""
+
+    @staticmethod
+    def _broken_client() -> LLMClient:
+        from cemaf.core.types import TokenCount
+        from cemaf.llm.protocols import LLMConfig
+
+        class BrokenClient:
+            @property
+            def config(self) -> LLMConfig:
+                return LLMConfig()
+
+            async def complete(self, messages, tools=None, config_override=None):  # type: ignore[no-untyped-def]
+                raise CircuitOpenError("large model circuit open")
+
+            async def stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+                raise CircuitOpenError("large model circuit open")
+
+            def count_tokens(self, text: str) -> TokenCount:
+                return TokenCount(0)
+
+            def count_messages_tokens(self, messages) -> TokenCount:  # type: ignore[no-untyped-def]
+                return TokenCount(0)
+
+            async def count_tokens_exact(self, messages, tools=None) -> TokenCount:  # type: ignore[no-untyped-def]
+                return TokenCount(0)
+
+        return BrokenClient()  # type: ignore[return-value]
+
+    @pytest.mark.asyncio
+    async def test_small_falls_through_to_large_when_small_breaker_open(self) -> None:
+        """Low-complexity request: if small-tier breaker is OPEN, large tier answers."""
+        from cemaf.llm.model_router import ModelRouter
+
+        large = MockLLMClient(responses=["from-large"])
+        router = ModelRouter(
+            routes=[
+                ModelRoute(threshold=0.5, client=self._broken_client(), model_name="small"),
+                ModelRoute(threshold=1.0, client=large, model_name="large"),
+            ],
+            estimator=CharBasedEstimator(escalation_chars=100),
+        )
+        result = await router.complete(messages=[Message.user(content="hi")])
+        assert result.success
+        assert result.message is not None
+        assert "from-large" in str(result.message.content)
+
+    @pytest.mark.asyncio
+    async def test_all_routes_failed_surfaces_error(self) -> None:
+        from cemaf.llm.model_router import ModelRouter
+
+        router = ModelRouter(
+            routes=[
+                ModelRoute(threshold=0.5, client=self._broken_client(), model_name="small"),
+                ModelRoute(threshold=1.0, client=self._broken_client(), model_name="large"),
+            ],
+            estimator=CharBasedEstimator(),
+        )
+        result = await router.complete(messages=[Message.user(content="hi")])
+        assert not result.success
+        assert "exhausted" in (result.error or "").lower()
+
+
+class TestTieredRouterStreamingSelection:
+    """Route selection for streaming — exercises the same scorer/selector.
+
+    NOTE: `ModelRouter.stream()` (src/cemaf/llm/model_router.py:153) has a
+    pre-existing bug — it `await`s an async generator. Until that is fixed,
+    we verify selection only.
+    """
+
+    def test_stream_small_for_short_prompt(self) -> None:
+        from cemaf.llm.model_router import ModelRouter
+
+        small = MockLLMClient(responses=["s"])
+        large = MockLLMClient(responses=["l"])
+        router = ModelRouter(
+            routes=[
+                ModelRoute(threshold=0.5, client=small, model_name="gemma3:4b"),
+                ModelRoute(threshold=1.0, client=large, model_name="gemma3:12b"),
+            ],
+            estimator=CharBasedEstimator(escalation_chars=50),
+        )
+        score = router._estimator.estimate(  # type: ignore[attr-defined]
+            messages=[Message.user(content="hi")],
+            tools=None,
+        )
+        candidates = router._select_route(score=score)  # type: ignore[attr-defined]
+        assert candidates[0].model_name == "gemma3:4b"
+
+    def test_stream_large_for_long_prompt(self) -> None:
+        from cemaf.llm.model_router import ModelRouter
+
+        small = MockLLMClient(responses=["s"])
+        large = MockLLMClient(responses=["l"])
+        router = ModelRouter(
+            routes=[
+                ModelRoute(threshold=0.5, client=small, model_name="gemma3:4b"),
+                ModelRoute(threshold=1.0, client=large, model_name="gemma3:12b"),
+            ],
+            estimator=CharBasedEstimator(escalation_chars=50),
+        )
+        score = router._estimator.estimate(  # type: ignore[attr-defined]
+            messages=[Message.user(content="x" * 200)],
+            tools=None,
+        )
+        candidates = router._select_route(score=score)  # type: ignore[attr-defined]
+        assert candidates[0].model_name == "gemma3:12b"
+
+
+class TestConfigSettingsIntegration:
+    def test_ollama_tiered_is_valid_settings_provider(self) -> None:
+        """LLMSettings.provider accepts ollama-tiered without ValidationError."""
+        from cemaf.config.protocols import LLMSettings
+
+        settings = LLMSettings(provider="ollama-tiered")
+        assert settings.provider == "ollama-tiered"
+
+    def test_ollama_is_valid_settings_provider(self) -> None:
+        from cemaf.config.protocols import LLMSettings
+
+        settings = LLMSettings(provider="ollama")
+        assert settings.provider == "ollama"

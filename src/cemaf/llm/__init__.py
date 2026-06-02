@@ -1,5 +1,5 @@
 """
-LLM module — 6 providers out of the box.
+LLM module — 7 providers out of the box.
 
 Quickstart:
     from cemaf.llm import create_llm_client
@@ -13,6 +13,7 @@ Quickstart:
     client = create_llm_client("gemini", model="gemini-2.5-flash")
     client = create_llm_client("groq", model="llama-3.3-70b-versatile")
     client = create_llm_client("together", model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
+    client = create_llm_client("huggingface", model="google/gemma-2-2b-it")
 """
 
 from cemaf.llm.anthropic import AnthropicLLMClient

@@ -106,6 +106,39 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 
 ---
 
+## CEMAF runs on CEMAF
+
+CEMAF's self-hosting layer is its first client. Meta-agents, meta-tools, and pre-built meta-DAGs are *standard* `Agent` / `Tool` / `DAG` citizens — they run through the same `DAGExecutor` as user code. No special paths, no shadow framework.
+
+| Meta-agent | Role | Tools |
+|---|---|---|
+| `MetaArchitect` | Design DAG pipelines from a feature description | `IntrospectRegistryTool`, `GenerateDAGTool` |
+| `MetaSynthesizer` | Generate CEMAF agent Python source from templates | (template-based) |
+| `MetaAuditor` | Analyze execution traces for quality / anomalies | `TraceAnalyzerTool` |
+| `MetaKnowledgeGraph` | Query and refresh the entity knowledge graph | `KnowledgeGraphTool` |
+
+| Pre-built DAG | Flow | Purpose |
+|---|---|---|
+| `self_audit` | `MetaAuditor` → audit report | Audit recent execution quality |
+| `feature_synthesis` | `MetaArchitect` → `MetaSynthesizer` | Design + generate a new agent |
+| `knowledge_refresh` | `MetaAuditor` → `MetaKnowledgeGraph` | Promote execution data into the KG |
+
+Entry point: **`cemaf.meta.bootstrap.create_meta_executor()`** — wraps `create_executor()`, auto-wires audit (from `EventBus`) and KG (from `MemoryManager`), and registers all meta-agents and meta-tools.
+
+```python
+from cemaf.meta.bootstrap import create_meta_executor
+from cemaf.meta.dags import create_self_audit_dag
+
+executor = create_meta_executor()
+result = await executor.run(create_self_audit_dag())
+
+print(result.final_context.get("audit_report"))
+```
+
+See **[docs/self-hosting.md](docs/self-hosting.md)** for the full meta catalog, DAG walkthroughs, and the extension pattern for adding new meta-agents. The Enterprise Context Brain target architecture (SPEC-00..06) and where each spec concept lands in the codebase are tracked in **[docs/architecture/spec-module-map.md](docs/architecture/spec-module-map.md)**.
+
+---
+
 ## The Hard Problems We Solve
 
 | Problem | What Happens | CEMAF Solution |
