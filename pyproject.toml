@@ -89,6 +89,11 @@ anthropic = [
     "anthropic~=0.40",
 ]
 
+# Hugging Face Hub integration
+huggingface = [
+    "huggingface_hub>=1.0",
+]
+
 # Vector store integrations
 pinecone = [
     "pinecone-client>=3.0",
@@ -141,6 +146,7 @@ all = [
     "tiktoken>=0.5",
     "openai~=2.14",
     "anthropic~=0.40",
+    "huggingface_hub>=1.0",
     "prometheus-client>=0.20",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
@@ -212,6 +218,8 @@ module = [
     "anthropic.*",
     "openai",
     "openai.*",
+    "huggingface_hub",
+    "huggingface_hub.*",
     "pinecone",
     "pinecone.*",
     "asyncpg",
