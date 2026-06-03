@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-03
+
+First published release of the 1.1 line (1.1.0 was tagged but never published to PyPI). Identical feature set to the 1.1.0 entry below, plus the CI/type-check fix required to ship from a green `main`.
+
+**Fixed:**
+- `[[tool.mypy.overrides]]` scoped to the four adapter modules that bridge to `openai>=2.14` / `redis>=5` strict stubs (`llm/openai.py`, `events/redis_event_bus.py`, `resilience/redis_rate_limiter.py`, `resilience/redis_circuit_breaker.py`). The stubs reject our dynamic-kwargs / mapping call sites though the runtime is correct; the override disables exactly `arg-type`/`call-overload`/`await-not-async`/`misc` for those modules only. Restores a green `Lint & Type Check` (red on main since 2026-05-27, pre-dating the 1.1 work). (#127)
+
 ## [1.1.0] - 2026-06-03
 
 **Persisted state machines, Hugging Face integration, and a hardened eval loop.**
