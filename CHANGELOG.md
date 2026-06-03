@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-03
+
+**Persisted state machines, Hugging Face integration, and a hardened eval loop.**
+
+First minor release on the 1.x line. Adds a first-class FSM primitive, a 7th LLM provider with a model catalog, fixes a silent OBSERVE-mode eval bug, and lands integration tests that pin three previously-undocumented cross-module behaviors.
+
+**Added:**
+- `cemaf.state` — typed, persisted, observable state-machine primitive (`StateMachine[StateT, EventT]`, `Transition`, `FsmState`, `FsmStore` Protocol, `InMemoryFsmStore`). Domain-neutral; composes with `DAGExecutor` (a transition handler can dispatch a DAG, inheriting `correlation_id` for telemetry joins). Enforces typed states/events, explicit-transitions-only, optimistic locking, HITL non-bypass, append-only history, handler-failure rollback, terminal absorption. (#119)
+- Hugging Face integration across three layers (#120):
+  - LLM provider (7th out of the box) via the OpenAI-compatible HF inference router — `create_llm_client("huggingface", ...)`
+  - `HuggingFaceEmbeddingProvider` via feature-extraction inference
+  - `HuggingFaceModelCatalog` (`cemaf.catalog`) over `huggingface_hub.HfApi` with typed `ModelCatalogQuery` / `CatalogModel` value objects and `CatalogSettings`
+- `SPEC-06` amendment — `MetaArchitectDecision` emission contract: `convergence_score ∈ [0.0, 1.0]`, `decision_kind` band-matching (HALT/REVISE/CONVERGED), replay determinism. (#117)
+- Integration tests pinning cross-module seams: `cemaf.state` → `DAGExecutor` (#121), `ModelCatalog` → `ModelRouter` (#122), and a characterization of `DAGExecutor.run().success` semantics — a run can be COMPLETED while a `retry_on_failure=True` node failed, so callers needing "all nodes succeeded" must inspect `node_results`. (#123)
+
+**Fixed:**
+- OBSERVE-mode evaluation now fires-and-forgets so judges do not serialize the hot path; added the production API that makes the fix testable; documented the PULL context + unit-of-work node cost model. (#105)
+
+**Changed:**
+- `core.types` restores `FinishReason` and `LLMProvider` StrEnums (with `HUGGINGFACE`) — fixes a broken-import state and adds the new provider member.
+
 ## [1.0.0] - 2026-05-27
 
 **Enterprise Context Brain — spec-driven stability commitment.**

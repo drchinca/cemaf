@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING, Any
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.provider_registry import ProviderRegistry
+from cemaf.retrieval.embedding_providers import HashEmbeddingProvider
+from cemaf.retrieval.huggingface_embeddings import (
+    DEFAULT_HF_EMBEDDING_DIMENSION,
+    DEFAULT_HF_EMBEDDING_MODEL,
+    HuggingFaceEmbeddingProvider,
+)
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
 
 if TYPE_CHECKING:
@@ -14,6 +21,7 @@ if TYPE_CHECKING:
 
 # Global vector store registry — extend with your own backends
 vector_store_registry: ProviderRegistry[VectorStore] = ProviderRegistry(name="vector_store")
+embedding_provider_registry: ProviderRegistry[EmbeddingProvider] = ProviderRegistry(name="embedding_provider")
 
 
 def create_in_memory_vector_store(
@@ -43,9 +51,50 @@ def _create_pgvector_store(**kwargs: Any) -> PgVectorStore:
     )
 
 
+def _create_hash_embedding_provider(**kwargs: Any) -> EmbeddingProvider:
+    return HashEmbeddingProvider(dimension=int(kwargs.get("dimension", 384)))
+
+
+def _create_openai_embedding_provider(**kwargs: Any) -> EmbeddingProvider:
+    api_key = str(kwargs.get("api_key") or os.getenv("OPENAI_API_KEY", ""))
+    if not api_key:
+        raise ValueError("api_key required for OpenAI embeddings (or set OPENAI_API_KEY)")
+    return OpenAIEmbeddingProvider(
+        api_key=api_key,
+        model=str(kwargs.get("model", "text-embedding-3-small")),
+        dimension=int(kwargs.get("dimension", 1536)),
+    )
+
+
+def _create_huggingface_embedding_provider(**kwargs: Any) -> EmbeddingProvider:
+    model = str(kwargs.get("model", DEFAULT_HF_EMBEDDING_MODEL))
+    dimension = int(kwargs.get("dimension", DEFAULT_HF_EMBEDDING_DIMENSION))
+
+    if model == "text-embedding-3-small":
+        model = DEFAULT_HF_EMBEDDING_MODEL
+    if dimension == 1536 and model == DEFAULT_HF_EMBEDDING_MODEL:
+        dimension = DEFAULT_HF_EMBEDDING_DIMENSION
+
+    return HuggingFaceEmbeddingProvider(
+        api_key=str(kwargs.get("api_key", "")),
+        model=model,
+        dimension=dimension,
+        provider=str(kwargs.get("provider", "hf-inference")),
+        timeout_seconds=float(kwargs.get("timeout_seconds", 60.0)),
+    )
+
+
 # Register built-in backends
 vector_store_registry.register(backend="memory", factory=_create_memory_vector_store)
 vector_store_registry.register(backend="pgvector", factory=_create_pgvector_store)
+embedding_provider_registry.register(backend="hash", factory=_create_hash_embedding_provider)
+embedding_provider_registry.register(backend="mock", factory=_create_hash_embedding_provider)
+embedding_provider_registry.register(backend="openai", factory=_create_openai_embedding_provider)
+embedding_provider_registry.register(backend="huggingface", factory=_create_huggingface_embedding_provider)
+embedding_provider_registry.register(
+    backend="sentence-transformers",
+    factory=_create_huggingface_embedding_provider,
+)
 
 
 def create_vector_store_from_config(
@@ -60,6 +109,21 @@ def create_vector_store_from_config(
     return vector_store_registry.create(
         backend=backend,
         embedding_provider=embedding_provider,
+        dimension=cfg.retrieval.embedding_dimension,
+    )
+
+
+def create_embedding_provider_from_config(
+    provider: str | None = None,
+    settings: Settings | None = None,
+) -> EmbeddingProvider:
+    """Create an embedding provider from retrieval settings."""
+
+    cfg = settings or load_settings_from_env_sync()
+    provider_name = provider or cfg.retrieval.embedding_provider
+    return embedding_provider_registry.create(
+        backend=provider_name,
+        model=cfg.retrieval.embedding_model,
         dimension=cfg.retrieval.embedding_dimension,
     )
 

@@ -53,6 +53,7 @@ class TestOnlineMultipleBindings:
         pipeline.subscribe()
 
         await bus.publish(event=_task_completed_event(node_id="node-a"))
+        await pipeline.flush()
 
         assert len(pipeline.results) == 2
         scores = sorted(r["overall_score"] for r in pipeline.results)
@@ -79,6 +80,7 @@ class TestOnlineMultipleBindings:
         pipeline.subscribe()
 
         await bus.publish(event=_task_completed_event(node_id="node-a"))
+        await pipeline.flush()
 
         assert len(pipeline.results) == 2
 
@@ -106,6 +108,7 @@ class TestOnlineErrorHandling:
         pipeline.subscribe()
 
         await bus.publish(event=_task_completed_event(node_id="node-a"))
+        await pipeline.flush()
 
         assert len(failed_events) == 1
         assert failed_events[0].payload["node_id"] == "node-a"
@@ -163,6 +166,7 @@ class TestOnlineOutputCoercion:
                 output={"key": "value"},
             )
         )
+        await pipeline.flush()
 
         assert len(pipeline.results) == 1
 
@@ -186,6 +190,7 @@ class TestOnlineOutputCoercion:
                 output="",
             )
         )
+        await pipeline.flush()
 
         assert len(pipeline.results) == 1
         assert pipeline.results[0]["node_id"] == "node-a"

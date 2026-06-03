@@ -15,6 +15,18 @@ depends_on: SPEC-01
 > and defines the `PullInterceptor` that realizes **pull-not-push** retrieval —
 > writing the canonical `ctx.surfaced_sources` set consumed by SPEC-05 cite-or-fail.
 
+## Contents
+
+- [1. Context](#1-context)
+- [2. Interface Contract (MDE)](#2-interface-contract-mde)
+- [3. Invariants (DbC)](#3-invariants-dbc)
+- [4. Acceptance Criteria (BDD)](#4-acceptance-criteria-bdd)
+- [5. Out of Scope](#5-out-of-scope)
+- [6. Dependencies](#6-dependencies)
+- [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
+- [9. Observability Contract](#9-observability-contract)
+
 ## 1. Context
 
 `knowledge/MemoryBackedKnowledgeGraph` exists but is consumed only by `meta/`.
@@ -33,6 +45,7 @@ Common types in SPEC-00 §2 (`Citation`, `CiteableChunk`, `TokenBudget`).
 from typing import ClassVar, Protocol, runtime_checkable
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 
 class DataSourceCapability(Enum):
     READ      = "read"
@@ -179,6 +192,13 @@ Feature: Pull-not-push context
     When PullInterceptor runs
     Then sum(chunk.token_count) ≤ 2000
     And per-source sums each ≤ 1000
+    And per-source caps are equal under default config (uniform split)
+
+  Scenario: Custom per-source budget weights override uniform split (Inv 8)
+    Given PullInterceptor config sets weights {A: 0.75, B: 0.25} and pull_tokens=2000
+    When PullInterceptor runs over healthy A and B
+    Then A's sub-budget is 1500 and B's is 500
+    And both sub-budgets sum to ≤ pull_tokens
 
   Scenario: Read-only enforcement at registry
     Given a DataSource subclass exposing a public method "write"
@@ -211,6 +231,27 @@ Feature: Pull-not-push context
     When both run
     Then the returned EntityRefs are identical
     And both calls flow through RuntimeServices.knowledge_graph
+
+  Scenario: Meta-recovery patches union into surfaced_sources (Inv 13)
+    Given the Executor sets ctx.pending_meta_patches = (m1, m2) before re-dispatch (SPEC-06 Inv 17)
+    And both m1 and m2 are CiteableChunks within node.budget.pull_tokens
+    When PullInterceptor.pre runs
+    Then ctx.surfaced_sources is the merge of (kg+datasource+memory) candidates ∪ {m1, m2}
+    And the merge follows the Inv 11 sort and eviction
+    And the returned PreflightDecision.enriched_context sets ctx.pending_meta_patches = ()
+
+  Scenario: Pending meta patches cleared idempotently (Inv 13)
+    Given PullInterceptor.pre has already run once for this attempt
+    And ctx.pending_meta_patches was cleared to ()
+    When PullInterceptor.pre is invoked a second time within the same attempt
+    Then the merge proceeds as if no patches existed
+    And ctx.surfaced_sources is byte-identical to the first run
+
+  Scenario: Tenant priority offset bounded to ±10 (Inv 12)
+    Given a tenant config that sets per-source priority offset = +12 for source_kind=datasource
+    When PullInterceptor merges candidates
+    Then registration validation rejects the offset
+    And bootstrap raises StartupError(reason='priority_offset_overflow')
 
   Scenario: Duplicate source_id rejected
     Given a registry with source_id "salesforce_prod" registered
@@ -290,6 +331,6 @@ All evaluators in this table are eval_kind=`guardian` unless explicitly marked `
 
 - **Span**: `gen_ai.context.pull` — `node.id`, `kg.queries`, `datasources.queried`, `datasources.skipped`, `chunks.returned`, `tokens.used`, `tokens.budget`
 - **Span**: `gen_ai.kg.query` — `entity.id`, `relation.types`, `neighbors.count`
-- **Span**: `gen_ai.datasource.retrieve` — `source.id`, `latency_ms`, `chunks.count`, `tokens.used`
+- **Span**: `gen_ai.datasource.retrieve` — `source.id`, `latency_seconds` (per SPEC-00 §9 unit rule), `chunks.count`, `tokens.used`
 - **Log events**: `datasource.skipped_unhealthy`, `datasource.timeout`, `pull.no_grounding`, `kg.entity_missing`
-- **Metrics** (per SPEC-00 §9 cardinality rules — `source_id` is span-attribute-only; metric labels use `source_kind ∈ {kg, vector, memory, datasource}` as a bounded enum): `cemaf_pull_chunks_total{source_kind}`, `cemaf_pull_tokens_used` (histogram, no labels), `cemaf_datasource_health{source_kind,status}`, `cemaf_datasource_duration_seconds{source_kind,outcome}` (histogram)
+- **Metrics** (per SPEC-00 §9 cardinality rules — `source_id` is span-attribute-only; metric labels use `source_kind ∈ {kg, vector, memory, datasource}` as a bounded enum): `cemaf_pull_chunks_total{source_kind}`, `cemaf_pull_tokens_used` (histogram, no labels), `cemaf_datasource_health{source_kind,status}` (status ∈ {healthy, degraded, unhealthy} — bounded HealthStatus enum; combined cap 4×3=12), `cemaf_datasource_duration_seconds{source_kind,outcome}` (histogram)

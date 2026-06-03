@@ -636,12 +636,16 @@ class DAGExecutor:
                     completed[node_id] = checkpoint_result
                     result = checkpoint_result
 
+                    _cp_ws = context.data.get("workspace_id")
+                    _cp_workspace = str(_cp_ws) if _cp_ws is not None else None
                     await self._emit_event(
                         event_type=EventType.DAG_CHECKPOINT,
                         payload={
                             "node_id": str(node_id),
                             "dag_name": dag.name,
                             "dag_total_nodes": len(order),
+                            "run_id": str(run_id),
+                            "workspace_id": _cp_workspace,
                             "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
                         },
                     )
@@ -672,7 +676,9 @@ class DAGExecutor:
                 else:
                     metrics.counter("cemaf.node.executions.failed", tags=node_tags)
 
-                # Emit node completion event
+                # Emit node completion event (run_id + workspace_id for downstream audit / eval correlation)
+                _ws_raw = context.data.get("workspace_id")
+                _workspace_scope = str(_ws_raw) if _ws_raw is not None else None
                 await self._emit_event(
                     event_type=EventType.TASK_COMPLETED if result.success else EventType.TASK_FAILED,
                     payload={
@@ -681,17 +687,23 @@ class DAGExecutor:
                         "duration_ms": result.duration_ms,
                         "error": result.error,
                         "output": result.output,
+                        "run_id": str(run_id),
+                        "workspace_id": _workspace_scope,
                     },
                 )
 
                 # Fire checkpoint event if node has checkpoint marker
                 if node.checkpoint_enabled and result.success and node.type != NodeType.CHECKPOINT:
+                    _cp2_ws = context.data.get("workspace_id")
+                    _cp2_workspace = str(_cp2_ws) if _cp2_ws is not None else None
                     await self._emit_event(
                         event_type=EventType.DAG_CHECKPOINT,
                         payload={
                             "node_id": str(node_id),
                             "dag_name": dag.name,
                             "dag_total_nodes": len(order),
+                            "run_id": str(run_id),
+                            "workspace_id": _cp2_workspace,
                             "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
                         },
                     )
@@ -820,6 +832,8 @@ class DAGExecutor:
                             error=result.error,
                         )
 
+                    _ws_fail = context.data.get("workspace_id")
+                    _workspace_fail = str(_ws_fail) if _ws_fail is not None else None
                     # Emit DAG failed event
                     await self._emit_event(
                         event_type=EventType.TASK_FAILED,
@@ -828,6 +842,7 @@ class DAGExecutor:
                             "run_id": str(run_id),
                             "failed_node": str(node_id),
                             "error": result.error,
+                            "workspace_id": _workspace_fail,
                         },
                     )
 

@@ -1,4 +1,4 @@
-"""OpenAI-compatible LLM client — works with OpenAI, Ollama, vLLM, Groq, Together, LMStudio.
+"""OpenAI-compatible LLM client — works with OpenAI, Ollama, Groq, Hugging Face, and more.
 
 Any provider that speaks the OpenAI chat completions API can use this adapter.
 
@@ -24,6 +24,14 @@ Usage:
     client = OpenAICompatClient(
         base_url="https://api.together.xyz/v1",
         api_key="...", model="meta-llama/Llama-3.3-70B",
+    )
+
+    # Hugging Face router
+    client = OpenAICompatClient(
+        base_url="https://router.huggingface.co/v1",
+        api_key="hf_...",
+        model="google/gemma-2-2b-it",
+        provider=LLMProvider.HUGGINGFACE,
     )
 
     # LM Studio
@@ -59,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAICompatClient:
-    """LLM client for any OpenAI-compatible API (OpenAI, Ollama, vLLM, Groq, Together, LMStudio)."""
+    """LLM client for any OpenAI-compatible API (OpenAI, Ollama, Groq, Together, Hugging Face, LMStudio)."""
 
     def __init__(
         self,
@@ -71,9 +79,11 @@ class OpenAICompatClient:
         max_tokens: int = 4096,
         timeout_seconds: float = 120.0,
         default_headers: dict[str, str] | None = None,
+        provider: LLMProvider | str = LLMProvider.OPENAI,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
+        self._provider = provider if isinstance(provider, LLMProvider) else LLMProvider(provider)
         self._config = LLMConfig(
             model=model,
             temperature=temperature,
@@ -158,7 +168,7 @@ class OpenAICompatClient:
                 model=data.get("model", cfg.model),
                 finish_reason=choice.get("finish_reason", "") or "stop",
                 finish_reason_native=choice.get("finish_reason", "") or "",
-                provider=LLMProvider.OPENAI,
+                provider=self._provider,
                 latency_ms=latency_ms,
             )
 

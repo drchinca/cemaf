@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.openai_compat import OpenAICompatClient, _message_to_dict, _parse_arguments
 from cemaf.llm.protocols import (
     LLMClient,
@@ -248,6 +248,40 @@ class TestComplete:
         assert result.tool_calls[0].arguments["query"] == "CEMAF"
 
     @pytest.mark.asyncio
+    async def test_provider_family_propagates_to_result(self) -> None:
+        client = OpenAICompatClient(
+            api_key="hf-test",
+            base_url="https://router.huggingface.co/v1",
+            model="google/gemma-2-2b-it",
+            provider=LLMProvider.HUGGINGFACE,
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "Hello from HF"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 4},
+            "model": "google/gemma-2-2b-it",
+        }
+
+        with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+
+            result = await client.complete(messages=[Message.user(content="hi")])
+
+        assert result.success
+        assert result.provider is LLMProvider.HUGGINGFACE
+
+    @pytest.mark.asyncio
     async def test_config_override(self) -> None:
         client = OpenAICompatClient(api_key="key", model="gpt-4o")
         override = LLMConfig(model="gpt-3.5-turbo", temperature=0.0, max_tokens=100)
@@ -328,6 +362,14 @@ class TestProviderFactories:
 
         client = create_llm_client("together", api_key="tok-test")
         assert "together.xyz" in client._base_url
+
+    def test_create_huggingface(self) -> None:
+        from cemaf.llm.factories import create_llm_client
+
+        client = create_llm_client("huggingface", api_key="hf-test", model="google/gemma-2-2b-it")
+        assert "huggingface.co" in client._base_url
+        assert client._provider is LLMProvider.HUGGINGFACE
+        assert client.config.model == "google/gemma-2-2b-it"
 
     def test_create_gemini(self) -> None:
         from cemaf.llm.factories import create_llm_client
