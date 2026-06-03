@@ -2,18 +2,14 @@
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
-
-import pytest
 
 from cemaf.core.enums import MemoryScope
-from cemaf.core.types import Confidence
 from cemaf.memory.postgres_store import _row_to_item
 
 
 def _make_row(
     *,
-    scope: str = "brand",
+    scope: str = "tenant",
     key: str = "k",
     value: dict | None = None,
     confidence: float = 0.8,
@@ -50,7 +46,7 @@ async def test_row_to_item_roundtrip_no_expiry() -> None:
     )
     item = _row_to_item(row)
 
-    assert item.scope == MemoryScope.BRAND
+    assert item.scope == MemoryScope.TENANT
     assert item.key == "no_expiry"
     assert item.value == {"hello": "world"}
     assert abs(float(item.confidence) - 0.95) < 1e-5

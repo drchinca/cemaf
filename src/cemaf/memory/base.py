@@ -2,7 +2,7 @@
 Memory base classes and in-memory implementation.
 
 Memory items have:
-- Scope (brand, project, etc.)
+- Scope (tenant, project, etc.)
 - Key (unique within scope)
 - Value (JSON-serializable)
 - Confidence score

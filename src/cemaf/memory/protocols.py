@@ -2,7 +2,7 @@
 Memory protocols - Abstract interfaces for memory storage.
 
 Supports:
-- Scoped storage (brand, project, conversation, turn, etc.)
+- Scoped storage (tenant, project, session, etc.)
 - TTL and expiration
 - Confidence scoring
 - Redaction hooks for PII removal
@@ -64,7 +64,7 @@ class MemoryStore(Protocol):
     Protocol for memory store implementations.
 
     A MemoryStore is a key-value storage system that:
-    - Organizes data by scopes (brand, project, conversation, etc.)
+    - Organizes data by scopes (tenant, project, session, etc.)
     - Supports TTL and automatic expiration
     - Tracks confidence scores for items
     - Provides hooks for redaction and serialization
@@ -130,7 +130,7 @@ class MemoryStore(Protocol):
 
     Memory Scopes:
         CEMAF defines several built-in memory scopes for different contexts:
-        - BRAND: Brand-level knowledge (shared across all projects)
+        - TENANT: tenant-level knowledge (shared across all projects)
         - PROJECT: Project-specific knowledge
         - AUDIENCE_SEGMENT: Segment-specific knowledge
         - PLATFORM: Platform-specific knowledge
@@ -155,14 +155,14 @@ class MemoryStore(Protocol):
         Retrieve a memory item by scope and key.
 
         Args:
-            scope: Memory scope (brand, project, conversation, etc.)
+            scope: Memory scope (tenant, project, session, etc.)
             key: Unique key within the scope
 
         Returns:
             MemoryItem if found and not expired, None otherwise
 
         Example:
-            >>> item = await store.get(MemoryScope.BRAND, "company_name")
+            >>> item = await store.get(MemoryScope.TENANT, "company_name")
             >>> if item:
             ...     print(f"Company: {item.value}")
         """
@@ -180,7 +180,7 @@ class MemoryStore(Protocol):
         Example:
             >>> from datetime import timedelta
             >>> item = MemoryItem(
-            ...     scope=MemoryScope.BRAND,
+            ...     scope=MemoryScope.TENANT,
             ...     key="company_name",
             ...     value={"name": "Acme Corp"},
             ...     confidence=Confidence(0.9),
@@ -219,7 +219,7 @@ class MemoryStore(Protocol):
             Tuple of MemoryItems in the scope (excludes expired items)
 
         Example:
-            >>> items = await store.list_by_scope(MemoryScope.BRAND)
+            >>> items = await store.list_by_scope(MemoryScope.TENANT)
             >>> for item in items:
             ...     print(f"{item.key}: {item.value}")
         """

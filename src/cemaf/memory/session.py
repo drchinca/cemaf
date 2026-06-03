@@ -80,7 +80,7 @@ class SessionManager(Protocol):
         self,
         session_id: str,
         *,
-        scopes: tuple[MemoryScope, ...] = (MemoryScope.BRAND, MemoryScope.PROJECT),
+        scopes: tuple[MemoryScope, ...] = (MemoryScope.TENANT, MemoryScope.PROJECT),
     ) -> SessionState: ...
 
     async def ingest(
@@ -127,7 +127,7 @@ class DefaultSessionManager:
         self,
         session_id: str,
         *,
-        scopes: tuple[MemoryScope, ...] = (MemoryScope.BRAND, MemoryScope.PROJECT),
+        scopes: tuple[MemoryScope, ...] = (MemoryScope.TENANT, MemoryScope.PROJECT),
     ) -> SessionState:
         """Initialize session: load memories from scopes, start episode."""
         state = SessionState(

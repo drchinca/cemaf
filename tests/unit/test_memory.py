@@ -36,12 +36,12 @@ class TestMemoryItem:
     def test_full_key_includes_scope(self):
         """full_key includes scope prefix."""
         item = MemoryItem(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="guidelines",
             value={},
         )
 
-        assert item.full_key == "brand:guidelines"
+        assert item.full_key == "tenant:guidelines"
 
     def test_with_update_creates_new_item(self):
         """with_update creates new item with updated value."""
@@ -101,29 +101,29 @@ class TestInMemoryStore:
     @pytest.mark.asyncio
     async def test_delete_existing(self, memory_store: InMemoryStore):
         """Delete removes existing item."""
-        item = MemoryItem(scope=MemoryScope.BRAND, key="to_delete", value={})
+        item = MemoryItem(scope=MemoryScope.TENANT, key="to_delete", value={})
         await memory_store.set(item)
 
-        deleted = await memory_store.delete(MemoryScope.BRAND, "to_delete")
+        deleted = await memory_store.delete(MemoryScope.TENANT, "to_delete")
 
         assert deleted is True
-        assert await memory_store.get(MemoryScope.BRAND, "to_delete") is None
+        assert await memory_store.get(MemoryScope.TENANT, "to_delete") is None
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent(self, memory_store: InMemoryStore):
         """Delete returns False for nonexistent item."""
-        deleted = await memory_store.delete(MemoryScope.BRAND, "nonexistent")
+        deleted = await memory_store.delete(MemoryScope.TENANT, "nonexistent")
 
         assert deleted is False
 
     @pytest.mark.asyncio
     async def test_list_by_scope(self, memory_store: InMemoryStore):
         """Can list items by scope."""
-        await memory_store.set(MemoryItem(scope=MemoryScope.BRAND, key="a", value={}))
-        await memory_store.set(MemoryItem(scope=MemoryScope.BRAND, key="b", value={}))
+        await memory_store.set(MemoryItem(scope=MemoryScope.TENANT, key="a", value={}))
+        await memory_store.set(MemoryItem(scope=MemoryScope.TENANT, key="b", value={}))
         await memory_store.set(MemoryItem(scope=MemoryScope.PROJECT, key="c", value={}))
 
-        brand_items = await memory_store.list_by_scope(MemoryScope.BRAND)
+        brand_items = await memory_store.list_by_scope(MemoryScope.TENANT)
 
         assert len(brand_items) == 2
 
@@ -155,7 +155,7 @@ class TestInMemoryStore:
         """Search can be filtered by scope."""
         await memory_store.set(
             MemoryItem(
-                scope=MemoryScope.BRAND,
+                scope=MemoryScope.TENANT,
                 key="brand_blue",
                 value={"color": "blue"},
             )
@@ -168,10 +168,10 @@ class TestInMemoryStore:
             )
         )
 
-        results = await memory_store.search("blue", scope=MemoryScope.BRAND)
+        results = await memory_store.search("blue", scope=MemoryScope.TENANT)
 
         assert len(results) == 1
-        assert results[0].scope == MemoryScope.BRAND
+        assert results[0].scope == MemoryScope.TENANT
 
     @pytest.mark.asyncio
     async def test_clear(self, memory_store: InMemoryStore):

@@ -10,7 +10,7 @@ Key exports:
   use these so mypy catches cross-slot mistakes.
 - **Enums**: `MemoryScope`, `NodeType`, `RunStatus`, `AgentStatus`,
   `ToolRiskLevel`, `Priority`, `ExclusionReason`, `VerificationStatus`,
-  `ContextArtifactType`.
+  (artifact types are now open strings, not a closed enum).
 - **Result[T]**: the canonical success/failure wrapper used by `Tool.execute`,
   moderation, evals, and anywhere we want to return structured errors
   without raising.
@@ -35,7 +35,6 @@ from cemaf.core.constants import (
 from cemaf.core.domain import DomainContext
 from cemaf.core.enums import (
     AgentStatus,
-    ContextArtifactType,
     ExclusionReason,
     MemoryScope,
     NodeType,
@@ -93,7 +92,6 @@ __all__ = [
     "LLMProvider",
     # Enums
     "AgentStatus",
-    "ContextArtifactType",
     "ExclusionReason",
     "MemoryScope",
     "NodeType",

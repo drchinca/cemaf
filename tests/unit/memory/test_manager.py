@@ -62,14 +62,14 @@ class TestSemanticMemory:
     async def test_remember_and_recall_by_key(self) -> None:
         manager, _ = _make_manager()
         item = await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="company",
             value={"name": "Acme"},
         )
         assert item.key == "company"
 
         recalled = await manager.recall_by_key(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="company",
         )
         assert recalled is not None
@@ -79,7 +79,7 @@ class TestSemanticMemory:
     async def test_recall_nonexistent(self) -> None:
         manager, _ = _make_manager()
         result = await manager.recall_by_key(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="nonexistent",
         )
         assert result is None
@@ -88,7 +88,7 @@ class TestSemanticMemory:
     async def test_recall_with_query(self) -> None:
         manager, _ = _make_manager()
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="product",
             value={"name": "Widget"},
         )
@@ -120,7 +120,7 @@ class TestSemanticMemory:
     async def test_remember_with_confidence(self) -> None:
         manager, _ = _make_manager()
         item = await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="fact",
             value={"statement": "verified"},
             confidence=0.9,
@@ -187,7 +187,7 @@ class TestEventBusIntegration:
         )
 
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="test",
             value={"data": "test"},
         )
@@ -213,7 +213,7 @@ class TestEventBusIntegration:
         manager, _ = _make_manager(with_event_bus=False)
         # Should not raise, and should still store memory correctly
         item = await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="test",
             value={"data": "test"},
         )
