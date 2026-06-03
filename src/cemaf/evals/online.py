@@ -1,5 +1,6 @@
 """Online evaluation pipeline — runs evaluators at DAG checkpoints during execution."""
 
+import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -10,6 +11,9 @@ from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.observability import get_logger
 
 logger = get_logger("evals.online")
+
+# Cap concurrent OBSERVE eval LLM calls per process (backpressure; GATE stays sequential).
+_OBSERVE_EVAL_SEMAPHORE = asyncio.Semaphore(8)
 
 
 class EvalMode(StrEnum):
@@ -54,6 +58,20 @@ class OnlineEvalPipeline:
         self._bindings = bindings
         self._event_bus = event_bus
         self._results: list[dict[str, Any]] = []
+        self._pending: set[asyncio.Task[None]] = set()
+
+    def _spawn_observe(self, coro: Any) -> None:
+        """Schedule a fire-and-forget OBSERVE eval and track it for flush()."""
+        task = asyncio.create_task(coro)
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
+    async def flush(self) -> None:
+        """Await all in-flight OBSERVE evals. Production: graceful shutdown. Tests: determinism."""
+        if not self._pending:
+            return
+        in_flight = tuple(self._pending)
+        await asyncio.gather(*in_flight, return_exceptions=True)
 
     def subscribe(self) -> None:
         """Subscribe to execution events."""
@@ -68,8 +86,9 @@ class OnlineEvalPipeline:
 
     async def _handle_task_completed(self, event: Event) -> None:
         """Evaluate on TASK_COMPLETED — only for EVERY_NODE bindings."""
-        node_id = event.payload.get("node_id", "")
-        output = event.payload.get("output")
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        node_id = str(payload.get("node_id", ""))
+        output = payload.get("output")
         if output is None:
             return
 
@@ -80,28 +99,56 @@ class OnlineEvalPipeline:
         if not matched:
             return
 
+        run_id_payload = payload.get("run_id")
+        run_id_str = str(run_id_payload) if run_id_payload is not None else (event.correlation_id or "")
+        workspace_raw = payload.get("workspace_id")
+        workspace_id = str(workspace_raw) if workspace_raw is not None else None
+
         eval_ctx = EvalContext(
             output=output,
             node_id=node_id,
-            node_type=event.payload.get("node_type", ""),
-            dag_name=event.payload.get("dag_name", ""),
-            dag_position=event.payload.get("dag_position", 0),
-            dag_total_nodes=event.payload.get("dag_total_nodes", 0),
+            node_type=payload.get("node_type", ""),
+            dag_name=payload.get("dag_name", ""),
+            dag_position=payload.get("dag_position", 0),
+            dag_total_nodes=payload.get("dag_total_nodes", 0),
             previous_scores=tuple(r["overall_score"] for r in self._results),
             metadata={"trigger": "task_completed"},
         )
 
         for binding in matched:
-            await self._run_eval(
-                binding=binding,
-                eval_ctx=eval_ctx,
-                correlation_id=event.correlation_id or "",
-            )
+            if binding.mode == EvalMode.OBSERVE:
+
+                async def _observe_run(
+                    b: NodeEvalBinding = binding,
+                    ctx: EvalContext = eval_ctx,
+                    corr: str = event.correlation_id or "",
+                    rid: str = run_id_str,
+                    ws: str | None = workspace_id,
+                ) -> None:
+                    async with _OBSERVE_EVAL_SEMAPHORE:
+                        await self._run_eval(
+                            binding=b,
+                            eval_ctx=ctx,
+                            correlation_id=corr,
+                            run_id=rid,
+                            workspace_id=ws,
+                        )
+
+                self._spawn_observe(_observe_run())
+            else:
+                await self._run_eval(
+                    binding=binding,
+                    eval_ctx=eval_ctx,
+                    correlation_id=event.correlation_id or "",
+                    run_id=run_id_str,
+                    workspace_id=workspace_id,
+                )
 
     async def _handle_checkpoint(self, event: Event) -> None:
         """Evaluate on DAG_CHECKPOINT — for CHECKPOINT_ONLY bindings."""
-        node_id = event.payload.get("node_id", "")
-        output = event.payload.get("context_snapshot")
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        node_id = str(payload.get("node_id", ""))
+        output = payload.get("context_snapshot")
 
         matched = self._find_bindings(
             node_id=node_id,
@@ -112,23 +159,56 @@ class OnlineEvalPipeline:
         if not matched:
             return
 
+        ws_payload = payload.get("workspace_id")
+        workspace_id: str | None = str(ws_payload) if ws_payload is not None else None
+        if workspace_id is None:
+            snapshot = payload.get("context_snapshot")
+            if isinstance(snapshot, dict):
+                w = snapshot.get("workspace_id")
+                if w is not None:
+                    workspace_id = str(w)
+        run_id_payload = payload.get("run_id")
+        run_id_str = str(run_id_payload) if run_id_payload is not None else (event.correlation_id or "")
+
         eval_ctx = EvalContext(
             output=output,
             node_id=node_id,
             node_type="checkpoint",
-            dag_name=event.payload.get("dag_name", ""),
-            dag_position=event.payload.get("dag_position", 0),
-            dag_total_nodes=event.payload.get("dag_total_nodes", 0),
+            dag_name=payload.get("dag_name", ""),
+            dag_position=payload.get("dag_position", 0),
+            dag_total_nodes=payload.get("dag_total_nodes", 0),
             previous_scores=tuple(r["overall_score"] for r in self._results),
             metadata={"trigger": "checkpoint"},
         )
 
         for binding in matched:
-            await self._run_eval(
-                binding=binding,
-                eval_ctx=eval_ctx,
-                correlation_id=event.correlation_id or "",
-            )
+            if binding.mode == EvalMode.OBSERVE:
+
+                async def _observe_ckpt(
+                    b: NodeEvalBinding = binding,
+                    ctx: EvalContext = eval_ctx,
+                    corr: str = event.correlation_id or "",
+                    rid: str = run_id_str,
+                    ws: str | None = workspace_id,
+                ) -> None:
+                    async with _OBSERVE_EVAL_SEMAPHORE:
+                        await self._run_eval(
+                            binding=b,
+                            eval_ctx=ctx,
+                            correlation_id=corr,
+                            run_id=rid,
+                            workspace_id=ws,
+                        )
+
+                self._spawn_observe(_observe_ckpt())
+            else:
+                await self._run_eval(
+                    binding=binding,
+                    eval_ctx=eval_ctx,
+                    correlation_id=event.correlation_id or "",
+                    run_id=run_id_str,
+                    workspace_id=workspace_id,
+                )
 
     async def _run_eval(
         self,
@@ -136,12 +216,20 @@ class OnlineEvalPipeline:
         binding: NodeEvalBinding,
         eval_ctx: EvalContext,
         correlation_id: str,
+        run_id: str = "",
+        workspace_id: str | None = None,
     ) -> None:
         """Run evaluators for a single binding and emit results."""
+        eval_scope = {
+            "node_id": eval_ctx.node_id,
+            "mode": binding.mode.value,
+            "run_id": run_id or correlation_id,
+            "workspace_id": workspace_id,
+        }
         await self._event_bus.publish(
             event=Event.create(
                 type=EventType.EVAL_STARTED,
-                payload={"node_id": eval_ctx.node_id, "mode": binding.mode.value},
+                payload=eval_scope,
                 source="online_eval_pipeline",
                 correlation_id=correlation_id,
             )
@@ -167,6 +255,8 @@ class OnlineEvalPipeline:
             eval_payload: dict[str, Any] = {
                 "node_id": eval_ctx.node_id,
                 "mode": binding.mode.value,
+                "run_id": run_id or correlation_id,
+                "workspace_id": workspace_id,
                 "overall_score": result.overall_score,
                 "overall_passed": result.overall_passed,
                 "trigger": eval_ctx.metadata.get("trigger", ""),
@@ -221,7 +311,12 @@ class OnlineEvalPipeline:
             await self._event_bus.publish(
                 event=Event.create(
                     type=EventType.EVAL_FAILED,
-                    payload={"node_id": eval_ctx.node_id, "error": str(e)},
+                    payload={
+                        "node_id": eval_ctx.node_id,
+                        "error": str(e),
+                        "run_id": run_id or correlation_id,
+                        "workspace_id": workspace_id,
+                    },
                     source="online_eval_pipeline",
                     correlation_id=correlation_id,
                 )

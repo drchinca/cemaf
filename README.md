@@ -49,6 +49,29 @@ CEMAF is a protocol-first framework for **context engineering** in multi-agent A
 
 ---
 
+## A different shape of agent system
+
+Most agent frameworks are message-bus PUSH systems. Every step is an LLM turn against a rolling shared state; every capability you add (eval, intent detection, memory, routing, gates) is paid on *every* step. Ask the system `2 + 2` and it still pays for an intent classifier, a judge, a memory recall, and a router. Floor cost = ceiling cost.
+
+CEMAF is PULL. Nodes are **typed units of work** that declare what they need (`input_mapping={"a": 2, "b": 2}`) and the executor resolves exactly that — no ambient state firehose. Context compiles per-turn within a `TokenBudget` with priority selection. Services (eval, moderation, memory, budget) live in `RuntimeServices` as `| None` fields — absent = never runs. Evaluators bind to node patterns, not "every step." `NodeType.TOOL` is a different handler from `NodeType.AGENT`; deterministic work doesn't accidentally become an LLM call.
+
+```python
+# Deterministic work pays deterministic cost. No LLM, no eval, no recall.
+DAG(nodes=(Node(type=NodeType.TOOL, ref_id="add", input_mapping={"a": 2, "b": 2}),), ...)
+create_executor(agent_registry=registry)   # no services attached → nothing to pay for
+
+# LLM work with quality telemetry. OBSERVE runs in the background — never blocks the hot path.
+NodeEvalBinding(node_pattern="generate_sql", evaluators=(LLMJudge(),), mode=EvalMode.OBSERVE)
+```
+
+The payoff isn't "CEMAF makes 2+2 cheap." It's that a pipeline containing both `2+2` and an LLM-backed SQL generator **pays appropriately for each**. The trivial node doesn't subsidize the expensive node's infra cost. Message-bus frameworks can't easily express that — everything is an LLM turn against a shared rolling state, so the floor cost is the ceiling cost.
+
+This is a different way to build software. We treat context as a compiled, auditable asset with provenance — not a prompt you glue together. We treat agents as typed units of work with declared contracts — not opaque turns on a chatty loop. The rails that keep it honest (typed node types, opt-in `RuntimeServices`, pattern-bound evals, OBSERVE vs GATE, immutable `Context` + `ContextPatch`) are the framework; the framework isn't a collection of helpers you remember to use.
+
+Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-nodes`](docs/architecture.md#cost-model-pull-context-and-unit-of-work-nodes).
+
+---
+
 ## Architecture at a Glance
 
 ```

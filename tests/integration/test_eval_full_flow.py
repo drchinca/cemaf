@@ -61,6 +61,7 @@ class TestFullEvalFlow:
             source="test",
         )
         await event_bus.publish(event=event)
+        await eval_pipeline.flush()
 
         # Pipeline should have evaluated
         assert len(eval_pipeline.results) == 1
@@ -96,6 +97,7 @@ class TestFullEvalFlow:
                 source="test",
             )
             await event_bus.publish(event=event)
+        await eval_pipeline.flush()
 
         assert len(eval_pipeline.results) == 3
         # All three scores should be recorded in police
@@ -133,6 +135,7 @@ class TestFullEvalFlow:
             source="test",
         )
         await event_bus.publish(event=event)
+        await pipeline.flush()
 
         # Pipeline should have zero results (error path)
         assert len(pipeline.results) == 0
@@ -176,6 +179,7 @@ class TestFullEvalFlow:
             source="test",
         )
         await event_bus.publish(event=event)
+        await eval_pipeline.flush()
 
         assert len(eval_pipeline.results) == 1
         assert eval_pipeline.results[0]["node_id"] == "bootstrapped_node"
