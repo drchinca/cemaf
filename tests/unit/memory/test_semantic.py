@@ -166,35 +166,35 @@ class TestScopeSearch:
     @pytest.mark.asyncio
     async def test_scope_filter_single(self) -> None:
         store = _make_store()
-        await store.store(item=_make_item(scope=MemoryScope.BRAND, key="brand_item"))
+        await store.store(item=_make_item(scope=MemoryScope.TENANT, key="brand_item"))
         await store.store(item=_make_item(scope=MemoryScope.SESSION, key="session_item"))
 
         results = await store.search(
-            query=MemoryQuery(scope=MemoryScope.BRAND),
+            query=MemoryQuery(scope=MemoryScope.TENANT),
         )
         assert len(results) == 1
-        assert results[0].item.scope == MemoryScope.BRAND
+        assert results[0].item.scope == MemoryScope.TENANT
 
     @pytest.mark.asyncio
     async def test_scope_filter_multiple(self) -> None:
         store = _make_store()
-        await store.store(item=_make_item(scope=MemoryScope.BRAND, key="b"))
+        await store.store(item=_make_item(scope=MemoryScope.TENANT, key="b"))
         await store.store(item=_make_item(scope=MemoryScope.PROJECT, key="p"))
         await store.store(item=_make_item(scope=MemoryScope.SESSION, key="s"))
 
         results = await store.search(
             query=MemoryQuery(
-                scopes=(MemoryScope.BRAND, MemoryScope.PROJECT),
+                scopes=(MemoryScope.TENANT, MemoryScope.PROJECT),
             ),
         )
         scopes = {r.item.scope for r in results}
         assert MemoryScope.SESSION not in scopes
-        assert MemoryScope.BRAND in scopes
+        assert MemoryScope.TENANT in scopes
 
     @pytest.mark.asyncio
     async def test_no_scope_searches_all(self) -> None:
         store = _make_store()
-        await store.store(item=_make_item(scope=MemoryScope.BRAND, key="b"))
+        await store.store(item=_make_item(scope=MemoryScope.TENANT, key="b"))
         await store.store(item=_make_item(scope=MemoryScope.SESSION, key="s"))
 
         results = await store.search(query=MemoryQuery())

@@ -9,8 +9,8 @@ Run with:
         tests/integration/test_postgres_memory_store.py -v
 """
 
-import asyncio
 import os
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -22,7 +22,6 @@ pytestmark = pytest.mark.skipif(
     reason="CEMAF_POSTGRES_DSN not set — skipping Postgres integration tests",
 )
 
-import json
 from datetime import timedelta
 
 from cemaf.core.enums import MemoryScope
@@ -36,7 +35,7 @@ _TEST_SCHEMA = "cemaf_test"
 
 def _make_item(
     *,
-    scope: MemoryScope = MemoryScope.BRAND,
+    scope: MemoryScope = MemoryScope.TENANT,
     key: str = "test_key",
     value: dict | None = None,
     confidence: float = 0.9,
@@ -54,9 +53,8 @@ def _make_item(
 
 
 @pytest.fixture
-async def store() -> "AsyncIterator[PostgresMemoryStore]":
+async def store() -> AsyncIterator[PostgresMemoryStore]:
     """Fresh PostgresMemoryStore using a test schema, cleaned up after each test."""
-    from collections.abc import AsyncIterator
 
     s = PostgresMemoryStore(dsn=_DSN, schema=_TEST_SCHEMA, tenant_id="test_tenant")
     pool = await s._ensure_pool()
@@ -81,10 +79,10 @@ async def test_set_get_roundtrip(store: PostgresMemoryStore) -> None:
         scope_path="brand/sub",
     )
     await store.set(item=item)
-    retrieved = await store.get(scope=MemoryScope.BRAND, key="roundtrip")
+    retrieved = await store.get(scope=MemoryScope.TENANT, key="roundtrip")
 
     assert retrieved is not None
-    assert retrieved.scope == MemoryScope.BRAND
+    assert retrieved.scope == MemoryScope.TENANT
     assert retrieved.key == "roundtrip"
     assert retrieved.value == {"nested": {"count": 42}, "tag": "alpha"}
     assert abs(float(retrieved.confidence) - 0.75) < 1e-5
@@ -108,11 +106,11 @@ async def test_get_returns_none_for_expired(store: PostgresMemoryStore) -> None:
             f"WHERE tenant_id = $2 AND scope = $3 AND key = $4",
             past,
             "test_tenant",
-            MemoryScope.BRAND.value,
+            MemoryScope.TENANT.value,
             "expiring",
         )
 
-    result = await store.get(scope=MemoryScope.BRAND, key="expiring")
+    result = await store.get(scope=MemoryScope.TENANT, key="expiring")
     assert result is None
 
 
@@ -121,8 +119,8 @@ async def test_delete_returns_true_if_existed(store: PostgresMemoryStore) -> Non
     item = _make_item(key="deleteme")
     await store.set(item=item)
 
-    first = await store.delete(scope=MemoryScope.BRAND, key="deleteme")
-    second = await store.delete(scope=MemoryScope.BRAND, key="deleteme")
+    first = await store.delete(scope=MemoryScope.TENANT, key="deleteme")
+    second = await store.delete(scope=MemoryScope.TENANT, key="deleteme")
 
     assert first is True
     assert second is False
@@ -148,11 +146,11 @@ async def test_list_by_scope_excludes_expired(store: PostgresMemoryStore) -> Non
             f"WHERE tenant_id = $2 AND scope = $3 AND key = $4",
             past,
             "test_tenant",
-            MemoryScope.BRAND.value,
+            MemoryScope.TENANT.value,
             "expired",
         )
 
-    results = await store.list_by_scope(scope=MemoryScope.BRAND)
+    results = await store.list_by_scope(scope=MemoryScope.TENANT)
     keys = {r.key for r in results}
     assert "live_1" in keys
     assert "live_2" in keys
@@ -166,7 +164,7 @@ async def test_exclude_filter(store: PostgresMemoryStore) -> None:
     await store.set(item=_make_item(key="class_c", value={"class": "C", "x": 3}))
 
     results = await store.list_by_scope(
-        scope=MemoryScope.BRAND,
+        scope=MemoryScope.TENANT,
         exclude_filter={"class": ["B", "C"]},
     )
     keys = {r.key for r in results}
@@ -184,10 +182,10 @@ async def test_tenant_isolation(store: PostgresMemoryStore) -> None:
         await store_alpha.set(item=_make_item(key="secret_alpha", value={"owner": "alpha"}))
         await store_beta.set(item=_make_item(key="secret_beta", value={"owner": "beta"}))
 
-        alpha_sees = await store_alpha.get(scope=MemoryScope.BRAND, key="secret_beta")
-        beta_sees = await store_beta.get(scope=MemoryScope.BRAND, key="secret_alpha")
-        alpha_list = await store_alpha.list_by_scope(scope=MemoryScope.BRAND)
-        beta_list = await store_beta.list_by_scope(scope=MemoryScope.BRAND)
+        alpha_sees = await store_alpha.get(scope=MemoryScope.TENANT, key="secret_beta")
+        beta_sees = await store_beta.get(scope=MemoryScope.TENANT, key="secret_alpha")
+        alpha_list = await store_alpha.list_by_scope(scope=MemoryScope.TENANT)
+        beta_list = await store_beta.list_by_scope(scope=MemoryScope.TENANT)
 
         assert alpha_sees is None
         assert beta_sees is None

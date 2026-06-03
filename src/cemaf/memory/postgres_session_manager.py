@@ -42,7 +42,7 @@ class DistributedSessionManager:
         self,
         session_id: str,
         *,
-        scopes: tuple[MemoryScope, ...] = (MemoryScope.BRAND, MemoryScope.PROJECT),
+        scopes: tuple[MemoryScope, ...] = (MemoryScope.TENANT, MemoryScope.PROJECT),
     ) -> SessionState:
         """Initialize session, idempotent across replicas.
 

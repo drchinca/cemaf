@@ -112,7 +112,7 @@ class MediaSpec(BaseModel, ABC):
 
     prompt: str  # Main generation prompt
     negative_prompt: str | None = None  # What to avoid
-    style: str | None = None  # Style guidance (brand, artistic, etc.)
+    style: str | None = None  # Style guidance (visual, artistic, etc.)
     seed: int | None = None  # For reproducibility
     metadata: JSON = Field(default_factory=dict)
 
@@ -439,7 +439,7 @@ class UISpec(MediaSpec):
 
     # Reference
     reference_image: bytes | None = None  # Screenshot to recreate
-    brand_guidelines: JSON | None = None
+    style_config: JSON | None = None  # Visual/style guidance (consumer-defined)
 
 
 @runtime_checkable

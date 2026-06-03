@@ -7,18 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.1] - 2026-06-03
+## [2.0.0] - 2026-06-03
 
-First published release of the 1.1 line (1.1.0 was tagged but never published to PyPI). Identical feature set to the 1.1.0 entry below, plus the CI/type-check fix required to ship from a green `main`.
+**Domain-agnostic core + persisted state machines + Hugging Face integration.**
+
+First published release since 1.0.0 (the 1.1.0/1.1.1 tags were never published to PyPI; their content is rolled in here). Major bump for **breaking changes that make `cemaf.core` domain-neutral** — the framework no longer ships brand/marketing-specific vocabulary.
+
+**BREAKING:**
+- **Removed `ContextArtifactType` enum** (`cemaf.core.enums`). It hardcoded a brand/marketing taxonomy (`BRAND_CONSTITUTION`, `CAMPAIGN_BRIEF`, `SYMBOL_CANON`, `DO_NOT_SAY`...) into the framework core. `ContextArtifact.type` and the `ArtifactStore` protocol methods now take an **open `str`** — consumers define their own artifact taxonomy. Migration: replace `ContextArtifactType.BRAND_CONSTITUTION` with the string `"brand_constitution"` (or any consumer-defined value).
+- **`MemoryScope` members renamed to domain-neutral terms.** `BRAND` → `TENANT` (the per-tenant isolation boundary; map to brand/org/workspace consumer-side); removed unused `AUDIENCE_SEGMENT`, `PLATFORM`, `PERSONAE`; added `GLOBAL` and `USER`. `PROJECT`/`SESSION`/`STRATEGY` unchanged. Migration: `MemoryScope.BRAND` → `MemoryScope.TENANT`.
+- **`UISpec.brand_guidelines` renamed to `style_config`** (`cemaf.generation.protocols`).
+
+**Added:**
+- `cemaf.state` — typed, persisted, observable state-machine primitive (`StateMachine[StateT, EventT]`, `Transition`, `FsmState`, `FsmStore` Protocol, `InMemoryFsmStore`). Domain-neutral; composes with `DAGExecutor` (a transition handler can dispatch a DAG, inheriting `correlation_id`). Enforces typed states/events, explicit-transitions-only, optimistic locking, HITL non-bypass, append-only history, handler-failure rollback, terminal absorption. (#119, #121)
+- Hugging Face integration (#120):
+  - LLM provider (7th out of the box) via the OpenAI-compatible HF inference router — `create_llm_client("huggingface", ...)`
+  - `HuggingFaceEmbeddingProvider` via feature-extraction inference
+  - `HuggingFaceModelCatalog` (`cemaf.catalog`) over `huggingface_hub.HfApi` with typed `ModelCatalogQuery` / `CatalogModel` + `CatalogSettings` (#122)
+- `SPEC-06` amendment — `MetaArchitectDecision` emission contract: `convergence_score ∈ [0.0, 1.0]`, `decision_kind` band-matching, replay determinism. (#117)
+- Characterization tests pinning `DAGExecutor.run().success` semantics — a run can be COMPLETED while a `retry_on_failure=True` node failed; callers needing "all nodes succeeded" must inspect `node_results`. (#123)
 
 **Fixed:**
-- `[[tool.mypy.overrides]]` scoped to the four adapter modules that bridge to `openai>=2.14` / `redis>=5` strict stubs (`llm/openai.py`, `events/redis_event_bus.py`, `resilience/redis_rate_limiter.py`, `resilience/redis_circuit_breaker.py`). The stubs reject our dynamic-kwargs / mapping call sites though the runtime is correct; the override disables exactly `arg-type`/`call-overload`/`await-not-async`/`misc` for those modules only. Restores a green `Lint & Type Check` (red on main since 2026-05-27, pre-dating the 1.1 work). (#127)
+- OBSERVE-mode evaluation now fires-and-forgets so judges do not serialize the hot path; production API + PULL cost-model docs. (#105)
+- `[[tool.mypy.overrides]]` scoped to the four openai/redis adapter modules whose strict third-party stubs (`openai>=2.14`, `redis>=5`) rejected correct dynamic-kwargs / mapping call sites — restores green `Lint & Type Check`. (#127)
 
-## [1.1.0] - 2026-06-03
+**Changed:**
+- `core.types` restores `FinishReason` and `LLMProvider` StrEnums (with `HUGGINGFACE`).
+- Scrubbed soft domain leaks: `from start.ini` doc references and `brand`-flavored scope examples across `core`, `memory`, `persistence`.
+
+<details><summary>Superseded pre-release notes (1.1.0 / 1.1.1 — never published)</summary>
 
 **Persisted state machines, Hugging Face integration, and a hardened eval loop.**
 
-First minor release on the 1.x line. Adds a first-class FSM primitive, a 7th LLM provider with a model catalog, fixes a silent OBSERVE-mode eval bug, and lands integration tests that pin three previously-undocumented cross-module behaviors.
+The 1.1.x line bundled the state primitive, HF integration, SPEC-06 amendment, OBSERVE fix, and CI mypy fix. It was tagged but never reached PyPI; 2.0.0 supersedes it and adds the domain-agnostic breaking changes.
 
 **Added:**
 - `cemaf.state` — typed, persisted, observable state-machine primitive (`StateMachine[StateT, EventT]`, `Transition`, `FsmState`, `FsmStore` Protocol, `InMemoryFsmStore`). Domain-neutral; composes with `DAGExecutor` (a transition handler can dispatch a DAG, inheriting `correlation_id` for telemetry joins). Enforces typed states/events, explicit-transitions-only, optimistic locking, HITL non-bypass, append-only history, handler-failure rollback, terminal absorption. (#119)
@@ -34,6 +55,8 @@ First minor release on the 1.x line. Adds a first-class FSM primitive, a 7th LLM
 
 **Changed:**
 - `core.types` restores `FinishReason` and `LLMProvider` StrEnums (with `HUGGINGFACE`) — fixes a broken-import state and adds the new provider member.
+
+</details>
 
 ## [1.0.0] - 2026-05-27
 

@@ -24,7 +24,6 @@ from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.session import DefaultSessionManager
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -98,12 +97,12 @@ class TestFileBackedPersistenceRoundTrip:
         assert isinstance(store, JsonFileMemoryStore)
 
         manager, _ = _wire_stack(store)
-        await manager.remember(scope=MemoryScope.BRAND, key="brand", value={"v": 1})
+        await manager.remember(scope=MemoryScope.TENANT, key="brand", value={"v": 1})
 
         # Reload
         store2 = create_memory_store(backend="json_file", file_path=str(path))
         manager2, _ = _wire_stack(store2)
-        result = await manager2.recall(query=MemoryQuery(scope=MemoryScope.BRAND, limit=10))
+        result = await manager2.recall(query=MemoryQuery(scope=MemoryScope.TENANT, limit=10))
         assert len(result) == 1
         assert result[0].item.key == "brand"
 

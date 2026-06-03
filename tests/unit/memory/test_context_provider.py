@@ -118,13 +118,13 @@ class TestProvideContextSources:
         manager, provider = _make_provider()
 
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="name",
             value={"name": "TestCorp"},
         )
 
         sources = await provider.provide_context_sources(
-            query=MemoryQuery(scope=MemoryScope.BRAND),
+            query=MemoryQuery(scope=MemoryScope.TENANT),
             token_budget=1000,
         )
 
@@ -138,7 +138,7 @@ class TestProvideContextSources:
         _, provider = _make_provider()
 
         sources = await provider.provide_context_sources(
-            query=MemoryQuery(scope=MemoryScope.BRAND),
+            query=MemoryQuery(scope=MemoryScope.TENANT),
             token_budget=1000,
         )
 
@@ -195,7 +195,7 @@ class TestCompileWithMemories:
         manager, provider = _make_provider()
 
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="tagline",
             value={"text": "Build better things"},
         )
@@ -203,7 +203,7 @@ class TestCompileWithMemories:
         budget = TokenBudget(max_tokens=4000, reserved_for_output=500)
         compiled = await provider.compile_with_memories(
             artifacts=(("system_prompt", "You are a helpful assistant."),),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 
@@ -216,7 +216,7 @@ class TestCompileWithMemories:
         manager, provider = _make_provider()
 
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="voice",
             value={"tone": "casual"},
         )
@@ -224,7 +224,7 @@ class TestCompileWithMemories:
         budget = TokenBudget(max_tokens=4000, reserved_for_output=500)
         compiled = await provider.compile_with_memories(
             artifacts=(),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 
@@ -238,7 +238,7 @@ class TestCompileWithMemories:
         budget = TokenBudget(max_tokens=4000, reserved_for_output=500)
         compiled = await provider.compile_with_memories(
             artifacts=(("prompt", "Hello world"),),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 

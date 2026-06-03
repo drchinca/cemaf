@@ -15,7 +15,7 @@ Uses fixtures from conftest.py:
 
 import pytest
 
-from cemaf.core.enums import ContextArtifactType, RunStatus
+from cemaf.core.enums import RunStatus
 from cemaf.core.types import ProjectID
 from cemaf.persistence.entities import (
     ContentItem,
@@ -61,20 +61,20 @@ class TestContextArtifact:
         """ContextArtifact can be created."""
         artifact = ContextArtifact(
             project_id=ProjectID("proj-1"),
-            type=ContextArtifactType.BRAND_CONSTITUTION,
+            type="brand_constitution",
             content="Brand values...",
             version=1,
             sha="abc123",
         )
 
-        assert artifact.type == ContextArtifactType.BRAND_CONSTITUTION
+        assert artifact.type == "brand_constitution"
         assert artifact.version == 1
 
     def test_with_new_version(self):
         """with_new_version creates new version."""
         original = ContextArtifact(
             project_id=ProjectID("proj-1"),
-            type=ContextArtifactType.GLOSSARY,
+            type="glossary",
             content="Original content",
             version=1,
             sha="abc",

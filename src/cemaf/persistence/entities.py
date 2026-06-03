@@ -1,5 +1,5 @@
 """
-Core entities - From start.ini specification.
+Core persistence entities for multi-tenant project orchestration.
 
 Domain models for multi-tenant project management.
 All entities are immutable (frozen Pydantic models).
@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from cemaf.core.enums import ContextArtifactType, RunStatus
+from cemaf.core.enums import RunStatus
 from cemaf.core.types import JSON, ProjectID, RunID
 from cemaf.core.utils import generate_id, utc_now
 
@@ -63,7 +63,7 @@ class ContextArtifact(BaseModel):
 
     id: str = Field(default_factory=lambda: generate_id("art"))
     project_id: ProjectID
-    type: ContextArtifactType
+    type: str  # open artifact taxonomy — consumers define their own (e.g. "glossary", "spec")
     content: str
     version: int = 1
     sha: str = ""
