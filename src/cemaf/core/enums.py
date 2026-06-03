@@ -41,29 +41,26 @@ class NodeType(StrEnum):
 
 
 class MemoryScope(StrEnum):
-    """Scope for memory items - from start.ini."""
+    """Isolation/lifecycle scope for memory items — domain-agnostic.
 
-    BRAND = "brand"
+    GLOBAL shared across tenants; TENANT is the per-tenant isolation boundary
+    (a consumer may map this to brand/org/workspace); PROJECT per-initiative;
+    USER per end-user; SESSION short-term single run; STRATEGY cross-run
+    learned patterns.
+    """
+
+    GLOBAL = "global"
+    TENANT = "tenant"
     PROJECT = "project"
-    AUDIENCE_SEGMENT = "audience_segment"
-    PLATFORM = "platform"
-    PERSONAE = "personae"
-    SESSION = "session"  # Short-term, single run
-    STRATEGY = "strategy"  # Cross-run learned strategies
+    USER = "user"
+    SESSION = "session"
+    STRATEGY = "strategy"
 
 
-class ContextArtifactType(StrEnum):
-    """Type of context artifact - from start.ini."""
-
-    BRAND_CONSTITUTION = "brand_constitution"
-    BRAND_STYLE_GUIDE = "brand_style_guide"
-    SYMBOL_CANON = "symbol_canon"
-    CONTENT_ATOMS = "content_atoms"
-    CAMPAIGN_BRIEF = "campaign_brief"
-    PROMPT_TEMPLATE = "prompt_template"
-    DESIGN_TEMPLATE = "design_template"
-    GLOSSARY = "glossary"
-    DO_NOT_SAY = "do_not_say"
+# NOTE: ContextArtifactType (a closed brand/marketing enum) was removed in 2.0.0.
+# ContextArtifact.type is now an open `str` — consumers define their own artifact
+# taxonomy (e.g. "brand_constitution", "glossary", "spec", "runbook") without the
+# framework prescribing a vertical.
 
 
 class Priority(StrEnum):

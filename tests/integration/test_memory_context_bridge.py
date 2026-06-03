@@ -82,19 +82,19 @@ class TestMemoryToContextSources:
 
         # Store memories through the manager
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="company_name",
             value={"name": "Acme Corp"},
         )
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="brand_voice",
             value={"tone": "professional", "style": "concise"},
         )
 
         # Pull them out as ContextSources
         sources = await provider.provide_context_sources(
-            query=MemoryQuery(scope=MemoryScope.BRAND),
+            query=MemoryQuery(scope=MemoryScope.TENANT),
             token_budget=1000,
         )
 
@@ -133,7 +133,7 @@ class TestMemoryToContextSources:
         _, _, provider, _ = _wire_full_stack()
 
         sources = await provider.provide_context_sources(
-            query=MemoryQuery(scope=MemoryScope.BRAND),
+            query=MemoryQuery(scope=MemoryScope.TENANT),
             token_budget=1000,
         )
         assert sources == ()
@@ -152,7 +152,7 @@ class TestMemoryToCompiler:
         manager, _, provider, _ = _wire_full_stack()
 
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="tagline",
             value={"text": "Innovation meets reliability"},
         )
@@ -161,7 +161,7 @@ class TestMemoryToCompiler:
         budget = TokenBudget(max_tokens=4000, reserved_for_output=500)
         compiled = await provider.compile_with_memories(
             artifacts=(("system_prompt", "You are a helpful assistant."),),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 
@@ -182,7 +182,7 @@ class TestMemoryToCompiler:
 
         for i in range(10):
             await manager.remember(
-                scope=MemoryScope.BRAND,
+                scope=MemoryScope.TENANT,
                 key=f"fact_{i}",
                 value={"info": f"Important fact number {i} with details"},
             )
@@ -190,7 +190,7 @@ class TestMemoryToCompiler:
         budget = TokenBudget(max_tokens=500, reserved_for_output=100)
         compiled = await provider.compile_with_memories(
             artifacts=(("prompt", "Brief prompt"),),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 
@@ -203,7 +203,7 @@ class TestMemoryToCompiler:
         budget = TokenBudget(max_tokens=4000, reserved_for_output=500)
         compiled = await provider.compile_with_memories(
             artifacts=(("prompt", "Hello world"),),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 
@@ -216,7 +216,7 @@ class TestMemoryToCompiler:
         manager, _, provider, _ = _wire_full_stack()
 
         await manager.remember(
-            scope=MemoryScope.BRAND,
+            scope=MemoryScope.TENANT,
             key="voice",
             value={"tone": "friendly"},
         )
@@ -224,7 +224,7 @@ class TestMemoryToCompiler:
         budget = TokenBudget(max_tokens=4000, reserved_for_output=500)
         compiled = await provider.compile_with_memories(
             artifacts=(),
-            memory_query=MemoryQuery(scope=MemoryScope.BRAND),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
             budget=budget,
         )
 

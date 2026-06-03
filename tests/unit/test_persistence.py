@@ -2,7 +2,7 @@
 
 import pytest
 
-from cemaf.core.enums import ContextArtifactType, RunStatus
+from cemaf.core.enums import RunStatus
 from cemaf.core.types import ProjectID
 from cemaf.persistence.entities import (
     ContentItem,
@@ -59,7 +59,7 @@ class TestContextArtifact:
     def test_create_with_defaults(self):
         artifact = ContextArtifact(
             project_id=ProjectID("proj_1"),
-            type=ContextArtifactType.BRAND_CONSTITUTION,
+            type="brand_constitution",
             content="hello",
         )
         assert artifact.id.startswith("art_")
@@ -69,7 +69,7 @@ class TestContextArtifact:
     def test_with_new_version(self):
         artifact = ContextArtifact(
             project_id=ProjectID("proj_1"),
-            type=ContextArtifactType.BRAND_CONSTITUTION,
+            type="brand_constitution",
             content="v1",
             version=1,
         )

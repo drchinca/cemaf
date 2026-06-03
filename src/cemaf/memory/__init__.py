@@ -6,7 +6,7 @@ Memory types:
 - PERSISTENT: Stored in DB, survives runs (long-term)
 
 Memory scopes:
-- BRAND: Brand-level knowledge (shared across all projects)
+- TENANT: tenant-level knowledge (shared across all projects)
 - PROJECT: Project-specific knowledge
 - AUDIENCE_SEGMENT: Segment-specific knowledge
 - PLATFORM: Platform-specific knowledge
@@ -43,7 +43,7 @@ Built-in Implementation:
     >>> from cemaf.memory import InMemoryStore
     >>> store = InMemoryStore()
     >>> item = MemoryItem(
-    ...     scope=MemoryScope.BRAND,
+    ...     scope=MemoryScope.TENANT,
     ...     key="company",
     ...     value={"name": "Acme"}
     ... )

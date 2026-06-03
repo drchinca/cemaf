@@ -17,7 +17,7 @@ Composition:
 Scopes (in `MemoryScope` enum) — the isolation boundaries:
 - `SESSION` — per-run memory; disposed at run end via `SessionManager`
 - `PROJECT` — persistent across runs within a project
-- `BRAND` — cross-project durable memory
+- `TENANT` — cross-project durable memory
 - `GLOBAL` — framework-wide (use sparingly)
 
 Protocol-first — `MemoryManager` is a `@runtime_checkable` Protocol so you

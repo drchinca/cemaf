@@ -20,7 +20,6 @@ from unittest.mock import patch
 import pytest
 
 from cemaf.core.enums import (
-    ContextArtifactType,
     MemoryScope,
     RunStatus,
 )
@@ -241,7 +240,7 @@ def sample_memory_item() -> MemoryItem:
 async def populated_memory_store(memory_store: InMemoryStore) -> InMemoryStore:
     """Memory store with pre-populated data."""
     items = [
-        MemoryItem(scope=MemoryScope.BRAND, key="brand-1", value={"name": "Test Brand"}),
+        MemoryItem(scope=MemoryScope.TENANT, key="brand-1", value={"name": "Test Brand"}),
         MemoryItem(scope=MemoryScope.PROJECT, key="proj-1", value={"status": "active"}),
         MemoryItem(scope=MemoryScope.SESSION, key="sess-1", value={"user": "alice"}),
     ]
@@ -340,7 +339,7 @@ def sample_artifact(project_id: ProjectID) -> ContextArtifact:
     """Sample context artifact."""
     return ContextArtifact(
         project_id=project_id,
-        type=ContextArtifactType.BRAND_CONSTITUTION,
+        type="brand_constitution",
         content="Brand values: Quality, Innovation, Trust",
         version=1,
         sha="abc123",

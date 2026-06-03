@@ -10,7 +10,6 @@ from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.memory.base import JsonFileMemoryStore, MemoryItem
 
-
 # ---------------------------------------------------------------------------
 # Contract tests (define the interface before trusting the implementation)
 # ---------------------------------------------------------------------------
@@ -53,7 +52,7 @@ class TestJsonFileStoreContract:
     async def test_list_by_scope_only_returns_matching_scope(self, tmp_path: Path) -> None:
         store = JsonFileMemoryStore(path=tmp_path / "mem.json")
         await store.set(MemoryItem(scope=MemoryScope.PROJECT, key="p1", value={}))
-        await store.set(MemoryItem(scope=MemoryScope.BRAND, key="b1", value={}))
+        await store.set(MemoryItem(scope=MemoryScope.TENANT, key="b1", value={}))
         results = await store.list_by_scope(MemoryScope.PROJECT)
         assert len(results) == 1
         assert results[0].scope == MemoryScope.PROJECT
@@ -71,11 +70,11 @@ class TestJsonFileStorePersistence:
     async def test_data_persists_across_store_instances(self, tmp_path: Path) -> None:
         path = tmp_path / "mem.json"
         store1 = JsonFileMemoryStore(path=path)
-        await store1.set(MemoryItem(scope=MemoryScope.BRAND, key="company", value={"name": "Acme"}))
+        await store1.set(MemoryItem(scope=MemoryScope.TENANT, key="company", value={"name": "Acme"}))
 
         # New instance reads from the same file
         store2 = JsonFileMemoryStore(path=path)
-        item = await store2.get(MemoryScope.BRAND, "company")
+        item = await store2.get(MemoryScope.TENANT, "company")
         assert item is not None
         assert item.value == {"name": "Acme"}
 
@@ -113,7 +112,7 @@ class TestJsonFileStorePersistence:
     async def test_parent_directories_created_automatically(self, tmp_path: Path) -> None:
         path = tmp_path / "nested" / "deep" / "mem.json"
         store = JsonFileMemoryStore(path=path)
-        await store.set(MemoryItem(scope=MemoryScope.BRAND, key="k", value={}))
+        await store.set(MemoryItem(scope=MemoryScope.TENANT, key="k", value={}))
         assert path.exists()
 
     @pytest.mark.asyncio
@@ -153,7 +152,7 @@ class TestJsonFileStorePersistence:
     @pytest.mark.asyncio
     async def test_nonexistent_file_starts_empty(self, tmp_path: Path) -> None:
         store = JsonFileMemoryStore(path=tmp_path / "does_not_exist.json")
-        items = await store.list_by_scope(MemoryScope.BRAND)
+        items = await store.list_by_scope(MemoryScope.TENANT)
         assert items == ()
 
     @pytest.mark.asyncio
@@ -161,5 +160,5 @@ class TestJsonFileStorePersistence:
         path = tmp_path / "corrupt.json"
         path.write_text("NOT VALID JSON {{{{")
         store = JsonFileMemoryStore(path=path)
-        items = await store.list_by_scope(MemoryScope.BRAND)
+        items = await store.list_by_scope(MemoryScope.TENANT)
         assert items == ()

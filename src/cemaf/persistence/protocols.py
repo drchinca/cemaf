@@ -9,7 +9,7 @@ Protocols allow swapping storage implementations:
 
 from typing import Protocol, runtime_checkable
 
-from cemaf.core.enums import ContextArtifactType, RunStatus
+from cemaf.core.enums import RunStatus
 from cemaf.core.types import ProjectID, RunID
 from cemaf.persistence.entities import (
     ContentItem,
@@ -65,7 +65,7 @@ class ArtifactStore(Protocol):
     async def get_latest(
         self,
         project_id: ProjectID,
-        artifact_type: ContextArtifactType,
+        artifact_type: str,
     ) -> ContextArtifact | None:
         """Get latest version of an artifact type for a project."""
         ...
@@ -73,7 +73,7 @@ class ArtifactStore(Protocol):
     async def list_by_project(
         self,
         project_id: ProjectID,
-        artifact_type: ContextArtifactType | None = None,
+        artifact_type: str | None = None,
     ) -> tuple[ContextArtifact, ...]:
         """List artifacts for a project."""
         ...
@@ -81,7 +81,7 @@ class ArtifactStore(Protocol):
     async def list_versions(
         self,
         project_id: ProjectID,
-        artifact_type: ContextArtifactType,
+        artifact_type: str,
     ) -> tuple[ContextArtifact, ...]:
         """List all versions of an artifact type."""
         ...
