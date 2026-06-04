@@ -203,9 +203,13 @@ return Result.fail(error="Rate limit exceeded")
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `agents` | Agent[GoalT, ResultT] ABC, AgentRegistry, built-in agents | `base.py`, `registry.py`, `context_agents.py` |
-| `skills` | Skill protocol — composable capabilities for agents | `base.py`, `protocols.py` |
+| `agents` | Agent[GoalT, ResultT] ABC, AgentRegistry, built-in agents (Librarian/Researcher/Summarizer/Writer + **CodingAgent**) | `base.py`, `registry.py`, `context_agents.py`, `coding_agent.py` |
+| `skills` | Skill protocol + built-in kits. `skills/coding/` is the polyglot file/shell/test kit a coding loop calls | `base.py`, `protocols.py`, `coding/` |
 | `tools` | Tool ABC, ToolSchema, ToolRegistry, @tool decorator | `base.py`, `registry.py` |
+| `sandbox` | `ShellSandbox` — cwd-confined, time/output-bounded, env-scrubbed, network-screened subprocess execution (the polyglot substrate) | `shell.py` |
+| `state` | `StateMachine` FSM primitive — domain-neutral state + transition modelling | `fsm.py` |
+
+> **CodingAgent** (`agents/coding_agent.py`) is the keystone spec→working-code loop: given a spec, it drives an LLM tool-use loop over the `skills/coding` kit (write/read/edit/list/shell/run_tests) inside a `ShellSandbox` until tests pass or a turn budget is hit. Polyglot by construction — language is chosen by the spec, verified by `RunTestsSkill` auto-detection (pyproject/go.mod/package.json/Cargo.toml/gradle/pom/**Makefile**). Inject any `LLMClient` (a tiered `ModelRouter` is a drop-in), so Opus/Sonnet/Haiku/Ollama all work behind the same loop.
 
 ### Orchestration (how work gets coordinated)
 

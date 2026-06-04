@@ -53,6 +53,9 @@ CEMAF orchestration systems.
 See cemaf.agents.protocols.Agent for the protocol definition.
 """
 
+# Coding Agent (spec → working code loop)
+from cemaf.agents.coding_agent import CodingAgent, CodingGoal, CodingResult
+
 # Context Engineering Agents
 from cemaf.agents.context_agents import (
     LibrarianAgent,
@@ -80,6 +83,10 @@ __all__ = [
     "AgentResult",
     "AgentContext",
     "DomainContext",
+    # Coding Agent
+    "CodingAgent",
+    "CodingGoal",
+    "CodingResult",
     # Context Engineering Agents
     "LibrarianAgent",
     "LibrarianGoal",
