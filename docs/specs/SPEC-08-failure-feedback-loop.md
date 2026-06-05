@@ -68,6 +68,40 @@ same `FailureSignal`.
 This is the test-feedback half of agentic coding; the spec-feedback
 half (spec ↔ test) is out of scope here and tracked separately.
 
+### Boundary with `AutoHealManager`
+
+`IterationLoop` and `AutoHealManager` cover **orthogonal failure
+surfaces**:
+
+|                     | `AutoHealManager`                    | `IterationLoop`                          |
+|---------------------|--------------------------------------|------------------------------------------|
+| Trigger             | Python exception in agent execution  | Verifier `CommandResult` with non-zero exit |
+| Input               | `Result[Any]` + `exception_type`     | `CommandResult` (stdout/stderr/exit)     |
+| Output              | `Result[Context]` (modified context) | New attempt with `FailureSignal`         |
+| Layer               | Infrastructure recovery              | Behaviour iteration                      |
+
+The loop **does not** consult `AutoHealManager`. Exceptions raised by
+the `attempt` callable propagate through `run()` unchanged — they are
+not parsed into `FailureSignal`s. This keeps the two retry stacks from
+compounding (a transient network hiccup re-tried by `AutoHealManager`
+must not also cost an iteration `attempt`).
+
+### Cost reporting contract
+
+The `attempt` callable is responsible for reporting its own cost. The
+loop reads cost via the `Result` metadata convention:
+
+```python
+result.metadata.get("cost_usd", 0.0)  # float, defaults to 0
+```
+
+A callable that does not report cost contributes 0 to
+`total_cost_usd`; the cost cap is therefore advisory in that case
+(documented; not silently bypassed). For callables that drive
+LLM-backed agents, wrap with `InstrumentedLLMClient` whose
+`record_llm_call` already populates `cost_usd` — the loop's `attempt`
+adapter copies that value into the result metadata.
+
 ## 2. Interface Contract (MDE)
 
 ```python
@@ -75,7 +109,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.result import Result
 from cemaf.skills.coding.types import CommandResult
@@ -119,6 +153,15 @@ class FailureParser(Protocol):
     @property
     def tool(self) -> str: ...                    # e.g. "pytest", "ruff", "mypy"
 
+    @property
+    def specificity(self) -> int:
+        """Higher = more specific. Loop dispatches highest-specificity match first."""
+        ...
+
+    def matches(self, result: CommandResult) -> bool:
+        """Cheap predicate — does this parser claim ownership of this failure?"""
+        ...
+
     def parse(self, result: CommandResult) -> FailureSignal | None:
         """Return None if the result is a success — only failures map."""
         ...
@@ -135,7 +178,13 @@ class IterationOutcome(Enum):
     SUCCESS         = "success"
     EXHAUSTED       = "exhausted"     # hit max_attempts
     BUDGET_EXCEEDED = "budget_exceeded"
-    HALTED          = "halted"        # caller cancelled
+    HALTED          = "halted"        # caller cancelled via halt_event
+
+
+@dataclass(frozen=True, slots=True)
+class HaltSignal:
+    """Caller-driven cancellation handed to IterationLoop at construction."""
+    event: "asyncio.Event"           # set() to halt before next attempt
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,10 +203,11 @@ class IterationLoop:
     def __init__(
         self,
         *,
-        attempt: Callable[[FailureSignal | None], Awaitable[Result[object]]],
-        verify: Callable[[Result[object]], Awaitable[CommandResult]],
+        attempt: Callable[[FailureSignal | None], Awaitable[Result[Any]]],
+        verify: Callable[[Result[Any]], Awaitable[CommandResult]],
         parsers: tuple[FailureParser, ...],
         limits: IterationLimits = IterationLimits(),
+        halt: HaltSignal | None = None,
     ) -> None: ...
 
     async def run(self) -> IterationReport: ...
@@ -180,21 +230,34 @@ class IterationLoop:
 6. **Attempt-zero is unconditioned**: the first call to `attempt()`
    passes `signal=None` (no prior failure to feed).
 7. **Per-attempt span**: every iteration emits exactly one
-   `agent.iteration.attempt` span with attribute `attempt_index`
+   `gen_ai.iteration.attempt` span with attribute `attempt_index`
    monotonically increasing from 0.
 8. **No silent retries**: a `FailureSignal` is never dropped. If the
    loop chooses to halt, it is recorded on `IterationReport.last_signal`.
+9. **Parser dispatch ordering**: when multiple parsers' `matches()`
+   return True, the one with highest `specificity` wins. Ties are
+   broken by registration order (stable). UNKNOWN is produced ONLY
+   when zero parsers match.
+10. **Exception passthrough**: if `attempt()` raises, the exception
+    propagates from `run()` unchanged. The loop does NOT catch it,
+    parse it, or consult `AutoHealManager`.
+11. **Loop scope**: `IterationLoop` is a per-task substrate, not a
+    `RuntimeService`. It is constructed by callers (the
+    `iccha_autonomy` control plane is the canonical caller) and is
+    not registered in the cross-cutting `RuntimeServices` container.
 
 EARS form (selected):
 
 ```
 WHEN attempt N produces a success result, THE System SHALL exit with outcome=SUCCESS.
-WHEN attempt N produces a failing CommandResult, THE System SHALL run all parsers and adopt the first non-None FailureSignal.
+WHEN attempt N produces a failing CommandResult, THE System SHALL select the matching parser with highest specificity and adopt its FailureSignal.
+WHEN attempt 0 begins, THE System SHALL invoke the attempt callable with signal=None.
 IF total_cost_usd ≥ limits.max_cost_usd, THEN THE System SHALL exit with outcome=BUDGET_EXCEEDED before launching attempt N+1.
+IF halt.event is set before launching attempt N+1, THEN THE System SHALL exit with outcome=HALTED.
 WHILE attempts < max_attempts AND no parser matched, THE System SHALL produce FailureSignal(kind=UNKNOWN) and continue.
 ```
 
-Budget: 8 invariants — within ≤15 limit.
+Budget: 11 invariants — within ≤15 limit.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -271,9 +334,23 @@ Feature: Failure-feedback iteration loop
     When the loop receives a halt signal
     Then report.outcome equals HALTED
     And no further attempts run
+
+  Scenario: Specificity wins over registration order
+    Given a generic ShellParser (specificity=10)
+    And a PytestParser (specificity=100) that both match a pytest failure
+    When the loop runs
+    Then signal.kind equals TEST_FAILURE
+    And the ShellParser was not consulted
+
+  Scenario: Exception passthrough does not consume an attempt slot
+    Given an IterationLoop with limits.max_attempts=3
+    And the attempt callable raises ValueError on call 1
+    When the loop runs
+    Then ValueError propagates from run()
+    And no FailureSignal is constructed
 ```
 
-10 scenarios — within ≤20 limit.
+12 scenarios — within ≤20 limit.
 
 ## 5. Out of Scope
 

@@ -26,6 +26,7 @@ depends_on: SPEC-02
 - [5. Out of Scope](#5-out-of-scope)
 - [6. Dependencies](#6-dependencies)
 - [7. Correctness Properties](#7-correctness-properties)
+- [8. Eval Criteria](#8-eval-criteria)
 - [9. Observability Contract](#9-observability-contract)
 
 ## 1. Context
@@ -77,15 +78,33 @@ of record. We need only:
 3. A **`KGInvalidationEvent`** type plus EventBus topic.
 4. A **`HubSpokeKnowledgeGraph` factory** wiring a hub + N spokes.
 
+### Cache scope
+
+The spoke caches **only point lookups** — `get_entity(entity_id)`. The
+following operations always go to the hub:
+
+- `query_neighbors` — graph traversal, results depend on relation set
+  consistency.
+- `search` — text/embedding queries; cache invalidation across query
+  predicates is open-ended and out of scope.
+- All writes (`add_entity`, `add_relation`, `remove_entity`).
+
+`HubKnowledgeGraph` is therefore **not** an unconditional drop-in for
+`KnowledgeGraph` in caller code that issues many `search()` calls — it
+is the same protocol, but the spoke layer optimises only the
+point-lookup path. This is documented at the protocol boundary and
+asserted by Property 4.
+
 ## 2. Interface Contract (MDE)
 
 ```python
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
+from cemaf.events.protocols import EventBus
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.knowledge.models import KGEntity, KGRelation
 
@@ -160,8 +179,11 @@ def create_hub_spoke_kg(
 3. **Bounded spoke**: at no point does a spoke hold more than
    `config.max_entities` entries.
 4. **Invalidation completeness**: every successful hub write produces
-   exactly one `KGInvalidationEvent` referencing the affected entity
-   ids.
+   exactly one `KGInvalidationEvent`. Affected `entity_ids` are:
+   - `add_entity(e)` → `(e.id,)`
+   - `remove_entity(e_id)` → `(e_id,)`
+   - `add_relation(r)` → `(r.source_id, r.target_id)` (both sides,
+     because the relation index attached to each is what changed)
 5. **No stale-after-invalidate**: after a spoke processes
    `KGInvalidationEvent(entity_ids=E)`, its next `get_entity(e)` for
    `e ∈ E` MUST be a miss (re-fetch).
@@ -169,6 +191,12 @@ def create_hub_spoke_kg(
    only the hub writes; spokes refresh on demand or on next miss.
 7. **Negative cache TTL**: when `enable_negative_cache=True`, a `None`
    result is cached with the same `config.ttl`.
+8. **Best-effort delivery, eventual consistency**: the EventBus is
+   not a transactional log. The hub publishes invalidation events
+   *before* returning from a write (synchronous publish), and spoke
+   handlers MUST NOT raise. Staleness windows are bounded by
+   `config.ttl` even if a particular invalidation event is dropped or
+   delayed — TTL is the safety net, the event is the fast path.
 
 EARS form (selected):
 
@@ -179,7 +207,7 @@ WHILE a spoke holds max_entities entries, THE System SHALL evict via LRU before 
 IF a spoke entry's age exceeds ttl, THEN THE System SHALL treat the read as a miss.
 ```
 
-Budget: 7 invariants — within the ≤15 limit.
+Budget: 8 invariants — within the ≤15 limit.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -285,6 +313,24 @@ invalidation"**
 `S.stats().size ≤ N`.
 
 **Validates: §3 Invariant 3, §4 Scenario "Spoke respects max_entities"**
+
+### Property 4: Cache surface bound
+
+*For any* spoke `S`: `S.get_entity(...)` is the only operation served
+locally. Calls to `query_neighbors`, `search`, `add_entity`,
+`add_relation`, `remove_entity` traverse to the hub regardless of
+`config`.
+
+**Validates: §1 Cache scope, §3 Invariant 6**
+
+## 8. Eval Criteria
+
+| Evaluator              | Node                | Mode    | Threshold                            | Method        |
+|---|---|---|---|---|
+| HitRateEvaluator       | spoke.get_entity    | OBSERVE | hit_rate ≥ 0.5 on hot-entity bench   | Deterministic |
+| InvalidationLatency    | hub.write           | OBSERVE | p99 ≤ 50ms in-process                | Deterministic |
+| StalenessUpperBound    | spoke.get_entity    | GATE    | observed_staleness ≤ ttl in property test | Property-based |
+| MemoryBoundEvaluator   | spoke               | GATE    | size ≤ max_entities under load       | Deterministic |
 
 ## 9. Observability Contract
 
