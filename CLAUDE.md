@@ -125,6 +125,8 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Knowledge Refresh | MetaAuditor → KnowledgeGraphAgent → verify both outputs propagate through context |
 | Quality Degradation | Seed good + bad scores → run self_audit_dag → verify anomaly detected in report |
 | Registry Introspection | MetaArchitect discovers meta-agents → includes them in generated DAG |
+| Hub & Spoke KG | HubKnowledgeGraph over real MemoryBackedKnowledgeGraph + real EventBus → write → spoke evicts → re-read returns fresh value (`test_hub_spoke_kg.py`) |
+| Failure-Feedback Loop | IterationLoop + real ShellSandbox + RunTestsSkill → fail-then-pass fixture → verify re-attempt converges (`test_iteration_sandbox.py`) |
 
 ## Pattern Reference
 
@@ -242,6 +244,7 @@ return Result.fail(error="Rate limit exceeded")
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
 | `evals` | Evaluation framework — deterministic, semantic, LLM judge, online pipeline, QualityPolice | `protocols.py`, `hierarchy.py`, `online.py`, `police.py`, `tools.py` |
+| `iteration` | Failure-feedback loop (SPEC-08) — pytest/ruff/mypy parsers → `FailureSignal` → bounded `IterationLoop` re-attempts. Per-task substrate, not a RuntimeService | `loop.py`, `parsers.py`, `protocols.py`, `types.py` |
 | `moderation` | Content safety pipeline | `pipeline.py`, `protocols.py` |
 | `validation` | Input/output validation | `base.py`, `protocols.py` |
 | `citation` | Source citation tracking | `base.py`, `tracker.py` |
@@ -265,5 +268,5 @@ These modules are **opt-in consumers** of the base framework. No base module imp
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
 | `audit` | Structured audit trail — EventBus subscriber → AuditEntry, quality trend, z-score anomaly detection | `subscriber.py`, `trail.py`, `protocols.py`, `models.py` |
-| `knowledge` | Knowledge graph — entities and relations backed by MemoryManager | `graph.py`, `protocols.py`, `models.py` |
+| `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07) for bounded-LRU point-read acceleration | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
 | `meta` | Self-hosting agents, tools, DAGs, and bootstrap | `agents.py`, `tools.py`, `dags.py`, `bootstrap.py`, `registry.py` |
