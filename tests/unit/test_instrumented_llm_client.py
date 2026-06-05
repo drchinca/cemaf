@@ -46,6 +46,7 @@ class TestInstrumentedLLMClientContract:
         assert llm_call.output != ""
         assert llm_call.input_tokens >= 0
         assert llm_call.output_tokens >= 0
+        assert llm_call.cost_usd >= 0.0
 
     @pytest.mark.asyncio
     async def test_complete_passes_through_to_inner_client(self) -> None:
