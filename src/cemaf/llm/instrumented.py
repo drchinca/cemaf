@@ -13,6 +13,7 @@ from cemaf.llm.protocols import (
     StreamChunk,
     ToolDefinition,
 )
+from cemaf.observability.cost_tracking import ModelPricingRegistry
 from cemaf.observability.run_logger import LLMCall, RunLogger
 from cemaf.resilience.retry import RetryPolicy
 
@@ -94,15 +95,19 @@ class InstrumentedLLMClient:
 
         duration_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
 
+        model_id = result.model or self.config.model
+        prompt_tokens = int(result.prompt_tokens)
+        completion_tokens = int(result.completion_tokens)
         llm_call = LLMCall(
-            model=result.model or self.config.model,
+            model=model_id,
             input_messages=[_message_to_dict(msg=m) for m in messages],
             output=str(result.content) if result.success else "",
-            input_tokens=int(result.prompt_tokens),
-            output_tokens=int(result.completion_tokens),
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
             duration_ms=duration_ms,
             node_id=self._node_id,
             agent_id=self._agent_id,
+            cost_usd=ModelPricingRegistry.compute_cost_usd(model_id, prompt_tokens, completion_tokens),
         )
 
         self._run_logger.record_llm_call(call=llm_call)
@@ -156,8 +161,9 @@ class InstrumentedLLMClient:
 
         duration_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
 
+        model_id = self.config.model
         llm_call = LLMCall(
-            model=self.config.model,
+            model=model_id,
             input_messages=[_message_to_dict(msg=m) for m in messages],
             output=accumulated,
             input_tokens=prompt_tokens,
@@ -165,6 +171,7 @@ class InstrumentedLLMClient:
             duration_ms=duration_ms,
             node_id=self._node_id,
             agent_id=self._agent_id,
+            cost_usd=ModelPricingRegistry.compute_cost_usd(model_id, prompt_tokens, completion_tokens),
         )
 
         self._run_logger.record_llm_call(call=llm_call)

@@ -164,10 +164,25 @@ class Context(BaseModel):
         """Return the underlying data as a dictionary."""
         return self.data
 
+    def to_checkpoint_dict(self) -> JSON:
+        """Serialize data and patch history for durable checkpoint storage."""
+        return {
+            "data": self.data,
+            "patch_history": [patch.to_dict() for patch in self.patch_history],
+        }
+
     @classmethod
     def from_dict(cls, data: JSON) -> Context:
         """Create a Context instance from a dictionary."""
         return cls(data=data)
+
+    @classmethod
+    def from_checkpoint_dict(cls, payload: JSON) -> Context:
+        """Restore a Context from a checkpoint payload (data + patch history)."""
+        if "patch_history" in payload:
+            patches = tuple(ContextPatch.from_dict(item) for item in payload.get("patch_history", []))
+            return cls(data=payload.get("data", {}), patch_history=patches)
+        return cls(data=payload.get("data", payload))
 
     def delete(self, key: str) -> Context:
         """

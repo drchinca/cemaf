@@ -180,6 +180,18 @@ def test_detect_typescript_project(tmp_path: Path) -> None:
     assert detect_test_command(tmp_path) == ["npm", "test"]
 
 
+def test_detect_makefile_fallback(tmp_path: Path) -> None:
+    (tmp_path / "Makefile").write_text("test:\n\ttrue\n")
+    assert detect_test_command(tmp_path) == ["make", "test"]
+
+
+def test_detect_native_runner_wins_over_makefile(tmp_path: Path) -> None:
+    # Makefile is a last-resort fallback — a real ecosystem marker takes precedence.
+    (tmp_path / "Makefile").write_text("test:\n\ttrue\n")
+    (tmp_path / "go.mod").write_text("module x\n")
+    assert detect_test_command(tmp_path) == ["go", "test", "./..."]
+
+
 def test_detect_unknown_returns_none(tmp_path: Path) -> None:
     assert detect_test_command(tmp_path) is None
 

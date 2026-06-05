@@ -27,7 +27,8 @@ _DETECTORS: tuple[tuple[str, list[str]], ...] = (
     ("build.gradle", ["gradle", "test"]),
     ("build.gradle.kts", ["gradle", "test"]),
     ("pom.xml", ["mvn", "test"]),
-    ("package.json", ["npm", "test"]),  # JS/TS — checked last; package.json is common
+    ("package.json", ["npm", "test"]),  # JS/TS — package.json is common
+    ("Makefile", ["make", "test"]),  # generic polyglot fallback — checked last
 )
 
 
@@ -74,7 +75,7 @@ class RunTestsSkill(Skill[RunTestsInput, ShellResult]):
             if command is None:
                 return Result.fail(
                     "could not detect a test command — no known marker file "
-                    "(pyproject.toml, package.json, go.mod, Cargo.toml, build.gradle, pom.xml)"
+                    "(pyproject.toml, package.json, go.mod, Cargo.toml, build.gradle, pom.xml, Makefile)"
                 )
         try:
             result = await self._sandbox.run(

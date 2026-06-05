@@ -15,10 +15,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cemaf.config.protocols import Settings
+from cemaf.context.compiler import ContextCompiler, TokenEstimator
+from cemaf.context.factories import create_priority_compiler, create_token_estimator
 from cemaf.core.enums import MemoryBackend
 from cemaf.events.protocols import EventBus
 from cemaf.memory.base import InMemoryStore, JsonFileMemoryStore
-from cemaf.memory.compaction import SimpleMemoryCompactor
+from cemaf.memory.compaction import MemoryCompactor, SimpleMemoryCompactor
+from cemaf.memory.context_provider import DefaultMemoryContextProvider
 from cemaf.memory.deduplication import MemoryDeduplicator
 from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.extraction import MemoryExtractor, RuleBasedExtractor
@@ -186,6 +189,31 @@ def create_session_manager(
         memory_manager=manager,
         compactor=compactor,
         extraction_pipeline=extraction_pipeline,
+    )
+
+
+def create_memory_context_provider(
+    *,
+    memory_manager: MemoryManager,
+    compactor: MemoryCompactor | None = None,
+    compiler: ContextCompiler | None = None,
+    token_estimator: TokenEstimator | None = None,
+    tiered_store: TieredMemoryStore | None = None,
+    chars_per_token: float = 4.0,
+) -> DefaultMemoryContextProvider:
+    """Create a `DefaultMemoryContextProvider` — the JIT memory-to-context pull bridge.
+
+    This is the recommended way to give nodes/agents *pull* access to accumulated
+    knowledge: recall relevant memories, compact them to a token budget, and feed
+    them into the context compiler — instead of pushing full history into prompts.
+    """
+    estimator = token_estimator or create_token_estimator(chars_per_token=chars_per_token)
+    return DefaultMemoryContextProvider(
+        memory_manager=memory_manager,
+        compactor=compactor or SimpleMemoryCompactor(scorer=TemporalDecayScorer()),
+        compiler=compiler or create_priority_compiler(token_estimator=estimator),
+        token_estimator=estimator,
+        tiered_store=tiered_store,
     )
 
 

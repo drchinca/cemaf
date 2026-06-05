@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -97,6 +98,21 @@ class TestMessageConversion:
         msg = Message.assistant(content="", tool_calls=(tc,))
         d = _message_to_dict(msg)
         assert len(d["tool_calls"]) == 1
+
+    def test_tool_call_arguments_serialized_as_json_string(self) -> None:
+        # OpenAI/Ollama reject an object here; arguments MUST be a JSON-encoded string.
+        tc = ToolCall(id="tc1", name="write_file", arguments={"path": "a.txt", "content": "42"})
+        msg = Message.assistant(content="", tool_calls=(tc,))
+        d = _message_to_dict(msg)
+        args = d["tool_calls"][0]["function"]["arguments"]
+        assert isinstance(args, str)
+        assert json.loads(args) == {"path": "a.txt", "content": "42"}
+
+    def test_tool_call_string_arguments_passed_through(self) -> None:
+        tc = ToolCall(id="tc1", name="write_file", arguments='{"path":"a.txt"}')
+        msg = Message.assistant(content="", tool_calls=(tc,))
+        d = _message_to_dict(msg)
+        assert d["tool_calls"][0]["function"]["arguments"] == '{"path":"a.txt"}'
 
 
 # ---------------------------------------------------------------------------
