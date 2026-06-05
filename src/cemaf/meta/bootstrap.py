@@ -17,6 +17,11 @@ from cemaf.blueprint.harvest import (
 from cemaf.blueprint.library import WritableBlueprintSource
 from cemaf.bootstrap import create_executor
 from cemaf.knowledge.factories import create_knowledge_graph
+from cemaf.knowledge.hub_spoke import (
+    SpokeCacheConfig,
+    SpokeReadHubWriteKG,
+    create_hub_spoke_kg,
+)
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
@@ -53,6 +58,12 @@ class MetaServices:
     openspec_workspace: OpenSpecWorkspace | None = None
     scaffold_output_dir: Path | None = None
 
+    # Hub-and-spoke KG caching (SPEC-07) — opt-in. When True and an EventBus is
+    # present, the resolved KG is wrapped in a HubKnowledgeGraph and meta-agents
+    # read through a shared spoke cache. Bounded by hub_spoke_config.
+    enable_hub_spoke_kg: bool = False
+    hub_spoke_config: SpokeCacheConfig | None = None
+
     # Blueprint harvest — fully opt-in. To enable, set enable_blueprint_harvester=True
     # and provide a writable_blueprint_source (e.g. SqliteBlueprintSource). The
     # three decision protocols default to the opt-in bundled impls in
@@ -86,12 +97,30 @@ def create_meta_executor(
     elif svc.event_bus is not None:
         audit_log, audit_trail = create_audit_system(event_bus=svc.event_bus)
 
-    # Resolve knowledge graph
+    # Resolve knowledge graph — precedence: explicit MetaServices KG, then the
+    # shared RuntimeServices KG (SPEC-02), then build one from the MemoryManager.
     kg: KnowledgeGraph | None = None
     if meta_services and meta_services.knowledge_graph:
         kg = meta_services.knowledge_graph
+    elif svc.knowledge_graph is not None:
+        kg = svc.knowledge_graph
     elif svc.memory_manager is not None:
         kg = create_knowledge_graph(memory_manager=svc.memory_manager)
+
+    # Optionally front the KG with a hub-and-spoke cache (SPEC-07). Meta-agents
+    # share one spoke; writes still hit the hub-of-record and invalidate it.
+    if (
+        kg is not None
+        and meta_services is not None
+        and meta_services.enable_hub_spoke_kg
+        and svc.event_bus is not None
+    ):
+        hub, spokes = create_hub_spoke_kg(
+            backing_kg=kg,
+            event_bus=svc.event_bus,
+            spoke_configs={"meta": meta_services.hub_spoke_config or SpokeCacheConfig()},
+        )
+        kg = SpokeReadHubWriteKG(hub=hub, spoke=spokes["meta"])
 
     # Register meta-agents if we have all required services
     if audit_trail is not None and kg is not None:
