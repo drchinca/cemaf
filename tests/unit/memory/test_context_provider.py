@@ -264,3 +264,12 @@ class TestCompileWithMemories:
         )
 
         assert compiled.within_budget()
+
+
+def test_create_memory_context_provider_factory() -> None:
+    """Factory wires a usable DefaultMemoryContextProvider from a memory manager."""
+    from cemaf.memory.factories import create_memory_context_provider, create_memory_manager
+
+    manager = create_memory_manager()
+    provider = create_memory_context_provider(memory_manager=manager)
+    assert isinstance(provider, DefaultMemoryContextProvider)

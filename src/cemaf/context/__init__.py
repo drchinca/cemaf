@@ -63,6 +63,7 @@ from cemaf.context.patch import (
 )
 from cemaf.context.paths import ContextPath, TypedContext, create_path_builder
 from cemaf.context.source import ContextSource, ContextType
+from cemaf.context.streaming_context_compiler import StreamingContextCompiler
 
 __all__ = [
     "ContextCompiler",
@@ -109,6 +110,7 @@ __all__ = [
     "get_behavior",
     # Compiler implementations & config
     "PriorityContextCompiler",
+    "StreamingContextCompiler",
     "SimpleTokenEstimator",
     "TokenEstimator",
     "AdvancedCompilerConfig",
