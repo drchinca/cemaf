@@ -9,6 +9,7 @@ from cemaf.knowledge.hub_spoke import (
     KGInvalidationEvent,
     LocalSpokeCache,
     SpokeCacheConfig,
+    SpokeReadHubWriteKG,
     SpokeStats,
     create_hub_spoke_kg,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "HubKnowledgeGraph",
     "LocalSpokeCache",
     "MemoryBackedKnowledgeGraph",
+    "SpokeReadHubWriteKG",
     # Factories
     "create_hub_spoke_kg",
     "create_knowledge_graph",

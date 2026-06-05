@@ -1,7 +1,7 @@
 ---
 title: Structured Failure-Feedback Iteration Loop
 spec_id: SPEC-08
-status: Draft
+status: Implemented
 last_reviewed: 2026-06-05
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
@@ -17,6 +17,12 @@ depends_on: SPEC-04, SPEC-06
 > spec defines `FailureSignal`, the parsers that produce it, and the
 > `IterationLoop` that turns a tool/skill failure into a fresh agent
 > turn — closing audit gap #13.
+
+**Status: Implemented.** Lives in `cemaf/iteration/` (`types.py`,
+`protocols.py`, `parsers.py`, `loop.py`). It is a per-task substrate, not
+a `RuntimeService` — the canonical caller is the `iccha_autonomy` control
+plane. Unit tests: `tests/unit/iteration/`; integration (real
+`ShellSandbox` + `RunTestsSkill`): `tests/integration/test_iteration_sandbox.py`.
 
 ## Contents
 

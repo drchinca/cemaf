@@ -1,6 +1,6 @@
 # Spec → Module Map
 
-> One-page index from SPEC-00..06 (Enterprise Context Brain) concepts to the modules that house them. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
+> One-page index from SPEC-00..08 concepts to the modules that house them. SPEC-00..06 form the Enterprise Context Brain target architecture; SPEC-07 (hub-and-spoke KG) and SPEC-08 (failure-feedback loop) are landed capabilities that close audit gaps #9 and #13. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
 
 ## Conventions
 
@@ -22,6 +22,7 @@
 | `AcquiredLease` | SPEC-00 §2, SPEC-04 §2 | `cemaf/task/lease.py` | scaffold pending |
 | `Citation` + `cited_evidence_refs` predicate | SPEC-00 §2 | `cemaf/citation/` | partial — predicate pending |
 | `RuntimeServices` extensions (datasource_registry, task_repository, guardian_mesh, meta_dispatcher, structured_generator, interceptor_pipeline) | SPEC-00 §2 | `cemaf/orchestration/services.py` | partial — needs new fields |
+| `RuntimeServices.knowledge_graph` | SPEC-02 §2 | `cemaf/orchestration/services.py` | landed |
 | `bootstrap.create_executor()` wiring of new services | SPEC-00 §2 | `cemaf/bootstrap.py` | partial |
 | OTel GenAI spans (`gen_ai.tool.execute`, `gen_ai.agent.run`, `cemaf.interceptor.*`) | SPEC-00 §9 | `cemaf/observability/` | partial |
 | GATE evaluator SLOs registry | SPEC-00 §8 | `cemaf/evals/gate.py` | scaffold pending |
@@ -90,6 +91,30 @@
 | Self-resolution loop in `DAGExecutor` (RECOVERY profile) | SPEC-06 §2 | `cemaf/orchestration/executor.py` | partial |
 | Recovery DAG factory | SPEC-06 §2 | `cemaf/meta/recovery_dag.py` | scaffold pending |
 | Audit-gate on recovery acceptance | SPEC-06 §2 | `cemaf/audit/recovery_gate.py` | scaffold pending |
+
+## Hub & spoke knowledge (SPEC-07)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `SpokeCacheConfig` / `SpokeStats` | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `LocalSpokeCache` (bounded LRU + TTL + negative cache) | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `HubKnowledgeGraph` (write-through + invalidation publish) | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `KGInvalidationEvent` + `kg.invalidation` topic | SPEC-07 §2, §9 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `SpokeReadHubWriteKG` (drop-in `KnowledgeGraph` facade) | SPEC-07 §1 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `create_hub_spoke_kg()` factory | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| Composition-root wiring (`enable_hub_spoke_kg`) | SPEC-07 §1 | `cemaf/meta/bootstrap.py` | landed |
+
+## Failure-feedback loop (SPEC-08)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `FailureSignal` / `FailureItem` / `FailureKind` | SPEC-08 §2 | `cemaf/iteration/types.py` | landed |
+| `IterationLimits` / `IterationOutcome` / `IterationReport` / `HaltSignal` | SPEC-08 §2 | `cemaf/iteration/types.py` | landed |
+| `FailureParser` Protocol (specificity + max_items) | SPEC-08 §2 | `cemaf/iteration/protocols.py` | landed |
+| `PytestParser` / `RuffParser` / `MypyParser` / `ShellFallbackParser` | SPEC-08 §2 | `cemaf/iteration/parsers.py` | landed |
+| `IterationLoop` (attempt → verify → parse → re-attempt) | SPEC-08 §2 | `cemaf/iteration/loop.py` | landed |
+
+> SPEC-08 is a per-task substrate, not a `RuntimeService` — the canonical caller is the `iccha_autonomy` control plane (per CLAUDE.md substrate boundary). It composes with, but does not replace, `core/recovery.AutoHealManager` (orthogonal failure surfaces: verifier `ShellResult` vs. Python exception).
 
 ## Phase 2+ implementation plan
 

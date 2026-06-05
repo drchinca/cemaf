@@ -1,7 +1,7 @@
 ---
 title: Hub & Spoke Knowledge Distribution
 spec_id: SPEC-07
-status: Draft
+status: Implemented
 last_reviewed: 2026-06-05
 owner: drchinca
 parent: SPEC-02 — KG and DataSource as Shared RuntimeServices
@@ -16,6 +16,14 @@ depends_on: SPEC-02
 > truth for writes, and a thin sync protocol propagates invalidations and
 > deltas between them. Closes audit gap #9 — *"no spoke-local caching, no
 > federated sync"*.
+
+**Status: Implemented.** Lives in `cemaf/knowledge/hub_spoke.py`
+(`LocalSpokeCache`, `HubKnowledgeGraph`, `SpokeReadHubWriteKG`,
+`create_hub_spoke_kg`). Wired into the composition root via
+`MetaServices.enable_hub_spoke_kg` (`cemaf/meta/bootstrap.py`) and the
+`RuntimeServices.knowledge_graph` field. Unit tests:
+`tests/unit/knowledge/test_hub_spoke.py`; integration (real KG + EventBus):
+`tests/integration/test_hub_spoke_kg.py`.
 
 ## Contents
 

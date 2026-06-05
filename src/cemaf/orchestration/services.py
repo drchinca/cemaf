@@ -25,6 +25,8 @@ be a 15+ kwarg constructor with one field-per-concern:
         # LLM + Retrieval
         llm_client=llm,               # the LLMClient protocol impl (may be wrapped)
         vector_store=vectors,         # embedding-backed retrieval
+        # Knowledge
+        knowledge_graph=kg,           # shared KG (SPEC-02), optionally hub-spoke cached (SPEC-07)
         # Recovery
         auto_heal_manager=heal,       # autonomous heal on node failure
     )
@@ -61,6 +63,7 @@ from cemaf.core.recovery import AutoHealManager
 from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
+from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.session import SessionManager
@@ -102,6 +105,9 @@ class RuntimeServices:
     # LLM + Retrieval
     llm_client: LLMClient | None = None
     vector_store: VectorStore | None = None
+
+    # Knowledge (SPEC-02 / SPEC-07) — shared KG, optionally hub-and-spoke cached
+    knowledge_graph: KnowledgeGraph | None = None
 
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None

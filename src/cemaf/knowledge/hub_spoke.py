@@ -248,6 +248,49 @@ class HubKnowledgeGraph:
         )
 
 
+class SpokeReadHubWriteKG:
+    """A `KnowledgeGraph` facade: point reads via the spoke, everything else via the hub.
+
+    This is the drop-in an agent receives when hub-and-spoke caching is enabled —
+    it satisfies the full `KnowledgeGraph` protocol so callers need no awareness of
+    the topology. `get_entity` is served from the bounded spoke cache; `search`,
+    `query_neighbors`, and all writes go straight to the hub-of-record (which
+    publishes invalidations the spoke consumes).
+    """
+
+    def __init__(self, *, hub: HubKnowledgeGraph, spoke: LocalSpokeCache) -> None:
+        self._hub = hub
+        self._spoke = spoke
+
+    async def add_entity(self, entity: KGEntity) -> None:
+        await self._hub.add_entity(entity)
+
+    async def add_relation(self, relation: KGRelation) -> None:
+        await self._hub.add_relation(relation)
+
+    async def get_entity(self, entity_id: str) -> KGEntity | None:
+        return await self._spoke.get_entity(entity_id)
+
+    async def query_neighbors(
+        self,
+        entity_id: str,
+        relation_type: RelationType | None = None,
+        depth: int = 1,
+    ) -> KGQueryResult:
+        return await self._hub.query_neighbors(entity_id=entity_id, relation_type=relation_type, depth=depth)
+
+    async def search(
+        self,
+        query: str,
+        entity_type: EntityType | None = None,
+        limit: int = 10,
+    ) -> tuple[KGEntity, ...]:
+        return await self._hub.search(query=query, entity_type=entity_type, limit=limit)
+
+    async def remove_entity(self, entity_id: str) -> bool:
+        return await self._hub.remove_entity(entity_id)
+
+
 def create_hub_spoke_kg(
     *,
     backing_kg: KnowledgeGraph,
@@ -271,6 +314,7 @@ __all__ = [
     "KG_INVALIDATION_EVENT_TYPE",
     "LocalSpokeCache",
     "SpokeCacheConfig",
+    "SpokeReadHubWriteKG",
     "SpokeStats",
     "create_hub_spoke_kg",
 ]
