@@ -225,8 +225,14 @@ class IterationLoop:
 ## 3. Invariants (DbC)
 
 1. **Termination**: every `IterationLoop.run()` returns within
-   `limits.max_total` with `attempts ≤ limits.max_attempts` and
-   `total_cost_usd ≤ limits.max_cost_usd`.
+   `limits.max_total` with `attempts ≤ limits.max_attempts`. Cost is
+   bounded *predictively*: before launching attempt N+1, the loop
+   checks `total_cost_usd + avg_attempt_cost > limits.max_cost_usd`
+   and aborts if so. Attempt 0 is unconditioned (Inv 6) — first-attempt
+   cost is unknown until it runs. This means `total_cost_usd` may
+   exceed `limits.max_cost_usd` by up to the cost of one attempt;
+   callers needing a hard cap should set `max_cost_usd` below their
+   true ceiling.
 2. **Parser purity**: a `FailureParser.parse(r)` is deterministic — same
    `r` ⇒ same `FailureSignal`.
 3. **Success ⇒ None**: `parse(success_result) = None`. Only failures
@@ -261,7 +267,7 @@ EARS form (selected):
 WHEN attempt N produces a success result, THE System SHALL exit with outcome=SUCCESS.
 WHEN attempt N produces a failing ShellResult, THE System SHALL select the matching parser with highest specificity and adopt its FailureSignal.
 WHEN attempt 0 begins, THE System SHALL invoke the attempt callable with signal=None.
-IF total_cost_usd ≥ limits.max_cost_usd, THEN THE System SHALL exit with outcome=BUDGET_EXCEEDED before launching attempt N+1.
+IF attempts > 0 AND total_cost_usd + avg_attempt_cost > limits.max_cost_usd, THEN THE System SHALL exit with outcome=BUDGET_EXCEEDED before launching the next attempt.
 IF halt.event is set before launching attempt N+1, THEN THE System SHALL exit with outcome=HALTED.
 WHILE attempts < max_attempts AND no parser matched, THE System SHALL produce FailureSignal(kind=UNKNOWN) and continue.
 ```
