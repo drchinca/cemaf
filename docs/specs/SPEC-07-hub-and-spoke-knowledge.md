@@ -98,18 +98,18 @@ asserted by Property 4.
 ## 2. Interface Contract (MDE)
 
 ```python
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from cemaf.events.protocols import EventBus
 from cemaf.knowledge.protocols import KnowledgeGraph
-from cemaf.knowledge.models import KGEntity, KGRelation
+from cemaf.knowledge.models import KGEntity
 
 
-class InvalidationKind(Enum):
+class InvalidationKind(StrEnum):
     ENTITY_UPDATED = "entity_updated"
     ENTITY_REMOVED = "entity_removed"
     RELATION_ADDED = "relation_added"
@@ -166,9 +166,40 @@ def create_hub_spoke_kg(
     event_bus: EventBus,
     spoke_configs: Mapping[str, SpokeCacheConfig] | None = None,
 ) -> tuple[HubKnowledgeGraph, Mapping[str, SpokeCache]]:
-    """Wire a hub around `backing_kg` and create one spoke per `spoke_configs` key."""
+    """Wire a hub around `backing_kg` and create one spoke per `spoke_configs` key.
+
+    Keys in `spoke_configs` are spoke identifiers — typically agent IDs or node
+    IDs. Callers wire the returned `Mapping[str, SpokeCache]` into agent
+    construction (see "Spoke assignment" below).
+    """
     ...
 ```
+
+### Spoke assignment
+
+Spokes are bound at agent / node construction time, not at runtime. The
+canonical pattern:
+
+```python
+hub, spokes = create_hub_spoke_kg(
+    backing_kg=memory_backed_kg,
+    event_bus=services.event_bus,
+    spoke_configs={
+        "researcher": SpokeCacheConfig(max_entities=512),
+        "writer":     SpokeCacheConfig(max_entities=128),
+    },
+)
+
+services = services.with_(knowledge_graph=hub)             # hub goes to RuntimeServices
+
+researcher_kg = spokes["researcher"]                       # spoke handed to its owner
+researcher = ResearcherAgent(knowledge_graph=researcher_kg)
+```
+
+Spoke identity is the responsibility of the caller — typically the
+`bootstrap.create_executor()` composition root — and is *not* a global
+registry. An agent with no entry in `spoke_configs` falls back to
+calling the hub directly (no caching, identical correctness).
 
 ## 3. Invariants (DbC)
 
@@ -221,18 +252,41 @@ Feature: Hub & Spoke Knowledge Distribution
     Then the second call returns without contacting the hub
     And S1.stats().hit_rate equals 0.5
 
-  Scenario: Write propagates as invalidation
+  Scenario: Hub write publishes invalidation to subscribed spokes
     Given a hub-spoke KG with two spokes S1 and S2
     And entity "user:42" is cached on both spokes
     When the hub receives add_entity replacing "user:42"
     Then both S1 and S2 receive a KGInvalidationEvent for "user:42"
-    And the next get_entity on either spoke is a miss
 
-  Scenario: Spoke respects max_entities
+  Scenario: Spoke evicts on invalidation
+    Given S1 cached "user:42" and just received KGInvalidationEvent(["user:42"])
+    When get_entity("user:42") is called on S1
+    Then it is a miss
+    And S1 fetches from the hub
+
+  Scenario: add_relation invalidates both endpoints
+    Given a hub-spoke KG and entities "a" and "b" cached on S1
+    When the hub receives add_relation(source_id="a", target_id="b", type=DEPENDS_ON)
+    Then S1 receives a KGInvalidationEvent with entity_ids=("a", "b")
+    And the next get_entity("a") and get_entity("b") are misses
+
+  Scenario: Negative cache cleared on later add_entity
+    Given a spoke with enable_negative_cache=True
+    And get_entity("ghost") was previously a miss (cached negatively)
+    When the hub receives add_entity for "ghost"
+    Then the spoke receives a KGInvalidationEvent for "ghost"
+    And the next get_entity("ghost") fetches from the hub and returns the new value
+
+  Scenario: Spoke caps at max_entities
     Given a spoke with max_entities=10
     When 12 distinct entities are read through the spoke
     Then S.stats().size equals 10
-    And the 2 oldest entries (LRU) are not present
+
+  Scenario: LRU eviction order
+    Given a spoke with max_entities=10 and entries A1..A10 inserted in order
+    When A11 is read
+    Then A1 is no longer present
+    And A2..A10 remain
 
   Scenario: TTL expiry
     Given a spoke with ttl=100ms
@@ -248,11 +302,11 @@ Feature: Hub & Spoke Knowledge Distribution
     Then the hub is contacted only once
     And both calls return None
 
-  Scenario: Spokes do not write
+  Scenario: Writes traverse the hub, not the spoke
     Given a hub-spoke KG
-    When add_entity is called on a spoke (which has no write API by design)
-    Then the call goes through the hub
-    And no spoke holds the new entity until first read
+    When add_entity is called on the HubKnowledgeGraph (writes are hub-only by design)
+    Then the entity is persisted by the hub's backing store
+    And no spoke holds the new entity until its first read
 
   Scenario: Hub failure isolates spokes for cache hits
     Given a spoke with cached entity "x"
@@ -266,9 +320,29 @@ Feature: Hub & Spoke Knowledge Distribution
     And the hub is unreachable
     When get_entity("y") is called
     Then an error is raised (no silent None)
+
+  Scenario: Concurrent fetch and invalidation does not insert stale value
+    Given a spoke S1 with no cached "x"
+    And S1.get_entity("x") starts a hub fetch (in flight)
+    When the hub processes add_entity replacing "x" before the fetch resolves
+    And the invalidation event reaches S1 before the in-flight fetch completes
+    Then S1 must NOT insert the old fetched value into its cache
+    And the next read either re-fetches or returns the post-write value
+
+  Scenario: Spoke unsubscribed mid-run
+    Given a spoke S1 subscribed to invalidations
+    When S1 is removed from the hub's subscriber set
+    Then subsequent hub writes do not deliver events to S1
+    And S1.stats().invalidations_received does not increase
+
+  Scenario: Spoke handler MUST NOT raise
+    Given a spoke S1 with a corrupt internal state
+    When the hub publishes KGInvalidationEvent
+    Then S1's handler logs the error and returns
+    And the hub's write does not fail
 ```
 
-8 scenarios — within the ≤20 limit.
+12 scenarios — within the ≤20 limit.
 
 ## 5. Out of Scope
 

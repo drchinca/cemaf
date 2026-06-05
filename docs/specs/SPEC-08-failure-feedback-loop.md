@@ -34,7 +34,7 @@ depends_on: SPEC-04, SPEC-06
 
 CEMAF already has the substrate for an iteration loop:
 - `skills/coding/RunTestsSkill`, `RunLintSkill`, `RunTypeCheckSkill` produce
-  `Result[CommandResult]` with stdout/stderr/exit_code.
+  `Result[ShellResult]` with stdout/stderr/exit_code.
 - `core/recovery.AutoHealManager` runs *exception* recovery strategies
   but cares only about `exception_type` / regex on `error.message`.
 - `improvement/loop.SelfImprovementLoop` updates strategy memory after
@@ -75,8 +75,8 @@ surfaces**:
 
 |                     | `AutoHealManager`                    | `IterationLoop`                          |
 |---------------------|--------------------------------------|------------------------------------------|
-| Trigger             | Python exception in agent execution  | Verifier `CommandResult` with non-zero exit |
-| Input               | `Result[Any]` + `exception_type`     | `CommandResult` (stdout/stderr/exit)     |
+| Trigger             | Python exception in agent execution  | Verifier `ShellResult` with non-zero exit |
+| Input               | `Result[Any]` + `exception_type`     | `ShellResult` (stdout/stderr/exit)     |
 | Output              | `Result[Context]` (modified context) | New attempt with `FailureSignal`         |
 | Layer               | Infrastructure recovery              | Behaviour iteration                      |
 
@@ -105,17 +105,21 @@ adapter copies that value into the result metadata.
 ## 2. Interface Contract (MDE)
 
 ```python
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.result import Result
-from cemaf.skills.coding.types import CommandResult
+from cemaf.sandbox.shell import ShellResult
+
+# Truncation cap for FailureSignal.summary derived from raw stderr.
+UNKNOWN_SUMMARY_MAX_CHARS = 512
 
 
-class FailureKind(Enum):
+class FailureKind(StrEnum):
     TEST_FAILURE     = "test_failure"
     LINT_FAILURE     = "lint_failure"
     TYPE_FAILURE     = "type_failure"
@@ -143,7 +147,7 @@ class FailureSignal:
     raw_command: str                              # what was run
     exit_code: int
     truncated: bool = False                       # items list was capped
-    metadata: Mapping[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, str] = field(default_factory=lambda: {})
 
 
 @runtime_checkable
@@ -158,11 +162,16 @@ class FailureParser(Protocol):
         """Higher = more specific. Loop dispatches highest-specificity match first."""
         ...
 
-    def matches(self, result: CommandResult) -> bool:
+    @property
+    def max_items(self) -> int:
+        """Hard cap on items returned by parse(); enforces FailureSignal.truncated."""
+        ...
+
+    def matches(self, result: ShellResult) -> bool:
         """Cheap predicate — does this parser claim ownership of this failure?"""
         ...
 
-    def parse(self, result: CommandResult) -> FailureSignal | None:
+    def parse(self, result: ShellResult) -> FailureSignal | None:
         """Return None if the result is a success — only failures map."""
         ...
 
@@ -174,7 +183,7 @@ class IterationLimits:
     max_cost_usd: float = 1.00
 
 
-class IterationOutcome(Enum):
+class IterationOutcome(StrEnum):
     SUCCESS         = "success"
     EXHAUSTED       = "exhausted"     # hit max_attempts
     BUDGET_EXCEEDED = "budget_exceeded"
@@ -184,7 +193,7 @@ class IterationOutcome(Enum):
 @dataclass(frozen=True, slots=True)
 class HaltSignal:
     """Caller-driven cancellation handed to IterationLoop at construction."""
-    event: "asyncio.Event"           # set() to halt before next attempt
+    event: asyncio.Event              # set() to halt before next attempt
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,7 +213,7 @@ class IterationLoop:
         self,
         *,
         attempt: Callable[[FailureSignal | None], Awaitable[Result[Any]]],
-        verify: Callable[[Result[Any]], Awaitable[CommandResult]],
+        verify: Callable[[Result[Any]], Awaitable[ShellResult]],
         parsers: tuple[FailureParser, ...],
         limits: IterationLimits = IterationLimits(),
         halt: HaltSignal | None = None,
@@ -250,7 +259,7 @@ EARS form (selected):
 
 ```
 WHEN attempt N produces a success result, THE System SHALL exit with outcome=SUCCESS.
-WHEN attempt N produces a failing CommandResult, THE System SHALL select the matching parser with highest specificity and adopt its FailureSignal.
+WHEN attempt N produces a failing ShellResult, THE System SHALL select the matching parser with highest specificity and adopt its FailureSignal.
 WHEN attempt 0 begins, THE System SHALL invoke the attempt callable with signal=None.
 IF total_cost_usd ≥ limits.max_cost_usd, THEN THE System SHALL exit with outcome=BUDGET_EXCEEDED before launching attempt N+1.
 IF halt.event is set before launching attempt N+1, THEN THE System SHALL exit with outcome=HALTED.
@@ -303,12 +312,14 @@ Feature: Failure-feedback iteration loop
     And report.attempts equals 2
     And report.last_signal is not None
 
-  Scenario: Cost budget exceeded
+  Scenario: Cost budget exhausts before next attempt launches
     Given an IterationLoop with limits.max_cost_usd=0.10
-    And each attempt costs 0.06 usd
-    When the loop runs
-    Then report.outcome equals BUDGET_EXCEEDED after attempt 2
-    And no third attempt is launched
+    And attempt 1 costs 0.06 usd and fails
+    When the loop checks the budget before launching attempt 2
+    Then report.outcome equals BUDGET_EXCEEDED
+    And report.attempts equals 1
+    And report.total_cost_usd equals 0.06
+    And no second attempt is launched
 
   Scenario: Time budget exceeded
     Given an IterationLoop with limits.max_total=100ms
@@ -329,10 +340,11 @@ Feature: Failure-feedback iteration loop
     Then signal.items has length 10
     And signal.truncated equals True
 
-  Scenario: Halt cancels mid-attempt
-    Given an IterationLoop is running attempt 2
-    When the loop receives a halt signal
+  Scenario: Halt cancels between attempts
+    Given an IterationLoop is between attempts 2 and 3
+    When halt.event is set before attempt 3 launches
     Then report.outcome equals HALTED
+    And report.attempts equals 2
     And no further attempts run
 
   Scenario: Specificity wins over registration order
@@ -348,9 +360,103 @@ Feature: Failure-feedback iteration loop
     When the loop runs
     Then ValueError propagates from run()
     And no FailureSignal is constructed
+
+  Scenario: Verifier raises is treated as UNKNOWN failure
+    Given an IterationLoop where verify() raises RuntimeError on call 1
+    When the loop runs
+    Then attempt 2 receives a FailureSignal with kind=UNKNOWN
+    And the signal.summary references the RuntimeError message
+
+  Scenario: Halt set before attempt 0 returns immediately
+    Given an IterationLoop whose halt.event is already set at construction
+    When run() is invoked
+    Then report.outcome equals HALTED
+    And report.attempts equals 0
+    And the attempt callable is never invoked
+
+  Scenario: max_cost_usd=0 still permits attempt 0
+    Given an IterationLoop with limits.max_cost_usd=0
+    And limits.max_attempts=3
+    When the loop runs and attempt 0 succeeds with cost_usd=0
+    Then report.outcome equals SUCCESS
+    And report.attempts equals 1
 ```
 
-12 scenarios — within ≤20 limit.
+15 scenarios — within ≤20 limit.
+
+### Worked example: pytest stderr → FailureSignal
+
+A `PytestParser` parsing this `ShellResult.stdout`:
+
+```
+============================= test session starts ==============================
+collected 2 items
+
+tests/unit/test_calc.py::test_add PASSED                                  [ 50%]
+tests/unit/test_calc.py::test_sub FAILED                                  [100%]
+
+=================================== FAILURES ===================================
+__________________________________ test_sub ____________________________________
+
+    def test_sub():
+>       assert 2 - 1 == 0
+E       assert 1 == 0
+
+tests/unit/test_calc.py:7: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_calc.py::test_sub - assert 1 == 0
+```
+
+…produces:
+
+```python
+FailureSignal(
+    kind=FailureKind.TEST_FAILURE,
+    summary="1 of 2 tests failed",
+    items=(
+        FailureItem(
+            file="tests/unit/test_calc.py",
+            line=7,
+            rule="tests/unit/test_calc.py::test_sub",
+            message="assert 1 == 0",
+            snippet="    def test_sub():\n>       assert 2 - 1 == 0\nE       assert 1 == 0",
+        ),
+    ),
+    raw_command="uv run pytest -q",
+    exit_code=1,
+    truncated=False,
+    metadata={"framework": "pytest"},
+)
+```
+
+This signal flows back into `attempt(signal=…)` as part of the agent's
+goal context — the agent now sees *which* test, *which* line, and the
+*assertion message*, instead of "tests failed."
+
+### Worked example: attempt + verify wiring
+
+```python
+async def attempt(signal: FailureSignal | None) -> Result[Any]:
+    """Drive the coding agent — generate or repair code."""
+    goal = AgentGoal(prior_failure=signal)
+    result = await coding_agent.run(goal)
+    return Result.ok(
+        data=result.artefact,
+        metadata={"cost_usd": result.cost_usd},   # required by Inv 1 cost cap
+    )
+
+async def verify(_attempt_result: Result[Any]) -> ShellResult:
+    """Run the verifier — pytest in the sandbox."""
+    return await sandbox.run(command="uv run pytest -q")
+
+loop = IterationLoop(
+    attempt=attempt,
+    verify=verify,
+    parsers=(PytestParser(), RuffParser(), MypyParser(), ShellFallbackParser()),
+    limits=IterationLimits(max_attempts=5, max_cost_usd=2.0),
+)
+report = await loop.run()
+```
 
 ## 5. Out of Scope
 
@@ -367,7 +473,10 @@ Feature: Failure-feedback iteration loop
 ## 6. Dependencies
 
 - `cemaf.skills.coding` — `RunTestsSkill`, `RunLintSkill`,
-  `RunTypeCheckSkill`, `CommandResult`.
+  `RunTypeCheckSkill`.
+- `cemaf.sandbox.shell.ShellResult` — `(command, exit_code, stdout,
+  stderr, duration_ms, timed_out, truncated)`. The verifier returns
+  this directly; no new shape introduced.
 - `cemaf.core.result.Result` — outcome wrapper.
 - `cemaf.observability.run_logger` — `record_tool_call` for spans.
 - `cemaf.observability.cost_tracking` — total_cost_usd tracking.
