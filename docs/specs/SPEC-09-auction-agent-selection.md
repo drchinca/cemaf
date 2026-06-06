@@ -1,7 +1,7 @@
 ---
 title: Auction-Based Agent Selection
 spec_id: SPEC-09
-status: Draft
+status: Implemented
 last_reviewed: 2026-06-06
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
@@ -16,9 +16,15 @@ depends_on: []
 > deterministic selector picks the winner. The static path remains the
 > default — existing DAGs are unchanged.
 
-**Status: Draft.** Implementation target: `cemaf/agents/selection.py`,
-`cemaf/agents/registry.py`, `cemaf/orchestration/{dag,context_node_executor,services}.py`,
-`cemaf/bootstrap.py`, `cemaf/llm/model_router.py`.
+**Status: Implemented.** Lives in `cemaf/agents/selection.py`
+(`Capability`, `Bid`, `BidContext`, `CapabilityAdvertiser`, `AgentSelector`,
+`DefaultAgentSelector`); capability index + `get_candidates` in
+`cemaf/agents/registry.py`; `Node.auction` in `cemaf/orchestration/dag.py`;
+opt-in branch in `cemaf/orchestration/context_node_executor.py`; wiring via
+`RuntimeServices.agent_selector` + `cemaf/bootstrap.py`; fidelity floor in
+`cemaf/llm/model_router.py`. Unit tests: `tests/unit/agents/test_selection.py`,
+`tests/unit/llm/test_model_router.py`; integration:
+`tests/integration/test_agent_auction.py`.
 
 ## Contents
 

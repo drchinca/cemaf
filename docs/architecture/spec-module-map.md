@@ -1,6 +1,6 @@
 # Spec → Module Map
 
-> One-page index from SPEC-00..08 concepts to the modules that house them. SPEC-00..06 form the Enterprise Context Brain target architecture; SPEC-07 (hub-and-spoke KG) and SPEC-08 (failure-feedback loop) are landed capabilities that close audit gaps #9 and #13. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
+> One-page index from SPEC-00..09 concepts to the modules that house them. SPEC-00..06 form the Enterprise Context Brain target architecture; SPEC-07 (hub-and-spoke KG), SPEC-08 (failure-feedback loop), and SPEC-09 (auction agent selection) are landed capabilities. SPEC-07/08 close audit gaps #9 and #13; SPEC-09 closes the one genuine gap from the axocoatl comparison audit. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
 
 ## Conventions
 
@@ -115,6 +115,20 @@
 | `IterationLoop` (attempt → verify → parse → re-attempt) | SPEC-08 §2 | `cemaf/iteration/loop.py` | landed |
 
 > SPEC-08 is a per-task substrate, not a `RuntimeService` — the canonical caller is the `iccha_autonomy` control plane (per CLAUDE.md substrate boundary). It composes with, but does not replace, `core/recovery.AutoHealManager` (orthogonal failure surfaces: verifier `ShellResult` vs. Python exception).
+
+## Auction-based agent selection (SPEC-09)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `Capability` / `Fidelity` enums | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| `BidContext` / `Bid` | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| `CapabilityAdvertiser` (optional protocol) / `AgentSelector` | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| `DefaultAgentSelector` (deterministic max-bid) | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| Registry capability index + `get_candidates` | SPEC-09 §2 | `cemaf/agents/registry.py` | landed |
+| `Node.auction(capability=...)` opt-in factory | SPEC-09 §2 | `cemaf/orchestration/dag.py` | landed |
+| Executor opt-in auction branch + provenance | SPEC-09 §2, §9 | `cemaf/orchestration/context_node_executor.py` | landed |
+| `RuntimeServices.agent_selector` wiring | SPEC-09 §2 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | landed |
+| ModelRouter fidelity floor (stops discarding `fidelity`) | SPEC-09 §3 Inv 9 | `cemaf/llm/model_router.py` | landed |
 
 ## Phase 2+ implementation plan
 

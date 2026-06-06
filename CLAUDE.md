@@ -127,6 +127,7 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Registry Introspection | MetaArchitect discovers meta-agents → includes them in generated DAG |
 | Hub & Spoke KG | HubKnowledgeGraph over real MemoryBackedKnowledgeGraph + real EventBus → write → spoke evicts → re-read returns fresh value (`test_hub_spoke_kg.py`) |
 | Failure-Feedback Loop | IterationLoop + real ShellSandbox + RunTestsSkill → fail-then-pass fixture → verify re-attempt converges (`test_iteration_sandbox.py`) |
+| Auction Agent Selection | Real registry + DefaultAgentSelector + executor + BudgetGuard → two WRITE agents compete → low-load winner runs, recorded in metadata; static node unaffected (`test_agent_auction.py`) |
 
 ## Pattern Reference
 
@@ -205,7 +206,7 @@ return Result.fail(error="Rate limit exceeded")
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `agents` | Agent[GoalT, ResultT] ABC, AgentRegistry, built-in agents (Librarian/Researcher/Summarizer/Writer) | `base.py`, `registry.py`, `context_agents.py` |
+| `agents` | Agent[GoalT, ResultT] ABC, AgentRegistry, built-in agents (Librarian/Researcher/Summarizer/Writer), opt-in auction selection (SPEC-09) | `base.py`, `registry.py`, `context_agents.py`, `selection.py` |
 | `skills` | Skill protocol + built-in kits. `skills/coding/` is the polyglot file/shell/test kit a coding loop calls | `base.py`, `protocols.py`, `coding/` |
 | `tools` | Tool ABC, ToolSchema, ToolRegistry, @tool decorator | `base.py`, `registry.py` |
 | `sandbox` | `ShellSandbox` — cwd-confined, time/output-bounded, env-scrubbed, network-screened subprocess execution (the polyglot substrate) | `shell.py` |
