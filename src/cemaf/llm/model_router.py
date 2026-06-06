@@ -22,6 +22,19 @@ from cemaf.llm.protocols import (
 from cemaf.observability.protocols import Logger
 from cemaf.resilience.circuit_breaker import CircuitOpenError
 
+# Minimum complexity score per fidelity tier (SPEC-09 Invariant 9). Keyed by the
+# fidelity's string value so a `Fidelity` StrEnum or its `.value` both match —
+# avoids an llm→agents import cycle (agents already depends on llm).
+_FIDELITY_FLOOR: dict[str, float] = {"low": 0.0, "standard": 0.4, "high": 0.8}
+
+
+def _apply_fidelity_floor(*, score: float, fidelity: object | None) -> float:
+    """Raise the route score to the fidelity tier's floor, if a known fidelity is given."""
+    if fidelity is None:
+        return score
+    floor = _FIDELITY_FLOOR.get(str(fidelity).lower())
+    return max(score, floor) if floor is not None else score
+
 
 @runtime_checkable
 class ComplexityEstimator(Protocol):
@@ -115,8 +128,9 @@ class ModelRouter:
         token_budget: object | None = None,
         correlation_id: str | None = None,
     ) -> CompletionResult:
-        del fidelity, token_budget, correlation_id  # forward-compat; ignored by router
+        del token_budget, correlation_id  # forward-compat; ignored by router
         score = self._estimator.estimate(messages, tools)
+        score = _apply_fidelity_floor(score=score, fidelity=fidelity)
         candidates = self._select_route(score)
 
         last_error: str = "No route available"

@@ -16,6 +16,7 @@ from cemaf.agents.context_agents import (
     WriterGoal,
 )
 from cemaf.agents.protocols import Agent
+from cemaf.agents.selection import Capability, read_capabilities
 from cemaf.core.registry import BaseRegistry
 from cemaf.llm.protocols import LLMClient
 from cemaf.retrieval.protocols import VectorStore
@@ -37,6 +38,16 @@ _BUILTIN_AGENT_CLASSES: dict[str, type[Agent[Any, Any]]] = {
     "Writer": WriterAgent,
 }
 
+# Built-in agent name → capabilities (SPEC-09). Lets auction nodes resolve
+# candidates for built-ins that don't implement CapabilityAdvertiser themselves.
+_BUILTIN_CAPABILITIES: dict[str, frozenset[Capability]] = {
+    "Librarian": frozenset({Capability.LIBRARY}),
+    "Researcher": frozenset({Capability.RESEARCH}),
+    "Summarizer": frozenset({Capability.SUMMARIZE}),
+    "Writer": frozenset({Capability.WRITE}),
+    "QualityGuard": frozenset({Capability.QUALITY}),
+}
+
 
 class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
     """Dynamic, domain-scoped agent registry extending BaseRegistry."""
@@ -55,6 +66,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         )
         self._goal_types: dict[str, type[BaseModel]] = {}
         self._domain_agents: dict[str, set[str]] = {}
+        self._capability_agents: dict[Capability, set[str]] = {}
 
     def _implements_protocol(self, obj: object) -> bool:
         """Check if object implements Agent protocol."""
@@ -67,14 +79,39 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         agent_instance: Agent[Any, Any],
         goal_type: type[BaseModel] | None = None,
         domain_id: str | None = None,
+        capabilities: frozenset[Capability] | None = None,
     ) -> None:
-        """Register an agent instance with optional domain scoping."""
+        """Register an agent instance with optional domain scoping and capabilities."""
         self.register_instance(item=agent_instance)
         agent_key = str(agent_instance.id)
         if goal_type is not None:
             self._goal_types[agent_key] = goal_type
         if domain_id is not None:
             self._domain_agents.setdefault(domain_id, set()).add(agent_key)
+        self._index_capabilities(agent_key=agent_key, agent=agent_instance, explicit=capabilities)
+
+    def _index_capabilities(
+        self,
+        *,
+        agent_key: str,
+        agent: Agent[Any, Any],
+        explicit: frozenset[Capability] | None,
+    ) -> None:
+        """Populate the capability index — precedence: explicit kwarg > advertised > built-in."""
+        caps = explicit
+        if caps is None:
+            caps = read_capabilities(agent)
+        if caps is None:
+            caps = _BUILTIN_CAPABILITIES.get(agent_key)
+        if not caps:
+            return
+        for capability in caps:
+            self._capability_agents.setdefault(capability, set()).add(agent_key)
+
+    def get_candidates(self, *, capability: Capability) -> list[Agent[Any, Any]]:
+        """Return agents indexed for a capability (the authoritative candidate set)."""
+        agent_keys = self._capability_agents.get(capability, set())
+        return [agent for agent in self.list_items() if str(agent.id) in agent_keys]
 
     def get_agent_class(self, agent_name: str) -> type[Agent[Any, Any]] | None:
         """Get agent class by name from built-in agents."""
