@@ -19,6 +19,11 @@ and JSON-file sources live in `cemaf.blueprint.sources`.
 from cemaf.blueprint.builder import BlueprintBuilder
 from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
 from cemaf.blueprint.entities import ContextEntity, EntityType
+from cemaf.blueprint.factories import (
+    create_blueprint_harvester,
+    create_blueprint_library,
+    create_blueprint_library_from_env,
+)
 from cemaf.blueprint.harvest import (
     BlueprintDistiller,
     BlueprintHarvesterEngine,
@@ -26,6 +31,11 @@ from cemaf.blueprint.harvest import (
     HarvestOutcome,
     HarvestPolicy,
     RunCorrelator,
+)
+from cemaf.blueprint.harvest_defaults import (
+    InMemoryRunCorrelator,
+    RecipeBlueprintDistiller,
+    ScoreThresholdHarvestPolicy,
 )
 from cemaf.blueprint.library import (
     BlueprintEntry,
@@ -69,6 +79,12 @@ __all__ = [
     "SqliteBlueprintSource",
     # Harvest engine
     "BlueprintHarvesterEngine",
+    "InMemoryRunCorrelator",
+    "RecipeBlueprintDistiller",
+    "ScoreThresholdHarvestPolicy",
+    "create_blueprint_harvester",
+    "create_blueprint_library",
+    "create_blueprint_library_from_env",
     "BlueprintDistiller",
     "HarvestContext",
     "HarvestOutcome",

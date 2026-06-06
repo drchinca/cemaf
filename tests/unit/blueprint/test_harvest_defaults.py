@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 
 from cemaf.blueprint.harvest import HarvestContext
-from cemaf.blueprint.library import BlueprintEntryKind
-from cemaf.events.protocols import Event, EventType
-from cemaf.meta.harvest_defaults import (
+from cemaf.blueprint.harvest_defaults import (
     InMemoryRunCorrelator,
     RecipeBlueprintDistiller,
     ScoreThresholdHarvestPolicy,
 )
+from cemaf.blueprint.library import BlueprintEntryKind
+from cemaf.events.protocols import Event, EventType
 
 
 def _eval_event(

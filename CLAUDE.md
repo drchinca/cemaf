@@ -129,6 +129,7 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Failure-Feedback Loop | IterationLoop + real ShellSandbox + RunTestsSkill → fail-then-pass fixture → verify re-attempt converges (`test_iteration_sandbox.py`) |
 | Auction Agent Selection | Real registry + DefaultAgentSelector + executor + BudgetGuard → two WRITE agents compete → low-load winner runs, recorded in metadata; static node unaffected (`test_agent_auction.py`) |
 | Agent Council | Real council members + executor + DefaultVoteAggregator → deliberate → vote → winning choice becomes NodeResult.output (steers DAG); no-decision = success+empty; full DAGExecutor.run (`test_agent_council.py`) |
+| Blueprint Harvest | `create_blueprint_harvester()` + real EventBus → high-scoring run distilled into a reusable blueprint, discoverable by `library.search` (`test_blueprint_harvest_factory.py`) |
 
 ## Pattern Reference
 
@@ -221,7 +222,7 @@ return Result.fail(error="Rate limit exceeded")
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
 | `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py` |
-| `blueprint` | Semantic blueprint definitions for structured generation | `base.py`, `core.py`, `parser.py` |
+| `blueprint` | Semantic blueprint definitions for structured generation + the harvest flywheel (learn reusable blueprints from high-scoring runs via `create_blueprint_harvester()`) | `core.py`, `parser.py`, `library.py`, `harvest.py`, `harvest_defaults.py`, `factories.py` |
 | `scheduler` | Task scheduling | `base.py`, `protocols.py` |
 
 ### Context Engineering (what agents know)
