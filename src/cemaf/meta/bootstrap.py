@@ -8,9 +8,9 @@ from pathlib import Path
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
 from cemaf.audit.protocols import AuditLog, AuditTrail
+from cemaf.blueprint.factories import create_blueprint_harvester
 from cemaf.blueprint.harvest import (
     BlueprintDistiller,
-    BlueprintHarvesterEngine,
     HarvestPolicy,
     RunCorrelator,
 )
@@ -25,11 +25,6 @@ from cemaf.knowledge.hub_spoke import (
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
-from cemaf.meta.harvest_defaults import (
-    InMemoryRunCorrelator,
-    RecipeBlueprintDistiller,
-    ScoreThresholdHarvestPolicy,
-)
 from cemaf.meta.registry import (
     register_blueprint_selector,
     register_meta_agents,
@@ -164,19 +159,15 @@ def create_meta_executor(
         and meta_services.writable_blueprint_source is not None
         and svc.event_bus is not None
     ):
-        policy = meta_services.harvest_policy or ScoreThresholdHarvestPolicy(
-            threshold=meta_services.blueprint_harvest_threshold,
-        )
-        correlator = meta_services.harvest_correlator or InMemoryRunCorrelator()
-        distiller = meta_services.harvest_distiller or RecipeBlueprintDistiller()
-        engine = BlueprintHarvesterEngine(
+        create_blueprint_harvester(
             writable_source=meta_services.writable_blueprint_source,
-            policy=policy,
-            correlator=correlator,
-            distiller=distiller,
+            event_bus=svc.event_bus,
             library=svc.blueprint_library,
+            threshold=meta_services.blueprint_harvest_threshold,
+            policy=meta_services.harvest_policy,
+            correlator=meta_services.harvest_correlator,
+            distiller=meta_services.harvest_distiller,
         )
-        engine.subscribe(event_bus=svc.event_bus)
 
     # Delegate to standard bootstrap
     return create_executor(

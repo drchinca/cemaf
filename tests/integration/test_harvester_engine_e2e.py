@@ -17,15 +17,15 @@ from pathlib import Path
 import pytest
 
 from cemaf.blueprint.harvest import BlueprintHarvesterEngine
-from cemaf.blueprint.library import BlueprintEntryKind, BlueprintLibrary
-from cemaf.blueprint.sqlite_source import SqliteBlueprintSource
-from cemaf.events.bus import InMemoryEventBus
-from cemaf.events.protocols import Event, EventType
-from cemaf.meta.harvest_defaults import (
+from cemaf.blueprint.harvest_defaults import (
     InMemoryRunCorrelator,
     RecipeBlueprintDistiller,
     ScoreThresholdHarvestPolicy,
 )
+from cemaf.blueprint.library import BlueprintEntryKind, BlueprintLibrary
+from cemaf.blueprint.sqlite_source import SqliteBlueprintSource
+from cemaf.events.bus import InMemoryEventBus
+from cemaf.events.protocols import Event, EventType
 
 
 @pytest.fixture
