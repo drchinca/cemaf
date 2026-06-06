@@ -70,10 +70,14 @@ New module `cemaf/agents/selection.py`:
 ```python
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from cemaf.agents.protocols import Agent
-from cemaf.core.types import AgentID
+from cemaf.core.types import JSON, AgentID
+
+_DEFAULT_LOAD = 0.5
+_DEFAULT_MATCH = 0.3
+_FIDELITY_FLOOR: dict["Fidelity", float] = {}   # {LOW: 0.0, STANDARD: 0.4, HIGH: 0.8}
 
 
 class Capability(StrEnum):
@@ -106,8 +110,11 @@ class Bid:
     load_factor: float                  # 1 - current_load, in [0.0, 1.0]
     budget_headroom: float              # 1 - max(cost_util, token_util), in [0.0, 1.0]
 
-    def to_metadata(self) -> dict[str, object]:
-        """Provenance projection stored on NodeResult.metadata['selection']."""
+    def to_metadata(self) -> JSON:
+        """Provenance projection stored on NodeResult.metadata['selection'].
+
+        Keys: agent_id (str), score, capability_match, load_factor, budget_headroom.
+        """
         ...
 
 
@@ -129,7 +136,7 @@ class AgentSelector(Protocol):
     def select(
         self,
         *,
-        candidates: tuple[Agent, ...],
+        candidates: tuple[Agent[Any, Any], ...],
         bid_context: BidContext,
     ) -> Bid | None: ...
 
@@ -137,16 +144,55 @@ class AgentSelector(Protocol):
 class DefaultAgentSelector:
     """Deterministic single-round max-bid selector."""
 
-    def bid_for(self, *, agent: Agent, bid_context: BidContext) -> Bid: ...
+    def bid_for(self, *, agent: Agent[Any, Any], bid_context: BidContext) -> Bid: ...
 
-    def select(self, *, candidates: tuple[Agent, ...], bid_context: BidContext) -> Bid | None: ...
+    def select(
+        self, *, candidates: tuple[Agent[Any, Any], ...], bid_context: BidContext
+    ) -> Bid | None: ...
+
+
+def create_default_agent_selector() -> DefaultAgentSelector:
+    """Factory (BYO-X) — wired into RuntimeServices.agent_selector at bootstrap."""
+    ...
 ```
+
+**Reading an agent's capability/load (the detection rule).** `isinstance(agent,
+CapabilityAdvertiser)` on a `@runtime_checkable` protocol only verifies that the
+`capabilities` and `current_load` *attributes exist* — not that they return the
+right types (PEP 544). The selector therefore **duck-types defensively**, never
+trusting `isinstance` as a behavioral gate:
+
+```python
+def _read_capabilities(agent: Agent[Any, Any]) -> frozenset[Capability] | None:
+    raw = getattr(agent, "capabilities", None)
+    if not isinstance(raw, frozenset):
+        return None
+    return frozenset(c for c in raw if isinstance(c, Capability))
+
+def _read_load(agent: Agent[Any, Any]) -> float:
+    raw = getattr(agent, "current_load", None)
+    if not isinstance(raw, int | float):
+        return _DEFAULT_LOAD          # 0.5
+    return min(1.0, max(0.0, float(raw)))   # clamp to [0,1] — load is self-reported, untrusted
+```
+
+A non-advertiser (or a malformed one) yields `capabilities=None` → `match=0.3`
+and `load=0.5`.
 
 Registry additions (`registry.py`):
 
 ```python
 # new index alongside _domain_agents
 self._capability_agents: dict[Capability, set[str]] = {}
+
+# built-in agent → capabilities, alongside _BUILTIN_GOAL_TYPES (module level)
+_BUILTIN_CAPABILITIES: dict[str, frozenset[Capability]] = {
+    "Librarian": frozenset({Capability.LIBRARY}),
+    "Researcher": frozenset({Capability.RESEARCH}),
+    "Summarizer": frozenset({Capability.SUMMARIZE}),
+    "Writer": frozenset({Capability.WRITE}),
+    "QualityGuard": frozenset({Capability.QUALITY}),
+}
 
 def register_agent(
     self,
@@ -156,8 +202,25 @@ def register_agent(
     capabilities: frozenset[Capability] | None = None,   # NEW, optional
 ) -> None: ...
 
-def get_candidates(self, capability: Capability) -> list[Agent[Any, Any]]: ...
+def get_candidates(self, *, capability: Capability) -> list[Agent[Any, Any]]: ...
 ```
+
+**Capability source reconciliation (single source of truth).** Two inputs could
+declare an agent's capabilities — the explicit `capabilities=` kwarg at
+registration and an agent that implements `CapabilityAdvertiser`. The registry
+index `_capability_agents` is the **authoritative candidate set**, populated at
+`register_agent` from, in precedence order: (1) the explicit `capabilities=`
+kwarg, else (2) the agent's advertised `capabilities` (duck-typed read), else
+(3) `_BUILTIN_CAPABILITIES` for known built-in names. `get_candidates` reads only
+this index. The selector's per-bid `capability_match` then re-reads the agent's
+advertised capabilities — so a candidate that is in the index but does not
+advertise the exact capability still scores the 0.3 generalist match (never a
+silent disagreement: index = "who may bid", advertiser = "how well they bid").
+
+**Candidate resolvability.** Every agent returned by `get_candidates` MUST be
+resolvable back through `registry.get(str(agent.id))` — the executor resolves the
+winning `Bid.agent_id` via the existing `self._registry.get(agent_name)` path
+(`context_node_executor.py:81`), so `Bid.agent_id == agent.id` is the registry key.
 
 DAG factory (`dag.py`), next to `Node.agent`:
 
@@ -181,8 +244,11 @@ def auction(
 
 ## 3. Invariants (DbC)
 
-1. **Score range**: every `Bid.score`, `capability_match`, `load_factor`,
-   `budget_headroom` ∈ [0.0, 1.0].
+1. **Score range (clamped)**: every `Bid.score`, `capability_match`,
+   `load_factor`, `budget_headroom` ∈ [0.0, 1.0]. Inputs are clamped before
+   scoring — `current_load` and the budget utilizations are each clamped to
+   [0,1], so an over-budget `cost_utilization > 1.0` yields `budget_headroom = 0.0`,
+   never negative.
 2. **Determinism**: `select(candidates, bid_context)` is a pure function — same
    inputs ⇒ identical `Bid`. No randomness, no I/O.
 3. **Total ordering**: ties on `score` are broken by `str(agent_id)` so the
@@ -200,8 +266,9 @@ def auction(
 7. **Fail-safe fallthrough**: if the auction yields no candidates (`select`
    returns `None`), the executor falls through to static `ref_id` resolution; if
    `ref_id` is also empty, it returns the existing "no ref_id" error — never a crash.
-8. **Provenance**: when an auction selects an agent, the winning `Bid` is recorded
-   on `NodeResult.metadata["selection"]`.
+8. **Provenance (both branches)**: when an auction selects an agent, the winning
+   `Bid` is recorded on `NodeResult.metadata["selection"]` regardless of whether
+   the selected agent then succeeds or fails — the selection happened either way.
 9. **Fidelity floor (ModelRouter)**: when `fidelity` is provided, the routed
    complexity score is `max(estimator_score, FIDELITY_FLOOR[fidelity])` with floors
    `{LOW: 0.0, STANDARD: 0.4, HIGH: 0.8}`. `token_budget`/`correlation_id` remain
@@ -239,20 +306,45 @@ Feature: Auction-based agent selection
     When the auction runs with equal budget
     Then the load-0.1 agent wins
 
-  Scenario: Budget pressure shrinks scores but preserves ordering
-    Given two candidates and cost_utilization 0.95
+  Scenario: Budget pressure preserves the winner
+    Given two candidates that select agent A under no budget pressure
+    When the auction runs with cost_utilization 0.95
+    Then agent A still wins (the budget term is shared, shifting both equally)
+
+  Scenario: Over-budget utilization clamps headroom to zero
+    Given cost_utilization 1.5 (reported over budget)
+    When a bid is scored
+    Then budget_headroom equals 0.0 and the score stays in [0,1]
+
+  Scenario: Exact-tie resolves by agent id
+    Given two candidates with byte-identical scores
+    When select() runs
+    Then the agent whose str(id) sorts first (desc) is the unique winner
+
+  Scenario: Single candidate still produces a bid
+    Given exactly one candidate for the capability
     When the auction runs
-    Then all scores drop but the same agent wins as under no pressure
+    Then that agent wins and metadata["selection"] is recorded
 
   Scenario: No candidates returns None
     Given a capability with zero registered candidates
-    When select() is called
+    When select() is called with an empty candidates tuple
     Then it returns None
 
   Scenario: No-candidate auction falls through to static ref_id
     Given an auction node whose capability has no candidates but ref_id="Writer"
     When the node executes
     Then the Writer agent runs via static resolution
+
+  Scenario: No-candidate auction with empty ref_id errors cleanly
+    Given an auction node whose capability has no candidates AND ref_id is empty
+    When the node executes
+    Then it returns the "no ref_id" NodeResult error, not a crash
+
+  Scenario: Capability set but selector not wired falls through to static
+    Given an auction node with capability set but no AgentSelector wired
+    When the node executes
+    Then static ref_id resolution runs (auction path not entered)
 
   Scenario: Static ref_id node is unaffected by a wired selector
     Given a Node.agent("Writer") and an executor with a DefaultAgentSelector
@@ -271,7 +363,11 @@ Feature: Auction-based agent selection
     Then the score is at least 0.8
 ```
 
-9 scenarios — within ≤20.
+13 scenarios — within ≤20.
+
+> **§8 Eval Criteria omitted** — selection is a deterministic, pure function
+> with no LLM behavior to evaluate; §3 invariants + §7 properties (verified by
+> example + property-based tests) cover correctness fully. No LLM-judge gate applies.
 
 ## 5. Out of Scope
 
@@ -328,4 +424,13 @@ in [0.0, 1.0].
   - `agent.auction.started` — `node_id`, `capability`, `candidate_count`
   - `agent.auction.selected` — `node_id`, `agent_id`, `score`
   - `agent.auction.no_candidates` — `node_id`, `capability` (fall-through path)
-- **Metrics** (Prometheus, optional): `cemaf_agent_auction_total{capability, outcome}`.
+- **Metrics** (Prometheus, optional): `cemaf_agent_auction_total{capability, outcome}`
+  where `outcome ∈ {selected, no_candidates}`.
+
+**Fidelity wiring note.** `Fidelity` and `_FIDELITY_FLOOR` live in `selection.py`
+for colocation with `Capability`, but the floor is applied in
+`model_router.py` (Invariant 9) — `ModelRouter.route` already receives
+`fidelity` (today discarded at `model_router.py:118`); the change is to stop
+discarding it and floor the estimator score. The auction itself does not consult
+fidelity; the two share this spec only because both stop wasting signals the
+system already computes.
