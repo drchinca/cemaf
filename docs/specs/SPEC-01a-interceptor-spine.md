@@ -77,12 +77,14 @@ gate genuinely blocks.
 
 ## 2. Interface Contract (MDE)
 
-New module `cemaf/interceptors/`:
+New module `cemaf/interceptors/`. Names align with the full SPEC-01
+(`PreflightDecision`/`PostflightDecision`, one `DecisionKind` superset) so the
+richer spec extends rather than renames.
 
 ```python
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Final, Protocol, runtime_checkable
 
 from cemaf.agents.base import AgentContext
 from cemaf.core.types import JSON, NodeID
@@ -93,66 +95,131 @@ from cemaf.orchestration.executor import NodeResult
 class DecisionKind(StrEnum):
     ACCEPT = "accept"   # proceed (PRE: run agent / POST: keep result)
     REJECT = "reject"   # short-circuit (PRE: skip agent / POST: fail the node)
+    # RECOVER / HALT are added by full SPEC-01; this slice handles ACCEPT/REJECT only.
 
 
 @dataclass(frozen=True, slots=True)
-class PreDecision:
+class PreflightDecision:
     kind: DecisionKind
     interceptor_id: str
-    # On ACCEPT, an enriched context replaces the prior one for the next
-    # interceptor + the agent. None = "use prior context unchanged".
+    # On ACCEPT, an enriched context replaces the one seen by the next interceptor
+    # and the agent. None = "use prior context unchanged". Enrichment is built via
+    # AgentContext.model_copy(update=...) — AgentContext is a frozen Pydantic model.
     enriched_context: AgentContext | None = None
     reason: str | None = None        # required (non-empty) when REJECT
 
+    def __post_init__(self) -> None:
+        if self.kind is DecisionKind.REJECT and not (self.reason and self.reason.strip()):
+            raise ValueError("PreflightDecision REJECT requires a non-empty reason")
+
 
 @dataclass(frozen=True, slots=True)
-class PostDecision:
+class PostflightDecision:
     kind: DecisionKind
     interceptor_id: str
     reason: str | None = None        # required (non-empty) when REJECT
-    # Provenance the executor merges into NodeResult.metadata["interceptors"].
-    metadata: JSON | None = None
+    metadata: JSON | None = None     # merged under NodeResult.metadata["interceptors"][id]
+
+    def __post_init__(self) -> None:
+        if self.kind is DecisionKind.REJECT and not (self.reason and self.reason.strip()):
+            raise ValueError("PostflightDecision REJECT requires a non-empty reason")
+
+
+# Two SINGLE-METHOD protocols, not one two-method protocol. @runtime_checkable
+# isinstance only verifies attribute *presence*; a POST-only interceptor has no
+# `pre`, so it must NOT be required to satisfy a combined protocol. The pipeline
+# detects phases by isinstance against each split protocol. An interceptor MAY
+# implement both (it then satisfies both).
+
+@runtime_checkable
+class PreInterceptor(Protocol):
+    @property
+    def interceptor_id(self) -> str: ...
+    async def pre(self, *, node: Node, context: AgentContext) -> PreflightDecision: ...
 
 
 @runtime_checkable
-class NodeInterceptor(Protocol):
-    """A station on the per-node chain. A given interceptor may implement PRE,
-    POST, or both; the pipeline calls only the phase methods present."""
-
+class PostInterceptor(Protocol):
     @property
     def interceptor_id(self) -> str: ...
-
-    async def pre(self, *, node: Node, context: AgentContext) -> PreDecision: ...
-
     async def post(
         self, *, node: Node, context: AgentContext, result: NodeResult
-    ) -> PostDecision: ...
+    ) -> PostflightDecision: ...
+
+
+# An interceptor is anything implementing at least one phase.
+Interceptor = PreInterceptor | PostInterceptor
 
 
 class InterceptorPipeline:
-    """Ordered PRE/POST chain. Empty pipeline is a no-op (additive guarantee)."""
+    """Ordered PRE/POST chain. Empty pipeline is a no-op (additive guarantee).
 
-    def __init__(self, *, interceptors: tuple[NodeInterceptor, ...] = ()) -> None: ...
+    Holds NO per-run mutable state — safe under the executor's concurrent DAG runs.
+    Interceptor ids must be unique within a pipeline (validated at construction).
+    Registration order IS run order.
+    """
+
+    def __init__(self, *, interceptors: tuple[Interceptor, ...] = ()) -> None: ...
 
     async def run_pre(
         self, *, node: Node, context: AgentContext
-    ) -> tuple[AgentContext, PreDecision | None]:
-        """Run PRE chain. Returns (possibly-enriched context, first REJECT or None)."""
+    ) -> tuple[AgentContext, PreflightDecision | None]:
+        """Run PreInterceptors in order. Returns (enriched context, first REJECT or None).
+        An interceptor raising is contained → treated as REJECT (reason = the exc repr)."""
         ...
 
     async def run_post(
         self, *, node: Node, context: AgentContext, result: NodeResult
-    ) -> tuple[NodeResult, PostDecision | None]:
-        """Run POST chain. Returns (possibly-failed result, first REJECT or None)."""
+    ) -> tuple[NodeResult, PostflightDecision | None]:
+        """Run PostInterceptors in order. Returns (possibly-failed result, first REJECT or None).
+        An interceptor raising is contained → treated as REJECT."""
         ...
 
 
 def create_interceptor_pipeline(
-    *, interceptors: tuple[NodeInterceptor, ...] = ()
+    *, interceptors: tuple[Interceptor, ...] = ()
 ) -> InterceptorPipeline:
     """Factory (BYO-X) — wired into RuntimeServices.interceptor_pipeline at bootstrap."""
     ...
 ```
+
+#### Executor integration (exact placement)
+
+In `ContextNodeExecutor.execute_node`, the existing flow builds `AgentContext`
+(`agent_context`, after memory recall + context compile) then calls
+`agent.run(goal, agent_context)`. The spine inserts as:
+
+1. **PRE** — after `agent_context` is built, before `agent.run`. Call
+   `run_pre(node, agent_context)`. PRE interceptors receive the *already-built*
+   `AgentContext` (not the raw `Context`) and return an enriched copy via
+   `model_copy(update=...)`. On REJECT, return a failed `NodeResult` immediately
+   — the agent never runs. On ACCEPT, the (possibly-enriched) context is what
+   `agent.run` receives.
+2. **POST** — only on the **success** `NodeResult` the executor constructs after
+   `agent.run` (the failure/exception branches do NOT run POST, per Inv 4). Call
+   `run_post(node, agent_context, success_result)`; adopt the returned result.
+
+When `self._interceptor_pipeline is None`, neither call is made — the code path
+is identical to today (guarded, so empty ≠ "different path that happens to match").
+
+#### Gate-reject is distinct from an agent crash (the gating-leak decision)
+
+A POST REJECT sets `NodeResult.success = False` AND stamps
+`metadata["interceptors"]["gate_rejected"] = True`. This distinction matters
+because the existing executor treats `success=False` three ways:
+
+- **`ON_SUCCESS` / `JSON_RULE` downstream edges** — correctly blocked (the gate's
+  whole purpose). ✅
+- **`retry_on_failure`** — a deterministic gate would otherwise re-run the agent
+  every attempt for an identical reject. `_execute_with_retry` is changed to treat
+  a result carrying `gate_rejected=True` as **non-retryable** (break immediately,
+  no heal, no sleep). One guard, no behaviour change for ordinary failures.
+- **`ON_FAILURE` edges** and **`ALWAYS` edges** — these are NOT blocked by a
+  gate-reject (an `ALWAYS` edge fires unconditionally; an `ON_FAILURE` edge fires
+  on any `success=False`). This is **documented intended behaviour for the slice**:
+  the spine does not reinterpret recovery/unconditional edges. Authors who want a
+  gate to suppress a cleanup branch use `ON_SUCCESS`/`JSON_RULE`. (Full SPEC-01's
+  RECOVER decision will model gate-vs-crash distinctly; out of scope here.)
 
 First interceptor (`cemaf/interceptors/gate_eval.py`):
 
@@ -215,18 +282,42 @@ Executor + wiring:
 9. **GATE blocks**: `GateEvalInterceptor` matching a node whose output scores
    below `threshold` (or `passed=False`) returns REJECT → the node fails → an
    `ON_SUCCESS` downstream node does not execute.
+10. **Phase detection by split protocol**: the pipeline runs an interceptor's
+    `pre` iff `isinstance(i, PreInterceptor)` and `post` iff
+    `isinstance(i, PostInterceptor)`. A POST-only interceptor is never asked for PRE.
+11. **Exception containment**: an interceptor that raises is contained — treated
+    as a REJECT whose reason is the exception repr (prefixed with its
+    `interceptor_id`); the exception never propagates out of `execute_node` as a
+    raw crash.
+12. **Gate-reject is non-retryable**: a `NodeResult` carrying
+    `metadata["interceptors"]["gate_rejected"]=True` is not retried by
+    `_execute_with_retry` (no re-run, no heal) — a deterministic gate cannot burn
+    the retry budget.
+13. **No per-run state**: the pipeline and its interceptors hold no mutable
+    per-run state; the same pipeline instance is safe across concurrent DAG runs.
+14. **Unique ids**: constructing a pipeline with duplicate `interceptor_id`s is a
+    construction error.
 
 EARS form (selected):
 
 ```
 WHEN no interceptor pipeline is wired, THE System SHALL execute the node exactly as before.
 WHEN a PRE interceptor returns REJECT, THE System SHALL NOT run the agent and SHALL return a failed NodeResult.
-WHEN a POST interceptor returns REJECT, THE System SHALL set NodeResult.success=False with the reason.
-WHERE a GateEvalInterceptor's evaluator scores below threshold, THE System SHALL REJECT the node.
+WHEN a POST interceptor returns REJECT, THE System SHALL set NodeResult.success=False with the reason and stamp gate_rejected.
+WHEN an interceptor raises, THE System SHALL treat it as REJECT and SHALL NOT propagate the exception.
+WHERE a NodeResult is gate_rejected, THE System SHALL NOT retry the node.
 IF a decision is REJECT with no reason, THEN THE System SHALL raise a construction error.
 ```
 
-Budget: 9 invariants.
+Budget: 14 invariants — within ≤15.
+
+> **Documented gating boundary (not a leak):** a gate-reject blocks `ON_SUCCESS`
+> and `JSON_RULE` edges (its purpose) but intentionally does NOT block `ALWAYS`
+> edges (unconditional by definition) nor suppress `ON_FAILURE` edges (which fire
+> on any non-success). Authors gate flow with `ON_SUCCESS`/`JSON_RULE`. An
+> `any`-join node reachable from a rejected node AND a healthy node still runs —
+> correct join semantics. Property 2 is scoped to nodes reachable *only* via
+> `ON_SUCCESS` from the rejected node.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -279,9 +370,34 @@ Feature: Interceptor spine
     When the DAG runs
     Then gen passes the gate
     And the "use" node executes
+
+  Scenario: POST-only interceptor is detected without a pre method
+    Given an interceptor implementing only post()
+    When it is added to a pipeline
+    Then run_pre never calls it and run_post does
+
+  Scenario: A raising interceptor is contained as a reject
+    Given a POST interceptor whose post() raises RuntimeError
+    When the node runs
+    Then the node fails with a reason naming the interceptor
+    And no exception propagates out of execute_node
+
+  Scenario: Gate-reject does not burn retries
+    Given a node with retry_on_failure=True and a deterministic always-reject gate
+    When the node runs
+    Then the agent is invoked exactly once
+
+  Scenario: Gate-reject does not block an ALWAYS edge (documented boundary)
+    Given gen is gate-rejected and a gen --ALWAYS--> cleanup edge
+    When the DAG runs
+    Then cleanup still executes
+
+  Scenario: Duplicate interceptor ids are rejected at construction
+    When a pipeline is built with two interceptors sharing an id
+    Then a ValueError is raised
 ```
 
-8 scenarios.
+13 scenarios — within ≤20.
 
 ## 5. Out of Scope
 
