@@ -266,6 +266,24 @@ See `examples/hello_world.py` for a complete runnable example and
 `tests/integration/test_full_stack.py` for a realistic 3-agent pipeline
 wiring `SqliteMemoryStore`, `BudgetGuard`, `ContextCompiler`, and `EventBus`.
 
+### The whole engine, end-to-end
+
+`examples/release_engine.py` is the flagship — a release-notes engine that
+composes the full framework into one declarative DAG: a **council** of reviewer
+agents votes ship/hold → the verdict **steers** the DAG → an **auction** picks
+the least-loaded writer → the draft is **quality-gated** → the run is **harvested**
+into a reusable blueprint, with full provenance. It has a real run lifecycle:
+
+```bash
+uv run python examples/release_engine.py --dry-run   # plan: show stations + DAG, no side effects
+uv run python examples/release_engine.py --produce   # run for real → ./.release_out/{RELEASE_NOTES.md,run_report.json}
+uv run python examples/release_engine.py --wipe       # remove produced artifacts
+```
+
+This is the answer to "what is CEMAF *for*": you declare the stations, the engine
+threads every subsystem through them, and you get the artifact plus the provenance
+that proves how it was produced.
+
 ---
 
 ## Integration Modes
