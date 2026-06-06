@@ -66,158 +66,254 @@ sequenceDiagram
     C->>C: record ballots + decision on NodeResult.metadata["council"]
 ```
 
-Members run **concurrently** (asyncio.gather). A failed member is recorded as an
-abstention, not a council failure — the council degrades, it doesn't crash.
-Aggregation is a **pure function** of the opinion set, so the decision is
-deterministic and replayable given the same opinions.
+Members run **concurrently** (asyncio.gather). A failed *or hung* member is
+recorded as an abstention (per-member timeout), not a council failure — the
+council degrades, it doesn't crash. Aggregation is a **pure function** of the
+opinion set, so the decision is deterministic and replayable given the same
+opinions.
+
+### Shared option set (votes must align)
+
+A vote is only meaningful if members choose from a **shared, enumerated option
+set**. Free-form choice strings would never align (three agents asked "which
+plan?" return three differently-worded strings → every tally bucket size 1 →
+"majority" impossible). Therefore:
+
+- A council decision is over a `CouncilQuestion(prompt, options)` where
+  `options: tuple[str, ...]` is the closed candidate set.
+- Each member's `Opinion.choice` **MUST** be one of `options` (or the member
+  abstains). The default Agent-adapter maps the agent's output to the nearest
+  option via `extract_choice`; a result that maps outside `options` is coerced
+  to an **abstention** (recorded with the offending raw value), never a phantom
+  tally bucket.
+- `options` is the single source of truth for both "what can be voted for" and
+  "what the tally keys are."
 
 ## 2. Interface Contract (MDE)
 
 New module `cemaf/council/`:
 
 ```python
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.agents.protocols import Agent
-from cemaf.agents.base import AgentContext
+from cemaf.agents.base import AgentContext, AgentResult
 from cemaf.core.types import JSON, AgentID
 
 
 class AggregationMethod(StrEnum):
-    MAJORITY = "majority"            # most votes wins; ties → tie_break
+    MAJORITY = "majority"            # most votes wins; ties → lexical tie-break
     WEIGHTED = "weighted"            # sum of confidence per choice wins
-    QUORUM = "quorum"                # a choice needs >= quorum_fraction of votes, else NO_DECISION
-    UNANIMOUS = "unanimous"          # all (non-abstaining) members must agree, else NO_DECISION
+    QUORUM = "quorum"                # winner needs >= quorum_fraction share, else no decision
+    UNANIMOUS = "unanimous"          # all non-abstaining members agree, else no decision
 
 
-NO_DECISION = "__no_decision__"      # sentinel choice when aggregation reaches no verdict
+@dataclass(frozen=True, slots=True)
+class CouncilQuestion:
+    """The closed decision: a prompt and the enumerated options members vote among."""
+    prompt: str
+    options: tuple[str, ...]         # the ONLY valid choices; also the tally key space
+
+    def __post_init__(self) -> None:
+        if len(self.options) < 2:
+            raise ValueError("CouncilQuestion needs >= 2 options")
+        if len(set(self.options)) != len(self.options):
+            raise ValueError("CouncilQuestion options must be unique")
 
 
 @dataclass(frozen=True, slots=True)
 class Opinion:
-    """One member's vote on the goal."""
+    """One member's vote. choice MUST be in the question's options unless abstained."""
     member_id: AgentID
-    choice: str                      # the option this member votes for
-    confidence: float = 1.0          # in [0,1]; weight under WEIGHTED
-    rationale: str = ""              # short human-readable justification
-    abstained: bool = False          # True when the member failed or declined
+    choice: str | None               # an option, or None when abstaining
+    confidence: float = 1.0          # weight under WEIGHTED
+    rationale: str = ""
+    abstained: bool = False
+    raw_choice: str | None = None    # the un-coerced output when it mapped outside options
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "confidence", min(1.0, max(0.0, self.confidence)))
 
 
 @dataclass(frozen=True, slots=True)
 class Ballot:
     """Provenance record of one member's participation."""
     member_id: AgentID
-    choice: str
+    choice: str | None
     confidence: float
     abstained: bool
     error: str | None = None
 
+    def to_dict(self) -> JSON: ...
+
 
 @dataclass(frozen=True, slots=True)
 class CouncilDecision:
-    choice: str                      # winning option, or NO_DECISION
+    winning_choice: str | None       # the option that won, or None = no decision (authoritative)
     method: AggregationMethod
-    tally: dict[str, float]          # choice → score (count or summed confidence)
+    tally: dict[str, float]          # option → score (count or summed confidence)
     ballots: tuple[Ballot, ...]
     quorum_met: bool
-    decided: bool                    # False when choice == NO_DECISION
+
+    @property
+    def decided(self) -> bool:
+        return self.winning_choice is not None
 
     def to_metadata(self) -> JSON: ...   # projection for NodeResult.metadata["council"]
 
 
 @runtime_checkable
 class CouncilMember(Protocol):
-    """An agent that can produce an Opinion. Any Agent is adaptable via a default adapter."""
+    """Produces an Opinion on a question. Distinguished from a plain Agent by `deliberate`."""
 
     @property
     def id(self) -> AgentID: ...
 
-    async def deliberate(self, *, goal: Any, context: AgentContext) -> Opinion: ...
+    async def deliberate[GoalT](
+        self, *, question: CouncilQuestion, goal: GoalT, context: AgentContext
+    ) -> Opinion: ...
 
 
 @runtime_checkable
 class VoteAggregator(Protocol):
-    """BYO-X seam — combine opinions into a decision. Pure, deterministic."""
+    """BYO-X seam — combine opinions into a decision. Pure, deterministic, no I/O."""
 
-    def aggregate(self, *, opinions: tuple[Opinion, ...]) -> CouncilDecision: ...
+    def aggregate(
+        self, *, question: CouncilQuestion, opinions: tuple[Opinion, ...]
+    ) -> CouncilDecision: ...
 
 
 @dataclass(frozen=True, slots=True)
 class CouncilConfig:
     method: AggregationMethod = AggregationMethod.MAJORITY
-    quorum_fraction: float = 0.5     # used by QUORUM; fraction of non-abstaining votes
-    min_members: int = 1             # below this → NO_DECISION (degenerate council)
+    quorum_fraction: float = 0.5     # QUORUM: required share of non-abstaining votes (0,1]
+    min_members: int = 1             # below this many non-abstaining votes → no decision
+    member_timeout: timedelta = timedelta(seconds=30)   # per-member; hung member → abstention
+    max_concurrency: int = 8         # semaphore cap on simultaneous member calls
+
+    def __post_init__(self) -> None:
+        if not (0.0 < self.quorum_fraction <= 1.0):
+            raise ValueError("quorum_fraction must be in (0, 1]")
 
 
 class DefaultVoteAggregator:
-    """Implements all four AggregationMethods. Tie-break: lexically-smallest choice."""
+    """Implements all four methods. Tie-break: lexically-smallest option.
+
+    Empty non-abstaining set ⇒ winning_choice=None (no division by zero).
+    """
 
     def __init__(self, *, config: CouncilConfig | None = None) -> None: ...
-    def aggregate(self, *, opinions: tuple[Opinion, ...]) -> CouncilDecision: ...
+    def aggregate(
+        self, *, question: CouncilQuestion, opinions: tuple[Opinion, ...]
+    ) -> CouncilDecision: ...
 
 
 class AgentCouncil:
-    """Runs members concurrently, aggregates, records provenance."""
+    """Runs members concurrently (bounded + timed), aggregates, records provenance."""
 
     def __init__(
         self,
         *,
         members: tuple[CouncilMember, ...],
         aggregator: VoteAggregator,
+        config: CouncilConfig | None = None,
     ) -> None: ...
 
-    async def decide(self, *, goal: Any, context: AgentContext) -> CouncilDecision: ...
+    async def decide[GoalT](
+        self, *, question: CouncilQuestion, goal: GoalT, context: AgentContext
+    ) -> CouncilDecision: ...
 
 
-def create_agent_council(
+def create_agent_council[ResultT](
     *,
     members: tuple[Agent[Any, Any] | CouncilMember, ...],
-    method: AggregationMethod = AggregationMethod.MAJORITY,
-    quorum_fraction: float = 0.5,
-    extract_choice: Callable[[object], str] | None = None,
+    config: CouncilConfig | None = None,
+    extract_choice: Callable[[ResultT], str] | None = None,
 ) -> AgentCouncil:
-    """Factory (BYO-X). Plain Agents are wrapped in an adapter that runs the agent and
-    maps its AgentResult.output to an Opinion.choice via `extract_choice` (default: str())."""
+    """Factory (BYO-X). A member with a `deliberate` method is used as-is; any other
+    Agent is wrapped in an adapter that runs `agent.run(goal)`, maps
+    `AgentResult.output` to a choice via `extract_choice` (default: `str`), and:
+      - if the agent fails OR the mapped choice is not in question.options → abstain
+        (raw value preserved on Opinion.raw_choice / Ballot for provenance).
+    """
     ...
 ```
 
+### Council node + downstream flow
+
+`Node.council(...)` (new `dag.py` factory, `NodeType.AGENT` with
+`config["council"] = {options, method, ...}`) runs *before* agent resolution in
+`execute_node` — a dedicated `_run_council()` returns its own `NodeResult`
+(it does **not** go through `_build_goal`/`agent.run`):
+
+- `NodeResult.output` = the `winning_choice` string (or `""` when no decision),
+  so a downstream `$$node.output$$` ref and `EdgeCondition.JSON_RULE` can route
+  on the verdict — the decision *steers* the DAG, not just decorates it.
+- `NodeResult.metadata["council"]` = full `CouncilDecision.to_metadata()`.
+- **No-decision is success with an empty output, not a failure.** A council that
+  reaches no verdict is a legitimate outcome (deliberate abstention), distinct
+  from a crash. `NodeResult.success = True`, `output = ""`,
+  `metadata["council"]["winning_choice"] = None`. Downstream edges decide what a
+  no-decision means (e.g. route to a fallback node); the council never silently
+  injects a phantom choice. `min_members`/quorum failures take this path.
+
+`RuntimeServices` gains `council_aggregator: VoteAggregator | None = None` (a
+default `DefaultVoteAggregator` is used when a council node runs without one).
+
 ## 3. Invariants (DbC)
 
-1. **Concurrency, not crash**: members run concurrently; a member that raises or
-   returns failure becomes an `abstained=True` Ballot — the council still
-   produces a `CouncilDecision`.
-2. **Pure aggregation**: `aggregate(opinions)` is deterministic — same opinion
-   set ⇒ identical `CouncilDecision`. No I/O, no randomness.
-3. **Tally completeness**: every non-abstaining opinion contributes to exactly
+1. **Concurrency, not crash**: members run concurrently (bounded by
+   `max_concurrency`); a member that raises, fails, or exceeds `member_timeout`
+   becomes an `abstained=True` Ballot — the council still produces a
+   `CouncilDecision`. Only `BaseException` (e.g. `SystemExit`, `CancelledError`)
+   propagates; ordinary `Exception` → abstention.
+2. **Pure aggregation**: `aggregate(question, opinions)` is deterministic — same
+   inputs ⇒ identical `CouncilDecision`, independent of opinion ordering. No I/O,
+   no randomness.
+3. **Option-closed tally**: tally keys ⊆ `question.options`. An opinion whose
+   `choice` is not in `options` is treated as an abstention (its raw value kept on
+   the Ballot); it creates no phantom tally bucket.
+4. **Tally completeness**: every non-abstaining opinion contributes to exactly
    one `tally` entry (its `choice`); abstentions contribute to none.
-4. **Confidence bound**: every `Opinion.confidence` and weighted tally input is
-   clamped to [0,1].
-5. **Tie-break determinism**: under MAJORITY/WEIGHTED, a tie on top score is
-   broken by lexically-smallest `choice` → unique winner.
-6. **Quorum honesty**: under QUORUM, `decided=True` iff the winning choice's
-   share of non-abstaining votes ≥ `quorum_fraction`; otherwise
-   `choice == NO_DECISION`, `decided=False`, `quorum_met=False`.
-7. **Unanimity**: under UNANIMOUS, `decided=True` iff all non-abstaining members
-   share one choice AND at least one member voted; else NO_DECISION.
-8. **Min-members floor**: if non-abstaining members < `config.min_members`, the
-   decision is NO_DECISION regardless of method.
-9. **Provenance completeness**: `CouncilDecision.ballots` has exactly one Ballot
-   per member (including abstentions), recorded on
-   `NodeResult.metadata["council"]` whether the node then succeeds or fails.
+5. **Confidence bound**: `Opinion.confidence` is clamped to [0,1] at construction;
+   weighted tallies sum clamped values.
+6. **Empty-set safety**: when the non-abstaining set is empty (all abstained, or
+   none voted), every method returns `winning_choice=None`, `quorum_met=False`,
+   empty `tally` — no division by zero.
+7. **Tie-break determinism**: under MAJORITY/WEIGHTED, a tie on top score is
+   broken by lexically-smallest option → unique winner. Float ties are detected
+   with a tolerance, not `==`.
+8. **Quorum honesty**: under QUORUM, `winning_choice` is set iff the top option's
+   share of non-abstaining votes ≥ `quorum_fraction`; else `winning_choice=None`,
+   `quorum_met=False`.
+9. **Unanimity**: under UNANIMOUS, `winning_choice` is set iff ≥1 member voted AND
+   all non-abstaining members chose the same option; else None.
+10. **Min-members floor**: if non-abstaining votes < `config.min_members`,
+    `winning_choice=None` regardless of method.
+11. **Provenance completeness**: `ballots` has exactly one Ballot per member
+    (including abstentions), recorded on `NodeResult.metadata["council"]` whether
+    the node result is success or no-decision.
+12. **No-decision is success-with-empty-output**: a no-verdict council node
+    returns `NodeResult.success=True`, `output=""`; a decided one returns
+    `output=winning_choice`. A council node never returns `success=False` for a
+    legitimate non-verdict (only for an internal crash).
 
 EARS form (selected):
 
 ```
-WHEN a council member raises or returns failure, THE System SHALL record an abstaining Ballot and continue.
-WHEN aggregation method is QUORUM AND the top choice's share < quorum_fraction, THE System SHALL return NO_DECISION.
-WHEN non-abstaining members < min_members, THE System SHALL return NO_DECISION.
-WHERE two choices tie on top score, THE System SHALL select the lexically-smallest choice.
+WHEN a council member raises, fails, or times out, THE System SHALL record an abstaining Ballot and continue.
+WHEN the non-abstaining opinion set is empty, THE System SHALL return winning_choice=None without dividing by the vote count.
+WHEN method is QUORUM AND the top option's share < quorum_fraction, THE System SHALL return winning_choice=None.
+WHEN non-abstaining votes < min_members, THE System SHALL return winning_choice=None.
+WHERE two options tie on top score, THE System SHALL select the lexically-smallest option.
+IF an opinion's choice is not in question.options, THEN THE System SHALL treat it as an abstention.
 ```
 
-Budget: 9 invariants — within ≤15.
+Budget: 12 invariants — within ≤15.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -225,62 +321,90 @@ Budget: 9 invariants — within ≤15.
 Feature: Agent Council deliberative decisions
 
   Scenario: Majority decides
-    Given three members voting X, X, Y
+    Given options (X, Y) and three members voting X, X, Y
     When the council decides with method=majority
-    Then the decision choice is X with tally {X:2, Y:1} and decided is true
+    Then winning_choice is X with tally {X:2, Y:1} and decided is true
 
   Scenario: Weighted overrides raw count
-    Given members voting X(0.3), X(0.3), Y(0.9)
+    Given options (X, Y) and members voting X(0.3), X(0.3), Y(0.9)
     When the council decides with method=weighted
-    Then the decision choice is Y (0.9 > 0.6)
+    Then winning_choice is Y (0.9 > 0.6)
 
-  Scenario: Quorum not met yields NO_DECISION
-    Given four members voting W, X, Y, Z (no majority)
+  Scenario: Quorum not met yields no decision
+    Given options (W, X, Y, Z) and four members voting W, X, Y, Z (no majority)
     When the council decides with method=quorum and quorum_fraction=0.5
-    Then the decision is NO_DECISION and decided is false and quorum_met is false
+    Then winning_choice is None and decided is false and quorum_met is false
 
   Scenario: Unanimous agreement
-    Given three members all voting X
+    Given options (X, Y) and three members all voting X
     When the council decides with method=unanimous
-    Then the decision choice is X and decided is true
+    Then winning_choice is X and decided is true
 
   Scenario: Unanimous broken by one dissent
-    Given three members voting X, X, Y
+    Given options (X, Y) and three members voting X, X, Y
     When the council decides with method=unanimous
-    Then the decision is NO_DECISION
+    Then winning_choice is None
 
   Scenario: Failed member abstains, council still decides
-    Given two members voting X and one member that raises
+    Given options (X, Y), two members voting X and one member that raises
     When the council decides with method=majority
-    Then the decision choice is X
+    Then winning_choice is X
     And the failing member appears as an abstaining ballot with its error
 
-  Scenario: Deterministic tie-break
-    Given two members voting B and A (one each)
+  Scenario: Deterministic tie-break exercises the lexical rule
+    Given the first member votes B and the second votes A (one each)
     When the council decides with method=majority
-    Then the decision choice is A (lexically smallest)
+    Then the decision winning_choice is A (lexically smallest, NOT insertion order)
 
-  Scenario: Members run concurrently
-    Given three members each sleeping 50ms
+  Scenario: All members abstain yields no decision without crashing
+    Given three members that all abstain (every method)
     When the council decides
-    Then total wall-clock is well under 150ms (concurrent, not serial)
+    Then winning_choice is None, tally is empty, quorum_met is false, and no error is raised
 
-  Scenario: Below min_members yields NO_DECISION
+  Scenario: Weighted tie broken lexically
+    Given members voting A(0.5) and B(0.5) — an exact weighted tie
+    When the council decides with method=weighted
+    Then winning_choice is A (tie detected within tolerance, lexical break)
+
+  Scenario: Members run concurrently (structural, not timing)
+    Given three members each waiting on a shared asyncio.Barrier(3)
+    When the council decides
+    Then all three members reach the barrier (proving overlap; serial execution would deadlock)
+
+  Scenario: Below min_members yields no decision
     Given a council with min_members=3 and only 2 non-abstaining opinions
     When it decides
-    Then the decision is NO_DECISION
+    Then winning_choice is None
+
+  Scenario: Choice outside options is coerced to abstention
+    Given a member whose mapped choice "maybe" is not in options (A, B)
+    When the council decides
+    Then that member's ballot is abstained with raw_choice "maybe"
+    And it contributes to no tally bucket
 
   Scenario: Plain Agents adapted into members
-    Given two plain Agents whose outputs map to choices via extract_choice
+    Given two plain Agents whose run() outputs map to options A and B via extract_choice
     When create_agent_council wraps them and decides
-    Then each agent's output becomes an Opinion.choice and the vote tallies
+    Then each agent's output becomes an Opinion.choice and the votes tally
 
-  Scenario: Council node records provenance
+  Scenario: Council node steers the DAG via its output
+    Given a council node with output_key "verdict" that decides A
+    When the node executes
+    Then NodeResult.success is true and NodeResult.output is "A"
+    And a downstream edge JSON_RULE on $$verdict$$ can route on it
+
+  Scenario: No-decision council node is success with empty output
+    Given a council node that reaches no verdict
+    When it executes
+    Then NodeResult.success is true and NodeResult.output is ""
+    And metadata["council"]["winning_choice"] is null
+
+  Scenario: Council node records full provenance
     Given a council node executes
-    Then NodeResult.metadata["council"] carries the decision + all ballots
+    Then NodeResult.metadata["council"] carries winning_choice, method, tally, and one ballot per member
 ```
 
-11 scenarios — within ≤20.
+16 scenarios — within ≤20.
 
 ## 5. Out of Scope
 
@@ -296,46 +420,51 @@ Feature: Agent Council deliberative decisions
 
 ## 6. Dependencies
 
-- `cemaf.agents.protocols.Agent`, `cemaf.agents.base.AgentContext`,
+- `cemaf.agents.protocols.Agent`, `cemaf.agents.base.{AgentContext, AgentResult}`,
   `cemaf.core.types.AgentID`/`JSON`.
-- `cemaf.orchestration.dag.Node` (`config` reuse), `services.RuntimeServices`,
-  `context_node_executor.ContextNodeExecutor`.
+- `cemaf.orchestration.dag.Node` (`config` reuse), `services.RuntimeServices`
+  (new `council_aggregator` field), `context_node_executor.ContextNodeExecutor`.
+
+> **§8 Eval Criteria omitted** — the shipped aggregators are deterministic pure
+> functions; §3 invariants + §7 properties cover correctness. An LLM-judge
+> `VoteAggregator` (§5, future) WOULD require §8 once LLM output gates a decision.
 
 ## 7. Correctness Properties
 
-### Property 1: Aggregation is a deterministic function of opinions
+### Property 1: Aggregation is a deterministic function of (question, opinions)
 
-*For any* opinion set `O` and config `C`, `DefaultVoteAggregator(C).aggregate(O)`
-returns the same `CouncilDecision` regardless of opinion ordering or invocation
-count — winner unique via the lexical tie-break.
+*For any* question `Q`, opinion set `O`, and config `C`,
+`DefaultVoteAggregator(C).aggregate(Q, O)` returns the same `CouncilDecision`
+regardless of opinion ordering or invocation count — winner unique via the
+lexical tie-break.
 
-**Validates: §3 Invariants 2, 5; §4 Scenarios "Majority decides", "Deterministic tie-break"**
+**Validates: §3 Invariants 2, 7; §4 Scenarios "Majority decides", "Deterministic tie-break exercises the lexical rule"**
 
 ### Property 2: Graceful degradation
 
-*For any* council where `k` of `n` members fail, the council returns a decision
-computed over the `n−k` succeeding opinions, with `k` abstaining ballots — never
-an exception.
+*For any* council where `k` of `n` members fail or time out, the council returns
+a decision computed over the `n−k` succeeding opinions, with `k` abstaining
+ballots — never an exception (ordinary `Exception` only; `BaseException` propagates).
 
-**Validates: §3 Invariant 1; §4 Scenario "Failed member abstains"**
+**Validates: §3 Invariants 1, 6; §4 Scenarios "Failed member abstains", "All members abstain"**
 
 ### Property 3: Quorum/unanimity honesty
 
-*For any* opinion set, `decided=True` under QUORUM only when the winner's vote
-share ≥ `quorum_fraction`, and under UNANIMOUS only when all non-abstaining
-votes are identical. Otherwise `choice == NO_DECISION`.
+*For any* opinion set, `winning_choice` is non-None under QUORUM only when the
+winner's share ≥ `quorum_fraction`, and under UNANIMOUS only when ≥1 member voted
+and all non-abstaining votes are identical. Otherwise `winning_choice is None`.
 
-**Validates: §3 Invariants 6, 7; §4 Scenarios "Quorum not met", "Unanimous broken"**
+**Validates: §3 Invariants 8, 9; §4 Scenarios "Quorum not met", "Unanimous broken"**
 
 ## 9. Observability Contract
 
 - **Provenance**: `CouncilDecision.to_metadata()` → `NodeResult.metadata["council"]`
-  = `{choice, method, decided, quorum_met, tally, ballots:[{member_id, choice,
-  confidence, abstained, error}]}`.
+  = `{winning_choice, method, decided, quorum_met, tally, ballots:[{member_id,
+  choice, confidence, abstained, error}]}`.
 - **Log events**:
-  - `council.deliberation.started` — `node_id`, `member_count`, `method`
-  - `council.member.abstained` — `member_id`, `error`
-  - `council.decision` — `node_id`, `choice`, `decided`, `tally`
+  - `council.deliberation.started` — `node_id`, `member_count`, `method`, `options`
+  - `council.member.abstained` — `member_id`, `error`/`raw_choice`
+  - `council.decision` — `node_id`, `winning_choice`, `decided`, `tally`
 - **Metrics** (Prometheus, optional):
   - `cemaf_council_decisions_total{method, decided}` — counter
   - `cemaf_council_abstentions_total` — counter
