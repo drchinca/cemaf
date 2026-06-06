@@ -61,6 +61,7 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
 from cemaf.core.recovery import AutoHealManager
+from cemaf.council.protocols import VoteAggregator
 from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
@@ -112,6 +113,9 @@ class RuntimeServices:
 
     # Agent selection (SPEC-09) — opt-in auction; None → static ref_id only
     agent_selector: AgentSelector | None = None
+
+    # Council vote aggregation (SPEC-10) — None → DefaultVoteAggregator when a council node runs
+    council_aggregator: VoteAggregator | None = None
 
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None

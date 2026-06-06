@@ -29,6 +29,7 @@ def create_executor(
         blueprint_selector=svc.blueprint_selector,
         agent_selector=svc.agent_selector,
         budget_guard=svc.budget_guard,
+        council_aggregator=svc.council_aggregator,
     )
 
     # Wire online eval pipeline and quality police subscriptions

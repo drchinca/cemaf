@@ -19,6 +19,10 @@ from cemaf.core.domain import DomainContext
 from cemaf.core.provenance import ProvenanceLink, SourceReference
 from cemaf.core.types import AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
+from cemaf.council.aggregator import DefaultVoteAggregator
+from cemaf.council.council import AgentCouncil
+from cemaf.council.protocols import CouncilMember, VoteAggregator
+from cemaf.council.types import AggregationMethod, CouncilConfig, CouncilQuestion
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
@@ -52,6 +56,7 @@ class ContextNodeExecutor:
         blueprint_selector: BlueprintSelectorHook | None = None,
         agent_selector: AgentSelector | None = None,
         budget_guard: BudgetGuard | None = None,
+        council_aggregator: VoteAggregator | None = None,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation."""
         self._registry = agent_registry
@@ -66,6 +71,7 @@ class ContextNodeExecutor:
         self._blueprint_selector = blueprint_selector
         self._agent_selector = agent_selector
         self._budget_guard = budget_guard
+        self._council_aggregator = council_aggregator
 
     async def execute_node(
         self,
@@ -78,6 +84,18 @@ class ContextNodeExecutor:
         # Resolved inputs (post $$ref$$ resolution) — read once, shared by the
         # auction's goal_text and the goal builder below.
         resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+
+        # Council path (SPEC-10): opt-in. A council node carries config["council"];
+        # it deliberates and returns its own NodeResult — no single agent to run.
+        council_cfg = node.config.get("council") if node.config else None
+        if isinstance(council_cfg, dict):
+            return await self._run_council(
+                node=node,
+                council_cfg=council_cfg,
+                resolved_inputs=resolved_inputs,
+                run_id=str(context.get("_run_id", default="")),
+                start=start,
+            )
 
         # Auction path (SPEC-09): opt-in. Engaged only when the node declares a
         # capability AND a selector is wired. On no candidates, falls through to
@@ -260,6 +278,60 @@ class ContextNodeExecutor:
         except Exception as e:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
+
+    async def _run_council(
+        self,
+        *,
+        node: Node,
+        council_cfg: dict[str, Any],
+        resolved_inputs: dict[str, Any] | Any,
+        run_id: str,
+        start: float,
+    ) -> NodeResult:
+        """Run a council node (SPEC-10): members deliberate, a vote decides, output = winner."""
+        member_names = [str(m) for m in council_cfg.get("members", [])]
+        options = tuple(str(o) for o in council_cfg.get("options", []))
+        members: list[CouncilMember] = []
+        for member_name in member_names:
+            agent = self._registry.get(member_name)
+            if isinstance(agent, CouncilMember):
+                members.append(agent)
+            else:
+                logger.info("council node %s: member %r not a CouncilMember; skipped", node.id, member_name)
+
+        if len(options) < 2 or not members:
+            return NodeResult(
+                node_id=node.id,
+                success=False,
+                error=f"council node {node.id} needs >=2 options and >=1 CouncilMember",
+                duration_ms=(perf_counter() - start) * 1000,
+                metadata={"council": {"members": member_names, "options": list(options)}},
+            )
+
+        try:
+            method = AggregationMethod(str(council_cfg.get("method", "majority")))
+        except ValueError:
+            method = AggregationMethod.MAJORITY
+        config = CouncilConfig(method=method)
+        # A wired council_aggregator (BYO-X) governs aggregation with its OWN policy —
+        # the node's `method` only configures the default aggregator. (The shared config
+        # still bounds member concurrency/timeout in either case.)
+        aggregator = self._council_aggregator or DefaultVoteAggregator(config=config)
+        council = AgentCouncil(members=tuple(members), aggregator=aggregator, config=config)
+        question = CouncilQuestion(prompt=str(council_cfg.get("prompt", "")), options=options)
+
+        agent_context = AgentContext(
+            run_id=run_id,
+            agent_id=f"council:{node.id}",
+        )
+        decision = await council.decide(question=question, goal=resolved_inputs, context=agent_context)
+        return NodeResult(
+            node_id=node.id,
+            success=True,  # no-decision is a legitimate outcome, not a failure
+            output=decision.winning_choice or "",
+            duration_ms=(perf_counter() - start) * 1000,
+            metadata={"council": decision.to_metadata()},
+        )
 
     def _run_auction(
         self, *, node: Node, capability_value: str, resolved_inputs: dict[str, Any] | Any

@@ -1,6 +1,6 @@
 # Spec → Module Map
 
-> One-page index from SPEC-00..09 concepts to the modules that house them. SPEC-00..06 form the Enterprise Context Brain target architecture; SPEC-07 (hub-and-spoke KG), SPEC-08 (failure-feedback loop), and SPEC-09 (auction agent selection) are landed capabilities. SPEC-07/08 close audit gaps #9 and #13; SPEC-09 closes the one genuine gap from the axocoatl comparison audit. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
+> One-page index from SPEC-00..10 concepts to the modules that house them. SPEC-00..06 form the Enterprise Context Brain target architecture; SPEC-07 (hub-and-spoke KG), SPEC-08 (failure-feedback loop), SPEC-09 (auction agent selection), and SPEC-10 (agent council) are landed capabilities. SPEC-07/08 close audit gaps #9 and #13; SPEC-09 closes the auction gap from the axocoatl audit; SPEC-10 builds the deliberative council layer surfaced as missing by the buried-pattern excavation. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
 
 ## Conventions
 
@@ -129,6 +129,17 @@
 | Executor opt-in auction branch + provenance | SPEC-09 §2, §9 | `cemaf/orchestration/context_node_executor.py` | landed |
 | `RuntimeServices.agent_selector` wiring | SPEC-09 §2 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | landed |
 | ModelRouter fidelity floor (stops discarding `fidelity`) | SPEC-09 §3 Inv 9 | `cemaf/llm/model_router.py` | landed |
+
+## Agent council (SPEC-10)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `CouncilQuestion` / `Opinion` / `Ballot` / `CouncilDecision` / `CouncilConfig` | SPEC-10 §2 | `cemaf/council/types.py` | landed |
+| `CouncilMember` / `VoteAggregator` protocols | SPEC-10 §2 | `cemaf/council/protocols.py` | landed |
+| `DefaultVoteAggregator` (majority/weighted/quorum/unanimous) | SPEC-10 §2 | `cemaf/council/aggregator.py` | landed |
+| `AgentCouncil` (concurrent, timed) + `create_agent_council` adapter | SPEC-10 §2 | `cemaf/council/council.py` | landed |
+| `Node.council` + executor `_run_council` (output steers DAG) | SPEC-10 §2 | `cemaf/orchestration/{dag,context_node_executor}.py` | landed |
+| `RuntimeServices.council_aggregator` wiring | SPEC-10 §2 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | landed |
 
 ## Phase 2+ implementation plan
 
