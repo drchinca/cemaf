@@ -219,6 +219,37 @@ class Node:
         )
 
     @classmethod
+    def auction(
+        cls,
+        id: str,
+        name: str,
+        capability: str,
+        description: str = "",
+        config: JSON | None = None,
+        input_mapping: JSON | None = None,
+        output_key: str = "",
+    ) -> Node:
+        """Create an AGENT node selected by auction (SPEC-09).
+
+        `ref_id` stays empty; `config["capability"]` carries the requested
+        capability. The executor runs the auction only when an AgentSelector is
+        wired, else falls through to static resolution (ref_id, here empty → error).
+        `capability` is a `Capability` value (its `.value` string) to avoid a
+        dag→agents import cycle.
+        """
+        merged = {**(config or {}), "capability": capability}
+        return cls(
+            id=NodeID(id),
+            type=NodeType.AGENT,
+            name=name,
+            description=description,
+            ref_id="",
+            config=merged,
+            input_mapping=input_mapping or {},
+            output_key=output_key,
+        )
+
+    @classmethod
     def checkpoint(
         cls,
         id: str,

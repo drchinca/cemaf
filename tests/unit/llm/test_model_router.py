@@ -2,8 +2,8 @@
 
 import pytest
 
-from cemaf.llm.model_router import DefaultComplexityEstimator, ModelRoute, ModelRouter
 from cemaf.llm.mock import MockLLMClient
+from cemaf.llm.model_router import DefaultComplexityEstimator, ModelRoute, ModelRouter
 from cemaf.llm.protocols import Message
 from cemaf.resilience.circuit_breaker import CircuitOpenError
 
@@ -50,6 +50,47 @@ class TestModelRouter:
 
         candidates = router._select_route(score)
         assert candidates[0].model_name == "expensive-model"
+
+    def test_fidelity_floor_derives_from_single_source(self):
+        """Router's floor view must match the canonical FIDELITY_FLOOR in agents.selection."""
+        from cemaf.agents.selection import FIDELITY_FLOOR
+        from cemaf.llm.model_router import _FIDELITY_FLOOR_BY_VALUE
+
+        assert {f.value: floor for f, floor in FIDELITY_FLOOR.items()} == _FIDELITY_FLOOR_BY_VALUE
+
+    def test_fidelity_floor_raises_low_complexity_route(self):
+        """SPEC-09 Inv 9: HIGH fidelity floors a trivial prompt's score up to 0.8."""
+        from cemaf.llm.model_router import _apply_fidelity_floor
+
+        estimator = DefaultComplexityEstimator()
+        raw = estimator.estimate(_msg("hi"), None)
+        assert raw < 0.4  # trivial prompt
+
+        floored = _apply_fidelity_floor(score=raw, fidelity="high")
+        assert floored == 0.8
+
+        # standard floor; none/unknown leave the score untouched
+        assert _apply_fidelity_floor(score=raw, fidelity="standard") == 0.4
+        assert _apply_fidelity_floor(score=raw, fidelity=None) == raw
+        assert _apply_fidelity_floor(score=raw, fidelity="bogus") == raw
+        # never lowers an already-high score
+        assert _apply_fidelity_floor(score=0.95, fidelity="high") == 0.95
+
+    @pytest.mark.asyncio
+    async def test_fidelity_high_routes_trivial_prompt_to_expensive(self):
+        """End-to-end: a one-line prompt with fidelity=high lands on the expensive route."""
+        cheap = MockLLMClient(responses=["cheap"])
+        expensive = MockLLMClient(responses=["expensive"])
+        routes = [
+            ModelRoute(threshold=0.4, client=cheap, model_name="cheap-model"),
+            ModelRoute(threshold=1.1, client=expensive, model_name="expensive-model"),
+        ]
+        router = ModelRouter(routes=routes)
+
+        # Without fidelity the trivial prompt would route cheap; HIGH floors it to 0.8.
+        result = await router.complete(_msg("hi"), fidelity="high")
+        assert result.success
+        assert str(result.message.content) == "expensive"
 
     @pytest.mark.asyncio
     async def test_fallback_on_circuit_open(self):

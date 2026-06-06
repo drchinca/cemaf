@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
+from cemaf.agents.selection import AgentSelector, Bid, BidContext, Capability
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
@@ -23,6 +24,7 @@ from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 from cemaf.memory.session import SessionManager
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.orchestration.dag import Node
@@ -48,6 +50,8 @@ class ContextNodeExecutor:
         context_compiler: ContextCompiler | None = None,
         token_budget: TokenBudget | None = None,
         blueprint_selector: BlueprintSelectorHook | None = None,
+        agent_selector: AgentSelector | None = None,
+        budget_guard: BudgetGuard | None = None,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation."""
         self._registry = agent_registry
@@ -60,6 +64,8 @@ class ContextNodeExecutor:
         self._context_compiler = context_compiler
         self._token_budget = token_budget
         self._blueprint_selector = blueprint_selector
+        self._agent_selector = agent_selector
+        self._budget_guard = budget_guard
 
     async def execute_node(
         self,
@@ -69,7 +75,21 @@ class ContextNodeExecutor:
         """Execute a single node by dispatching to the appropriate agent."""
         start = perf_counter()
 
-        agent_name = node.ref_id
+        # Resolved inputs (post $$ref$$ resolution) — read once, shared by the
+        # auction's goal_text and the goal builder below.
+        resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+
+        # Auction path (SPEC-09): opt-in. Engaged only when the node declares a
+        # capability AND a selector is wired. On no candidates, falls through to
+        # static ref_id resolution below (zero change for Node.agent DAGs).
+        winning_bid: Bid | None = None
+        cap_raw = node.config.get("capability") if node.config else None
+        if cap_raw and self._agent_selector is not None:
+            winning_bid = self._run_auction(
+                node=node, capability_value=str(cap_raw), resolved_inputs=resolved_inputs
+            )
+
+        agent_name = str(winning_bid.agent_id) if winning_bid is not None else node.ref_id
         if not agent_name:
             return NodeResult(
                 node_id=node.id,
@@ -98,8 +118,7 @@ class ContextNodeExecutor:
                 error=f"Agent '{agent_name}' not found in registry",
             )
 
-        # Build goal from resolved inputs
-        resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+        # Build goal from resolved inputs (read once above, shared with the auction)
         goal = self._build_goal(agent_name=agent_name, inputs=resolved_inputs)
         if goal is None:
             return NodeResult(
@@ -189,6 +208,8 @@ class ContextNodeExecutor:
                 merged_metadata["_context_output"] = context_output
                 if context_warnings:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
+                if winning_bid is not None:
+                    merged_metadata["selection"] = winning_bid.to_metadata()
                 return NodeResult(
                     node_id=node.id,
                     success=True,
@@ -202,7 +223,7 @@ class ContextNodeExecutor:
                     success=False,
                     error=result.error or f"Agent '{agent_name}' failed",
                     duration_ms=duration_ms,
-                    metadata={"agent_id": agent_name},
+                    metadata=self._failure_metadata(agent_name=agent_name, bid=winning_bid),
                 )
 
         except Exception as e:
@@ -213,7 +234,7 @@ class ContextNodeExecutor:
                 success=False,
                 error=str(e),
                 duration_ms=duration_ms,
-                metadata={"agent_id": agent_name},
+                metadata=self._failure_metadata(agent_name=agent_name, bid=winning_bid),
             )
 
     def _build_goal(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> BaseModel | None:
@@ -239,6 +260,40 @@ class ContextNodeExecutor:
         except Exception as e:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
+
+    def _run_auction(
+        self, *, node: Node, capability_value: str, resolved_inputs: dict[str, Any] | Any
+    ) -> Bid | None:
+        """Select an agent by auction (SPEC-09). None → caller falls through to static."""
+        if self._agent_selector is None:
+            return None
+        try:
+            capability = Capability(capability_value)
+        except ValueError:
+            logger.warning("auction: unknown capability %r on node %s", capability_value, node.id)
+            return None
+        candidates = self._registry.get_candidates(capability=capability)
+        if not candidates:
+            logger.info("auction: no candidates for %s on node %s", capability, node.id)
+            return None
+        bid_context = BidContext(
+            capability=capability,
+            goal_text=self._query_text_for(agent_name="", inputs=resolved_inputs),
+            cost_utilization=self._budget_guard.cost_utilization if self._budget_guard else 0.0,
+            token_utilization=self._budget_guard.token_utilization if self._budget_guard else 0.0,
+        )
+        bid = self._agent_selector.select(candidates=tuple(candidates), bid_context=bid_context)
+        if bid is not None:
+            logger.info("auction: node %s selected %s (score=%.3f)", node.id, bid.agent_id, bid.score)
+        return bid
+
+    @staticmethod
+    def _failure_metadata(*, agent_name: str, bid: Bid | None) -> dict[str, Any]:
+        """Failure NodeResult metadata — carries the selection bid for provenance if present."""
+        meta: dict[str, Any] = {"agent_id": agent_name}
+        if bid is not None:
+            meta["selection"] = bid.to_metadata()
+        return meta
 
     def _query_text_for(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> str:
         """First populated well-known goal field in inputs; '' on miss."""

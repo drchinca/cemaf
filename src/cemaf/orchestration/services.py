@@ -55,6 +55,7 @@ OpenSpec deps. See `cemaf.meta.bootstrap`.
 
 from dataclasses import dataclass
 
+from cemaf.agents.selection import AgentSelector
 from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
@@ -108,6 +109,9 @@ class RuntimeServices:
 
     # Knowledge (SPEC-02 / SPEC-07) — shared KG, optionally hub-and-spoke cached
     knowledge_graph: KnowledgeGraph | None = None
+
+    # Agent selection (SPEC-09) — opt-in auction; None → static ref_id only
+    agent_selector: AgentSelector | None = None
 
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None
