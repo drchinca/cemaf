@@ -130,6 +130,7 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Auction Agent Selection | Real registry + DefaultAgentSelector + executor + BudgetGuard → two WRITE agents compete → low-load winner runs, recorded in metadata; static node unaffected (`test_agent_auction.py`) |
 | Agent Council | Real council members + executor + DefaultVoteAggregator → deliberate → vote → winning choice becomes NodeResult.output (steers DAG); no-decision = success+empty; full DAGExecutor.run (`test_agent_council.py`) |
 | Blueprint Harvest | `create_blueprint_harvester()` + real EventBus → high-scoring run distilled into a reusable blueprint, discoverable by `library.search` (`test_blueprint_harvest_factory.py`) |
+| Composed Engine | ONE DAG run threads council → auction → agent → online-eval → harvest through one composition root (`test_composed_engine.py`); `examples/composed_engine.py` is the runnable canonical "whole engine" demo. `TestSeamGaps` documents where stations DON'T yet auto-thread (interceptor spine, SPEC-01) |
 
 ## Pattern Reference
 
