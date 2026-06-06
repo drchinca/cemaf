@@ -32,11 +32,15 @@ class _WriteResult(BaseModel):
 
 
 class _WriteAgent(Agent[_WriteGoal, _WriteResult]):
-    """A WRITE-capable agent that records which agent ran via its output."""
+    """A WRITE-capable agent that records which agent ran via output + a shared ledger."""
 
-    def __init__(self, agent_id: str, load: float) -> None:
+    def __init__(
+        self, agent_id: str, load: float, *, ran: list[str] | None = None, fail: bool = False
+    ) -> None:
         self._id = AgentID(agent_id)
         self._load = load
+        self._ran = ran
+        self._fail = fail
 
     @property
     def id(self) -> AgentID:
@@ -59,6 +63,10 @@ class _WriteAgent(Agent[_WriteGoal, _WriteResult]):
         return self._load
 
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[_WriteResult]:
+        if self._ran is not None:
+            self._ran.append(str(self._id))
+        if self._fail:
+            return AgentResult.fail(error=f"{self._id} boom", state=AgentState())
         return AgentResult.ok(
             output=_WriteResult(article=f"written-by:{self._id}"),
             state=AgentState(),
@@ -81,8 +89,19 @@ def _registry_with_two_writers() -> AgentRegistry:
 
 
 @pytest.mark.asyncio
-async def test_auction_selects_low_load_winner() -> None:
-    registry = _registry_with_two_writers()
+async def test_auction_selects_low_load_winner_and_loser_does_not_run() -> None:
+    ran: list[str] = []
+    registry = AgentRegistry()
+    registry.register_agent(
+        agent_instance=_WriteAgent("WriterBusy", load=0.9, ran=ran),
+        goal_type=_WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
+    registry.register_agent(
+        agent_instance=_WriteAgent("WriterIdle", load=0.1, ran=ran),
+        goal_type=_WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
     executor = ContextNodeExecutor(
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
@@ -96,6 +115,48 @@ async def test_auction_selects_low_load_winner() -> None:
     assert result.output is not None and "WriterIdle" in result.output
     assert result.metadata["selection"]["agent_id"] == "WriterIdle"
     assert result.metadata["selection"]["capability_match"] == 1.0
+    assert ran == ["WriterIdle"]  # the loser never executed
+
+
+@pytest.mark.asyncio
+async def test_auction_records_selection_when_winner_fails() -> None:
+    """SPEC-09 Inv 8: the winning Bid is recorded even when the selected agent fails."""
+    registry = AgentRegistry()
+    registry.register_agent(
+        agent_instance=_WriteAgent("WriterIdle", load=0.1, fail=True),
+        goal_type=_WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
+    executor = ContextNodeExecutor(
+        agent_registry=registry,
+        agent_selector=DefaultAgentSelector(),
+    )
+    node = Node.auction(id="w", name="write", capability=Capability.WRITE.value)
+
+    result = await executor.execute_node(node, Context())
+
+    assert not result.success
+    assert result.metadata["selection"]["agent_id"] == "WriterIdle"
+
+
+@pytest.mark.asyncio
+async def test_capability_set_but_no_selector_uses_static_ref_id() -> None:
+    """SPEC-09: capability set AND no selector wired → static ref_id resolution."""
+    registry = _registry_with_two_writers()
+    executor = ContextNodeExecutor(agent_registry=registry)  # no agent_selector
+    node = Node(
+        id=NodeID("n"),
+        type=NodeType.AGENT,
+        name="x",
+        ref_id="WriterBusy",
+        config={"capability": Capability.WRITE.value},
+    )
+
+    result = await executor.execute_node(node, Context())
+
+    assert result.success
+    assert "WriterBusy" in (result.output or "")  # static ref_id, not the auction winner
+    assert "selection" not in result.metadata
 
 
 @pytest.mark.asyncio

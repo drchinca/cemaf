@@ -150,6 +150,24 @@ class TestDefaultSelector:
     def test_no_candidates_returns_none(self) -> None:
         assert DefaultAgentSelector().select(candidates=(), bid_context=_ctx()) is None
 
+    def test_advertiser_missing_capability_scores_default_match(self) -> None:
+        """Inv 4: an advertiser without the requested capability scores 0.3, not 1.0."""
+        sel = DefaultAgentSelector()
+        bid = sel.bid_for(
+            agent=_Advertiser("r", frozenset({Capability.RESEARCH}), 0.1),
+            bid_context=_ctx(),  # requests WRITE
+        )
+        assert bid.capability_match == 0.3
+
+    def test_token_utilization_drives_headroom(self) -> None:
+        """The budget term uses max(cost, token) — token side must count."""
+        sel = DefaultAgentSelector()
+        bid = sel.bid_for(
+            agent=_Advertiser("a", frozenset({Capability.WRITE}), 0.0),
+            bid_context=_ctx(cost=0.0, token=0.9),
+        )
+        assert bid.budget_headroom == pytest.approx(0.1)
+
 
 class TestScoringInvariants:
     @pytest.mark.parametrize("load", [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, -0.3])
@@ -181,6 +199,21 @@ class TestDuckTypedReads:
 
     def test_read_capabilities_on_generalist_is_none(self) -> None:
         assert read_capabilities(_Generalist("g")) is None
+
+    def test_read_capabilities_coerces_string_values(self) -> None:
+        """An advertiser using raw string values is still readable (coerced to Capability)."""
+
+        class _StringAdvertiser:
+            id = AgentID("s")
+            description = "x"
+            skills = ()
+            capabilities = frozenset({"write", "research", "bogus"})
+
+            async def run(self, goal: object, context: AgentContext) -> AgentResult[str]:
+                return AgentResult.ok(output="ok", state=AgentState.COMPLETED)
+
+        caps = read_capabilities(_StringAdvertiser())  # type: ignore[arg-type]
+        assert caps == frozenset({Capability.WRITE, Capability.RESEARCH})  # 'bogus' dropped
 
     def test_read_load_defaults_for_generalist(self) -> None:
         assert read_load(_Generalist("g")) == 0.5

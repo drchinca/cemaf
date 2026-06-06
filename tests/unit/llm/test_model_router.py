@@ -51,6 +51,13 @@ class TestModelRouter:
         candidates = router._select_route(score)
         assert candidates[0].model_name == "expensive-model"
 
+    def test_fidelity_floor_derives_from_single_source(self):
+        """Router's floor view must match the canonical FIDELITY_FLOOR in agents.selection."""
+        from cemaf.agents.selection import FIDELITY_FLOOR
+        from cemaf.llm.model_router import _FIDELITY_FLOOR_BY_VALUE
+
+        assert {f.value: floor for f, floor in FIDELITY_FLOOR.items()} == _FIDELITY_FLOOR_BY_VALUE
+
     def test_fidelity_floor_raises_low_complexity_route(self):
         """SPEC-09 Inv 9: HIGH fidelity floors a trivial prompt's score up to 0.8."""
         from cemaf.llm.model_router import _apply_fidelity_floor

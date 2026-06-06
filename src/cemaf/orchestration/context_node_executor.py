@@ -75,13 +75,19 @@ class ContextNodeExecutor:
         """Execute a single node by dispatching to the appropriate agent."""
         start = perf_counter()
 
+        # Resolved inputs (post $$ref$$ resolution) — read once, shared by the
+        # auction's goal_text and the goal builder below.
+        resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+
         # Auction path (SPEC-09): opt-in. Engaged only when the node declares a
         # capability AND a selector is wired. On no candidates, falls through to
         # static ref_id resolution below (zero change for Node.agent DAGs).
         winning_bid: Bid | None = None
         cap_raw = node.config.get("capability") if node.config else None
         if cap_raw and self._agent_selector is not None:
-            winning_bid = self._run_auction(node=node, capability_value=str(cap_raw))
+            winning_bid = self._run_auction(
+                node=node, capability_value=str(cap_raw), resolved_inputs=resolved_inputs
+            )
 
         agent_name = str(winning_bid.agent_id) if winning_bid is not None else node.ref_id
         if not agent_name:
@@ -112,8 +118,7 @@ class ContextNodeExecutor:
                 error=f"Agent '{agent_name}' not found in registry",
             )
 
-        # Build goal from resolved inputs
-        resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+        # Build goal from resolved inputs (read once above, shared with the auction)
         goal = self._build_goal(agent_name=agent_name, inputs=resolved_inputs)
         if goal is None:
             return NodeResult(
@@ -256,7 +261,9 @@ class ContextNodeExecutor:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
 
-    def _run_auction(self, *, node: Node, capability_value: str) -> Bid | None:
+    def _run_auction(
+        self, *, node: Node, capability_value: str, resolved_inputs: dict[str, Any] | Any
+    ) -> Bid | None:
         """Select an agent by auction (SPEC-09). None → caller falls through to static."""
         if self._agent_selector is None:
             return None
@@ -269,7 +276,6 @@ class ContextNodeExecutor:
         if not candidates:
             logger.info("auction: no candidates for %s on node %s", capability, node.id)
             return None
-        resolved_inputs = node.input_mapping
         bid_context = BidContext(
             capability=capability,
             goal_text=self._query_text_for(agent_name="", inputs=resolved_inputs),

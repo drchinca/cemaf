@@ -39,7 +39,10 @@ class Fidelity(StrEnum):
     HIGH = "high"
 
 
-# Applied in model_router (SPEC-09 Invariant 9); colocated with Capability.
+# Minimum complexity-route score per fidelity tier (SPEC-09 Invariant 9).
+# Single source of truth — model_router imports this and applies it. Keyed by the
+# Fidelity StrEnum (its members compare/hash equal to their string values, so a
+# raw "high" looks up the same entry).
 FIDELITY_FLOOR: dict[Fidelity, float] = {
     Fidelity.LOW: 0.0,
     Fidelity.STANDARD: 0.4,
@@ -102,11 +105,25 @@ def _clamp(value: float) -> float:
 
 
 def read_capabilities(agent: Agent[Any, Any]) -> frozenset[Capability] | None:
-    """Duck-typed read — isinstance on a @runtime_checkable Protocol can't verify return types."""
+    """Duck-typed read — isinstance on a @runtime_checkable Protocol can't verify return types.
+
+    Accepts a frozenset/set/tuple/list of `Capability` members or their string
+    values (e.g. {"write"}); unknown strings are dropped. Returns None when the
+    agent advertises nothing readable (→ caller treats it as a generalist).
+    """
     raw = getattr(agent, "capabilities", None)
-    if not isinstance(raw, frozenset):
+    if not isinstance(raw, frozenset | set | tuple | list):
         return None
-    return frozenset(c for c in raw if isinstance(c, Capability))
+    coerced: set[Capability] = set()
+    for item in raw:
+        if isinstance(item, Capability):
+            coerced.add(item)
+            continue
+        try:
+            coerced.add(Capability(item))
+        except (ValueError, TypeError):
+            continue
+    return frozenset(coerced)
 
 
 def read_load(agent: Agent[Any, Any]) -> float:
