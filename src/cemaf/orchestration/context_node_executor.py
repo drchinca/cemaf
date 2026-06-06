@@ -23,6 +23,7 @@ from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.council import AgentCouncil
 from cemaf.council.protocols import CouncilMember, VoteAggregator
 from cemaf.council.types import AggregationMethod, CouncilConfig, CouncilQuestion
+from cemaf.interceptors.pipeline import InterceptorPipeline
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
@@ -57,6 +58,7 @@ class ContextNodeExecutor:
         agent_selector: AgentSelector | None = None,
         budget_guard: BudgetGuard | None = None,
         council_aggregator: VoteAggregator | None = None,
+        interceptor_pipeline: InterceptorPipeline | None = None,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation."""
         self._registry = agent_registry
@@ -72,6 +74,7 @@ class ContextNodeExecutor:
         self._agent_selector = agent_selector
         self._budget_guard = budget_guard
         self._council_aggregator = council_aggregator
+        self._interceptor_pipeline = interceptor_pipeline
 
     async def execute_node(
         self,
@@ -182,6 +185,29 @@ class ContextNodeExecutor:
             artifacts=artifacts,
         )
 
+        # PRE interceptor chain (SPEC-01a). Runs on the already-built AgentContext;
+        # may enrich it (model_copy) or REJECT (skip the agent). Empty/None = no-op.
+        if self._interceptor_pipeline is not None and not self._interceptor_pipeline.is_empty:
+            agent_context, pre_reject = await self._interceptor_pipeline.run_pre(
+                node=node, context=agent_context
+            )
+            if pre_reject is not None:
+                return NodeResult(
+                    node_id=node.id,
+                    success=False,
+                    error=f"interceptor {pre_reject.interceptor_id} rejected node: {pre_reject.reason}",
+                    duration_ms=(perf_counter() - start) * 1000,
+                    metadata={
+                        "agent_id": agent_name,
+                        "interceptors": {
+                            "rejected_by": pre_reject.interceptor_id,
+                            "reason": pre_reject.reason,
+                            "phase": "pre",
+                            "gate_rejected": True,
+                        },
+                    },
+                )
+
         # Compute context hash for provenance
         context_hash = self._compute_context_hash(inputs=resolved_inputs)
 
@@ -228,13 +254,22 @@ class ContextNodeExecutor:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
                 if winning_bid is not None:
                     merged_metadata["selection"] = winning_bid.to_metadata()
-                return NodeResult(
+                success_result = NodeResult(
                     node_id=node.id,
                     success=True,
                     output=output,
                     duration_ms=duration_ms,
                     metadata=merged_metadata,
                 )
+
+                # POST interceptor chain (SPEC-01a). Runs only on a successful
+                # NodeResult; may REJECT (flip to failure + stamp gate_rejected so
+                # _execute_with_retry won't re-run it). Empty/None = no-op.
+                if self._interceptor_pipeline is not None and not self._interceptor_pipeline.is_empty:
+                    success_result, _post_reject = await self._interceptor_pipeline.run_post(
+                        node=node, context=agent_context, result=success_result
+                    )
+                return success_result
             else:
                 return NodeResult(
                     node_id=node.id,

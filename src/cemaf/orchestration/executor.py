@@ -19,7 +19,6 @@ Type imports happen at runtime within methods that need them.
 import asyncio
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -198,43 +197,10 @@ class ExecutorConfig(BaseModel):
     )
 
 
-@dataclass(frozen=True)
-class NodeResult:
-    """Result of executing a single node."""
-
-    node_id: NodeID
-    success: bool
-    output: Any = None
-    error: str | None = None
-    duration_ms: float = 0.0
-    metadata: JSON = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ExecutionResult:
-    """Result of executing an entire DAG."""
-
-    run_id: RunID
-    dag_name: str
-    status: RunStatus
-    node_results: tuple[NodeResult, ...] = field(default_factory=tuple)
-    final_context: Context = field(default_factory=Context)  # Updated to Context
-    error: str | None = None
-    started_at: datetime = field(default_factory=utc_now)
-    health_check_metadata: JSON = field(default_factory=dict)  # Health status at execution time
-    completed_at: datetime | None = None
-    metadata: JSON = field(default_factory=dict)
-
-    @property
-    def success(self) -> bool:
-        return self.status == RunStatus.COMPLETED
-
-    @property
-    def duration_ms(self) -> float:
-        if not self.completed_at:
-            return 0.0
-        delta = self.completed_at - self.started_at
-        return delta.total_seconds() * 1000
+# NodeResult / ExecutionResult moved to orchestration/results.py (leaf value types)
+# to break import cycles; re-exported here for backward-compatible imports.
+from cemaf.orchestration.results import ExecutionResult as ExecutionResult  # noqa: E402
+from cemaf.orchestration.results import NodeResult as NodeResult  # noqa: E402
 
 
 @runtime_checkable
@@ -1104,6 +1070,12 @@ class DAGExecutor:
                 if result.success:
                     return result, current_context
                 last_error = result.error
+
+                # An interceptor gate-reject (SPEC-01a) is deterministic — retrying
+                # re-runs the agent for an identical reject and burns budget. Stop now.
+                interceptors_meta = result.metadata.get("interceptors")
+                if isinstance(interceptors_meta, dict) and interceptors_meta.get("gate_rejected"):
+                    return result, current_context
 
                 # Try autonomous heal. Returns a new context iff heal succeeded
                 # AND produced a different state — in that case we retry with

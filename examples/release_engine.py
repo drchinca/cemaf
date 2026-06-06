@@ -63,6 +63,7 @@ from cemaf.council.types import Opinion
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
+from cemaf.interceptors import GateEvalInterceptor, create_interceptor_pipeline
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.dag import (
     DAG,
@@ -180,11 +181,13 @@ def build_engine() -> tuple[object, dict[str, object]]:
     registry.register_instance(item=Reviewer("bob", "ship", "changelog is clear"))
     registry.register_instance(item=Reviewer("carol", "hold", "wants another reviewer"))
     registry.register_agent(
-        agent_instance=Writer("writer-primary", load=0.8), goal_type=_WriteGoal,
+        agent_instance=Writer("writer-primary", load=0.8),
+        goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
     registry.register_agent(
-        agent_instance=Writer("writer-standby", load=0.2), goal_type=_WriteGoal,
+        agent_instance=Writer("writer-standby", load=0.2),
+        goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
 
@@ -204,8 +207,23 @@ def build_engine() -> tuple[object, dict[str, object]]:
     harvest_source = InMemoryWritableBlueprintSource()
     harvest_library = BlueprintLibrary()
     create_blueprint_harvester(
-        writable_source=harvest_source, event_bus=event_bus,
-        library=harvest_library, threshold=0.8,
+        writable_source=harvest_source,
+        event_bus=event_bus,
+        library=harvest_library,
+        threshold=0.8,
+    )
+
+    # Interceptor spine (SPEC-01a): a POST gate on the draft. Unlike the OBSERVE
+    # eval above (which only records), this GATE genuinely BLOCKS — if the notes
+    # were too short, the write node fails and nothing downstream publishes.
+    gate = create_interceptor_pipeline(
+        interceptors=(
+            GateEvalInterceptor(
+                evaluators=(LengthEvaluator(min_length=120),),
+                node_pattern="write",
+                threshold=0.5,
+            ),
+        )
     )
 
     budget_guard = BudgetGuard(max_cost_usd=5.0)
@@ -222,6 +240,7 @@ def build_engine() -> tuple[object, dict[str, object]]:
             agent_selector=DefaultAgentSelector(),
             council_aggregator=DefaultVoteAggregator(),
             online_eval_pipeline=online,
+            interceptor_pipeline=gate,
         ),
     )
     probes = {
@@ -235,14 +254,16 @@ def build_engine() -> tuple[object, dict[str, object]]:
 def build_dag() -> DAG:
     """The release pipeline as one declarative DAG: review → (if ship) write → publish."""
     review = Node.council(
-        id="review", name="review council",
+        id="review",
+        name="review council",
         members=("alice", "bob", "carol"),
         options=("ship", "hold"),
         prompt=f"Ship changeset {CHANGESET['version']}?",
         output_key="verdict",
     )
     write = Node.auction(
-        id="write", name="write notes",
+        id="write",
+        name="write notes",
         capability=Capability.WRITE.value,
         output_key="release_notes",
     )
@@ -251,11 +272,10 @@ def build_dag() -> DAG:
         nodes=(review, write),
         edges=(
             Edge(
-                source=NodeID("review"), target=NodeID("write"),
+                source=NodeID("review"),
+                target=NodeID("write"),
                 condition=EdgeCondition.JSON_RULE,
-                condition_rule=Condition(
-                    field="verdict", operator=ConditionOperator.EQUALS, value="ship"
-                ),
+                condition_rule=Condition(field="verdict", operator=ConditionOperator.EQUALS, value="ship"),
             ),
         ),
         entry_node=NodeID("review"),
@@ -275,8 +295,10 @@ def dry_run() -> None:
     print("  stations (DAG) :")
     for node in dag.nodes:
         kind = (
-            "COUNCIL" if "council" in (node.config or {})
-            else "AUCTION" if "capability" in (node.config or {})
+            "COUNCIL"
+            if "council" in (node.config or {})
+            else "AUCTION"
+            if "capability" in (node.config or {})
             else "AGENT"
         )
         print(f"    - {node.id:<8} [{kind}]  → {node.output_key}")
@@ -285,7 +307,8 @@ def dry_run() -> None:
         guard = f"{cond.field}=={cond.value}" if cond else edge.condition.value
         print(f"  edge           : {edge.source} → {edge.target}  (when {guard})")
     print("\n  subsystems wired: council · auction · context-compiler · token-budget ·")
-    print("                    budget-guard · online-eval · blueprint-harvest · events")
+    print("                    budget-guard · online-eval · interceptor-gate (blocks) ·")
+    print("                    blueprint-harvest · events")
     print("\n  → run with --produce to execute and write artifacts to ./.release_out/")
 
 
@@ -300,8 +323,10 @@ async def produce() -> int:
     write = results.get("write")
 
     if run.status is not RunStatus.COMPLETED or write is None:
-        print(f"engine did not produce notes (status={run.status.value}, verdict="
-              f"{review.output if review else 'n/a'}) — nothing written.")
+        print(
+            f"engine did not produce notes (status={run.status.value}, verdict="
+            f"{review.output if review else 'n/a'}) — nothing written."
+        )
         return 1
 
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -318,9 +343,7 @@ async def produce() -> int:
         "auction": {"winner": write.metadata.get("selection", {}).get("agent_id")},
         "online_evals": len(probes["online"]._results),  # type: ignore[attr-defined]
         "blueprints_harvested": len(list(probes["harvest_source"].load())),  # type: ignore[attr-defined]
-        "cost_usd": round(
-            sum(float(r.metadata.get("cost_estimate_usd", 0)) for r in run.node_results), 4
-        ),
+        "cost_usd": round(sum(float(r.metadata.get("cost_estimate_usd", 0)) for r in run.node_results), 4),
     }
     report_path = OUTPUT_DIR / "run_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
