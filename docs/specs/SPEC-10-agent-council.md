@@ -1,7 +1,7 @@
 ---
 title: Agent Council — Deliberative Multi-Agent Decisions
 spec_id: SPEC-10
-status: Draft
+status: Implemented
 last_reviewed: 2026-06-06
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
@@ -17,9 +17,11 @@ depends_on: []
 > outcome carries full provenance (who voted for what). It is the deliberative
 > decision layer the eval hierarchy, halt gates, and auction only resemble.
 
-**Status: Draft.** Implementation target: `cemaf/council/` (new module),
-`cemaf/orchestration/dag.py` (`Node.council`), `cemaf/orchestration/services.py`,
-`cemaf/orchestration/context_node_executor.py`.
+**Status: Implemented.** Lives in `cemaf/council/` (`types.py`, `protocols.py`,
+`aggregator.py`, `council.py`); `Node.council` in `cemaf/orchestration/dag.py`;
+`_run_council` in `cemaf/orchestration/context_node_executor.py`; wired via
+`RuntimeServices.council_aggregator` + `cemaf/bootstrap.py`. Unit tests:
+`tests/unit/council/`; integration: `tests/integration/test_agent_council.py`.
 
 ## Contents
 
