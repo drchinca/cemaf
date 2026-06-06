@@ -116,6 +116,33 @@ class TestEdgeCases:
         assert _op("m", "A", conf=5.0).confidence == 1.0
         assert _op("m", "A", conf=-2.0).confidence == 0.0
 
+    def test_nan_inf_confidence_sanitized_to_zero(self) -> None:
+        assert _op("m", "A", conf=float("nan")).confidence == 0.0
+        assert _op("m", "A", conf=float("inf")).confidence == 0.0
+        assert _op("m", "A", conf=float("-inf")).confidence == 0.0
+
+    def test_weighted_winner_unaffected_by_nan_member(self) -> None:
+        """A member reporting NaN confidence must not corrupt the weighted tally."""
+        d = _agg(AggregationMethod.WEIGHTED).aggregate(
+            question=Q,
+            opinions=(_op("m1", "A", conf=0.6), _op("m2", "B", conf=float("nan"))),
+        )
+        assert d.winning_choice == "A"  # B's NaN → 0.0, A's 0.6 wins
+        assert d.tally["B"] == 0.0
+
+    def test_weighted_tolerance_tie_breaks_lexically(self) -> None:
+        """0.1*3 != 0.3 in float; a near-tie within tolerance must still break lexically."""
+        d = _agg(AggregationMethod.WEIGHTED).aggregate(
+            question=Q,
+            opinions=(
+                _op("m1", "B", conf=0.1),
+                _op("m2", "B", conf=0.1),
+                _op("m3", "B", conf=0.1),  # B = 0.1+0.1+0.1 = 0.30000000000000004
+                _op("m4", "A", conf=0.3),  # A = 0.3
+            ),
+        )
+        assert d.winning_choice == "A"  # tie within tolerance → lexical 'A'
+
     def test_failed_member_abstains_council_still_decides(self) -> None:
         d = _agg(AggregationMethod.MAJORITY).aggregate(
             question=Q,

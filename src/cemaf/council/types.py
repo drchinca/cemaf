@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
 
 from cemaf.core.types import JSON, AgentID
+
+
+def _clamp_confidence(value: float) -> float:
+    """Clamp to [0,1]; NaN/inf → 0.0 (never let a bad weight corrupt a tally)."""
+    if not math.isfinite(value):
+        return 0.0
+    return min(1.0, max(0.0, value))
 
 
 class AggregationMethod(StrEnum):
@@ -42,7 +50,7 @@ class Opinion:
     raw_choice: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "confidence", min(1.0, max(0.0, self.confidence)))
+        object.__setattr__(self, "confidence", _clamp_confidence(self.confidence))
 
 
 @dataclass(frozen=True, slots=True)

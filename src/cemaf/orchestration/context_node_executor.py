@@ -313,6 +313,9 @@ class ContextNodeExecutor:
         except ValueError:
             method = AggregationMethod.MAJORITY
         config = CouncilConfig(method=method)
+        # A wired council_aggregator (BYO-X) governs aggregation with its OWN policy —
+        # the node's `method` only configures the default aggregator. (The shared config
+        # still bounds member concurrency/timeout in either case.)
         aggregator = self._council_aggregator or DefaultVoteAggregator(config=config)
         council = AgentCouncil(members=tuple(members), aggregator=aggregator, config=config)
         question = CouncilQuestion(prompt=str(council_cfg.get("prompt", "")), options=options)

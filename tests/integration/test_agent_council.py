@@ -109,8 +109,8 @@ async def test_council_node_with_no_members_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_council_full_dag_run_routes_on_verdict() -> None:
-    """End-to-end through DAGExecutor: a council verdict is readable downstream."""
+async def test_council_full_dag_run_records_verdict() -> None:
+    """End-to-end through DAGExecutor: the council node runs and outputs its verdict."""
     from cemaf.bootstrap import create_executor
     from cemaf.core.types import NodeID
     from cemaf.orchestration.dag import DAG
@@ -123,12 +123,7 @@ async def test_council_full_dag_run_routes_on_verdict() -> None:
         options=("approve", "reject"),
         output_key="verdict",
     )
-    dag = DAG(
-        name="council-dag",
-        nodes=(council_node,),
-        edges=(),
-        entry_node=NodeID("gate"),
-    )
+    dag = DAG(name="council-dag", nodes=(council_node,), edges=(), entry_node=NodeID("gate"))
     executor = create_executor(agent_registry=registry)
 
     run = await executor.run(dag=dag)
@@ -137,3 +132,74 @@ async def test_council_full_dag_run_routes_on_verdict() -> None:
     gate_result = next(r for r in run.node_results if r.node_id == NodeID("gate"))
     assert gate_result.success
     assert gate_result.output == "approve"
+
+
+@pytest.mark.asyncio
+async def test_council_verdict_steers_downstream_edge() -> None:
+    """The council verdict, written to output_key, gates a downstream node via JSON_RULE.
+
+    Proves the 'steers the DAG' claim: a gated node runs ONLY because the council
+    decided 'approve' and an edge condition reads $$verdict$$ == 'approve'.
+    """
+    from pydantic import BaseModel
+
+    from cemaf.agents.base import AgentResult, AgentState
+    from cemaf.bootstrap import create_executor
+    from cemaf.core.types import NodeID
+    from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition
+
+    ran: list[str] = []
+
+    class _ShipGoal(BaseModel):
+        pass
+
+    class _Shipper:
+        @property
+        def id(self) -> AgentID:
+            return AgentID("Shipper")
+
+        @property
+        def description(self) -> str:
+            return "ships when approved"
+
+        @property
+        def skills(self) -> tuple[()]:
+            return ()
+
+        async def run(self, goal: _ShipGoal, context: AgentContext) -> AgentResult[str]:
+            ran.append("Shipper")
+            return AgentResult.ok(output="shipped", state=AgentState())
+
+    registry = _registry(("v1", "approve"), ("v2", "approve"))
+    registry.register_agent(agent_instance=_Shipper(), goal_type=_ShipGoal)
+
+    gate = Node.council(
+        id="gate",
+        name="gate",
+        members=("v1", "v2"),
+        options=("approve", "reject"),
+        output_key="verdict",
+    )
+    ship = Node.agent(id="ship", name="ship", agent_id="Shipper", output_key="ship_out")
+    dag = DAG(
+        name="gated-ship",
+        nodes=(gate, ship),
+        edges=(
+            Edge(
+                source=NodeID("gate"),
+                target=NodeID("ship"),
+                condition=EdgeCondition.JSON_RULE,
+                condition_rule=Condition(field="verdict", operator=ConditionOperator.EQUALS, value="approve"),
+            ),
+        ),
+        entry_node=NodeID("gate"),
+    )
+    executor = create_executor(agent_registry=registry)
+
+    run = await executor.run(dag=dag)
+
+    assert run is not None
+    # The downstream Shipper ran ONLY because the council verdict opened the edge.
+    assert ran == ["Shipper"]
+    ship_result = next((r for r in run.node_results if r.node_id == NodeID("ship")), None)
+    assert ship_result is not None and ship_result.output == "shipped"

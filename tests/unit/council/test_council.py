@@ -65,6 +65,62 @@ async def test_members_run_concurrently_via_barrier() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancelled_error_propagates_not_abstains() -> None:
+    """A CancelledError (BaseException) must escape, not be swallowed as an abstention."""
+
+    class _Cancel:
+        @property
+        def id(self) -> AgentID:
+            return AgentID("c")
+
+        async def deliberate(
+            self, *, question: CouncilQuestion, goal: object, context: AgentContext
+        ) -> Opinion:
+            raise asyncio.CancelledError
+
+    council = AgentCouncil(members=(_Cancel(),), aggregator=DefaultVoteAggregator())
+    with pytest.raises(asyncio.CancelledError):
+        await council.decide(question=Q, goal={}, context=CTX)
+
+
+@pytest.mark.asyncio
+async def test_max_concurrency_bounds_simultaneous_members() -> None:
+    """The Semaphore caps in-flight members; peak concurrency never exceeds max_concurrency."""
+    peak = 0
+    current = 0
+    lock = asyncio.Lock()
+
+    class _Counting:
+        def __init__(self, member_id: str) -> None:
+            self._id = AgentID(member_id)
+
+        @property
+        def id(self) -> AgentID:
+            return self._id
+
+        async def deliberate(
+            self, *, question: CouncilQuestion, goal: object, context: AgentContext
+        ) -> Opinion:
+            nonlocal peak, current
+            async with lock:
+                current += 1
+                peak = max(peak, current)
+            await asyncio.sleep(0.01)
+            async with lock:
+                current -= 1
+            return Opinion(member_id=self._id, choice="A")
+
+    members = tuple(_Counting(f"m{i}") for i in range(6))
+    council = AgentCouncil(
+        members=members,
+        aggregator=DefaultVoteAggregator(),
+        config=CouncilConfig(max_concurrency=2),
+    )
+    await council.decide(question=Q, goal={}, context=CTX)
+    assert peak <= 2
+
+
+@pytest.mark.asyncio
 async def test_raising_member_abstains() -> None:
     council = AgentCouncil(
         members=(_FixedMember("m1", "A"), _FixedMember("m2", "A"), _FixedMember("boom", None, raises=True)),

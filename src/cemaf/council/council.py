@@ -45,15 +45,35 @@ class AgentCouncil:
                         timeout=timeout_s,
                     )
                 except asyncio.CancelledError:
+                    # CancelledError is BaseException in 3.13+ (so `except Exception` would
+                    # already skip it); the explicit re-raise documents intent and keeps
+                    # behaviour identical on 3.8–3.12 where it was an Exception.
                     raise
-                except Exception as exc:  # noqa: BLE001 — abstain, don't crash (TimeoutError incl.)
-                    logger.info("council member %s abstained: %r", member.id, exc)
+                except TimeoutError as exc:
+                    logger.info("council member %s timed out, abstaining", member.id)
                     return Opinion(
                         member_id=member.id,
                         choice=None,
                         confidence=0.0,
                         abstained=True,
-                        rationale=repr(exc),
+                        rationale=f"timeout: {exc!r}",
+                    )
+                except Exception as exc:  # noqa: BLE001 — abstain, don't crash
+                    # A raise here may be a legitimate decline OR a real bug in member
+                    # code. Log at WARNING (not INFO) so genuine bugs surface in ops,
+                    # and keep the repr on the ballot so provenance is distinguishable.
+                    logger.warning(
+                        "council member %s raised %s, abstaining: %r",
+                        member.id,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    return Opinion(
+                        member_id=member.id,
+                        choice=None,
+                        confidence=0.0,
+                        abstained=True,
+                        rationale=f"{type(exc).__name__}: {exc!r}",
                     )
 
         opinions = await asyncio.gather(*(run_member(m) for m in self._members))
