@@ -1,7 +1,7 @@
 ---
 title: Interceptor Spine (minimal slice of SPEC-01)
 spec_id: SPEC-01a
-status: Draft
+status: Implemented
 last_reviewed: 2026-06-06
 owner: drchinca
 parent: SPEC-01 — Node Interceptor Pipeline
@@ -20,9 +20,16 @@ depends_on: []
 > a parts-bin. The richer SPEC-01 (recovery routing, cite-or-fail, guardian
 > mesh) layers onto this spine later without re-architecting.
 
-**Status: Draft.** Implementation target: `cemaf/interceptors/` (new module),
-`cemaf/orchestration/context_node_executor.py`, `cemaf/orchestration/services.py`,
-`cemaf/bootstrap.py`.
+**Status: Implemented.** Lives in `cemaf/interceptors/` (`types.py`,
+`protocols.py`, `pipeline.py`, `gate_eval.py`); wired into
+`ContextNodeExecutor.execute_node` (PRE after context build, POST on the success
+result), `RuntimeServices.interceptor_pipeline`, `bootstrap.create_executor`, and
+a gate-reject is made non-retryable in `executor._execute_with_retry`. To break
+an import cycle, `NodeResult`/`ExecutionResult` moved to
+`orchestration/results.py` (re-exported from `executor.py`). Unit tests:
+`tests/unit/interceptors/test_pipeline.py`; integration (GATE blocks):
+`tests/integration/test_interceptor_gate.py`. Demonstrated in
+`examples/release_engine.py` (a blocking gate on the published draft).
 
 ## Contents
 

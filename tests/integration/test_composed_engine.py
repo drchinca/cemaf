@@ -322,11 +322,16 @@ class TestSeamGaps:
         # (it works — but the caller must wire it out-of-band, unlike council/auction/evals)
 
     @pytest.mark.asyncio
-    async def test_gap_no_guardian_mesh_post_stage(self) -> None:
-        """GAP: there is no guardian/POST stage every node passes through. Moderation,
-        cite-or-fail, and GATE-eval are separate opt-ins, not one ordered chain.
-        SPEC-05 guardian mesh + SPEC-01 interceptor pipeline are scaffold-pending."""
+    async def test_interceptor_spine_now_exists_guardian_mesh_still_pending(self) -> None:
+        """PROGRESS: the interceptor spine (SPEC-01a) now exists — every AGENT node
+        passes through a PRE→execute→POST chain, and a POST gate genuinely blocks
+        (see tests/integration/test_interceptor_gate.py). The guardian MESH (SPEC-05 —
+        the composed set of cite-or-fail / moderation / calibration guardians as POST
+        interceptors) is the remaining gap."""
         import importlib.util
 
+        # Spine: closed.
+        assert importlib.util.find_spec("cemaf.interceptors") is not None
+        assert "interceptor_pipeline" in RuntimeServices().__dataclass_fields__
+        # Guardian mesh: still pending (SPEC-05).
         assert importlib.util.find_spec("cemaf.guardian") is None
-        assert importlib.util.find_spec("cemaf.interceptors") is None

@@ -65,6 +65,7 @@ from cemaf.council.protocols import VoteAggregator
 from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
+from cemaf.interceptors.pipeline import InterceptorPipeline
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
@@ -116,6 +117,9 @@ class RuntimeServices:
 
     # Council vote aggregation (SPEC-10) — None → DefaultVoteAggregator when a council node runs
     council_aggregator: VoteAggregator | None = None
+
+    # Interceptor spine (SPEC-01a) — PRE→execute→POST chain per AGENT node; None/empty = no-op
+    interceptor_pipeline: InterceptorPipeline | None = None
 
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None
