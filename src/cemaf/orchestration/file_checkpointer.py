@@ -41,11 +41,20 @@ def checkpoint_from_dict(payload: dict[str, Any]) -> DAGCheckpoint:
 
 
 class FileCheckpointer:
-    """Persist DAG checkpoints as JSON files under a root directory."""
+    """Persist DAG checkpoints as JSON files under a root directory.
 
-    def __init__(self, root: str | Path) -> None:
+    Checkpoints are keyed per run (`{run_id}.json`), so a single run overwrites its
+    own file. Across runs the directory would grow unbounded, so retention is capped:
+    after each save, all but the `max_checkpoints` most-recent run files are pruned.
+    Set `max_checkpoints=0` to disable pruning (keep everything).
+    """
+
+    def __init__(self, root: str | Path, *, max_checkpoints: int = 5) -> None:
+        if max_checkpoints < 0:
+            raise ValueError("max_checkpoints must be >= 0 (0 disables pruning)")
         self._root = Path(root).resolve()
         self._root.mkdir(parents=True, exist_ok=True)
+        self._max_checkpoints = max_checkpoints
 
     def _path_for(self, run_id: RunID) -> Path:
         safe = str(run_id).replace(":", "-").replace("/", "-")
@@ -57,6 +66,21 @@ class FileCheckpointer:
             json.dumps(checkpoint_to_dict(checkpoint), indent=2),
             encoding="utf-8",
         )
+        self._prune()
+
+    def _prune(self) -> None:
+        """Delete oldest run checkpoint files beyond the retention cap (newest kept)."""
+        if self._max_checkpoints <= 0:
+            return
+        # Sort newest-first by mtime; tie-break on name so equal-mtime files (common
+        # in fast loops / coarse fs clocks) prune deterministically.
+        files = sorted(
+            self._root.glob("*.json"),
+            key=lambda p: (p.stat().st_mtime, p.name),
+            reverse=True,
+        )
+        for stale in files[self._max_checkpoints :]:
+            stale.unlink(missing_ok=True)
 
     async def load(self, run_id: RunID) -> DAGCheckpoint | None:
         path = self._path_for(run_id)
