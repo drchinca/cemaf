@@ -219,6 +219,48 @@ class Node:
         )
 
     @classmethod
+    def council(
+        cls,
+        id: str,
+        name: str,
+        members: tuple[str, ...],
+        options: tuple[str, ...],
+        prompt: str = "",
+        method: str = "majority",
+        description: str = "",
+        config: JSON | None = None,
+        input_mapping: JSON | None = None,
+        output_key: str = "",
+    ) -> Node:
+        """Create a council node (SPEC-10) — N member agents deliberate, a vote decides.
+
+        `ref_id` stays empty; `config["council"]` carries the member agent names,
+        the question options/prompt, and the method. The executor resolves members
+        from the registry and runs the council only when an aggregator is wired;
+        output_key receives the winning choice ('' on no-decision). `method` is an
+        `AggregationMethod` value to avoid a dag→council import cycle.
+        """
+        merged = {
+            **(config or {}),
+            "council": {
+                "members": list(members),
+                "options": list(options),
+                "prompt": prompt,
+                "method": method,
+            },
+        }
+        return cls(
+            id=NodeID(id),
+            type=NodeType.AGENT,
+            name=name,
+            description=description,
+            ref_id="",
+            config=merged,
+            input_mapping=input_mapping or {},
+            output_key=output_key,
+        )
+
+    @classmethod
     def auction(
         cls,
         id: str,
