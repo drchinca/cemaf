@@ -83,3 +83,4 @@ Thumbs.db
 setup/
 examples/
 .claude/
+.release_out/
