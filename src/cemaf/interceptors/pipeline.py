@@ -66,11 +66,15 @@ class InterceptorPipeline:
     async def run_post(
         self, *, node: Node, context: AgentContext, result: NodeResult
     ) -> tuple[NodeResult, PostflightDecision | None]:
-        """Run PostInterceptors in order. Returns (possibly-failed result, first REJECT or None).
+        """Run PostInterceptors in order. Returns (result, first non-ACCEPT decision or None).
 
-        ACCEPT decisions with metadata merge under metadata["interceptors"][id].
-        A REJECT flips the NodeResult to failure, stamps gate_rejected, and preserves
-        the original output for provenance. A raising interceptor is contained → REJECT.
+        Outcomes:
+        - ACCEPT — chain continues; metadata (if set) merges under metadata["interceptors"][id].
+        - REJECT — chain stops; result flipped to failure, gate_rejected stamped, original
+          output preserved for provenance. Returns (failed_result, REJECT decision).
+        - RECOVER — chain stops; original ``result`` returned UNCHANGED so the executor
+          can re-run the node with the hint. The decision carries the RecoveryHint.
+        - A raising interceptor is contained → treated as REJECT.
         """
         current = result
         for interceptor in self._interceptors:
@@ -94,6 +98,10 @@ class InterceptorPipeline:
                     interceptor_id=interceptor.interceptor_id,
                     reason="contained exception",
                 )
+            if decision.kind is DecisionKind.RECOVER:
+                # Hand back to the executor; the result is unchanged. The executor's
+                # bounded recovery loop owns the re-run with the hint.
+                return current, decision
             if decision.kind is DecisionKind.REJECT:
                 rejected = _apply_reject(
                     result=current,
