@@ -105,6 +105,14 @@ class CouncilConfig:
     min_members: int = 1
     member_timeout: timedelta = timedelta(seconds=30)
     max_concurrency: int = 8
+    # Multi-round deliberation: rounds > 1 means after round 1 the executor
+    # injects each member's prior-round opinions (rationale included) under
+    # ``AgentContext.global_memory["council_prior_round"]``. Members that read
+    # that key see peers' votes and may revise theirs; members that ignore it
+    # remain a parallel ensemble. Early-stops when a round's tally matches the
+    # prior round's (no point burning cost on a settled vote). Default 1 keeps
+    # existing single-round behaviour byte-identical.
+    rounds: int = 1
 
     def __post_init__(self) -> None:
         if not (0.0 < self.quorum_fraction <= 1.0):
@@ -113,3 +121,5 @@ class CouncilConfig:
             raise ValueError("min_members must be >= 1")
         if self.max_concurrency < 1:
             raise ValueError("max_concurrency must be >= 1")
+        if self.rounds < 1:
+            raise ValueError("rounds must be >= 1")

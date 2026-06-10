@@ -21,6 +21,13 @@ from cemaf.core.types import JSON, AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
 from cemaf.council.protocols import VoteAggregator
 from cemaf.interceptors.pipeline import InterceptorPipeline
+from cemaf.interceptors.types import (
+    MAX_VISIBLE_HINTS,
+    RECOVERY_HINTS_KEY,
+    DecisionKind,
+    PostflightDecision,
+    RecoveryHint,
+)
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
@@ -53,6 +60,39 @@ def _failure_metadata(*, agent_name: str, bid_metadata: JSON | None) -> dict[str
     return meta
 
 
+def _apply_recovery_exhausted(
+    *, result: NodeResult, decision: PostflightDecision, attempts: int
+) -> NodeResult:
+    """Downgrade a RECOVER request to a REJECT once the recovery budget is spent.
+
+    Mirrors the pipeline's ``_apply_reject`` shape (gate_rejected stamped so the
+    outer ``_execute_with_retry`` does not re-run a deterministic gate failure)
+    while preserving the recovery trail in metadata for provenance.
+    """
+    import dataclasses
+
+    block = dict(result.metadata.get("interceptors", {})) if result.metadata else {}
+    if not isinstance(block, dict):
+        block = {}
+    hint = decision.recovery_hint
+    block["rejected_by"] = decision.interceptor_id
+    block["reason"] = f"recovery exhausted after {attempts} attempt(s): {decision.reason or 'no reason'}"
+    block["rejected_output"] = result.output
+    block["gate_rejected"] = True
+    block["recovery_exhausted"] = True
+    block["recovery_attempts"] = attempts
+    if hint is not None:
+        block["last_recovery_hint"] = hint.to_dict()
+    new_metadata = {**(result.metadata or {}), "interceptors": block}
+    return dataclasses.replace(
+        result,
+        success=False,
+        output=None,
+        error=f"interceptor {decision.interceptor_id} rejected node after {attempts} recovery attempt(s)",
+        metadata=new_metadata,
+    )
+
+
 class ContextNodeExecutor:
     """Executes AGENT nodes by resolving ref_id to agents via registry."""
 
@@ -73,8 +113,17 @@ class ContextNodeExecutor:
         budget_guard: BudgetGuard | None = None,
         council_aggregator: VoteAggregator | None = None,
         interceptor_pipeline: InterceptorPipeline | None = None,
+        max_recovery_attempts: int = 2,
     ) -> None:
-        """Initialize with registry and optional compiler/budget for context compilation."""
+        """Initialize with registry and optional compiler/budget for context compilation.
+
+        ``max_recovery_attempts`` (SPEC-01a + RECOVER extension) caps how many times
+        a POST interceptor can ask the executor to re-run the same node with a
+        feedback hint before the result is treated as REJECT. 0 disables recovery
+        (any RECOVER decision is treated as REJECT immediately).
+        """
+        if max_recovery_attempts < 0:
+            raise ValueError("max_recovery_attempts must be >= 0")
         self._registry = agent_registry
         self._run_logger = run_logger
         self._domain_context = domain_context
@@ -89,6 +138,7 @@ class ContextNodeExecutor:
         self._budget_guard = budget_guard
         self._council_aggregator = council_aggregator
         self._interceptor_pipeline = interceptor_pipeline
+        self._max_recovery_attempts = max_recovery_attempts
 
         # NodeResolver chain — first match wins, registered most-specific first.
         # Council short-circuits with its own NodeResult; AuctionResolver picks an
@@ -234,25 +284,59 @@ class ContextNodeExecutor:
         # Compute context hash for provenance
         context_hash = self._compute_context_hash(inputs=resolved_inputs)
 
+        # Recovery loop (SPEC-01a + RECOVER): a POST interceptor may ask the
+        # executor to re-run the agent with a feedback hint. Bounded by
+        # max_recovery_attempts; hints accumulate across attempts so the agent
+        # sees prior failures.
+        recovery_hints: list[RecoveryHint] = []
+        attempts_remaining = self._max_recovery_attempts
+
         try:
-            result = await agent.run(goal=goal, context=agent_context)
-            duration_ms = (perf_counter() - start) * 1000
-
-            # Build provenance link
-            if self._run_logger:
-                link = ProvenanceLink(
-                    id=ProvenanceID(f"prov_{node.id}_{utc_now().isoformat()}"),
-                    llm_call_id=f"llm_{node.id}",
-                    node_id=NodeID(str(node.id)),
-                    agent_id=AgentID(agent_name),
-                    context_sources=self._extract_source_refs(inputs=resolved_inputs),
-                    context_hash=context_hash,
-                    budget_utilization=0.0,
-                    cost_usd=0.0,
+            while True:
+                # Inject accumulated recovery hints into agent_context for THIS attempt.
+                # Show only the LAST MAX_VISIBLE_HINTS — keeps token cost bounded and
+                # ensures the freshest feedback wins when an agent has limited attention.
+                attempt_context = (
+                    agent_context.model_copy(
+                        update={
+                            "global_memory": {
+                                **agent_context.global_memory,
+                                RECOVERY_HINTS_KEY: [
+                                    h.to_dict() for h in recovery_hints[-MAX_VISIBLE_HINTS:]
+                                ],
+                            }
+                        }
+                    )
+                    if recovery_hints
+                    else agent_context
                 )
-                self._run_logger.record_provenance_link(link=link)
 
-            if result.success:
+                result = await agent.run(goal=goal, context=attempt_context)
+                duration_ms = (perf_counter() - start) * 1000
+
+                # Build provenance link (recorded once per attempt for an honest trail)
+                if self._run_logger:
+                    link = ProvenanceLink(
+                        id=ProvenanceID(f"prov_{node.id}_{utc_now().isoformat()}"),
+                        llm_call_id=f"llm_{node.id}",
+                        node_id=NodeID(str(node.id)),
+                        agent_id=AgentID(agent_name),
+                        context_sources=self._extract_source_refs(inputs=resolved_inputs),
+                        context_hash=context_hash,
+                        budget_utilization=0.0,
+                        cost_usd=0.0,
+                    )
+                    self._run_logger.record_provenance_link(link=link)
+
+                if not result.success:
+                    return NodeResult(
+                        node_id=node.id,
+                        success=False,
+                        error=result.error or f"Agent '{agent_name}' failed",
+                        duration_ms=duration_ms,
+                        metadata=_failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata),
+                    )
+
                 output = self._extract_output(result=result)
                 # context_output is the dict form for downstream node resolution
                 context_output = self._extract_output_for_context(result=result)
@@ -277,6 +361,8 @@ class ContextNodeExecutor:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
                 if bid_metadata is not None:
                     merged_metadata["selection"] = bid_metadata
+                if recovery_hints:
+                    merged_metadata["recovery_attempts"] = len(recovery_hints)
                 success_result = NodeResult(
                     node_id=node.id,
                     success=True,
@@ -286,31 +372,59 @@ class ContextNodeExecutor:
                 )
 
                 # POST interceptor chain (SPEC-01a). Runs only on a successful
-                # NodeResult; may REJECT (flip to failure + stamp gate_rejected so
-                # _execute_with_retry won't re-run it). Empty/None = no-op.
-                if self._interceptor_pipeline is not None and not self._interceptor_pipeline.is_empty:
-                    success_result, _post_reject = await self._interceptor_pipeline.run_post(
-                        node=node, context=agent_context, result=success_result
-                    )
-                return success_result
-            else:
-                return NodeResult(
-                    node_id=node.id,
-                    success=False,
-                    error=result.error or f"Agent '{agent_name}' failed",
-                    duration_ms=duration_ms,
-                    metadata=_failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata),
+                # NodeResult; may REJECT (flip to failure + gate_rejected) or
+                # RECOVER (re-run the agent with a hint). Empty/None = no-op.
+                if self._interceptor_pipeline is None or self._interceptor_pipeline.is_empty:
+                    return success_result
+
+                success_result, post_decision = await self._interceptor_pipeline.run_post(
+                    node=node, context=attempt_context, result=success_result
                 )
+
+                if (
+                    post_decision is not None
+                    and post_decision.kind is DecisionKind.RECOVER
+                    and post_decision.recovery_hint is not None
+                    and attempts_remaining > 0
+                ):
+                    recovery_hints.append(post_decision.recovery_hint)
+                    attempts_remaining -= 1
+                    logger.info(
+                        "node %s: POST RECOVER from %s (%s); retrying with hint (%d remaining)",
+                        node.id,
+                        post_decision.interceptor_id,
+                        post_decision.recovery_hint.code,
+                        attempts_remaining,
+                    )
+                    continue
+
+                if post_decision is not None and post_decision.kind is DecisionKind.RECOVER:
+                    # RECOVER requested but budget exhausted (or recovery disabled) —
+                    # downgrade to REJECT so downstream blocks and gate_rejected stamps.
+                    return _apply_recovery_exhausted(
+                        result=success_result,
+                        decision=post_decision,
+                        attempts=len(recovery_hints),
+                    )
+
+                return success_result
 
         except Exception as e:
             duration_ms = (perf_counter() - start) * 1000
             logger.error("Agent '%s' raised exception: %s", agent_name, e, exc_info=True)
+            crash_metadata = _failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata)
+            # Preserve the recovery trail when an agent crashes mid-loop — without
+            # this, ops lose the diagnostic record of which hints were tried before
+            # the crash. The interceptors block keeps the same shape used elsewhere.
+            if recovery_hints:
+                crash_metadata["recovery_attempts"] = len(recovery_hints)
+                crash_metadata["recovery_hints_trail"] = [h.to_dict() for h in recovery_hints]
             return NodeResult(
                 node_id=node.id,
                 success=False,
                 error=str(e),
                 duration_ms=duration_ms,
-                metadata=_failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata),
+                metadata=crash_metadata,
             )
 
     def _build_goal(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> BaseModel | None:
