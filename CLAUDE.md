@@ -132,6 +132,7 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Blueprint Harvest | `create_blueprint_harvester()` + real EventBus → high-scoring run distilled into a reusable blueprint, discoverable by `library.search` (`test_blueprint_harvest_factory.py`) |
 | Composed Engine | ONE DAG run threads council → auction → agent → online-eval → harvest through one composition root (`test_composed_engine.py`); `examples/composed_engine.py` is the runnable canonical "whole engine" demo |
 | Interceptor GATE | GateEvalInterceptor (POST) on a real 2-node DAG: short output fails the gate → downstream never runs; long output passes; empty pipeline = no-op; gate-reject doesn't burn retries (`test_interceptor_gate.py`) |
+| NodeResolver dispatch | execute_node dispatches via the resolver chain (council/auction/static, first-match wins); a custom resolver registered ahead of the built-ins claims its node and short-circuits — adding a node 'kind' is registering a resolver, not a new `if`-branch (`test_resolver_chain.py`) |
 
 ## Pattern Reference
 
@@ -223,7 +224,7 @@ return Result.fail(error="Rate limit exceeded")
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers, NodeResult/ExecutionResult (results.py) | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py`, `results.py` |
+| `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers, NodeResult/ExecutionResult (results.py), NodeResolver dispatch chain (resolvers/ — council/auction/static, first-match wins; replaces the old bespoke if-branches in execute_node) | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py`, `results.py`, `resolvers/` |
 | `interceptors` | The spine (SPEC-01a) — PRE→execute→POST chain every AGENT node passes through; GateEvalInterceptor makes a quality gate genuinely block downstream | `pipeline.py`, `protocols.py`, `gate_eval.py`, `types.py` |
 | `blueprint` | Semantic blueprint definitions for structured generation + the harvest flywheel (learn reusable blueprints from high-scoring runs via `create_blueprint_harvester()`) | `core.py`, `parser.py`, `library.py`, `harvest.py`, `harvest_defaults.py`, `factories.py` |
 | `scheduler` | Task scheduling | `base.py`, `protocols.py` |
