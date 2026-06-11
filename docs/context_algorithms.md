@@ -276,7 +276,7 @@ print(f"Guaranteed optimal: {result.metadata.get('guaranteed_optimal', False)}")
 
 ## Examples
 
-See `cemaf/examples/retrieval_dag_example.py` for a complete example demonstrating:
+See `examples/retrieval_dag_example.py` for a complete example demonstrating:
 - Using different algorithms
 - Comparing results
 - Showing algorithm metadata

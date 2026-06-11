@@ -8,7 +8,7 @@ CEMAF now has a **configuration layer** that connects the `.env.example` vector 
 
 ### 1. `RetrievalSettings` in Config Protocol
 
-Added `RetrievalSettings` to `cemaf/src/cemaf/config/protocols.py`:
+Added `RetrievalSettings` to `src/cemaf/config/protocols.py`:
 
 ```python
 class RetrievalSettings(BaseModel):
@@ -33,7 +33,7 @@ class Settings(BaseModel):
 
 ### 2. Factory Function
 
-Added `create_vector_store_from_config()` to `cemaf/src/cemaf/retrieval/factories.py`:
+Added `create_vector_store_from_config()` to `src/cemaf/retrieval/factories.py`:
 
 ```python
 def create_vector_store_from_config(
@@ -107,7 +107,7 @@ store = create_vector_store_from_config(backend="memory")
 
 ## Protocol Layer Reference
 
-The `VectorStore` protocol is defined in `cemaf/src/cemaf/retrieval/protocols.py`:
+The `VectorStore` protocol is defined in `src/cemaf/retrieval/protocols.py`:
 
 ```python
 @runtime_checkable
