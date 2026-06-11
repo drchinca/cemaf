@@ -227,6 +227,7 @@ class Node:
         options: tuple[str, ...],
         prompt: str = "",
         method: str = "majority",
+        rounds: int = 1,
         description: str = "",
         config: JSON | None = None,
         input_mapping: JSON | None = None,
@@ -235,11 +236,16 @@ class Node:
         """Create a council node (SPEC-10) — N member agents deliberate, a vote decides.
 
         `ref_id` stays empty; `config["council"]` carries the member agent names,
-        the question options/prompt, and the method. The executor resolves members
-        from the registry and runs the council only when an aggregator is wired;
-        output_key receives the winning choice ('' on no-decision). `method` is an
-        `AggregationMethod` value to avoid a dag→council import cycle.
+        the question options/prompt, the method, and the round count. The
+        executor resolves members from the registry and runs the council only
+        when an aggregator is wired; output_key receives the winning choice
+        ('' on no-decision). `method` is an `AggregationMethod` value to avoid a
+        dag→council import cycle. `rounds=N>1` enables multi-round deliberation
+        (peers see prior-round opinions and may revise); default 1 is the
+        single-round ensemble baseline.
         """
+        if rounds < 1:
+            raise ValueError("rounds must be >= 1")
         merged = {
             **(config or {}),
             "council": {
@@ -247,6 +253,7 @@ class Node:
                 "options": list(options),
                 "prompt": prompt,
                 "method": method,
+                "rounds": rounds,
             },
         }
         return cls(

@@ -76,6 +76,75 @@ async def test_council_node_decides_and_steers_dag() -> None:
 
 
 @pytest.mark.asyncio
+async def test_council_node_rounds_propagates_through_resolver() -> None:
+    """``Node.council(rounds=N)`` must reach ``CouncilConfig.rounds`` end-to-end.
+
+    Without this, multi-round deliberation is reachable only by hand-building
+    AgentCouncil outside the DAG — a dead-end seam. This proves the DAG-facing
+    API exposes the primitive: a swing voter that revises in round 2 actually
+    flips the verdict because the resolver honours rounds=2.
+    """
+    from cemaf.interceptors.types import COUNCIL_PRIOR_ROUND_KEY
+
+    class _Swing:
+        def __init__(self) -> None:
+            self._id = AgentID("swing")
+            self._calls = 0
+
+        @property
+        def id(self) -> AgentID:
+            return self._id
+
+        @property
+        def description(self) -> str:
+            return "swing voter"
+
+        @property
+        def skills(self) -> tuple[()]:
+            return ()
+
+        async def run(self, goal: object, context: AgentContext) -> AgentResult[str]:
+            return AgentResult.ok(output="ship", state=AgentState())
+
+        async def deliberate(self, *, question: object, goal: object, context: AgentContext) -> Opinion:
+            self._calls += 1
+            # Round 1: vote with the apparent majority. Round 2: see the
+            # broadcast, decide they're outvoting a holdout, switch.
+            if self._calls == 1:
+                return Opinion(member_id=self._id, choice="ship")
+            prior = context.global_memory.get(COUNCIL_PRIOR_ROUND_KEY, [])
+            assert isinstance(prior, list) and len(prior) == 3, "rounds=2 must broadcast"
+            return Opinion(member_id=self._id, choice="hold")
+
+    registry = AgentRegistry()
+    registry.register_instance(item=_VotingMember("ship_voter", "ship"))
+    registry.register_instance(item=_VotingMember("holder", "hold"))
+    registry.register_instance(item=_Swing())
+    executor = ContextNodeExecutor(agent_registry=registry)
+
+    node = Node.council(
+        id="gate",
+        name="ship gate",
+        members=("ship_voter", "holder", "swing"),
+        options=("ship", "hold"),
+        rounds=2,
+        output_key="verdict",
+    )
+    result = await executor.execute_node(node, Context())
+
+    # Round 1: 2-1 ship. Round 2: swing flips → 2-1 hold.
+    assert result.success
+    assert result.output == "hold"
+    assert result.metadata["council"]["tally"] == {"ship": 1.0, "hold": 2.0}
+
+
+def test_council_node_rejects_rounds_less_than_one() -> None:
+    """The factory must validate rounds at the call site, not silently fall back."""
+    with pytest.raises(ValueError, match="rounds must be >= 1"):
+        Node.council(id="gate", name="g", members=("a",), options=("x", "y"), rounds=0)
+
+
+@pytest.mark.asyncio
 async def test_council_no_decision_is_success_empty_output() -> None:
     """Unanimous method with dissent → no verdict → success + empty output, not failure."""
     registry = _registry(("v1", "approve"), ("v2", "reject"))
