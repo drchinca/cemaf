@@ -645,17 +645,29 @@ class DAGExecutor:
                 # Emit node completion event (run_id + workspace_id for downstream audit / eval correlation)
                 _ws_raw = context.data.get("workspace_id")
                 _workspace_scope = str(_ws_raw) if _ws_raw is not None else None
+                # Surface recovery + interceptor info from result.metadata so
+                # subscribers (audit trail, harvest engine, quality police) can
+                # react to "this node recovered N times" or "this node was
+                # gate-rejected" without needing to re-walk the full result.
+                # Keys are present-only — quiet for the happy path.
+                _recovery_attempts = result.metadata.get("recovery_attempts")
+                _gate_rejected = (result.metadata.get("interceptors") or {}).get("gate_rejected")
+                _payload: dict[str, Any] = {
+                    "node_id": str(node_id),
+                    "success": result.success,
+                    "duration_ms": result.duration_ms,
+                    "error": result.error,
+                    "output": result.output,
+                    "run_id": str(run_id),
+                    "workspace_id": _workspace_scope,
+                }
+                if _recovery_attempts is not None:
+                    _payload["recovery_attempts"] = _recovery_attempts
+                if _gate_rejected:
+                    _payload["gate_rejected"] = True
                 await self._emit_event(
                     event_type=EventType.TASK_COMPLETED if result.success else EventType.TASK_FAILED,
-                    payload={
-                        "node_id": str(node_id),
-                        "success": result.success,
-                        "duration_ms": result.duration_ms,
-                        "error": result.error,
-                        "output": result.output,
-                        "run_id": str(run_id),
-                        "workspace_id": _workspace_scope,
-                    },
+                    payload=_payload,
                 )
 
                 # Fire checkpoint event if node has checkpoint marker
