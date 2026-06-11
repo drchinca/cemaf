@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "step": 1,
+  "label": "hello \u2014 single agent",
+  "dag_name": "hello",
+  "total_ms": 62,
+  "events": [
+    {
+      "t_ms": 0,
+      "kind": "dag.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:00:11.037864+00:00",
+      "attrs": {
+        "dag_name": "hello",
+        "run_id": "run_2026-06-11T23:00:11.037864+00:00"
+      }
+    },
+    {
+      "t_ms": 0,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:00:11.037864+00:00",
+      "attrs": {
+        "node_id": "greet",
+        "node_type": "agent",
+        "agent_id": "Greeter",
+        "inputs": {
+          "text": "world"
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 62,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:00:11.037864+00:00",
+      "attrs": {
+        "node_id": "greet",
+        "success": true,
+        "duration_ms": 61.41866702819243,
+        "error": null,
+        "output": "{\"text\": \"Hello, world!\", \"tokens_in\": 12, \"tokens_out\": 8}",
+        "run_id": "run_2026-06-11T23:00:11.037864+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 62,
+      "kind": "dag.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:00:11.037864+00:00",
+      "attrs": {
+        "dag_name": "hello",
+        "run_id": "run_2026-06-11T23:00:11.037864+00:00",
+        "num_nodes": 1,
+        "duration_ms": 62.17
+      }
+    }
+  ]
+}

@@ -162,7 +162,7 @@ class GreeterAgent(Agent[TextGoal, TextResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: TextGoal, ctx: AgentContext) -> AgentResult[TextResult]:
+    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
         await asyncio.sleep(0.06)
         return AgentResult.ok(
             output=TextResult(text=f"Hello, {goal.text}!", tokens_in=12, tokens_out=8),
@@ -186,7 +186,7 @@ class UpperAgent(Agent[TextGoal, TextResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: TextGoal, ctx: AgentContext) -> AgentResult[TextResult]:
+    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
         await asyncio.sleep(0.05)
         return AgentResult.ok(
             output=TextResult(text=goal.text.upper(), tokens_in=18, tokens_out=18),
@@ -210,9 +210,9 @@ class FetcherA(Agent[TextGoal, TextResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: TextGoal, ctx: AgentContext) -> AgentResult[TextResult]:
+    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
         await asyncio.sleep(0.10)
-        await _emit(ctx, "memory.hit", {"tier": "L0", "hits": 1}, "FetcherA")
+        await _emit(context, "memory.hit", {"tier": "L0", "hits": 1}, "FetcherA")
         return AgentResult.ok(output=TextResult(text="A:" + goal.text, tokens_in=24, tokens_out=10), state=AgentState())
 
 
@@ -229,9 +229,9 @@ class FetcherB(Agent[TextGoal, TextResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: TextGoal, ctx: AgentContext) -> AgentResult[TextResult]:
+    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
         await asyncio.sleep(0.16)
-        await _emit(ctx, "memory.hit", {"tier": "L1", "hits": 3}, "FetcherB")
+        await _emit(context, "memory.hit", {"tier": "L1", "hits": 3}, "FetcherB")
         return AgentResult.ok(output=TextResult(text="B:" + goal.text, tokens_in=64, tokens_out=32), state=AgentState())
 
 
@@ -248,7 +248,7 @@ class JoinerAgent(Agent[ListGoal, TextResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: ListGoal, ctx: AgentContext) -> AgentResult[TextResult]:
+    async def run(self, goal: ListGoal, context: AgentContext) -> AgentResult[TextResult]:
         await asyncio.sleep(0.04)
         return AgentResult.ok(output=TextResult(text=" + ".join(goal.items), tokens_in=20, tokens_out=14), state=AgentState())
 
@@ -278,13 +278,13 @@ class CouncilAgent(Agent[CouncilGoal, CouncilResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: CouncilGoal, ctx: AgentContext) -> AgentResult[CouncilResult]:
+    async def run(self, goal: CouncilGoal, context: AgentContext) -> AgentResult[CouncilResult]:
         ballots = [("ResearcherA", "sufficient", 0.82), ("ResearcherB", "sufficient", 0.71), ("Skeptic", "insufficient", 0.58)]
         for who, vote, weight in ballots:
-            await _emit(ctx, "council.ballot", {"agent": who, "vote": vote, "weight": weight}, "Council")
+            await _emit(context, "council.ballot", {"agent": who, "vote": vote, "weight": weight}, "Council")
             await asyncio.sleep(0.03)
         score = round((0.82 + 0.71) - 0.58, 2)
-        await _emit(ctx, "council.decided", {"decision": "sufficient", "weighted_score": score}, "Council")
+        await _emit(context, "council.decided", {"decision": "sufficient", "weighted_score": score}, "Council")
         return AgentResult.ok(output=CouncilResult(decision="sufficient", weighted_score=score), state=AgentState())
 
 
@@ -322,11 +322,11 @@ class WriterAgent(Agent[WriterGoal, WriterResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: WriterGoal, ctx: AgentContext) -> AgentResult[WriterResult]:
+    async def run(self, goal: WriterGoal, context: AgentContext) -> AgentResult[WriterResult]:
         # auction event stream: 2 candidates compete on fitness × (1 - load)
         for name, fit, load, score in (("Writer.fast", 0.82, 0.05, 0.78), ("Writer.careful", 0.81, 0.64, 0.29)):
-            await _emit(ctx, "auction.bid", {"candidate": name, "fitness": fit, "load": load, "score": score}, "Writer")
-        await _emit(ctx, "auction.award", {"winner": "Writer.fast", "saved_p95_ms": 1400}, "Writer")
+            await _emit(context, "auction.bid", {"candidate": name, "fitness": fit, "load": load, "score": score}, "Writer")
+        await _emit(context, "auction.award", {"winner": "Writer.fast", "saved_p95_ms": 1400}, "Writer")
         await asyncio.sleep(0.32)
         cites = [
             CitationOut(claim=goal.findings[0], src="rfc-8446", supported=True, strength=0.92),
@@ -334,7 +334,7 @@ class WriterAgent(Agent[WriterGoal, WriterResult]):
             CitationOut(claim=goal.findings[2], src="cloudflare-blog-2018", supported=True, strength=0.81),
         ]
         for c in cites:
-            await _emit(ctx, "citation.added", c.model_dump(), "Writer")
+            await _emit(context, "citation.added", c.model_dump(), "Writer")
         return AgentResult.ok(
             output=WriterResult(body="TLS 1.3 reduces handshake to 1-RTT…", citations=cites, tokens_in=248, tokens_out=64),
             state=AgentState(),
@@ -368,11 +368,11 @@ class GateAgent(Agent[GateGoal, GateResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: GateGoal, ctx: AgentContext) -> AgentResult[GateResult]:
+    async def run(self, goal: GateGoal, context: AgentContext) -> AgentResult[GateResult]:
         sub = {"deterministic": 1.0, "semantic": 0.91, "judge": 0.81, "citation_membership": 1.0}
         composite = round(0.2 * sub["deterministic"] + 0.4 * sub["semantic"] + 0.3 * sub["judge"] + 0.1 * sub["citation_membership"], 3)
         verdict = "pass" if composite >= 0.80 else "fail"
-        await _emit(ctx, "eval.completed", {"composite": composite, "threshold": 0.80, "sub": sub, "verdict": verdict}, "QualityGate")
+        await _emit(context, "eval.completed", {"composite": composite, "threshold": 0.80, "sub": sub, "verdict": verdict}, "QualityGate")
         return AgentResult.ok(output=GateResult(composite=composite, verdict=verdict), state=AgentState())
 
 
@@ -400,11 +400,11 @@ class PublisherAgent(Agent[PublishGoal, PublishResult]):
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: PublishGoal, ctx: AgentContext) -> AgentResult[PublishResult]:
+    async def run(self, goal: PublishGoal, context: AgentContext) -> AgentResult[PublishResult]:
         await asyncio.sleep(0.06)
-        await _emit(ctx, "content.published", {"artifact_id": "tls-1-3-brief", "len_chars": len(goal.body)}, "Publisher")
-        await _emit(ctx, "memory.extracted", {"tier": "PROJECT", "items": 4, "scope": "session→project"}, "Publisher")
-        await _emit(ctx, "blueprint.harvested", {"new_blueprint_id": "research-publish-v4", "score": 0.86}, "Publisher")
+        await _emit(context, "content.published", {"artifact_id": "tls-1-3-brief", "len_chars": len(goal.body)}, "Publisher")
+        await _emit(context, "memory.extracted", {"tier": "PROJECT", "items": 4, "scope": "session→project"}, "Publisher")
+        await _emit(context, "blueprint.harvested", {"new_blueprint_id": "research-publish-v4", "score": 0.86}, "Publisher")
         return AgentResult.ok(output=PublishResult(artifact_id="tls-1-3-brief"), state=AgentState())
 
 
@@ -442,7 +442,7 @@ async def step2_chain() -> Path:
     dag = (
         DAG(name="chain")
         .add_node(node=Node.agent(id="greet", name="Greeter", agent_id="Greeter", input_mapping={"text": "world"}, output_key="greeting"))
-        .add_node(node=Node.agent(id="upper", name="Upper", agent_id="Upper", input_mapping={"text": {"$ref": "greeting.text"}}, output_key="loud"))
+        .add_node(node=Node.agent(id="upper", name="Upper", agent_id="Upper", input_mapping={"text": "$$greeting.text$$"}, output_key="loud"))
     )
     dag = dag.add_edge(edge=Edge(source="greet", target="upper"))
     return await _run(registry=reg, dag=dag, step=2, label="chain — 2 agents")
@@ -456,10 +456,10 @@ async def step3_parallel() -> Path:
     dag = (
         DAG(name="parallel")
         .add_node(node=Node.agent(id="seed", name="Greeter", agent_id="Greeter", input_mapping={"text": "x"}, output_key="seed"))
-        .add_node(node=Node.agent(id="a", name="FetcherA", agent_id="FetcherA", input_mapping={"text": {"$ref": "seed.text"}}, output_key="a"))
-        .add_node(node=Node.agent(id="b", name="FetcherB", agent_id="FetcherB", input_mapping={"text": {"$ref": "seed.text"}}, output_key="b"))
+        .add_node(node=Node.agent(id="a", name="FetcherA", agent_id="FetcherA", input_mapping={"text": "$$seed.text$$"}, output_key="a"))
+        .add_node(node=Node.agent(id="b", name="FetcherB", agent_id="FetcherB", input_mapping={"text": "$$seed.text$$"}, output_key="b"))
         .add_node(node=Node.agent(id="join", name="Joiner", agent_id="Joiner",
-                                  input_mapping={"items": [{"$ref": "a.text"}, {"$ref": "b.text"}]}, output_key="merged"))
+                                  input_mapping={"items": ["$$a.text$$", "$$b.text$$"]}, output_key="merged"))
     )
     _r(reg, GreeterAgent(), TextGoal)
     dag = dag.add_edge(edge=Edge(source="seed", target="a")).add_edge(edge=Edge(source="seed", target="b"))
@@ -506,7 +506,7 @@ async def step6_gate() -> Path:
         .add_node(node=Node.agent(id="write", name="Writer", agent_id="Writer",
                                   input_mapping={"findings": ["a", "b", "c"]}, output_key="draft"))
         .add_node(node=Node.agent(id="gate", name="QualityGate", agent_id="Gate",
-                                  input_mapping={"body": {"$ref": "draft.body"}}, output_key="verdict"))
+                                  input_mapping={"body": "$$draft.body$$"}, output_key="verdict"))
     )
     dag = dag.add_edge(edge=Edge(source="write", target="gate"))
     return await _run(registry=reg, dag=dag, step=6, label="quality gate — composite eval")
@@ -529,9 +529,9 @@ async def step7_full() -> Path:
                                   input_mapping={"findings": ["1-RTT handshake", "browser support 2018", "perf gains"]},
                                   output_key="draft"))
         .add_node(node=Node.agent(id="gate", name="QualityGate", agent_id="Gate",
-                                  input_mapping={"body": {"$ref": "draft.body"}}, output_key="verdict"))
+                                  input_mapping={"body": "$$draft.body$$"}, output_key="verdict"))
         .add_node(node=Node.agent(id="pub", name="Publisher", agent_id="Publisher",
-                                  input_mapping={"body": {"$ref": "draft.body"}}, output_key="published"))
+                                  input_mapping={"body": "$$draft.body$$"}, output_key="published"))
     )
     dag = dag.add_edge(edge=Edge(source="seed", target="vote"))
     dag = dag.add_edge(edge=Edge(source="vote", target="write"))
