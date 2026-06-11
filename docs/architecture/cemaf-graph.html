@@ -163,7 +163,7 @@
   /* Row 1 — dual DAG hero */
   .dual-wrap{margin-bottom:14px;overflow:hidden;}
   .dual-scroll{overflow-x:auto;overflow-y:hidden;}
-  .dual-svg{display:block;width:100%;min-width:1180px;height:520px;}
+  .dual-svg{display:block;width:100%;min-width:0;height:600px;}
   /* hoisted counterfactual strip — the investor weapon, above the DAG */
   .cf-strip{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
     margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;
@@ -196,15 +196,43 @@
   .lane-lbl{font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;font-weight:700;
     fill:var(--soft);font-family:ui-sans-serif,-apple-system,sans-serif;}
   .lane-bg{fill:rgba(11,14,20,.45);stroke:rgba(255,255,255,.025);stroke-width:1;}
-  /* agent + context nodes share base styles, differ in fill saturation */
+  /* unified node card system — every chart element shares this shape.
+     Inspired by topology.jsx: single component, --nc per type, stripe-left,
+     mono uppercase eyebrow, title, meta row. */
+  .dnode{--nc:#5fa0e6;}
+  .dnode[data-kind="bootstrap"]{--nc:#8b8fd6;}
+  .dnode[data-kind="static"]{--nc:#5fa0e6;}
+  .dnode[data-kind="council"]{--nc:#ab8ce2;}
+  .dnode[data-kind="auction"]{--nc:#e0a44e;}
+  .dnode[data-kind="gate"]{--nc:#3fc1a3;}
+  .dnode[data-kind="terminal"]{--nc:#e0738f;}
+  .dnode[data-kind="terminal-meta"]{--nc:#b58be8;}
+  .dnode[data-kind="heal"]{--nc:#ec4899;}
+  .dnode[data-kind="ctx"]{--nc:#5fa0e6;}
+  .dnode[data-kind="ctx-compact"]{--nc:#e0a44e;}
   .dnode rect{transition:filter .25s, stroke .25s, opacity .25s;cursor:pointer;}
-  .dnode text.nm{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:700;fill:var(--ink);text-anchor:middle;pointer-events:none;}
-  .dnode text.kd{font-family:ui-monospace,Menlo,monospace;font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;text-anchor:middle;pointer-events:none;fill:rgba(255,255,255,.72);}
-  .dnode text.cost{font-family:ui-monospace,Menlo,monospace;font-size:8.5px;text-anchor:middle;pointer-events:none;fill:rgba(255,255,255,.62);}
+  .dnode rect.body{fill:color-mix(in oklab, var(--nc) 22%, #0d1219);
+    stroke:color-mix(in oklab, var(--nc) 50%, transparent);stroke-width:1;}
+  .dnode rect.stripe{fill:var(--nc);stroke:none;}
+  .dnode text.nm{font-family:ui-monospace,Menlo,monospace;font-size:13px;font-weight:700;
+    fill:color-mix(in oklab, var(--nc) 28%, #ffffff);text-anchor:middle;pointer-events:none;
+    letter-spacing:-.01em;}
+  .dnode text.kd{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.18em;
+    text-transform:uppercase;text-anchor:middle;pointer-events:none;
+    fill:color-mix(in oklab, var(--nc) 65%, #ffffff);font-weight:600;}
+  .dnode text.cost{font-family:ui-monospace,Menlo,monospace;font-size:10px;text-anchor:middle;pointer-events:none;fill:rgba(255,255,255,.7);}
   .dnode .pip{transition:fill .2s;}
-  .dnode.context rect{opacity:.78;}
   .dnode.context text.nm{font-size:10.5px;}
   .dnode.active rect{filter:url(#glow);stroke:#fff;stroke-width:2;}
+  /* breathing halo so the eye lands on the active node instantly */
+  .dnode.active rect:first-of-type{animation:active-breathe 2.2s ease-in-out infinite;}
+  @keyframes active-breathe{
+    0%,100%{filter:url(#glow) drop-shadow(0 0 0 rgba(251,191,77,0));}
+    50%{filter:url(#glow) drop-shadow(0 0 8px rgba(251,191,77,.65));}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .dnode.active rect:first-of-type{animation:none;}
+  }
   .dnode.done rect{stroke:#14b8a6;stroke-width:1.5;}
   .dnode.failed rect{stroke:#ec4899;stroke-width:1.8;}
   .dnode.skipped rect{opacity:.28;}
@@ -1234,6 +1262,21 @@ function calcUsd(c){
 
 /* AGENT lane — 9 default + 2 fail-only nodes
    kinds: bootstrap, static, council, auction, gate, terminal, terminal-meta, heal */
+// Plain-English narration per agent — read by `narrText` under the status line
+const NARRATIVE = {
+  a_bp:       'Starting from a saved blueprint — research-publish-v3 scored 0.91 last time.',
+  a_lib:      'Librarian fetching sources across 3 memory tiers (L0 cache → L1 episodic → L2 semantic).',
+  a_research: 'Researcher synthesizing findings — input grew to 1.4k tokens, will compact next.',
+  a_council:  'Council of 3 agents deliberating — weighted vote: 2 vs 1 → "sufficient", continue.',
+  a_writer1:  'Writer auction — Writer.fast wins (load 5%) over Writer.careful (load 64%).',
+  a_cite:     'CitationTracker attaching 4 citations · checking each claim against retrieved evidence.',
+  a_gate:     'QualityGate scoring — composite over deterministic, semantic, judge, citation-membership.',
+  a_publish:  'Publisher emitting the final artifact + memory promotion to PROJECT scope.',
+  a_harvest:  'BlueprintHarvester distilling this run into a reusable blueprint — added to library.',
+  a_heal:     'Self-healing — judge flagged 1 unsupported claim. Mutating goal: cite only retrieved evidence.',
+  a_writer2:  'Writer attempt 2 — using the patched goal, expecting composite ≥ threshold.',
+};
+
 const A_NODES_BASE = [
   {id:'a_bp',       name:'BlueprintLoader',  kind:'bootstrap', tier:3,
     t0: 100,  t1: 600,
@@ -1612,6 +1655,13 @@ function buildDagView(){
     '<span class="corr"><span id="slLoop" style="color:var(--t1);margin-right:8px;display:none">↻ looping</span>trace=run-7af2</span>';
   inner.appendChild(statusLine);
 
+  // Plain-English narration of what's happening right now
+  const narrLine=document.createElement('div');
+  narrLine.id='narrLine';
+  narrLine.style.cssText='font-size:13px;color:var(--soft);line-height:1.5;margin:-4px 0 12px;padding:0 4px;min-height:1.5em;transition:color .25s;';
+  narrLine.innerHTML='<span style="color:var(--t1)">●</span> <span id="narrText">Starting from a saved blueprint…</span>';
+  inner.appendChild(narrLine);
+
   // ---- Counterfactual strip — hoisted above the DAG so it's the first eyeline ----
   const cfStrip=document.createElement('div'); cfStrip.className='cf-strip';
   cfStrip.innerHTML='<span class="cf-prompt">Try breaking it →</span>'+
@@ -1628,7 +1678,7 @@ function buildDagView(){
   const scroll=document.createElement('div'); scroll.className='dual-scroll';
   const svg=document.createElementNS(SVGNS_LOCAL,'svg');
   svg.setAttribute('class','dual-svg');
-  svg.setAttribute('viewBox','0 0 1240 540');
+  svg.setAttribute('viewBox','0 0 2000 600');
   svg.setAttribute('preserveAspectRatio','xMidYMid meet');
   // local arrow marker (DAG view has its own)
   const defs=document.createElementNS(SVGNS_LOCAL,'defs');
@@ -1668,13 +1718,13 @@ function buildDagView(){
 
   // Layout constants
   const PAD_L=92, PAD_R=24;
-  const AXIS_X0=PAD_L, AXIS_X1=1240-PAD_R;
+  const AXIS_X0=PAD_L, AXIS_X1=2000-PAD_R;
   const AXIS_W=AXIS_X1-AXIS_X0;
-  const Y_AGENT_TOP=28, Y_AGENT_BOT=210;
+  const Y_AGENT_TOP=28, Y_AGENT_BOT=240;
   const Y_AGENT_BAND_H=Y_AGENT_BOT-Y_AGENT_TOP;
-  const Y_CTX_TOP=295, Y_CTX_BOT=455;
+  const Y_CTX_TOP=330, Y_CTX_BOT=510;
   const Y_CTX_BAND_H=Y_CTX_BOT-Y_CTX_TOP;
-  const Y_TIMELINE=495;
+  const Y_TIMELINE=560;
 
   const tToX = t => AXIS_X0 + (t/T_TOTAL)*AXIS_W;
 
@@ -1704,6 +1754,30 @@ function buildDagView(){
   drawLane(Y_AGENT_TOP,Y_AGENT_BOT,'Agent DAG');
   drawLane(Y_CTX_TOP,Y_CTX_BOT,'Context DAG');
 
+  // Subtle recover-lane tint — covers the two split recover sub-rows (heal,
+  // writer2) which sit at absolute y=200 and y=268. Extends below the
+  // nominal agent band; the area between agent and context bands is unused.
+  const recoverY = 162;
+  const recoverH = (268 + 32 + 6) - recoverY; // bottom of writer2 card + breathing room
+  const recBand = document.createElementNS(SVGNS_LOCAL,'rect');
+  recBand.setAttribute('id','recoverBand');
+  recBand.setAttribute('x',AXIS_X0-12); recBand.setAttribute('y',recoverY-4);
+  recBand.setAttribute('width',AXIS_W+24); recBand.setAttribute('height',recoverH+10);
+  recBand.setAttribute('rx',6);
+  recBand.setAttribute('fill','rgba(236,72,153,.04)');
+  recBand.setAttribute('stroke','rgba(236,72,153,.18)');
+  recBand.setAttribute('stroke-dasharray','4 5');
+  recBand.setAttribute('stroke-width','1');
+  svg.appendChild(recBand);
+  const recLbl = document.createElementNS(SVGNS_LOCAL,'text');
+  recLbl.setAttribute('x',AXIS_X1-8); recLbl.setAttribute('y',recoverY+8);
+  recLbl.setAttribute('text-anchor','end');
+  recLbl.setAttribute('font-size','9');
+  recLbl.setAttribute('letter-spacing','.18em');
+  recLbl.setAttribute('fill','rgba(236,72,153,.55)');
+  recLbl.textContent='RECOVER · self-heal lane';
+  svg.appendChild(recLbl);
+
   // ---- shared time axis ----
   const axis=document.createElementNS(SVGNS_LOCAL,'line');
   axis.setAttribute('class','tax-line');
@@ -1727,31 +1801,101 @@ function buildDagView(){
   }
 
   // y-placement maps (avoid overlap on a busy lane)
+  // Two-row alternating layout — eye reads left→right cleanly instead of zigzagging
+  // across 5+ y-fractions. Inspired by topology.jsx (A_ROW = {0:16, 1:120}).
+  // Heal lane uses a deeper third row so the recover band reads as separate.
   const AGENT_Y_FRAC = {
-    a_bp:      0.20,
-    a_lib:     0.55,
-    a_research:0.30,
-    a_council: 0.62,
-    a_writer1: 0.30,
-    a_cite:    0.62,
-    a_gate:    0.30,
-    a_publish: 0.30,
-    a_harvest: 0.62,
-    a_heal:    0.84,
-    a_writer2: 0.62,
+    a_bp:      0.22,  // top
+    a_lib:     0.58,  // bottom
+    a_research:0.22,  // top
+    a_council: 0.58,  // bottom
+    a_writer1: 0.22,  // top
+    a_cite:    0.58,  // bottom
+    a_gate:    0.22,  // top
+    a_publish: 0.22,  // top
+    a_harvest: 0.58,  // bottom
+    a_heal:    0.78,  // recover band — upper sub-row (split for clarity)
+    a_writer2: 0.92,  // recover band — lower sub-row
   };
+  // Absolute y overrides (override the band-frac mapping). Used for the
+  // recover row, which needs more vertical separation than the agent band
+  // can give it once card height (64px) is honored.
+  const AGENT_Y_ABS = {
+    a_heal:    200,  // top edge 168, bottom 232
+    a_writer2: 268,  // top edge 236, bottom 300
+  };
+  // Same alternating rule for context — top row = "incoming knowledge",
+  // bottom row = "produced artifacts" (rough heuristic, helps the read).
   const CTX_Y_FRAC = {
-    c_blueprint:0.18,
-    c_kg:       0.46,
-    c_memory:   0.78,
-    c_research: 0.30,
-    c_compact:  0.55,
-    c_draft:    0.55,
-    c_citations:0.30,
-    c_session:  0.78,
+    c_blueprint:0.22,
+    c_kg:       0.22,
+    c_memory:   0.58,
+    c_research: 0.58,
+    c_compact:  0.22,
+    c_draft:    0.22,
+    c_citations:0.58,
+    c_session:  0.58,
   };
-  function agentY(n){ return Y_AGENT_TOP + Y_AGENT_BAND_H*(AGENT_Y_FRAC[n.id]||0.5); }
+  function agentY(n){
+    if(AGENT_Y_ABS[n.id]!==undefined) return AGENT_Y_ABS[n.id];
+    return Y_AGENT_TOP + Y_AGENT_BAND_H*(AGENT_Y_FRAC[n.id]||0.5);
+  }
   function ctxY(n){   return Y_CTX_TOP   + Y_CTX_BAND_H*(CTX_Y_FRAC[n.id]||0.5); }
+
+  // ---- Layout pre-pass with collision avoidance ------------------------
+  // The width of a node is max(NODE_MIN_W, tToX(t1)-tToX(t0)). For nodes
+  // with short t-spans the min-width dominates and adjacent nodes whose t0
+  // values are close get visually stacked. Per-row post-pass: for each row
+  // (same y, same lane), sort by base x, and shift any later node right
+  // until x_i + w_i + GAP <= x_{i+1}. Cascading shifts propagate.
+  // Edges/wires/checkpoint drops downstream consume LAYOUT[id].x and
+  // LAYOUT[id].x + LAYOUT[id].w so they stay attached to the shifted
+  // positions.
+  const NODE_H_AGENT=64, NODE_MIN_W=144, NODE_H_CTX=58;
+  const ROW_GAP = 16; // min horizontal gap between cards on same row
+  const LAYOUT = {};
+
+  function nodeBaseLayout(n, lane, h){
+    const x0 = tToX(n.t0), x1 = tToX(n.t1);
+    const minW = (lane==='context' && !n.isCompact) ? 110 : (n.isCompact ? 40 : NODE_MIN_W);
+    const w = n.isCompact ? Math.max(40, x1-x0) : Math.max(minW, x1-x0);
+    const y = (lane==='agent') ? agentY(n) : ctxY(n);
+    return {x:x0, w, y, h, lane};
+  }
+
+  // seed base layouts
+  A_NODES_BASE.forEach(n=>{ LAYOUT[n.id] = nodeBaseLayout(n, 'agent', NODE_H_AGENT); });
+  C_NODES_BASE.forEach(n=>{
+    const h = n.isCompact ? 20 : NODE_H_CTX;
+    LAYOUT[n.id] = nodeBaseLayout(n, 'context', h);
+  });
+
+  // post-pass: per-row collision shift
+  function shiftRow(ids){
+    const sorted = ids.slice().sort((a,b)=>LAYOUT[a].x - LAYOUT[b].x);
+    for(let i=1;i<sorted.length;i++){
+      const prev = LAYOUT[sorted[i-1]];
+      const cur  = LAYOUT[sorted[i]];
+      const minX = prev.x + prev.w + ROW_GAP;
+      if(cur.x < minX) cur.x = minX;
+    }
+  }
+  function rowsByY(layoutIds){
+    // group by rounded y so distinct rows separate cleanly
+    const buckets = {};
+    layoutIds.forEach(id=>{
+      const key = Math.round(LAYOUT[id].y);
+      (buckets[key] = buckets[key] || []).push(id);
+    });
+    return Object.values(buckets);
+  }
+  rowsByY(A_NODES_BASE.map(n=>n.id)).forEach(shiftRow);
+  rowsByY(C_NODES_BASE.map(n=>n.id)).forEach(shiftRow);
+
+  // helpers used by edges/wires below
+  const layoutLeft  = id => LAYOUT[id].x;
+  const layoutRight = id => LAYOUT[id].x + LAYOUT[id].w;
+  const layoutMidX  = id => LAYOUT[id].x + LAYOUT[id].w/2;
 
   // ---- edges (drawn before nodes) ----
   const eMap={}, edgeLabelEls=[];
@@ -1769,7 +1913,7 @@ function buildDagView(){
   A_EDGES.forEach(e=>{
     const a=A_NODES_BASE.find(n=>n.id===e.s), b=A_NODES_BASE.find(n=>n.id===e.t);
     if(!a||!b) return;
-    const x0=tToX(a.t1)+2, x1=tToX(b.t0)-2, y0=agentY(a), y1=agentY(b);
+    const x0=layoutRight(a.id)+2, x1=layoutLeft(b.id)-2, y0=agentY(a), y1=agentY(b);
     const p=document.createElementNS(SVGNS_LOCAL,'path');
     p.setAttribute('d', e.alt ? arcBack(x0,y0,x1,y1) : curve(x0,y0,x1,y1));
     p.setAttribute('class','dedge'+(e.alt?' alt':''));
@@ -1795,7 +1939,7 @@ function buildDagView(){
   C_EDGES.forEach(e=>{
     const a=C_NODES_BASE.find(n=>n.id===e.s), b=C_NODES_BASE.find(n=>n.id===e.t);
     if(!a||!b) return;
-    const x0=tToX(a.t1)+2, x1=tToX(b.t0)-2, y0=ctxY(a), y1=ctxY(b);
+    const x0=layoutRight(a.id)+2, x1=layoutLeft(b.id)-2, y0=ctxY(a), y1=ctxY(b);
     const p=document.createElementNS(SVGNS_LOCAL,'path');
     p.setAttribute('d',curve(x0,y0,x1,y1));
     p.setAttribute('class','dedge');
@@ -1810,7 +1954,7 @@ function buildDagView(){
   WIRES.forEach((w)=>{
     const a=A_NODES_BASE.find(n=>n.id===w.agent), c=C_NODES_BASE.find(n=>n.id===w.ctx);
     if(!a||!c) return;
-    const tx=tToX((a.t0+a.t1)/2);
+    const tx=layoutMidX(a.id);
     const x0=tx, y0=agentY(a)+(w.type==='write'?24:-24);
     const x1=tx, y1=ctxY(c)+(w.type==='write'?-20:20);
     const p=document.createElementNS(SVGNS_LOCAL,'path');
@@ -1838,37 +1982,43 @@ function buildDagView(){
   // ---- node rendering ----
   const KIND_TIER={bootstrap:3,static:0,council:3,auction:2,gate:1,terminal:4,'terminal-meta':3,heal:4};
   const nodeMap={};
-  const NODE_H_AGENT=52, NODE_MIN_W=82, NODE_H_CTX=46;
 
   function makeAgentNode(n){
-    const tier = KIND_TIER[n.kind] ?? n.tier;
-    const x0=tToX(n.t0), x1=tToX(n.t1);
-    const w=Math.max(NODE_MIN_W, x1-x0);
+    const L=LAYOUT[n.id];
+    const x0=L.x;
+    const w=L.w;
     const h=NODE_H_AGENT;
-    const y=agentY(n)-h/2;
+    const y=L.y-h/2;
     const g=document.createElementNS(SVGNS_LOCAL,'g');
     g.setAttribute('class','dnode'+(n.kind==='heal'?' heal':'')+(n.kind==='terminal-meta'?' harvest':''));
     g.setAttribute('transform',`translate(${x0},${y})`);
     g.dataset.id=n.id; g.dataset.lane='agent';
+    g.dataset.kind=n.kind;
     if(n.branch) g.dataset.branch=n.branch;
+    // unified card: body + left stripe (one component, --nc drives color)
     const r=document.createElementNS(SVGNS_LOCAL,'rect');
+    r.setAttribute('class','body');
     r.setAttribute('width',w); r.setAttribute('height',h); r.setAttribute('rx',9);
-    r.setAttribute('fill',`url(#dg${tier})`);
-    r.setAttribute('stroke','#0b0e14'); r.setAttribute('stroke-width','1.5');
     g.appendChild(r);
+    const sb=document.createElementNS(SVGNS_LOCAL,'rect');
+    sb.setAttribute('class','stripe');
+    sb.setAttribute('x',0); sb.setAttribute('y',0);
+    sb.setAttribute('width',4); sb.setAttribute('height',h);
+    sb.setAttribute('rx',2);
+    g.appendChild(sb);
     const nm=document.createElementNS(SVGNS_LOCAL,'text');
-    nm.setAttribute('class','nm'); nm.setAttribute('x',w/2); nm.setAttribute('y',16);
+    nm.setAttribute('class','nm'); nm.setAttribute('x',w/2); nm.setAttribute('y',20);
     nm.textContent=n.name; g.appendChild(nm);
     const kd=document.createElementNS(SVGNS_LOCAL,'text');
-    kd.setAttribute('class','kd'); kd.setAttribute('x',w/2); kd.setAttribute('y',30);
+    kd.setAttribute('class','kd'); kd.setAttribute('x',w/2); kd.setAttribute('y',36);
     kd.textContent=n.kind; g.appendChild(kd);
     const cs=document.createElementNS(SVGNS_LOCAL,'text');
-    cs.setAttribute('class','cost'); cs.setAttribute('x',w/2); cs.setAttribute('y',43);
+    cs.setAttribute('class','cost'); cs.setAttribute('x',w/2); cs.setAttribute('y',54);
     const usd=calcUsd(n.cost);
     cs.textContent=`${n.cost.in_tokens}in/${n.cost.out_tokens}out · $${usd.toFixed(4)}`;
     g.appendChild(cs);
     const pip=document.createElementNS(SVGNS_LOCAL,'circle');
-    pip.setAttribute('class','pip'); pip.setAttribute('cx',w-9); pip.setAttribute('cy',9);
+    pip.setAttribute('class','pip'); pip.setAttribute('cx',w-11); pip.setAttribute('cy',11);
     pip.setAttribute('r',3.2); pip.setAttribute('fill','#566');
     g.appendChild(pip);
     g.addEventListener('click',()=>jumpToTime(n.t0+10));
@@ -1883,18 +2033,18 @@ function buildDagView(){
   const SEC_COLORS={system:'#3b82f6',rag:'#14b8a6',history:'#a855f7',reserve:'#566'};
 
   function makeContextNode(n){
-    const x0=tToX(n.t0);
+    const L=LAYOUT[n.id];
+    const x0=L.x;
     // compaction = small badge, not a regular node
     if(n.isCompact){
-      const x1=tToX(n.t1);
-      const cw=Math.max(40, x1-x0);
+      const cw=L.w;
       const g=document.createElementNS(SVGNS_LOCAL,'g');
       g.setAttribute('class','dnode context');
-      g.setAttribute('transform',`translate(${x0},${ctxY(n)-10})`);
-      g.dataset.id=n.id; g.dataset.lane='context';
+      g.setAttribute('transform',`translate(${x0},${L.y-10})`);
+      g.dataset.id=n.id; g.dataset.lane='context'; g.dataset.kind='ctx-compact';
       const r=document.createElementNS(SVGNS_LOCAL,'rect');
+      r.setAttribute('class','body');
       r.setAttribute('width',cw); r.setAttribute('height',20); r.setAttribute('rx',5);
-      r.setAttribute('fill','#0b0e14'); r.setAttribute('stroke','#fbbf4d'); r.setAttribute('stroke-width','1');
       r.setAttribute('stroke-dasharray','3 3');
       g.appendChild(r);
       const tx=document.createElementNS(SVGNS_LOCAL,'text');
@@ -1909,39 +2059,39 @@ function buildDagView(){
       return;
     }
     // Memory tiers group: 3 stacked sub-bars (L0, L1, L2) inside one frame
-    const x1=tToX(n.t1);
     // We size context nodes wider than t1-t0 minimum so the meter fits
-    const w=Math.max(110, x1-x0);
+    const w=L.w;
     const h=NODE_H_CTX;
-    const y=ctxY(n)-h/2;
+    const y=L.y-h/2;
     const g=document.createElementNS(SVGNS_LOCAL,'g');
     g.setAttribute('class','dnode context');
     g.setAttribute('transform',`translate(${x0},${y})`);
-    g.dataset.id=n.id; g.dataset.lane='context';
+    g.dataset.id=n.id; g.dataset.lane='context'; g.dataset.kind='ctx';
+    // unified card body
     const r=document.createElementNS(SVGNS_LOCAL,'rect');
-    r.setAttribute('class','ctx-base');
+    r.setAttribute('class','body ctx-base');
     r.setAttribute('width',w); r.setAttribute('height',h); r.setAttribute('rx',7);
-    r.setAttribute('fill',`url(#dg${n.tier})`); r.setAttribute('opacity',0.78);
-    r.setAttribute('stroke','#0b0e14'); r.setAttribute('stroke-width','1.5');
     g.appendChild(r);
-    // priority stripe (left edge)
+    // priority stripe — color comes from PRIO_COLORS, not the kind --nc, since
+    // priority is the meaningful axis for context nodes
     const stripe=document.createElementNS(SVGNS_LOCAL,'rect');
     stripe.setAttribute('class','ctx-stripe');
     stripe.setAttribute('x',0); stripe.setAttribute('y',0);
-    stripe.setAttribute('width',3); stripe.setAttribute('height',h);
+    stripe.setAttribute('width',4); stripe.setAttribute('height',h);
+    stripe.setAttribute('rx',2);
     stripe.setAttribute('fill',PRIO_COLORS[n.prio]||'#566');
     g.appendChild(stripe);
     // name
     const nm=document.createElementNS(SVGNS_LOCAL,'text');
-    nm.setAttribute('class','nm'); nm.setAttribute('x',w/2); nm.setAttribute('y',13);
+    nm.setAttribute('class','nm'); nm.setAttribute('x',w/2); nm.setAttribute('y',17);
     nm.textContent=n.name; g.appendChild(nm);
     // token meter (left) + sources count (right)
     const meter=document.createElementNS(SVGNS_LOCAL,'text');
-    meter.setAttribute('class','ctx-meter'); meter.setAttribute('x',7); meter.setAttribute('y',26);
+    meter.setAttribute('class','ctx-meter'); meter.setAttribute('x',9); meter.setAttribute('y',34);
     meter.textContent='0t';
     g.appendChild(meter);
     const srcs=document.createElementNS(SVGNS_LOCAL,'text');
-    srcs.setAttribute('class','ctx-srcs'); srcs.setAttribute('x',w-7); srcs.setAttribute('y',26);
+    srcs.setAttribute('class','ctx-srcs'); srcs.setAttribute('x',w-9); srcs.setAttribute('y',34);
     srcs.textContent=`${n.sources}src · ${n.prio}`;
     g.appendChild(srcs);
     // section bar (system|rag|history|reserve), positioned bottom of node
@@ -2007,7 +2157,7 @@ function buildDagView(){
 
     // dotted vertical line from producing agent's bottom edge down to the chip top
     if(producer){
-      const dropX = tToX(producer.t1)-2;
+      const dropX = layoutRight(producer.id)-2;
       const ay = agentY(producer) + 26; // ~bottom of agent box
       const drop=document.createElementNS(SVGNS_LOCAL,'path');
       drop.setAttribute('d',`M${dropX},${ay} L${dropX},${Y_CK_STRIP-2} L${x},${Y_CK_STRIP-2}`);
@@ -2612,6 +2762,19 @@ function buildDagView(){
       stepCounter.innerHTML=`Step ${idx+1}/${total} — <b>${a.name}</b> · branch=${branch}`;
     } else {
       stepCounter.innerHTML=`Step 0/${total} — idle`;
+    }
+    // Plain-English narration — what is happening right now
+    const narrText=document.getElementById('narrText');
+    if(narrText){
+      if(elapsed>=T_TOTAL){
+        narrText.textContent = branch==='fail'
+          ? 'Run complete — recovered from a hallucination via self-heal, published with grounded citations.'
+          : 'Run complete — published with all 4 citations supported, blueprint harvested for reuse.';
+      } else if(a && NARRATIVE[a.id]){
+        narrText.textContent = NARRATIVE[a.id];
+      } else {
+        narrText.textContent = 'Waiting on the next ready node…';
+      }
     }
     scrubEl.value=Math.round((elapsed/T_TOTAL)*1000);
     if(typeof updateStatusLine==='function') updateStatusLine();
