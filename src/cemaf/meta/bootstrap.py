@@ -27,6 +27,7 @@ from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.registry import (
     register_blueprint_selector,
+    register_dream_agent,
     register_meta_agents,
     register_meta_scaffolder,
     register_meta_specifier,
@@ -124,6 +125,12 @@ def create_meta_executor(
             tool_registry=tool_reg,
             audit_trail=audit_trail,
             knowledge_graph=kg,
+        )
+
+    if svc.memory_manager is not None:
+        register_dream_agent(
+            agent_registry,
+            memory_manager=svc.memory_manager,
         )
 
     # Register MetaSpecifier when an OpenSpec workspace is available

@@ -384,6 +384,37 @@ class TestAsyncJobExecutor:
         assert len(errors) == 1
         assert errors[0][0] == "job1"
 
+    async def test_singleton_run_now_rejects_overlapping_execution(self) -> None:
+        """Singleton jobs reject overlapping manual execution attempts."""
+        executor = AsyncJobExecutor()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def handler() -> str:
+            started.set()
+            await release.wait()
+            return "done"
+
+        job = Job(
+            id="job1",
+            name="Singleton Job",
+            trigger=MockTrigger(),
+            handler=handler,
+            metadata={"singleton": True},
+        )
+
+        executor.add_job(job)
+        first_run = asyncio.create_task(executor.run_now("job1"))
+        await started.wait()
+
+        second_result = await executor.run_now("job1")
+        release.set()
+        first_result = await first_run
+
+        assert first_result.status == JobStatus.COMPLETED
+        assert second_result.status == JobStatus.CANCELLED
+        assert second_result.error == "Job already running"
+
 
 # =============================================================================
 # MockScheduler Tests
