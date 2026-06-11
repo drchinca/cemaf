@@ -7,18 +7,22 @@
 <style>
   :root{
     --bg:#0b0e14; --panel:#121723; --line:#1e2636; --ink:#e6ecf5; --soft:#8b97ab;
-    --t0:#3b82f6; --t1:#14b8a6; --t2:#f59e0b; --t3:#a855f7; --t4:#ec4899;
+    --t0:#3b82f6; --t1:#14b8a6; --t2:#f59e0b; --t3:#a855f7; --t4:#ec4899; --cyc:#ef4444;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
     font-family:ui-sans-serif,-apple-system,"Segoe UI",Inter,sans-serif;overflow:hidden;}
-  #wrap{position:fixed;inset:0;
+  #wrap{position:fixed;inset:0;touch-action:none;
     background-image:radial-gradient(rgba(255,255,255,.022) 1px, transparent 0);background-size:34px 34px;}
   #wrap::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
     background:radial-gradient(120% 80% at 50% 40%, transparent 52%, rgba(0,0,0,.6) 100%);}
   svg{width:100%;height:100%;display:block;cursor:grab;position:relative;z-index:2;}
   svg.panning{cursor:grabbing;}
+  .band-label{font-size:11px;font-weight:700;letter-spacing:.32em;text-transform:uppercase;
+    fill:var(--ink);opacity:.13;pointer-events:none;font-family:ui-sans-serif,-apple-system,sans-serif;}
+  .band-line{stroke:var(--ink);stroke-width:1;opacity:.04;pointer-events:none;}
   .edge{fill:none;stroke:#2b3650;transition:opacity .18s,stroke .18s;}
+  .show-cycles .edge.cyc{stroke:var(--cyc);opacity:.85 !important;stroke-dasharray:3 4;}
   .edge.in{stroke:var(--t1);}      /* depends on hovered (its users)  */
   .edge.out{stroke:var(--t2);}     /* hovered depends on (its deps)   */
   .edge.dim{opacity:.04 !important;}
@@ -30,7 +34,9 @@
     pointer-events:none;transition:opacity .18s;}
   .node.dim circle.body{opacity:.15;} .node.dim text{opacity:.1;}
   .node.hot circle.body{stroke:#fff;stroke-width:2.5;filter:url(#glow);}
-  .labels-hidden .node text{opacity:0;} .labels-hidden .node.hot text{opacity:1;}
+  .node.match circle.body{stroke:#fff;stroke-width:2;}
+  .node:focus{outline:none;} .node:focus-visible circle.body{stroke:#fff;stroke-width:2.5;}
+  .labels-hidden .node text{opacity:0;} .labels-hidden .node.hot text,.labels-hidden .node.match text{opacity:1;}
   .flowdot{pointer-events:none;}
   .pulse-ring{fill:none;stroke-width:1.4;opacity:.5;transform-box:fill-box;transform-origin:center;
     animation:pulse 2.8s ease-out infinite;}
@@ -43,7 +49,10 @@
   /* HUD */
   #hud{position:fixed;top:16px;left:16px;background:rgba(18,23,35,.86);backdrop-filter:blur(8px);
     border:1px solid var(--line);border-radius:14px;padding:14px 16px;max-width:300px;z-index:5;}
+  #hudHead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
   #hud h1{font-size:15px;margin:0 0 2px;letter-spacing:.01em;}
+  #hudToggle{background:none;border:1px solid var(--line);border-radius:7px;color:var(--soft);
+    font-size:12px;line-height:1;padding:4px 7px;cursor:pointer;flex:0 0 auto;}
   #hud .sub{font-size:12px;color:var(--soft);margin:0 0 12px;line-height:1.45;}
   .stat{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
   .stat b{background:#0b0e14;border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:11.5px;font-weight:600;}
@@ -52,22 +61,34 @@
   .legend label{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--soft);}
   .legend input{accent-color:var(--t1);}
   .legend .sw{width:11px;height:11px;border-radius:50%;flex:0 0 auto;}
+  .legend .n{margin-left:auto;font-size:10.5px;color:#566;}
+  .legend label.cycles .sw{border-radius:2px;background:var(--cyc);}
+  body.hud-min #hudBody{display:none;}
+  body.hud-min #hud{padding:10px 12px;}
   #info{position:fixed;bottom:16px;left:16px;background:rgba(18,23,35,.86);backdrop-filter:blur(8px);
-    border:1px solid var(--line);border-radius:14px;padding:12px 14px;min-width:230px;z-index:5;font-size:12.5px;}
-  #info .name{font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:700;margin-bottom:6px;}
+    border:1px solid var(--line);border-radius:14px;padding:12px 14px;min-width:230px;max-width:340px;z-index:5;font-size:12.5px;}
+  #info .name{font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:700;margin-bottom:4px;}
+  #info .desc{color:var(--soft);font-size:11.5px;line-height:1.45;margin-bottom:6px;}
   #info .row{color:var(--soft);margin:2px 0;} #info .row b{color:var(--ink);}
-  #info .deps{margin-top:8px;font-size:11.5px;color:var(--soft);max-height:120px;overflow:auto;}
+  #info .deps{margin-top:8px;font-size:11.5px;color:var(--soft);max-height:120px;overflow:auto;line-height:1.7;}
   #info .deps code{color:var(--t2);} #info .by code{color:var(--t1);}
+  #info .deps small{color:#566;}
   #hint{position:fixed;bottom:16px;right:16px;color:var(--soft);font-size:11.5px;text-align:right;z-index:5;line-height:1.6;}
   kbd{background:#0b0e14;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;}
   #search{width:100%;margin-top:2px;background:#0b0e14;border:1px solid var(--line);border-radius:8px;
     color:var(--ink);padding:6px 9px;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;}
   #search::placeholder{color:#566;}
+  #search:focus{outline:none;border-color:var(--t1);}
+  @media (max-width:640px){
+    #hud{max-width:calc(100vw - 24px);}
+    #info{left:12px;right:12px;bottom:12px;min-width:0;max-width:none;}
+    #hint{display:none;}
+  }
 </style>
 </head>
 <body>
 <div id="wrap">
-  <svg id="svg">
+  <svg id="svg" role="img" aria-label="CEMAF module dependency graph">
     <defs>
       <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" stroke="none"/>
@@ -83,6 +104,7 @@
       </filter>
     </defs>
     <g id="view">
+      <g id="bands"></g>
       <g id="edges"></g>
       <g id="flow"></g>
       <g id="nodes"></g>
@@ -91,34 +113,43 @@
 </div>
 
 <div id="hud">
-  <h1>CEMAF · module graph</h1>
-  <p class="sub">Every package in <code>src/cemaf/</code> as a node; every <code>from cemaf.x</code> import as a directed edge. Node size = lines of code. Built from source.</p>
-  <div class="stat"><b><i id="nN">40</i> modules</b><b><i id="nE">154</i> edges</b><b><i>619</i> imports</b></div>
-  <input id="search" placeholder="filter modules…" autocomplete="off"/>
-  <div class="legend" style="margin-top:12px" id="legend"></div>
+  <div id="hudHead">
+    <h1>CEMAF · module graph</h1>
+    <button id="hudToggle" aria-label="collapse panel" title="collapse panel">–</button>
+  </div>
+  <div id="hudBody">
+    <p class="sub">Every top-level module in <code>src/cemaf/</code> as a node; every cross-module import as a directed edge, aggregated per pair. Node size = lines of code. Built from source (AST) — regenerate with <code>build_graph_data.py</code>.</p>
+    <div class="stat"><b><i id="nN">—</i> modules</b><b><i id="nE">—</i> edges</b><b><i id="nI">—</i> imports</b><b><i id="nL">—</i> LOC</b></div>
+    <input id="search" placeholder="filter modules…  ( / )" autocomplete="off" aria-label="filter modules"/>
+    <div class="legend" style="margin-top:12px" id="legend"></div>
+  </div>
 </div>
 
 <div id="info">
   <div class="name" id="iName">hover a module</div>
+  <div class="desc" id="iDesc"></div>
   <div class="row">tier <b id="iTier">—</b> · <b id="iLoc">—</b> LOC</div>
   <div class="row">depends on <b id="iFo">—</b> · used by <b id="iFi">—</b></div>
   <div class="deps" id="iDeps"></div>
 </div>
 
 <div id="hint">
-  <div><kbd>hover/tap</kbd> a module to trace its flow · <kbd>drag</kbd> pin · <kbd>scroll</kbd> zoom · <kbd>drag bg</kbd> pan · <kbd>R</kbd> reheat</div>
+  <div><kbd>hover</kbd> trace flow · <kbd>click</kbd> pin · <kbd>drag</kbd> move · <kbd>scroll</kbd> zoom · <kbd>drag bg</kbd> pan · <kbd>2×click bg</kbd> fit</div>
+  <div><kbd>/</kbd> search · <kbd>F</kbd> fit · <kbd>R</kbd> reheat · <kbd>Esc</kbd> clear</div>
   <div><span style="color:var(--t2)">amber → what it depends on</span> · <span style="color:var(--t1)">teal → what depends on it</span></div>
 </div>
 
 <script>
-const DATA = {"nodes":[{"id":"agents","loc":1462,"fi":6,"fo":10,"tier":2},{"id":"audit","loc":947,"fi":2,"fo":2,"tier":4},{"id":"blueprint","loc":3608,"fi":4,"fo":3,"tier":2},{"id":"cache","loc":860,"fi":2,"fo":4,"tier":2},{"id":"catalog","loc":407,"fi":0,"fo":2,"tier":2},{"id":"citation","loc":1067,"fi":0,"fo":6,"tier":2},{"id":"config","loc":908,"fi":18,"fo":1,"tier":0},{"id":"context","loc":3886,"fi":10,"fo":2,"tier":1},{"id":"core","loc":2189,"fi":38,"fo":2,"tier":0},{"id":"council","loc":513,"fi":1,"fo":3,"tier":2},{"id":"docs_api","loc":689,"fi":0,"fo":3,"tier":2},{"id":"evals","loc":2924,"fi":3,"fo":9,"tier":2},{"id":"events","loc":1217,"fi":9,"fo":3,"tier":1},{"id":"generation","loc":1193,"fi":0,"fo":2,"tier":2},{"id":"improvement","loc":191,"fi":0,"fo":3,"tier":2},{"id":"ingestion","loc":816,"fi":0,"fo":2,"tier":2},{"id":"interceptors","loc":455,"fi":2,"fo":4,"tier":2},{"id":"iteration","loc":490,"fi":0,"fo":2,"tier":2},{"id":"knowledge","loc":811,"fi":2,"fo":3,"tier":4},{"id":"llm","loc":4043,"fi":8,"fo":6,"tier":1},{"id":"mcp","loc":2675,"fi":2,"fo":8,"tier":2},{"id":"memory","loc":4465,"fi":7,"fo":5,"tier":1},{"id":"meta","loc":3646,"fi":0,"fo":12,"tier":4},{"id":"moderation","loc":2082,"fi":2,"fo":4,"tier":2},{"id":"observability","loc":3666,"fi":10,"fo":4,"tier":1},{"id":"orchestration","loc":5277,"fi":2,"fo":14,"tier":3},{"id":"persistence","loc":528,"fi":0,"fo":2,"tier":2},{"id":"replay","loc":431,"fi":0,"fo":3,"tier":2},{"id":"resilience","loc":1698,"fi":3,"fo":3,"tier":2},{"id":"retrieval","loc":1388,"fi":7,"fo":2,"tier":1},{"id":"rlm","loc":1359,"fi":0,"fo":5,"tier":2},{"id":"sandbox","loc":811,"fi":3,"fo":1,"tier":2},{"id":"scheduler","loc":2177,"fi":1,"fo":3,"tier":2},{"id":"security","loc":1203,"fi":0,"fo":3,"tier":2},{"id":"skills","loc":1004,"fi":3,"fo":5,"tier":2},{"id":"state","loc":422,"fi":0,"fo":0,"tier":2},{"id":"streaming","loc":426,"fi":0,"fo":2,"tier":2},{"id":"tools","loc":1105,"fi":6,"fo":3,"tier":2},{"id":"trust","loc":199,"fi":1,"fo":1,"tier":2},{"id":"validation","loc":861,"fi":2,"fo":2,"tier":2}],"edges":[{"s":"citation","t":"core","w":5},{"s":"citation","t":"retrieval","w":2},{"s":"citation","t":"validation","w":1},{"s":"citation","t":"config","w":1},{"s":"citation","t":"context","w":1},{"s":"citation","t":"events","w":2},{"s":"interceptors","t":"agents","w":4},{"s":"interceptors","t":"orchestration","w":6},{"s":"interceptors","t":"core","w":1},{"s":"interceptors","t":"evals","w":1},{"s":"evals","t":"core","w":14},{"s":"evals","t":"retrieval","w":1},{"s":"evals","t":"tools","w":1},{"s":"evals","t":"events","w":2},{"s":"evals","t":"observability","w":3},{"s":"evals","t":"llm","w":2},{"s":"evals","t":"config","w":2},{"s":"evals","t":"agents","w":1},{"s":"evals","t":"skills","w":1},{"s":"ingestion","t":"context","w":5},{"s":"ingestion","t":"core","w":1},{"s":"tools","t":"core","w":10},{"s":"tools","t":"llm","w":2},{"s":"tools","t":"sandbox","w":1},{"s":"llm","t":"core","w":15},{"s":"llm","t":"observability","w":7},{"s":"llm","t":"resilience","w":8},{"s":"llm","t":"config","w":2},{"s":"llm","t":"agents","w":1},{"s":"llm","t":"moderation","w":1},{"s":"context","t":"core","w":15},{"s":"context","t":"llm","w":4},{"s":"core","t":"observability","w":2},{"s":"core","t":"context","w":2},{"s":"memory","t":"core","w":33},{"s":"memory","t":"retrieval","w":3},{"s":"memory","t":"context","w":6},{"s":"memory","t":"config","w":1},{"s":"memory","t":"events","w":3},{"s":"cache","t":"context","w":1},{"s":"cache","t":"core","w":7},{"s":"cache","t":"retrieval","w":1},{"s":"cache","t":"config","w":2},{"s":"council","t":"agents","w":3},{"s":"council","t":"core","w":3},{"s":"council","t":"interceptors","w":1},{"s":"config","t":"core","w":3},{"s":"security","t":"core","w":3},{"s":"security","t":"memory","w":3},{"s":"security","t":"audit","w":2},{"s":"catalog","t":"core","w":2},{"s":"catalog","t":"config","w":2},{"s":"scheduler","t":"core","w":11},{"s":"scheduler","t":"observability","w":3},{"s":"scheduler","t":"config","w":1},{"s":"meta","t":"agents","w":10},{"s":"meta","t":"audit","w":5},{"s":"meta","t":"blueprint","w":5},{"s":"meta","t":"knowledge","w":6},{"s":"meta","t":"mcp","w":8},{"s":"meta","t":"orchestration","w":7},{"s":"meta","t":"tools","w":4},{"s":"meta","t":"core","w":11},{"s":"meta","t":"llm","w":2},{"s":"meta","t":"memory","w":4},{"s":"meta","t":"scheduler","w":6},{"s":"meta","t":"skills","w":1},{"s":"agents","t":"blueprint","w":1},{"s":"agents","t":"core","w":12},{"s":"agents","t":"llm","w":2},{"s":"agents","t":"observability","w":1},{"s":"agents","t":"retrieval","w":2},{"s":"agents","t":"evals","w":4},{"s":"agents","t":"config","w":1},{"s":"agents","t":"resilience","w":1},{"s":"agents","t":"cache","w":1},{"s":"agents","t":"skills","w":1},{"s":"mcp","t":"core","w":10},{"s":"mcp","t":"blueprint","w":2},{"s":"mcp","t":"events","w":2},{"s":"mcp","t":"memory","w":3},{"s":"mcp","t":"observability","w":4},{"s":"mcp","t":"tools","w":3},{"s":"mcp","t":"config","w":2},{"s":"observability","t":"core","w":16},{"s":"observability","t":"config","w":1},{"s":"observability","t":"context","w":3},{"s":"observability","t":"llm","w":2},{"s":"streaming","t":"core","w":2},{"s":"streaming","t":"config","w":2},{"s":"docs_api","t":"core","w":3},{"s":"docs_api","t":"tools","w":1},{"s":"docs_api","t":"mcp","w":3},{"s":"retrieval","t":"core","w":7},{"s":"retrieval","t":"config","w":2},{"s":"audit","t":"core","w":3},{"s":"audit","t":"events","w":2},{"s":"resilience","t":"core","w":3},{"s":"resilience","t":"config","w":2},{"s":"resilience","t":"observability","w":1},{"s":"rlm","t":"context","w":8},{"s":"rlm","t":"core","w":5},{"s":"rlm","t":"llm","w":4},{"s":"rlm","t":"observability","w":1},{"s":"rlm","t":"tools","w":1},{"s":"knowledge","t":"core","w":5},{"s":"knowledge","t":"memory","w":3},{"s":"knowledge","t":"events","w":1},{"s":"sandbox","t":"core","w":1},{"s":"persistence","t":"core","w":5},{"s":"persistence","t":"config","w":1},{"s":"improvement","t":"core","w":2},{"s":"improvement","t":"memory","w":1},{"s":"improvement","t":"trust","w":1},{"s":"orchestration","t":"context","w":20},{"s":"orchestration","t":"core","w":37},{"s":"orchestration","t":"agents","w":12},{"s":"orchestration","t":"llm","w":4},{"s":"orchestration","t":"blueprint","w":1},{"s":"orchestration","t":"council","w":6},{"s":"orchestration","t":"evals","w":3},{"s":"orchestration","t":"events","w":3},{"s":"orchestration","t":"interceptors","w":3},{"s":"orchestration","t":"knowledge","w":1},{"s":"orchestration","t":"memory","w":7},{"s":"orchestration","t":"moderation","w":3},{"s":"orchestration","t":"observability","w":16},{"s":"orchestration","t":"retrieval","w":2},{"s":"trust","t":"core","w":2},{"s":"skills","t":"core","w":10},{"s":"skills","t":"resilience","w":1},{"s":"skills","t":"cache","w":1},{"s":"skills","t":"tools","w":4},{"s":"iteration","t":"sandbox","w":3},{"s":"iteration","t":"core","w":2},{"s":"replay","t":"context","w":1},{"s":"replay","t":"core","w":3},{"s":"replay","t":"observability","w":2},{"s":"events","t":"core","w":2},{"s":"events","t":"config","w":2},{"s":"events","t":"memory","w":2},{"s":"validation","t":"core","w":4},{"s":"validation","t":"config","w":2},{"s":"generation","t":"core","w":1},{"s":"generation","t":"config","w":2},{"s":"blueprint","t":"events","w":3},{"s":"blueprint","t":"core","w":7},{"s":"blueprint","t":"validation","w":1},{"s":"moderation","t":"core","w":2},{"s":"moderation","t":"context","w":3},{"s":"moderation","t":"config","w":2},{"s":"moderation","t":"events","w":2},{"s":"skills","t":"sandbox","w":2},{"s":"mcp","t":"retrieval","w":1}]};
+/*GRAPH-DATA*/const DATA = {"nodes":[{"id":"agents","loc":1455,"fi":8,"fo":8,"tier":2,"d":"Agent[Goal, Result] ABC, registry, built-in agents, auction selection"},{"id":"audit","loc":938,"fi":2,"fo":2,"tier":4,"d":"EventBus subscriber \u2192 audit trail, quality trends, anomaly detection"},{"id":"blueprint","loc":3592,"fi":5,"fo":3,"tier":2,"d":"Semantic blueprints for structured generation + harvest flywheel"},{"id":"bootstrap","loc":65,"fi":1,"fo":2,"tier":3,"d":"create_executor() composition root \u2014 wires RuntimeServices"},{"id":"cache","loc":853,"fi":0,"fo":4,"tier":2,"d":"Result caching with TTL"},{"id":"catalog","loc":402,"fi":0,"fo":2,"tier":2,"d":"Discover external models and artifacts through typed adapters"},{"id":"citation","loc":1060,"fi":0,"fo":6,"tier":2,"d":"Source citation tracking"},{"id":"cli","loc":326,"fi":0,"fo":11,"tier":2,"d":"Command-line interface"},{"id":"config","loc":900,"fi":18,"fo":1,"tier":0,"d":"Settings, env loading, provider registry"},{"id":"context","loc":3873,"fi":11,"fo":2,"tier":1,"d":"Immutable Context, compiler, token budgets, provenance patches"},{"id":"core","loc":2174,"fi":39,"fo":2,"tier":0,"d":"Domain types, enums, Result[T], utc_now(), generate_id()"},{"id":"council","loc":508,"fi":1,"fo":3,"tier":2,"d":"Deliberative multi-agent decisions \u2014 vote aggregation, ballots"},{"id":"docs_api","loc":683,"fi":1,"fo":3,"tier":2,"d":"Expose CEMAF's own docs and docstrings to LLMs"},{"id":"evals","loc":2910,"fi":4,"fo":9,"tier":2,"d":"Deterministic / semantic / LLM-judge evaluation, online pipeline"},{"id":"events","loc":1209,"fi":10,"fo":3,"tier":1,"d":"EventBus pub/sub with typed EventType enum"},{"id":"generation","loc":1189,"fi":0,"fo":2,"tier":2,"d":"Content generation strategies"},{"id":"improvement","loc":189,"fi":0,"fo":3,"tier":2,"d":"Self-learning feedback loop"},{"id":"ingestion","loc":812,"fi":0,"fo":2,"tier":2,"d":"Data ingestion pipelines"},{"id":"interceptors","loc":450,"fi":2,"fo":4,"tier":3,"d":"PRE\u2192execute\u2192POST chain on every AGENT node; quality gates"},{"id":"iteration","loc":485,"fi":0,"fo":2,"tier":2,"d":"Failure-feedback loop \u2014 parse failures, bounded re-attempts"},{"id":"knowledge","loc":805,"fi":2,"fo":3,"tier":4,"d":"Knowledge graph backed by MemoryManager; hub-and-spoke cache"},{"id":"llm","loc":4026,"fi":9,"fo":6,"tier":1,"d":"LLMClient protocol, provider adapters, resilient wrapper, router"},{"id":"mcp","loc":2654,"fi":3,"fo":8,"tier":2,"d":"Model Context Protocol bridges and adapter"},{"id":"memory","loc":4443,"fi":8,"fo":5,"tier":1,"d":"Semantic + episodic memory, tiers, dedup, extraction, sessions"},{"id":"meta","loc":3447,"fi":0,"fo":12,"tier":4,"d":"Self-hosting agents, tools, DAGs \u2014 CEMAF introspecting itself"},{"id":"moderation","loc":2075,"fi":2,"fo":4,"tier":2,"d":"Content safety pipeline"},{"id":"observability","loc":3646,"fi":9,"fo":4,"tier":1,"d":"Structured logging, Prometheus metrics, health, tracing"},{"id":"orchestration","loc":5255,"fi":3,"fo":14,"tier":3,"d":"DAGExecutor, node executors, RuntimeServices, resolvers"},{"id":"persistence","loc":524,"fi":0,"fo":2,"tier":2,"d":"Run and entity persistence"},{"id":"replay","loc":427,"fi":0,"fo":3,"tier":2,"d":"Execution replay and debugging"},{"id":"resilience","loc":1689,"fi":1,"fo":3,"tier":1,"d":"Retry, circuit breaker, rate limiter"},{"id":"retrieval","loc":1379,"fi":7,"fo":2,"tier":1,"d":"VectorStore and EmbeddingProvider protocols"},{"id":"rlm","loc":1354,"fi":0,"fo":5,"tier":2,"d":"Recursive Language Model \u2014 divide-and-conquer context queries"},{"id":"sandbox","loc":806,"fi":3,"fo":1,"tier":2,"d":"Confined, bounded, env-scrubbed subprocess execution"},{"id":"scheduler","loc":1101,"fi":1,"fo":2,"tier":2,"d":"Task scheduling \u2014 triggers, gates, async job executor"},{"id":"security","loc":1198,"fi":0,"fo":3,"tier":2,"d":"Data masking, RBAC/ABAC, audit signing"},{"id":"skills","loc":995,"fi":2,"fo":3,"tier":2,"d":"Skill protocol + built-in kits (file/shell/test coding kit)"},{"id":"state","loc":417,"fi":0,"fo":0,"tier":2,"d":"Typed, persisted, observable state machines"},{"id":"streaming","loc":422,"fi":0,"fo":2,"tier":2,"d":"Streaming response handling"},{"id":"tools","loc":1099,"fi":7,"fo":3,"tier":2,"d":"Tool ABC, ToolSchema, registry, @tool decorator"},{"id":"trust","loc":197,"fi":1,"fo":1,"tier":2,"d":"Reliability tracking for dynamically generated tools and skills"},{"id":"validation","loc":855,"fi":2,"fo":2,"tier":2,"d":"Input/output validation"}],"edges":[{"s":"agents","t":"blueprint","w":1},{"s":"agents","t":"config","w":1},{"s":"agents","t":"core","w":10},{"s":"agents","t":"evals","w":4},{"s":"agents","t":"llm","w":2},{"s":"agents","t":"observability","w":1},{"s":"agents","t":"retrieval","w":2},{"s":"agents","t":"skills","w":1},{"s":"audit","t":"core","w":3},{"s":"audit","t":"events","w":2},{"s":"blueprint","t":"core","w":7},{"s":"blueprint","t":"events","w":3},{"s":"blueprint","t":"validation","w":1},{"s":"bootstrap","t":"agents","w":1},{"s":"bootstrap","t":"orchestration","w":4},{"s":"cache","t":"config","w":2},{"s":"cache","t":"context","w":1},{"s":"cache","t":"core","w":7},{"s":"cache","t":"retrieval","w":1},{"s":"catalog","t":"config","w":2},{"s":"catalog","t":"core","w":2},{"s":"citation","t":"config","w":1},{"s":"citation","t":"context","w":1},{"s":"citation","t":"core","w":5},{"s":"citation","t":"events","w":2},{"s":"citation","t":"retrieval","w":2},{"s":"citation","t":"validation","w":1},{"s":"cli","t":"agents","w":1},{"s":"cli","t":"blueprint","w":6},{"s":"cli","t":"context","w":1},{"s":"cli","t":"core","w":1},{"s":"cli","t":"docs_api","w":5},{"s":"cli","t":"evals","w":2},{"s":"cli","t":"events","w":1},{"s":"cli","t":"llm","w":1},{"s":"cli","t":"mcp","w":1},{"s":"cli","t":"memory","w":1},{"s":"cli","t":"tools","w":1},{"s":"config","t":"core","w":3},{"s":"context","t":"core","w":15},{"s":"context","t":"llm","w":4},{"s":"core","t":"context","w":2},{"s":"core","t":"observability","w":2},{"s":"council","t":"agents","w":3},{"s":"council","t":"core","w":3},{"s":"council","t":"interceptors","w":1},{"s":"docs_api","t":"core","w":3},{"s":"docs_api","t":"mcp","w":2},{"s":"docs_api","t":"tools","w":1},{"s":"evals","t":"agents","w":1},{"s":"evals","t":"config","w":2},{"s":"evals","t":"core","w":14},{"s":"evals","t":"events","w":2},{"s":"evals","t":"llm","w":2},{"s":"evals","t":"observability","w":3},{"s":"evals","t":"retrieval","w":1},{"s":"evals","t":"skills","w":1},{"s":"evals","t":"tools","w":1},{"s":"events","t":"config","w":2},{"s":"events","t":"core","w":2},{"s":"events","t":"memory","w":2},{"s":"generation","t":"config","w":2},{"s":"generation","t":"core","w":1},{"s":"improvement","t":"core","w":2},{"s":"improvement","t":"memory","w":1},{"s":"improvement","t":"trust","w":1},{"s":"ingestion","t":"context","w":5},{"s":"ingestion","t":"core","w":1},{"s":"interceptors","t":"agents","w":4},{"s":"interceptors","t":"core","w":1},{"s":"interceptors","t":"evals","w":1},{"s":"interceptors","t":"orchestration","w":6},{"s":"iteration","t":"core","w":2},{"s":"iteration","t":"sandbox","w":3},{"s":"knowledge","t":"core","w":5},{"s":"knowledge","t":"events","w":1},{"s":"knowledge","t":"memory","w":3},{"s":"llm","t":"agents","w":1},{"s":"llm","t":"config","w":2},{"s":"llm","t":"core","w":15},{"s":"llm","t":"moderation","w":1},{"s":"llm","t":"observability","w":7},{"s":"llm","t":"resilience","w":8},{"s":"mcp","t":"blueprint","w":2},{"s":"mcp","t":"config","w":2},{"s":"mcp","t":"core","w":10},{"s":"mcp","t":"events","w":2},{"s":"mcp","t":"memory","w":3},{"s":"mcp","t":"observability","w":4},{"s":"mcp","t":"retrieval","w":1},{"s":"mcp","t":"tools","w":3},{"s":"memory","t":"config","w":1},{"s":"memory","t":"context","w":6},{"s":"memory","t":"core","w":33},{"s":"memory","t":"events","w":3},{"s":"memory","t":"retrieval","w":3},{"s":"meta","t":"agents","w":7},{"s":"meta","t":"audit","w":5},{"s":"meta","t":"blueprint","w":5},{"s":"meta","t":"bootstrap","w":1},{"s":"meta","t":"core","w":8},{"s":"meta","t":"knowledge","w":6},{"s":"meta","t":"llm","w":2},{"s":"meta","t":"mcp","w":8},{"s":"meta","t":"memory","w":2},{"s":"meta","t":"orchestration","w":4},{"s":"meta","t":"scheduler","w":1},{"s":"meta","t":"tools","w":4},{"s":"moderation","t":"config","w":2},{"s":"moderation","t":"context","w":3},{"s":"moderation","t":"core","w":2},{"s":"moderation","t":"events","w":2},{"s":"observability","t":"config","w":1},{"s":"observability","t":"context","w":3},{"s":"observability","t":"core","w":16},{"s":"observability","t":"llm","w":2},{"s":"orchestration","t":"agents","w":12},{"s":"orchestration","t":"blueprint","w":1},{"s":"orchestration","t":"context","w":20},{"s":"orchestration","t":"core","w":37},{"s":"orchestration","t":"council","w":6},{"s":"orchestration","t":"evals","w":3},{"s":"orchestration","t":"events","w":3},{"s":"orchestration","t":"interceptors","w":3},{"s":"orchestration","t":"knowledge","w":1},{"s":"orchestration","t":"llm","w":4},{"s":"orchestration","t":"memory","w":7},{"s":"orchestration","t":"moderation","w":3},{"s":"orchestration","t":"observability","w":16},{"s":"orchestration","t":"retrieval","w":2},{"s":"persistence","t":"config","w":1},{"s":"persistence","t":"core","w":5},{"s":"replay","t":"context","w":1},{"s":"replay","t":"core","w":3},{"s":"replay","t":"observability","w":2},{"s":"resilience","t":"config","w":2},{"s":"resilience","t":"core","w":3},{"s":"resilience","t":"observability","w":1},{"s":"retrieval","t":"config","w":2},{"s":"retrieval","t":"core","w":7},{"s":"rlm","t":"context","w":8},{"s":"rlm","t":"core","w":5},{"s":"rlm","t":"llm","w":2},{"s":"rlm","t":"observability","w":1},{"s":"rlm","t":"tools","w":1},{"s":"sandbox","t":"core","w":1},{"s":"scheduler","t":"config","w":2},{"s":"scheduler","t":"core","w":6},{"s":"security","t":"audit","w":2},{"s":"security","t":"core","w":3},{"s":"security","t":"memory","w":3},{"s":"skills","t":"core","w":10},{"s":"skills","t":"sandbox","w":2},{"s":"skills","t":"tools","w":4},{"s":"streaming","t":"config","w":2},{"s":"streaming","t":"core","w":2},{"s":"tools","t":"core","w":10},{"s":"tools","t":"llm","w":2},{"s":"tools","t":"sandbox","w":1},{"s":"trust","t":"core","w":2},{"s":"validation","t":"config","w":2},{"s":"validation","t":"core","w":4}]};/*END-GRAPH-DATA*/
 const TIERS = {0:["Foundation","#3b82f6"],1:["Shared fabric","#14b8a6"],2:["Capabilities","#f59e0b"],3:["Orchestration","#a855f7"],4:["Self-hosting","#ec4899"]};
 let W = innerWidth, H = innerHeight;
 const svg = document.getElementById('svg');
 const gView = document.getElementById('view');
+const gBands = document.getElementById('bands');
 const gEdges = document.getElementById('edges');
 const gFlow = document.getElementById('flow');
 const gNodes = document.getElementById('nodes');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---- model ----
 // tier target band (y): t0 bottom … t4 top (deps flow downward to core)
@@ -133,19 +164,44 @@ const N = DATA.nodes.map((n,i)=>{
 });
 const byId = Object.fromEntries(N.map(n=>[n.id,n]));
 const E = DATA.edges.map(e=>({...e, s:byId[e.s], t:byId[e.t]}));
-// adjacency for hover
-const outAdj={},inAdj={};
-N.forEach(n=>{outAdj[n.id]=new Set();inAdj[n.id]=new Set();});
-E.forEach(e=>{outAdj[e.s.id].add(e.t.id);inAdj[e.t.id].add(e.s.id);});
+// adjacency for hover; weights for the info panel
+const outAdj={},inAdj={},outW={},inW={};
+N.forEach(n=>{outAdj[n.id]=new Set();inAdj[n.id]=new Set();outW[n.id]={};inW[n.id]={};});
+E.forEach(e=>{
+  outAdj[e.s.id].add(e.t.id); inAdj[e.t.id].add(e.s.id);
+  outW[e.s.id][e.t.id]=e.w;   inW[e.t.id][e.s.id]=e.w;
+});
+// circular dependencies: package pairs that import each other
+const edgeKeys = new Set(E.map(e=>e.s.id+'>'+e.t.id));
+E.forEach(e=>{ e.cyc = edgeKeys.has(e.t.id+'>'+e.s.id); });
+const cycPairs = new Set(E.filter(e=>e.cyc).map(e=>[e.s.id,e.t.id].sort().join('↔')));
 
 document.getElementById('nN').textContent=N.length;
 document.getElementById('nE').textContent=E.length;
+document.getElementById('nI').textContent=E.reduce((a,e)=>a+e.w,0);
+document.getElementById('nL').textContent=Math.round(N.reduce((a,n)=>a+n.loc,0)/1000)+'k';
 
 // ---- build SVG ----
 const SVGNS='http://www.w3.org/2000/svg';
+function drawBands(){
+  gBands.innerHTML='';
+  Object.keys(TIERS).forEach(t=>{
+    const y=bandY(+t);
+    const ln=document.createElementNS(SVGNS,'line');
+    ln.setAttribute('class','band-line');
+    ln.setAttribute('x1',-W); ln.setAttribute('x2',W*2);
+    ln.setAttribute('y1',y); ln.setAttribute('y2',y);
+    const tx=document.createElementNS(SVGNS,'text');
+    tx.setAttribute('class','band-label');
+    tx.setAttribute('x',26); tx.setAttribute('y',y-8);
+    tx.textContent=TIERS[t][0];
+    gBands.appendChild(ln); gBands.appendChild(tx);
+  });
+}
+drawBands();
 const edgeEls = E.map(e=>{
   const p=document.createElementNS(SVGNS,'path');
-  p.setAttribute('class','edge'); p.setAttribute('marker-end','url(#arrow)');
+  p.setAttribute('class','edge'+(e.cyc?' cyc':'')); p.setAttribute('marker-end','url(#arrow)');
   p.dataset.s=e.s.id; p.dataset.t=e.t.id; gEdges.appendChild(p); return p;
 });
 // flow particles: count scales with import weight; phase seeded deterministically
@@ -162,6 +218,7 @@ E.forEach((e,ei)=>{
 const nodeEls = N.map(n=>{
   const g=document.createElementNS(SVGNS,'g');
   g.setAttribute('class','node'); g.dataset.id=n.id; g.setAttribute('tabindex','0');
+  g.setAttribute('aria-label',`${n.id}: ${n.d||''} ${n.loc} lines, depends on ${n.fo}, used by ${n.fi}`);
   // breathing ring for the gravity wells (most depended-on)
   if(n.fi>=10){
     const ring=document.createElementNS(SVGNS,'circle');
@@ -180,6 +237,7 @@ const nodeEls = N.map(n=>{
   g.addEventListener('pointerdown',ev=>startDrag(ev,n));
   g.addEventListener('focus',()=>hover(n.id));
   g.addEventListener('blur',()=>hover(null));
+  g.addEventListener('keydown',ev=>{ if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();togglePin(n.id);} });
   return {g,c,tx,n};
 });
 // edge weight → width + resting opacity (load-bearing spines read heavier)
@@ -190,33 +248,55 @@ edgeEls.forEach((p,i)=>{
   p.style.opacity=(0.16+t*0.5).toFixed(2);
 });
 
-// ---- legend / tier filter ----
+// ---- legend / tier filter / cycles toggle ----
 const tierOn={0:1,1:1,2:1,3:1,4:1};
 const legend=document.getElementById('legend');
 Object.entries(TIERS).forEach(([t,[name,col]])=>{
+  const count=N.filter(n=>n.tier===+t).length;
   const l=document.createElement('label');
-  l.innerHTML=`<input type=checkbox checked data-t=${t}><span class=sw style="background:${col}"></span>${name}`;
+  l.innerHTML=`<input type=checkbox checked data-t=${t}><span class=sw style="background:${col}"></span>${name}<span class=n>${count}</span>`;
   l.querySelector('input').addEventListener('change',e=>{tierOn[t]=e.target.checked?1:0;applyFilter();});
   legend.appendChild(l);
 });
+const cycLabel=document.createElement('label');
+cycLabel.className='cycles';
+cycLabel.innerHTML=`<input type=checkbox><span class=sw></span>circular deps<span class=n>${cycPairs.size} pairs</span>`;
+cycLabel.querySelector('input').addEventListener('change',e=>svg.classList.toggle('show-cycles',e.target.checked));
+legend.appendChild(cycLabel);
 function applyFilter(){
   nodeEls.forEach(({g,n})=>g.style.display=tierOn[n.tier]?'':'none');
   edgeEls.forEach(p=>{p.style.display=(tierOn[byId[p.dataset.s].tier]&&tierOn[byId[p.dataset.t].tier])?'':'none';});
+  particles.forEach(pt=>{pt.dot.style.display=(tierOn[pt.e.s.tier]&&tierOn[pt.e.t.tier])?'':'none';});
+  if(pinnedHover && byId[pinnedHover] && !tierOn[byId[pinnedHover].tier]){ pinnedHover=null; clearHL(); info(null); }
 }
 
 // ---- search ----
-document.getElementById('search').addEventListener('input',e=>{
-  const q=e.target.value.trim().toLowerCase();
+const searchEl=document.getElementById('search');
+function searchMatches(q){
+  return N.filter(n=>n.id.includes(q))
+          .sort((a,b)=>(b.id.startsWith(q)-a.id.startsWith(q))||a.id.length-b.id.length);
+}
+function applySearch(){
+  const q=searchEl.value.trim().toLowerCase();
   nodeEls.forEach(({g,n})=>{
     const hit=!q||n.id.includes(q);
     g.classList.toggle('dim',!hit);
+    g.classList.toggle('match',!!q&&hit);
   });
+}
+searchEl.addEventListener('input',applySearch);
+searchEl.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ clearAll(); searchEl.blur(); }
+  if(e.key==='Enter'){
+    const q=searchEl.value.trim().toLowerCase(); if(!q)return;
+    const hit=searchMatches(q)[0]; if(!hit)return;
+    togglePin(hit.id,true); zoomTo(hit); searchEl.blur();
+  }
 });
 
 // ---- hover highlight (the "flow") ----
 let pinnedHover=null;
 let flowRate=1, flowRateTarget=1;
-const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 function styleParticles(id){
   for(const pt of particles){
     const e=pt.e;
@@ -247,22 +327,34 @@ function hover(id){
   });
   info(id);
 }
+function togglePin(id,force){
+  if(pinnedHover===id && !force){ pinnedHover=null; clearHL(); info(null); return; }
+  pinnedHover=id; hover(id);
+}
 function clearHL(){
   flowRateTarget=1; styleParticles(null);
   nodeEls.forEach(({g})=>g.classList.remove('dim','hot'));
   edgeEls.forEach(p=>p.classList.remove('in','out','dim'));
+  applySearch();   // restore search dimming after a hover wiped the dim classes
+}
+function clearAll(){
+  searchEl.value=''; pinnedHover=null; clearHL(); info(null);
 }
 function info(id){
   const $=x=>document.getElementById(x);
-  if(!id){$('iName').textContent='hover a module';$('iTier').textContent='—';$('iLoc').textContent='—';$('iFo').textContent='—';$('iFi').textContent='—';$('iDeps').innerHTML='';return;}
+  if(!id){$('iName').textContent='hover a module';$('iName').style.color='';$('iDesc').textContent='';
+    $('iTier').textContent='—';$('iLoc').textContent='—';$('iFo').textContent='—';$('iFi').textContent='—';$('iDeps').innerHTML='';return;}
   const n=byId[id];
   $('iName').textContent=id; $('iName').style.color=TIERS[n.tier][1];
+  $('iDesc').textContent=n.d||'';
   $('iTier').textContent=TIERS[n.tier][0]; $('iLoc').textContent=n.loc;
   $('iFo').textContent=n.fo; $('iFi').textContent=n.fi;
-  const outs=[...outAdj[id]].sort(), ins=[...inAdj[id]].sort();
+  const byWeight=w=>(a,b)=>w[b]-w[a];
+  const outs=[...outAdj[id]].sort(byWeight(outW[id])), ins=[...inAdj[id]].sort(byWeight(inW[id]));
+  const fmt=(xs,w)=>xs.map(x=>`<code>${x}</code><small>×${w[x]}</small>`).join(' ');
   $('iDeps').innerHTML =
-    (outs.length?`<div>depends on → ${outs.map(x=>`<code>${x}</code>`).join(' ')}</div>`:'')+
-    (ins.length?`<div class=by style="margin-top:4px">← used by ${ins.map(x=>`<code>${x}</code>`).join(' ')}</div>`:'');
+    (outs.length?`<div>depends on → ${fmt(outs,outW[id])}</div>`:'')+
+    (ins.length?`<div class=by style="margin-top:4px">← used by ${fmt(ins,inW[id])}</div>`:'');
 }
 
 // ---- force sim (physics can sleep; flow keeps living) ----
@@ -324,18 +416,34 @@ function render(){
   }
 }
 
-// ---- drag node ----
+// ---- drag node (a short drag = click = pin toggle) ----
+const pointers=new Map();   // active pointers for pinch zoom
 function startDrag(ev,n){
-  ev.stopPropagation(); n.pinned=true; pinnedHover=n.id;
-  drag={n,...screenToWorld(ev.clientX,ev.clientY),ox:n.x,oy:n.y};
+  ev.stopPropagation(); n.pinned=true;
+  pointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  drag={n,pid:ev.pointerId,...screenToWorld(ev.clientX,ev.clientY),ox:n.x,oy:n.y,sx:ev.clientX,sy:ev.clientY,moved:false};
   svg.setPointerCapture(ev.pointerId);
 }
 svg.addEventListener('pointermove',ev=>{
-  if(drag){const w=screenToWorld(ev.clientX,ev.clientY);
-    drag.n.x=drag.ox+(w.x-drag.x);drag.n.y=drag.oy+(w.y-drag.y);drag.n.vx=drag.n.vy=0;wake(.3);}
+  if(pointers.has(ev.pointerId)) pointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  if(pointers.size===2){ pinch(); return; }
+  if(drag && ev.pointerId===drag.pid){
+    if(Math.hypot(ev.clientX-drag.sx,ev.clientY-drag.sy)>4) drag.moved=true;
+    const w=screenToWorld(ev.clientX,ev.clientY);
+    drag.n.x=drag.ox+(w.x-drag.x);drag.n.y=drag.oy+(w.y-drag.y);drag.n.vx=drag.n.vy=0;wake(.3);
+  }
   else if(pan){const dx=ev.clientX-pan.x,dy=ev.clientY-pan.y;view.x=pan.vx+dx;view.y=pan.vy+dy;applyView();}
 });
-addEventListener('pointerup',ev=>{ if(drag){drag.n.pinned=false;drag=null;} pan=null; svg.classList.remove('panning'); });
+addEventListener('pointerup',ev=>{
+  pointers.delete(ev.pointerId); lastPinch=null;
+  if(drag && ev.pointerId===drag.pid){
+    drag.n.pinned=false;
+    if(!drag.moved) togglePin(drag.n.id);
+    drag=null;
+  }
+  pan=null; svg.classList.remove('panning');
+});
+addEventListener('pointercancel',ev=>{ pointers.delete(ev.pointerId); lastPinch=null; });
 
 // ---- pan/zoom ----
 const view={x:0,y:0,k:1};
@@ -344,28 +452,70 @@ function applyView(){
   gNodes.classList.toggle('labels-hidden', view.k<0.75);   // declutter when zoomed out
 }
 function screenToWorld(sx,sy){return {x:(sx-view.x)/view.k,y:(sy-view.y)/view.k};}
-let pan=null;
-svg.addEventListener('pointerdown',ev=>{ if(ev.target===svg||ev.target.id==='view'){pan={x:ev.clientX,y:ev.clientY,vx:view.x,vy:view.y};svg.classList.add('panning');pinnedHover=null;clearHL();info(null);} });
+function zoomAt(cx,cy,k){
+  const w=screenToWorld(cx,cy);
+  view.k=Math.max(.3,Math.min(3.5,k));
+  view.x=cx-w.x*view.k; view.y=cy-w.y*view.k; applyView();
+}
+function zoomTo(n){ view.k=Math.min(1.6,Math.max(1,view.k)); view.x=W/2-n.x*view.k; view.y=H/2-n.y*view.k; applyView(); }
+function fitView(){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  N.forEach(n=>{ x0=Math.min(x0,n.x-n.r);y0=Math.min(y0,n.y-n.r-22);x1=Math.max(x1,n.x+n.r);y1=Math.max(y1,n.y+n.r); });
+  const pad=46, bw=x1-x0+pad*2, bh=y1-y0+pad*2;
+  view.k=Math.max(.3,Math.min(1.4,Math.min(W/bw,H/bh)));
+  view.x=(W-(x0+x1)*view.k)/2; view.y=(H-(y0+y1)*view.k)/2; applyView();
+}
+let pan=null, lastPinch=null;
+function pinch(){
+  const [a,b]=[...pointers.values()];
+  const d=Math.hypot(a.x-b.x,a.y-b.y), cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+  if(lastPinch) zoomAt(cx,cy,view.k*d/lastPinch);
+  lastPinch=d; pan=null;
+  if(drag){ drag.n.pinned=false; drag=null; }
+}
+svg.addEventListener('pointerdown',ev=>{
+  pointers.set(ev.pointerId,{x:ev.clientX,y:ev.clientY});
+  if(pointers.size===2){ lastPinch=null; return; }
+  if(ev.target===svg||ev.target.id==='view'){pan={x:ev.clientX,y:ev.clientY,vx:view.x,vy:view.y};svg.classList.add('panning');pinnedHover=null;clearHL();info(null);}
+});
 svg.addEventListener('wheel',ev=>{ev.preventDefault();
-  const f=ev.deltaY<0?1.12:1/1.12; const w=screenToWorld(ev.clientX,ev.clientY);
-  view.k=Math.max(.3,Math.min(3.5,view.k*f));
-  view.x=ev.clientX-w.x*view.k; view.y=ev.clientY-w.y*view.k; applyView();
+  zoomAt(ev.clientX,ev.clientY,view.k*(ev.deltaY<0?1.12:1/1.12));
 },{passive:false});
-addEventListener('keydown',e=>{ if(e.key==='r'||e.key==='R') wake(1); });
-addEventListener('resize',()=>{ W=innerWidth; H=innerHeight; wake(.5); });
+svg.addEventListener('dblclick',ev=>{ if(ev.target===svg||ev.target.id==='view') fitView(); });
+addEventListener('keydown',e=>{
+  if(e.target===searchEl) return;
+  if(e.key==='r'||e.key==='R') wake(1);
+  if(e.key==='f'||e.key==='F') fitView();
+  if(e.key==='Escape') clearAll();
+  if(e.key==='/'){ e.preventDefault(); searchEl.focus(); }
+});
+addEventListener('resize',()=>{ W=innerWidth; H=innerHeight; drawBands(); wake(.5); });
+
+// ---- HUD collapse (auto-collapsed on small screens) ----
+const hudToggle=document.getElementById('hudToggle');
+hudToggle.addEventListener('click',()=>{
+  const min=document.body.classList.toggle('hud-min');
+  hudToggle.textContent=min?'+':'–';
+});
+if(matchMedia('(max-width:640px)').matches) hudToggle.click();
+
+// ---- pre-settle: land on a stable layout before first paint, then frame it ----
+for(let i=0;i<150;i++) physicsStep();
+fitView();
 
 // ---- one-time auto-demo: show the flow story before asking for a hover ----
-let demoTimer;
-function cancelDemo(){ clearTimeout(demoTimer); if(pinnedHover==='__demo'){pinnedHover=null;clearHL();info(null);} removeEventListener('pointermove',cancelDemo); removeEventListener('keydown',cancelDemo); }
-if(!reducedMotion){
-  demoTimer=setTimeout(()=>{ pinnedHover='__demo'; hover('orchestration'); pinnedHover='orchestration';
-    setTimeout(()=>{ if(pinnedHover==='orchestration'){pinnedHover=null;clearHL();info(null);} }, 2600);
+let demoTimer, demoActive=false;
+function endDemo(){ if(demoActive){demoActive=false;pinnedHover=null;clearHL();info(null);} }
+function cancelDemo(){ clearTimeout(demoTimer); endDemo(); removeEventListener('pointermove',cancelDemo); removeEventListener('keydown',cancelDemo); }
+if(!reducedMotion && byId['orchestration']){
+  demoTimer=setTimeout(()=>{ demoActive=true; pinnedHover='orchestration'; hover('orchestration');
+    setTimeout(endDemo, 2600);
   }, 1400);
   addEventListener('pointermove',cancelDemo,{once:true});
   addEventListener('keydown',cancelDemo,{once:true});
 }
 
-applyView(); tick();
+tick();
 </script>
 </body>
 </html>
