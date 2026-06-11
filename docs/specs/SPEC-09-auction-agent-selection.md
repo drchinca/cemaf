@@ -2,7 +2,7 @@
 title: Auction-Based Agent Selection
 spec_id: SPEC-09
 status: Implemented
-last_reviewed: 2026-06-06
+last_reviewed: 2026-06-10
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: []
@@ -20,9 +20,11 @@ depends_on: []
 (`Capability`, `Bid`, `BidContext`, `CapabilityAdvertiser`, `AgentSelector`,
 `DefaultAgentSelector`); capability index + `get_candidates` in
 `cemaf/agents/registry.py`; `Node.auction` in `cemaf/orchestration/dag.py`;
-opt-in branch in `cemaf/orchestration/context_node_executor.py`; wiring via
-`RuntimeServices.agent_selector` + `cemaf/bootstrap.py`; fidelity floor in
-`cemaf/llm/model_router.py`. Unit tests: `tests/unit/agents/test_selection.py`,
+auction dispatch in `cemaf/orchestration/resolvers/auction.py` (`AuctionResolver`,
+part of the NodeResolver chain — it replaced the original opt-in branch in
+`context_node_executor.py` when execute_node migrated to the resolver seam);
+wiring via `RuntimeServices.agent_selector` + `cemaf/bootstrap.py`; fidelity floor
+in `cemaf/llm/model_router.py`. Unit tests: `tests/unit/agents/test_selection.py`,
 `tests/unit/llm/test_model_router.py`; integration:
 `tests/integration/test_agent_auction.py`.
 

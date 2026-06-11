@@ -2,7 +2,7 @@
 title: Interceptor Spine (minimal slice of SPEC-01)
 spec_id: SPEC-01a
 status: Implemented
-last_reviewed: 2026-06-06
+last_reviewed: 2026-06-10
 owner: drchinca
 parent: SPEC-01 — Node Interceptor Pipeline
 depends_on: []
@@ -30,6 +30,21 @@ an import cycle, `NodeResult`/`ExecutionResult` moved to
 `tests/unit/interceptors/test_pipeline.py`; integration (GATE blocks):
 `tests/integration/test_interceptor_gate.py`. Demonstrated in
 `examples/release_engine.py` (a blocking gate on the published draft).
+
+> **RECOVER extension (shipped, this spine).** The slice originally landed
+> ACCEPT/REJECT only and deferred RECOVER to full SPEC-01. RECOVER has since
+> shipped *onto this spine* (no re-architecture): a POST interceptor may return
+> `DecisionKind.RECOVER` with a `RecoveryHint`, and the executor re-runs the
+> agent with the hint surfaced under
+> `AgentContext.global_memory[RECOVERY_HINTS_KEY]`, bounded by
+> `ContextNodeExecutor.max_recovery_attempts` (configurable via
+> `RuntimeServices.max_recovery_attempts`, default 2). `GateEvalInterceptor`
+> opts in with `on_failure=GateFailureMode.RECOVER`. Recovery surfaces on the
+> `TASK_COMPLETED` event payload (`recovery_attempts`). The §2/§3/§5 text below
+> describing RECOVER as out-of-scope reflects the *original* slice boundary; see
+> the "RECOVER (shipped)" subsection in §2 for the live contract. Tests:
+> `tests/unit/interceptors/test_recovery.py`,
+> `tests/integration/test_interceptor_recover.py`.
 
 ## Contents
 
@@ -100,9 +115,10 @@ from cemaf.orchestration.executor import NodeResult
 
 
 class DecisionKind(StrEnum):
-    ACCEPT = "accept"   # proceed (PRE: run agent / POST: keep result)
-    REJECT = "reject"   # short-circuit (PRE: skip agent / POST: fail the node)
-    # RECOVER / HALT are added by full SPEC-01; this slice handles ACCEPT/REJECT only.
+    ACCEPT = "accept"    # proceed (PRE: run agent / POST: keep result)
+    REJECT = "reject"    # short-circuit (PRE: skip agent / POST: fail the node)
+    RECOVER = "recover"  # POST only: re-run the agent with a feedback hint (bounded)
+    # HALT is added by full SPEC-01; this spine handles ACCEPT/REJECT/RECOVER.
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,8 +241,10 @@ because the existing executor treats `success=False` three ways:
   gate-reject (an `ALWAYS` edge fires unconditionally; an `ON_FAILURE` edge fires
   on any `success=False`). This is **documented intended behaviour for the slice**:
   the spine does not reinterpret recovery/unconditional edges. Authors who want a
-  gate to suppress a cleanup branch use `ON_SUCCESS`/`JSON_RULE`. (Full SPEC-01's
-  RECOVER decision will model gate-vs-crash distinctly; out of scope here.)
+  gate to suppress a cleanup branch use `ON_SUCCESS`/`JSON_RULE`. (The shipped
+  RECOVER decision now models gate-vs-crash distinctly — a recoverable gate
+  failure re-runs the agent rather than failing the node; see §2 "RECOVER
+  (shipped)".)
 
 First interceptor (`cemaf/interceptors/gate_eval.py`):
 
@@ -262,6 +280,58 @@ Executor + wiring:
   run `run_post`; adopt the (possibly-failed) result it returns.
 - `RuntimeServices` gains `interceptor_pipeline: InterceptorPipeline | None = None`;
   `bootstrap.create_executor` threads it through.
+
+#### RECOVER (shipped onto this spine — live contract)
+
+RECOVER landed after the initial slice without re-architecting the chain. The
+live types extend the §2 contract above:
+
+```python
+# Length policy + namespaced global_memory keys (cemaf/interceptors/types.py)
+MAX_HINT_DETAIL_CHARS: Final[int] = 1024
+MAX_HINT_ACTION_CHARS: Final[int] = 512
+MAX_VISIBLE_HINTS: Final[int] = 3            # only the last N hints reach the agent
+RECOVERY_HINTS_KEY: Final[str] = "__cemaf_recovery_hints__"
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryHint:
+    interceptor_id: str
+    code: str                    # short machine tag, e.g. "length", "schema"
+    detail: str                  # ≤ MAX_HINT_DETAIL_CHARS
+    suggested_action: str = ""   # ≤ MAX_HINT_ACTION_CHARS
+
+
+# PostflightDecision gains a recovery_hint field (required when kind=RECOVER):
+@dataclass(frozen=True, slots=True)
+class PostflightDecision:
+    kind: DecisionKind
+    interceptor_id: str
+    reason: str | None = None          # required (non-empty) when REJECT or RECOVER
+    metadata: JSON | None = None
+    recovery_hint: RecoveryHint | None = None  # required when RECOVER
+
+
+class GateFailureMode(StrEnum):
+    REJECT = "reject"    # default — fail the node (original slice behaviour)
+    RECOVER = "recover"  # opt-in — re-run the agent with the eval feedback as a hint
+```
+
+**Executor behaviour.** `ContextNodeExecutor` wraps `agent.run` + the POST chain
+in a bounded recovery loop (`max_recovery_attempts`, default 2; configurable via
+`RuntimeServices.max_recovery_attempts`). On a POST RECOVER decision, the
+executor appends the hint, surfaces the last `MAX_VISIBLE_HINTS` under
+`AgentContext.global_memory[RECOVERY_HINTS_KEY]`, and re-runs. When the budget is
+exhausted the RECOVER **downgrades to REJECT** (`gate_rejected` stamped) so a
+deterministic gate can never loop forever. An agent crash mid-loop preserves
+`recovery_attempts` + `recovery_hints_trail` in `NodeResult.metadata`. The
+`recovery_attempts` count also rides the `TASK_COMPLETED` event payload so
+subscribers (audit trail, harvest, quality police) can react.
+
+`GateEvalInterceptor.on_failure=GateFailureMode.RECOVER` makes a failing gate emit
+a `RecoveryHint` (code `"<evaluator>"`, detail = the failure reason) instead of an
+immediate REJECT — the highest-value retry case (revise output against eval
+feedback).
 
 ## 3. Invariants (DbC)
 
@@ -408,7 +478,10 @@ Feature: Interceptor spine
 
 ## 5. Out of Scope
 
-- **RECOVER / HALT decisions** and recovery routing (SPEC-01 full / SPEC-06).
+- **HALT decision** and full recovery *routing* (SPEC-01 full / SPEC-06). The
+  bounded retry-with-feedback RECOVER has shipped onto this spine (see §2
+  "RECOVER (shipped)"); what remains out of scope is HALT and recovery-DAG
+  routing, not RECOVER itself.
 - **ChainProfile (DEFAULT/RECOVERY)** — single implicit chain here.
 - **Cite-or-fail, guardian mesh, Pull/Blueprint interceptors** (SPEC-02/03/05) —
   they implement this protocol later; not shipped here.
