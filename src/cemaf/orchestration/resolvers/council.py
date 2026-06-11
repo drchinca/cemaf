@@ -73,7 +73,14 @@ class CouncilResolver:
             method = AggregationMethod(str(council_cfg.get("method", "majority")))
         except ValueError:
             method = AggregationMethod.MAJORITY
-        config = CouncilConfig(method=method)
+        # rounds defaults to 1 (single-round ensemble) — preserves prior behaviour
+        # for any council node authored before the multi-round primitive landed.
+        rounds_raw = council_cfg.get("rounds", 1)
+        try:
+            rounds = max(1, int(rounds_raw))
+        except (TypeError, ValueError):
+            rounds = 1
+        config = CouncilConfig(method=method, rounds=rounds)
         # A wired council_aggregator (BYO-X) governs aggregation with its OWN policy —
         # the node's `method` only configures the default aggregator. (The shared config
         # still bounds member concurrency/timeout in either case.)
