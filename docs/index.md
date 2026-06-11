@@ -7,6 +7,7 @@ Context Engineering Multi-Agent Framework
 1. [**Architecture**](architecture.md) — the software architecture we build toward
 2. [**Design Patterns**](patterns.md) — the 12 patterns reviewers enforce
 3. [**Module Layout**](modules.md) — where each kind of thing lives
+4. [**Architecture Atlas**](architecture/cemaf-architecture.html) — a visual, multi-view tour (open in a browser); ground-truth companion to [deep-architecture.md](architecture/deep-architecture.md)
 
 ## Quick Links
 
