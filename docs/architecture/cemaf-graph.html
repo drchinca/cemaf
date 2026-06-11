@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CEMAF — Module Dependency Graph</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121723; --line:#1e2636; --ink:#e6ecf5; --soft:#8b97ab;
+    --t0:#3b82f6; --t1:#14b8a6; --t2:#f59e0b; --t3:#a855f7; --t4:#ec4899;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",Inter,sans-serif;overflow:hidden;}
+  #wrap{position:fixed;inset:0;
+    background-image:radial-gradient(rgba(255,255,255,.022) 1px, transparent 0);background-size:34px 34px;}
+  #wrap::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;
+    background:radial-gradient(120% 80% at 50% 40%, transparent 52%, rgba(0,0,0,.6) 100%);}
+  svg{width:100%;height:100%;display:block;cursor:grab;position:relative;z-index:2;}
+  svg.panning{cursor:grabbing;}
+  .edge{fill:none;stroke:#2b3650;transition:opacity .18s,stroke .18s;}
+  .edge.in{stroke:var(--t1);}      /* depends on hovered (its users)  */
+  .edge.out{stroke:var(--t2);}     /* hovered depends on (its deps)   */
+  .edge.dim{opacity:.04 !important;}
+  .edge.in,.edge.out{stroke-dasharray:5 7;animation:march .6s linear infinite;opacity:.95!important;}
+  @keyframes march{to{stroke-dashoffset:-12;}}
+  .node circle.body{stroke:#0b0e14;stroke-width:1.5;transition:opacity .15s,stroke .15s;cursor:pointer;}
+  .node text{font-family:ui-monospace,Menlo,monospace;fill:var(--ink);
+    paint-order:stroke;stroke:#0b0e14;stroke-width:2.5px;vector-effect:non-scaling-stroke;
+    pointer-events:none;transition:opacity .18s;}
+  .node.dim circle.body{opacity:.15;} .node.dim text{opacity:.1;}
+  .node.hot circle.body{stroke:#fff;stroke-width:2.5;filter:url(#glow);}
+  .labels-hidden .node text{opacity:0;} .labels-hidden .node.hot text{opacity:1;}
+  .flowdot{pointer-events:none;}
+  .pulse-ring{fill:none;stroke-width:1.4;opacity:.5;transform-box:fill-box;transform-origin:center;
+    animation:pulse 2.8s ease-out infinite;}
+  @keyframes pulse{0%{transform:scale(1);opacity:.5;}100%{transform:scale(2.1);opacity:0;}}
+  #nodes{animation:rise .8s cubic-bezier(.2,.8,.2,1) both;}
+  @keyframes rise{from{opacity:0;}to{opacity:1;}}
+  @media (prefers-reduced-motion: reduce){
+    .edge.in,.edge.out{animation:none;} .pulse-ring{animation:none;} #nodes{animation:none;}
+  }
+  /* HUD */
+  #hud{position:fixed;top:16px;left:16px;background:rgba(18,23,35,.86);backdrop-filter:blur(8px);
+    border:1px solid var(--line);border-radius:14px;padding:14px 16px;max-width:300px;z-index:5;}
+  #hud h1{font-size:15px;margin:0 0 2px;letter-spacing:.01em;}
+  #hud .sub{font-size:12px;color:var(--soft);margin:0 0 12px;line-height:1.45;}
+  .stat{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .stat b{background:#0b0e14;border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:11.5px;font-weight:600;}
+  .stat b i{color:var(--t1);font-style:normal;}
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:12px;}
+  .legend label{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--soft);}
+  .legend input{accent-color:var(--t1);}
+  .legend .sw{width:11px;height:11px;border-radius:50%;flex:0 0 auto;}
+  #info{position:fixed;bottom:16px;left:16px;background:rgba(18,23,35,.86);backdrop-filter:blur(8px);
+    border:1px solid var(--line);border-radius:14px;padding:12px 14px;min-width:230px;z-index:5;font-size:12.5px;}
+  #info .name{font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:700;margin-bottom:6px;}
+  #info .row{color:var(--soft);margin:2px 0;} #info .row b{color:var(--ink);}
+  #info .deps{margin-top:8px;font-size:11.5px;color:var(--soft);max-height:120px;overflow:auto;}
+  #info .deps code{color:var(--t2);} #info .by code{color:var(--t1);}
+  #hint{position:fixed;bottom:16px;right:16px;color:var(--soft);font-size:11.5px;text-align:right;z-index:5;line-height:1.6;}
+  kbd{background:#0b0e14;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;}
+  #search{width:100%;margin-top:2px;background:#0b0e14;border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);padding:6px 9px;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;}
+  #search::placeholder{color:#566;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <svg id="svg">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" stroke="none"/>
+      </marker>
+      <radialGradient id="g0" cx="35%" cy="30%"><stop offset="0%" stop-color="#6ba3ff"/><stop offset="100%" stop-color="#2563eb"/></radialGradient>
+      <radialGradient id="g1" cx="35%" cy="30%"><stop offset="0%" stop-color="#3ad6c5"/><stop offset="100%" stop-color="#0d9488"/></radialGradient>
+      <radialGradient id="g2" cx="35%" cy="30%"><stop offset="0%" stop-color="#fbbf4d"/><stop offset="100%" stop-color="#d97706"/></radialGradient>
+      <radialGradient id="g3" cx="35%" cy="30%"><stop offset="0%" stop-color="#c184f7"/><stop offset="100%" stop-color="#9333ea"/></radialGradient>
+      <radialGradient id="g4" cx="35%" cy="30%"><stop offset="0%" stop-color="#f871b0"/><stop offset="100%" stop-color="#db2777"/></radialGradient>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="3.5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g id="view">
+      <g id="edges"></g>
+      <g id="flow"></g>
+      <g id="nodes"></g>
+    </g>
+  </svg>
+</div>
+
+<div id="hud">
+  <h1>CEMAF · module graph</h1>
+  <p class="sub">Every package in <code>src/cemaf/</code> as a node; every <code>from cemaf.x</code> import as a directed edge. Node size = lines of code. Built from source.</p>
+  <div class="stat"><b><i id="nN">40</i> modules</b><b><i id="nE">154</i> edges</b><b><i>619</i> imports</b></div>
+  <input id="search" placeholder="filter modules…" autocomplete="off"/>
+  <div class="legend" style="margin-top:12px" id="legend"></div>
+</div>
+
+<div id="info">
+  <div class="name" id="iName">hover a module</div>
+  <div class="row">tier <b id="iTier">—</b> · <b id="iLoc">—</b> LOC</div>
+  <div class="row">depends on <b id="iFo">—</b> · used by <b id="iFi">—</b></div>
+  <div class="deps" id="iDeps"></div>
+</div>
+
+<div id="hint">
+  <div><kbd>hover/tap</kbd> a module to trace its flow · <kbd>drag</kbd> pin · <kbd>scroll</kbd> zoom · <kbd>drag bg</kbd> pan · <kbd>R</kbd> reheat</div>
+  <div><span style="color:var(--t2)">amber → what it depends on</span> · <span style="color:var(--t1)">teal → what depends on it</span></div>
+</div>
+
+<script>
+const DATA = {"nodes":[{"id":"agents","loc":1462,"fi":6,"fo":10,"tier":2},{"id":"audit","loc":947,"fi":2,"fo":2,"tier":4},{"id":"blueprint","loc":3608,"fi":4,"fo":3,"tier":2},{"id":"cache","loc":860,"fi":2,"fo":4,"tier":2},{"id":"catalog","loc":407,"fi":0,"fo":2,"tier":2},{"id":"citation","loc":1067,"fi":0,"fo":6,"tier":2},{"id":"config","loc":908,"fi":18,"fo":1,"tier":0},{"id":"context","loc":3886,"fi":10,"fo":2,"tier":1},{"id":"core","loc":2189,"fi":38,"fo":2,"tier":0},{"id":"council","loc":513,"fi":1,"fo":3,"tier":2},{"id":"docs_api","loc":689,"fi":0,"fo":3,"tier":2},{"id":"evals","loc":2924,"fi":3,"fo":9,"tier":2},{"id":"events","loc":1217,"fi":9,"fo":3,"tier":1},{"id":"generation","loc":1193,"fi":0,"fo":2,"tier":2},{"id":"improvement","loc":191,"fi":0,"fo":3,"tier":2},{"id":"ingestion","loc":816,"fi":0,"fo":2,"tier":2},{"id":"interceptors","loc":455,"fi":2,"fo":4,"tier":2},{"id":"iteration","loc":490,"fi":0,"fo":2,"tier":2},{"id":"knowledge","loc":811,"fi":2,"fo":3,"tier":4},{"id":"llm","loc":4043,"fi":8,"fo":6,"tier":1},{"id":"mcp","loc":2675,"fi":2,"fo":8,"tier":2},{"id":"memory","loc":4465,"fi":7,"fo":5,"tier":1},{"id":"meta","loc":3646,"fi":0,"fo":12,"tier":4},{"id":"moderation","loc":2082,"fi":2,"fo":4,"tier":2},{"id":"observability","loc":3666,"fi":10,"fo":4,"tier":1},{"id":"orchestration","loc":5277,"fi":2,"fo":14,"tier":3},{"id":"persistence","loc":528,"fi":0,"fo":2,"tier":2},{"id":"replay","loc":431,"fi":0,"fo":3,"tier":2},{"id":"resilience","loc":1698,"fi":3,"fo":3,"tier":2},{"id":"retrieval","loc":1388,"fi":7,"fo":2,"tier":1},{"id":"rlm","loc":1359,"fi":0,"fo":5,"tier":2},{"id":"sandbox","loc":811,"fi":3,"fo":1,"tier":2},{"id":"scheduler","loc":2177,"fi":1,"fo":3,"tier":2},{"id":"security","loc":1203,"fi":0,"fo":3,"tier":2},{"id":"skills","loc":1004,"fi":3,"fo":5,"tier":2},{"id":"state","loc":422,"fi":0,"fo":0,"tier":2},{"id":"streaming","loc":426,"fi":0,"fo":2,"tier":2},{"id":"tools","loc":1105,"fi":6,"fo":3,"tier":2},{"id":"trust","loc":199,"fi":1,"fo":1,"tier":2},{"id":"validation","loc":861,"fi":2,"fo":2,"tier":2}],"edges":[{"s":"citation","t":"core","w":5},{"s":"citation","t":"retrieval","w":2},{"s":"citation","t":"validation","w":1},{"s":"citation","t":"config","w":1},{"s":"citation","t":"context","w":1},{"s":"citation","t":"events","w":2},{"s":"interceptors","t":"agents","w":4},{"s":"interceptors","t":"orchestration","w":6},{"s":"interceptors","t":"core","w":1},{"s":"interceptors","t":"evals","w":1},{"s":"evals","t":"core","w":14},{"s":"evals","t":"retrieval","w":1},{"s":"evals","t":"tools","w":1},{"s":"evals","t":"events","w":2},{"s":"evals","t":"observability","w":3},{"s":"evals","t":"llm","w":2},{"s":"evals","t":"config","w":2},{"s":"evals","t":"agents","w":1},{"s":"evals","t":"skills","w":1},{"s":"ingestion","t":"context","w":5},{"s":"ingestion","t":"core","w":1},{"s":"tools","t":"core","w":10},{"s":"tools","t":"llm","w":2},{"s":"tools","t":"sandbox","w":1},{"s":"llm","t":"core","w":15},{"s":"llm","t":"observability","w":7},{"s":"llm","t":"resilience","w":8},{"s":"llm","t":"config","w":2},{"s":"llm","t":"agents","w":1},{"s":"llm","t":"moderation","w":1},{"s":"context","t":"core","w":15},{"s":"context","t":"llm","w":4},{"s":"core","t":"observability","w":2},{"s":"core","t":"context","w":2},{"s":"memory","t":"core","w":33},{"s":"memory","t":"retrieval","w":3},{"s":"memory","t":"context","w":6},{"s":"memory","t":"config","w":1},{"s":"memory","t":"events","w":3},{"s":"cache","t":"context","w":1},{"s":"cache","t":"core","w":7},{"s":"cache","t":"retrieval","w":1},{"s":"cache","t":"config","w":2},{"s":"council","t":"agents","w":3},{"s":"council","t":"core","w":3},{"s":"council","t":"interceptors","w":1},{"s":"config","t":"core","w":3},{"s":"security","t":"core","w":3},{"s":"security","t":"memory","w":3},{"s":"security","t":"audit","w":2},{"s":"catalog","t":"core","w":2},{"s":"catalog","t":"config","w":2},{"s":"scheduler","t":"core","w":11},{"s":"scheduler","t":"observability","w":3},{"s":"scheduler","t":"config","w":1},{"s":"meta","t":"agents","w":10},{"s":"meta","t":"audit","w":5},{"s":"meta","t":"blueprint","w":5},{"s":"meta","t":"knowledge","w":6},{"s":"meta","t":"mcp","w":8},{"s":"meta","t":"orchestration","w":7},{"s":"meta","t":"tools","w":4},{"s":"meta","t":"core","w":11},{"s":"meta","t":"llm","w":2},{"s":"meta","t":"memory","w":4},{"s":"meta","t":"scheduler","w":6},{"s":"meta","t":"skills","w":1},{"s":"agents","t":"blueprint","w":1},{"s":"agents","t":"core","w":12},{"s":"agents","t":"llm","w":2},{"s":"agents","t":"observability","w":1},{"s":"agents","t":"retrieval","w":2},{"s":"agents","t":"evals","w":4},{"s":"agents","t":"config","w":1},{"s":"agents","t":"resilience","w":1},{"s":"agents","t":"cache","w":1},{"s":"agents","t":"skills","w":1},{"s":"mcp","t":"core","w":10},{"s":"mcp","t":"blueprint","w":2},{"s":"mcp","t":"events","w":2},{"s":"mcp","t":"memory","w":3},{"s":"mcp","t":"observability","w":4},{"s":"mcp","t":"tools","w":3},{"s":"mcp","t":"config","w":2},{"s":"observability","t":"core","w":16},{"s":"observability","t":"config","w":1},{"s":"observability","t":"context","w":3},{"s":"observability","t":"llm","w":2},{"s":"streaming","t":"core","w":2},{"s":"streaming","t":"config","w":2},{"s":"docs_api","t":"core","w":3},{"s":"docs_api","t":"tools","w":1},{"s":"docs_api","t":"mcp","w":3},{"s":"retrieval","t":"core","w":7},{"s":"retrieval","t":"config","w":2},{"s":"audit","t":"core","w":3},{"s":"audit","t":"events","w":2},{"s":"resilience","t":"core","w":3},{"s":"resilience","t":"config","w":2},{"s":"resilience","t":"observability","w":1},{"s":"rlm","t":"context","w":8},{"s":"rlm","t":"core","w":5},{"s":"rlm","t":"llm","w":4},{"s":"rlm","t":"observability","w":1},{"s":"rlm","t":"tools","w":1},{"s":"knowledge","t":"core","w":5},{"s":"knowledge","t":"memory","w":3},{"s":"knowledge","t":"events","w":1},{"s":"sandbox","t":"core","w":1},{"s":"persistence","t":"core","w":5},{"s":"persistence","t":"config","w":1},{"s":"improvement","t":"core","w":2},{"s":"improvement","t":"memory","w":1},{"s":"improvement","t":"trust","w":1},{"s":"orchestration","t":"context","w":20},{"s":"orchestration","t":"core","w":37},{"s":"orchestration","t":"agents","w":12},{"s":"orchestration","t":"llm","w":4},{"s":"orchestration","t":"blueprint","w":1},{"s":"orchestration","t":"council","w":6},{"s":"orchestration","t":"evals","w":3},{"s":"orchestration","t":"events","w":3},{"s":"orchestration","t":"interceptors","w":3},{"s":"orchestration","t":"knowledge","w":1},{"s":"orchestration","t":"memory","w":7},{"s":"orchestration","t":"moderation","w":3},{"s":"orchestration","t":"observability","w":16},{"s":"orchestration","t":"retrieval","w":2},{"s":"trust","t":"core","w":2},{"s":"skills","t":"core","w":10},{"s":"skills","t":"resilience","w":1},{"s":"skills","t":"cache","w":1},{"s":"skills","t":"tools","w":4},{"s":"iteration","t":"sandbox","w":3},{"s":"iteration","t":"core","w":2},{"s":"replay","t":"context","w":1},{"s":"replay","t":"core","w":3},{"s":"replay","t":"observability","w":2},{"s":"events","t":"core","w":2},{"s":"events","t":"config","w":2},{"s":"events","t":"memory","w":2},{"s":"validation","t":"core","w":4},{"s":"validation","t":"config","w":2},{"s":"generation","t":"core","w":1},{"s":"generation","t":"config","w":2},{"s":"blueprint","t":"events","w":3},{"s":"blueprint","t":"core","w":7},{"s":"blueprint","t":"validation","w":1},{"s":"moderation","t":"core","w":2},{"s":"moderation","t":"context","w":3},{"s":"moderation","t":"config","w":2},{"s":"moderation","t":"events","w":2},{"s":"skills","t":"sandbox","w":2},{"s":"mcp","t":"retrieval","w":1}]};
+const TIERS = {0:["Foundation","#3b82f6"],1:["Shared fabric","#14b8a6"],2:["Capabilities","#f59e0b"],3:["Orchestration","#a855f7"],4:["Self-hosting","#ec4899"]};
+let W = innerWidth, H = innerHeight;
+const svg = document.getElementById('svg');
+const gView = document.getElementById('view');
+const gEdges = document.getElementById('edges');
+const gFlow = document.getElementById('flow');
+const gNodes = document.getElementById('nodes');
+
+// ---- model ----
+// tier target band (y): t0 bottom … t4 top (deps flow downward to core)
+const bandY = t => H*(0.86 - t*0.16);
+const GOLDEN = 2.399963229728653; // golden angle — deterministic low-discrepancy spread
+const N = DATA.nodes.map((n,i)=>{
+  const a=i*GOLDEN, rad=120+(i%7)*46;
+  return {...n,
+    x: W/2 + Math.cos(a)*rad,
+    y: bandY(n.tier) + Math.sin(a)*rad*0.5,
+    vx:0, vy:0, r: Math.max(7, Math.min(34, Math.sqrt(n.loc)/3.0)), pinned:false};
+});
+const byId = Object.fromEntries(N.map(n=>[n.id,n]));
+const E = DATA.edges.map(e=>({...e, s:byId[e.s], t:byId[e.t]}));
+// adjacency for hover
+const outAdj={},inAdj={};
+N.forEach(n=>{outAdj[n.id]=new Set();inAdj[n.id]=new Set();});
+E.forEach(e=>{outAdj[e.s.id].add(e.t.id);inAdj[e.t.id].add(e.s.id);});
+
+document.getElementById('nN').textContent=N.length;
+document.getElementById('nE').textContent=E.length;
+
+// ---- build SVG ----
+const SVGNS='http://www.w3.org/2000/svg';
+const edgeEls = E.map(e=>{
+  const p=document.createElementNS(SVGNS,'path');
+  p.setAttribute('class','edge'); p.setAttribute('marker-end','url(#arrow)');
+  p.dataset.s=e.s.id; p.dataset.t=e.t.id; gEdges.appendChild(p); return p;
+});
+// flow particles: count scales with import weight; phase seeded deterministically
+const particles=[];
+E.forEach((e,ei)=>{
+  const n=Math.min(2,1+Math.floor(e.w/5));
+  for(let k=0;k<n;k++){
+    const dot=document.createElementNS(SVGNS,'circle');
+    dot.setAttribute('r',2); dot.setAttribute('fill',TIERS[e.s.tier][1]);
+    dot.style.opacity='.5'; dot.setAttribute('class','flowdot'); gFlow.appendChild(dot);
+    particles.push({e, ei, dot, off:((ei*0.37+k*0.5)%1), spd:0.0016+0.0006*(e.w%4)});
+  }
+});
+const nodeEls = N.map(n=>{
+  const g=document.createElementNS(SVGNS,'g');
+  g.setAttribute('class','node'); g.dataset.id=n.id; g.setAttribute('tabindex','0');
+  // breathing ring for the gravity wells (most depended-on)
+  if(n.fi>=10){
+    const ring=document.createElementNS(SVGNS,'circle');
+    ring.setAttribute('class','pulse-ring'); ring.setAttribute('r',n.r);
+    ring.setAttribute('stroke',TIERS[n.tier][1]); g.appendChild(ring);
+  }
+  const c=document.createElementNS(SVGNS,'circle');
+  c.setAttribute('class','body'); c.setAttribute('r',n.r);
+  c.setAttribute('fill',`url(#g${n.tier})`);
+  const tx=document.createElementNS(SVGNS,'text');
+  tx.setAttribute('font-size', n.r>14?12:10.5); tx.setAttribute('text-anchor','middle');
+  tx.setAttribute('dy', -n.r-5); tx.textContent=n.id;
+  g.appendChild(c); g.appendChild(tx); gNodes.appendChild(g);
+  g.addEventListener('pointerenter',()=>hover(n.id));
+  g.addEventListener('pointerleave',()=>hover(null));
+  g.addEventListener('pointerdown',ev=>startDrag(ev,n));
+  g.addEventListener('focus',()=>hover(n.id));
+  g.addEventListener('blur',()=>hover(null));
+  return {g,c,tx,n};
+});
+// edge weight → width + resting opacity (load-bearing spines read heavier)
+const wmax=Math.max(...E.map(e=>e.w));
+edgeEls.forEach((p,i)=>{
+  const t=E[i].w/wmax;
+  p.style.strokeWidth=(0.6+t*2.4).toFixed(2);
+  p.style.opacity=(0.16+t*0.5).toFixed(2);
+});
+
+// ---- legend / tier filter ----
+const tierOn={0:1,1:1,2:1,3:1,4:1};
+const legend=document.getElementById('legend');
+Object.entries(TIERS).forEach(([t,[name,col]])=>{
+  const l=document.createElement('label');
+  l.innerHTML=`<input type=checkbox checked data-t=${t}><span class=sw style="background:${col}"></span>${name}`;
+  l.querySelector('input').addEventListener('change',e=>{tierOn[t]=e.target.checked?1:0;applyFilter();});
+  legend.appendChild(l);
+});
+function applyFilter(){
+  nodeEls.forEach(({g,n})=>g.style.display=tierOn[n.tier]?'':'none');
+  edgeEls.forEach(p=>{p.style.display=(tierOn[byId[p.dataset.s].tier]&&tierOn[byId[p.dataset.t].tier])?'':'none';});
+}
+
+// ---- search ----
+document.getElementById('search').addEventListener('input',e=>{
+  const q=e.target.value.trim().toLowerCase();
+  nodeEls.forEach(({g,n})=>{
+    const hit=!q||n.id.includes(q);
+    g.classList.toggle('dim',!hit);
+  });
+});
+
+// ---- hover highlight (the "flow") ----
+let pinnedHover=null;
+let flowRate=1, flowRateTarget=1;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function styleParticles(id){
+  for(const pt of particles){
+    const e=pt.e;
+    if(id && (e.s.id===id||e.t.id===id)){
+      pt.dot.setAttribute('r', e.s.id===id?2.7:2.3);
+      pt.dot.setAttribute('fill', e.s.id===id?'#f59e0b':'#14b8a6');
+      pt.dot.style.opacity='1';
+    } else {
+      pt.dot.setAttribute('r',2); pt.dot.setAttribute('fill',TIERS[e.s.tier][1]);
+      pt.dot.style.opacity = id?'.08':'.5';
+    }
+  }
+}
+function hover(id){
+  if(id===null && pinnedHover) id=pinnedHover;
+  if(id===null){ clearHL(); info(null); styleParticles(null); return; }
+  styleParticles(id); flowRateTarget=1.8;
+  const outs=outAdj[id], ins=inAdj[id];
+  nodeEls.forEach(({g,n})=>{
+    const rel = n.id===id||outs.has(n.id)||ins.has(n.id);
+    g.classList.toggle('dim',!rel); g.classList.toggle('hot',n.id===id);
+  });
+  edgeEls.forEach(p=>{
+    p.classList.remove('in','out','dim');
+    if(p.dataset.s===id) p.classList.add('out');
+    else if(p.dataset.t===id) p.classList.add('in');
+    else p.classList.add('dim');
+  });
+  info(id);
+}
+function clearHL(){
+  flowRateTarget=1; styleParticles(null);
+  nodeEls.forEach(({g})=>g.classList.remove('dim','hot'));
+  edgeEls.forEach(p=>p.classList.remove('in','out','dim'));
+}
+function info(id){
+  const $=x=>document.getElementById(x);
+  if(!id){$('iName').textContent='hover a module';$('iTier').textContent='—';$('iLoc').textContent='—';$('iFo').textContent='—';$('iFi').textContent='—';$('iDeps').innerHTML='';return;}
+  const n=byId[id];
+  $('iName').textContent=id; $('iName').style.color=TIERS[n.tier][1];
+  $('iTier').textContent=TIERS[n.tier][0]; $('iLoc').textContent=n.loc;
+  $('iFo').textContent=n.fo; $('iFi').textContent=n.fi;
+  const outs=[...outAdj[id]].sort(), ins=[...inAdj[id]].sort();
+  $('iDeps').innerHTML =
+    (outs.length?`<div>depends on → ${outs.map(x=>`<code>${x}</code>`).join(' ')}</div>`:'')+
+    (ins.length?`<div class=by style="margin-top:4px">← used by ${ins.map(x=>`<code>${x}</code>`).join(' ')}</div>`:'');
+}
+
+// ---- force sim (physics can sleep; flow keeps living) ----
+let alpha=1, settled=false;
+function physicsStep(){
+  for(let i=0;i<N.length;i++){const a=N[i];
+    for(let j=i+1;j<N.length;j++){const b=N[j];
+      let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy||1, d=Math.sqrt(d2);
+      const rep=(a.r+b.r)*38; let f=rep*rep/d2; if(f>40)f=40;
+      const fx=dx/d*f, fy=dy/d*f;
+      a.vx+=fx;a.vy+=fy;b.vx-=fx;b.vy-=fy;
+    }}
+  E.forEach(e=>{
+    let dx=e.t.x-e.s.x,dy=e.t.y-e.s.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+    const rest=90+Math.min(60,e.w*4);
+    const f=(d-rest)*0.012, fx=dx/d*f, fy=dy/d*f;
+    e.s.vx+=fx;e.s.vy+=fy;e.t.vx-=fx;e.t.vy-=fy;
+  });
+  N.forEach(n=>{ n.vy+=(bandY(n.tier)-n.y)*0.02; n.vx+=(W/2-n.x)*0.0016; });
+  N.forEach(n=>{
+    if(n.pinned)return;
+    n.vx*=0.86;n.vy*=0.86; n.x+=n.vx*alpha;n.y+=n.vy*alpha;
+    n.x=Math.max(n.r+8,Math.min(W-n.r-8,n.x));
+    n.y=Math.max(n.r+8,Math.min(H-n.r-8,n.y));
+  });
+  alpha*=0.992; if(alpha<0.025) settled=true;
+}
+function wake(a=0.35){ alpha=Math.max(alpha,a); settled=false; }
+function tick(){
+  if(!settled || drag) physicsStep();
+  flowRate += (flowRateTarget-flowRate)*0.08;   // ease the speed change
+  render();
+  requestAnimationFrame(tick);
+}
+let drag=null;
+function render(){
+  // node + edge geometry only changes while physics runs or a node is dragged
+  if(!settled || drag){
+    nodeEls.forEach(({g,n})=>g.setAttribute('transform',`translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`));
+    edgeEls.forEach((p,i)=>{
+      const e=E[i];
+      let dx=e.t.x-e.s.x,dy=e.t.y-e.s.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+      const tx=e.t.x-dx/d*(e.t.r+5), ty=e.t.y-dy/d*(e.t.r+5);
+      const sx=e.s.x+dx/d*(e.s.r), sy=e.s.y+dy/d*(e.s.r);
+      const bend=Math.min(28,d*0.12);                       // straighter for short edges
+      const mx=(sx+tx)/2 - dy/d*bend, my=(sy+ty)/2 + dx/d*bend;
+      e._sx=sx;e._sy=sy;e._mx=mx;e._my=my;e._tx=tx;e._ty=ty;
+      p.setAttribute('d',`M${sx.toFixed(1)},${sy.toFixed(1)} Q${mx.toFixed(1)},${my.toFixed(1)} ${tx.toFixed(1)},${ty.toFixed(1)}`);
+    });
+  }
+  // flow particles ride source→target — the living "how things move" layer
+  for(const pt of particles){
+    const e=pt.e; if(e._sx===undefined) continue;
+    if(!reducedMotion) pt.off=(pt.off+pt.spd*flowRate)%1;
+    const u=pt.off, iu=1-u;
+    const x=iu*iu*e._sx + 2*iu*u*e._mx + u*u*e._tx;
+    const y=iu*iu*e._sy + 2*iu*u*e._my + u*u*e._ty;
+    pt.dot.setAttribute('cx',x|0); pt.dot.setAttribute('cy',y|0);
+  }
+}
+
+// ---- drag node ----
+function startDrag(ev,n){
+  ev.stopPropagation(); n.pinned=true; pinnedHover=n.id;
+  drag={n,...screenToWorld(ev.clientX,ev.clientY),ox:n.x,oy:n.y};
+  svg.setPointerCapture(ev.pointerId);
+}
+svg.addEventListener('pointermove',ev=>{
+  if(drag){const w=screenToWorld(ev.clientX,ev.clientY);
+    drag.n.x=drag.ox+(w.x-drag.x);drag.n.y=drag.oy+(w.y-drag.y);drag.n.vx=drag.n.vy=0;wake(.3);}
+  else if(pan){const dx=ev.clientX-pan.x,dy=ev.clientY-pan.y;view.x=pan.vx+dx;view.y=pan.vy+dy;applyView();}
+});
+addEventListener('pointerup',ev=>{ if(drag){drag.n.pinned=false;drag=null;} pan=null; svg.classList.remove('panning'); });
+
+// ---- pan/zoom ----
+const view={x:0,y:0,k:1};
+function applyView(){
+  gView.setAttribute('transform',`translate(${view.x},${view.y}) scale(${view.k})`);
+  gNodes.classList.toggle('labels-hidden', view.k<0.75);   // declutter when zoomed out
+}
+function screenToWorld(sx,sy){return {x:(sx-view.x)/view.k,y:(sy-view.y)/view.k};}
+let pan=null;
+svg.addEventListener('pointerdown',ev=>{ if(ev.target===svg||ev.target.id==='view'){pan={x:ev.clientX,y:ev.clientY,vx:view.x,vy:view.y};svg.classList.add('panning');pinnedHover=null;clearHL();info(null);} });
+svg.addEventListener('wheel',ev=>{ev.preventDefault();
+  const f=ev.deltaY<0?1.12:1/1.12; const w=screenToWorld(ev.clientX,ev.clientY);
+  view.k=Math.max(.3,Math.min(3.5,view.k*f));
+  view.x=ev.clientX-w.x*view.k; view.y=ev.clientY-w.y*view.k; applyView();
+},{passive:false});
+addEventListener('keydown',e=>{ if(e.key==='r'||e.key==='R') wake(1); });
+addEventListener('resize',()=>{ W=innerWidth; H=innerHeight; wake(.5); });
+
+// ---- one-time auto-demo: show the flow story before asking for a hover ----
+let demoTimer;
+function cancelDemo(){ clearTimeout(demoTimer); if(pinnedHover==='__demo'){pinnedHover=null;clearHL();info(null);} removeEventListener('pointermove',cancelDemo); removeEventListener('keydown',cancelDemo); }
+if(!reducedMotion){
+  demoTimer=setTimeout(()=>{ pinnedHover='__demo'; hover('orchestration'); pinnedHover='orchestration';
+    setTimeout(()=>{ if(pinnedHover==='orchestration'){pinnedHover=null;clearHL();info(null);} }, 2600);
+  }, 1400);
+  addEventListener('pointermove',cancelDemo,{once:true});
+  addEventListener('keydown',cancelDemo,{once:true});
+}
+
+applyView(); tick();
+</script>
+</body>
+</html>
