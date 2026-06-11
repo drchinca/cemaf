@@ -3,23 +3,23 @@
   "step": 7,
   "label": "full flow \u2014 research\u2192vote\u2192write\u2192gate\u2192publish",
   "dag_name": "full_flow",
-  "total_ms": 1081,
+  "total_ms": 537,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "dag_name": "full_flow",
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00"
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "seed",
         "node_type": "agent",
@@ -34,14 +34,14 @@
       "t_ms": 61,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "seed",
         "success": true,
-        "duration_ms": 61.151749978307635,
+        "duration_ms": 61.123707972001284,
         "error": null,
         "output": "{\"text\": \"Hello, TLS 1.3!\", \"tokens_in\": 12, \"tokens_out\": 8}",
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00",
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
         "workspace_id": null
       }
     },
@@ -49,7 +49,7 @@
       "t_ms": 61,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "vote",
         "node_type": "agent",
@@ -65,17 +65,17 @@
       }
     },
     {
-      "t_ms": 155,
+      "t_ms": 154,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "vote",
         "success": true,
-        "duration_ms": 93.41400000266731,
+        "duration_ms": 93.38012500666082,
         "error": null,
         "output": "{\"decision\": \"sufficient\", \"weighted_score\": 0.95}",
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00",
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
         "workspace_id": null
       }
     },
@@ -83,7 +83,7 @@
       "t_ms": 155,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "write",
         "node_type": "agent",
@@ -102,14 +102,14 @@
       "t_ms": 476,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "write",
         "success": true,
-        "duration_ms": 321.06258400017396,
+        "duration_ms": 321.17470900993794,
         "error": null,
         "output": "{\"body\": \"TLS 1.3 reduces handshake to 1-RTT\\u2026\", \"citations\": [{\"claim\": \"1-RTT handshake\", \"src\": \"rfc-8446\", \"supported\": true, \"strength\": 0.92}, {\"claim\": \"browser support 2018\", \"src\": \"memory:research#3\", \"supported\": true, \"strength\": 0.88}, {\"claim\": \"perf gains\", \"src\": \"cloudflare-blog-2018\", \"supported\": true, \"strength\": 0.81}], \"tokens_in\": 248, \"tokens_out\": 64}",
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00",
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
         "workspace_id": null
       }
     },
@@ -117,132 +117,72 @@
       "t_ms": 476,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "gate",
         "node_type": "agent",
         "agent_id": "Gate",
         "inputs": {
-          "body": null
+          "body": "TLS 1.3 reduces handshake to 1-RTT\u2026"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 576,
-      "kind": "task.started",
+      "t_ms": 476,
+      "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "gate",
-        "node_type": "agent",
-        "agent_id": "Gate",
-        "inputs": {
-          "body": null
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 778,
-      "kind": "task.started",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
-      "attrs": {
-        "node_id": "gate",
-        "node_type": "agent",
-        "agent_id": "Gate",
-        "inputs": {
-          "body": null
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 778,
-      "kind": "task.failed",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
-      "attrs": {
-        "node_id": "gate",
-        "success": false,
-        "duration_ms": 302.01099999999997,
-        "error": "Failed to build goal for agent 'Gate'",
-        "output": null,
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00",
+        "success": true,
+        "duration_ms": 0.04129100125283003,
+        "error": null,
+        "output": "{\"composite\": 0.907, \"verdict\": \"pass\"}",
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 778,
+      "t_ms": 476,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "pub",
         "node_type": "agent",
         "agent_id": "Publisher",
         "inputs": {
-          "body": null
+          "body": "TLS 1.3 reduces handshake to 1-RTT\u2026"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 879,
-      "kind": "task.started",
+      "t_ms": 537,
+      "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "node_id": "pub",
-        "node_type": "agent",
-        "agent_id": "Publisher",
-        "inputs": {
-          "body": null
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 1081,
-      "kind": "task.started",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
-      "attrs": {
-        "node_id": "pub",
-        "node_type": "agent",
-        "agent_id": "Publisher",
-        "inputs": {
-          "body": null
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 1081,
-      "kind": "task.failed",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
-      "attrs": {
-        "node_id": "pub",
-        "success": false,
-        "duration_ms": 302.77,
-        "error": "Failed to build goal for agent 'Publisher'",
-        "output": null,
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00",
+        "success": true,
+        "duration_ms": 60.470833035651594,
+        "error": null,
+        "output": "{\"artifact_id\": \"tls-1-3-brief\"}",
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 1081,
+      "t_ms": 537,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:13.006319+00:00",
+      "corr": "run_2026-06-11T23:12:11.947249+00:00",
       "attrs": {
         "dag_name": "full_flow",
-        "run_id": "run_2026-06-11T23:00:13.006319+00:00",
+        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
         "num_nodes": 5,
-        "duration_ms": 1081.255
+        "duration_ms": 537.067
       }
     }
   ]

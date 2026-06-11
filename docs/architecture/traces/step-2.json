@@ -3,23 +3,23 @@
   "step": 2,
   "label": "chain \u2014 2 agents",
   "dag_name": "chain",
-  "total_ms": 113,
+  "total_ms": 112,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:11.101056+00:00",
+      "corr": "run_2026-06-11T23:12:10.606146+00:00",
       "attrs": {
         "dag_name": "chain",
-        "run_id": "run_2026-06-11T23:00:11.101056+00:00"
+        "run_id": "run_2026-06-11T23:12:10.606146+00:00"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:11.101056+00:00",
+      "corr": "run_2026-06-11T23:12:10.606146+00:00",
       "attrs": {
         "node_id": "greet",
         "node_type": "agent",
@@ -34,14 +34,14 @@
       "t_ms": 61,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:11.101056+00:00",
+      "corr": "run_2026-06-11T23:12:10.606146+00:00",
       "attrs": {
         "node_id": "greet",
         "success": true,
-        "duration_ms": 61.191625020001084,
+        "duration_ms": 60.71587500628084,
         "error": null,
         "output": "{\"text\": \"Hello, world!\", \"tokens_in\": 12, \"tokens_out\": 8}",
-        "run_id": "run_2026-06-11T23:00:11.101056+00:00",
+        "run_id": "run_2026-06-11T23:12:10.606146+00:00",
         "workspace_id": null
       }
     },
@@ -49,42 +49,42 @@
       "t_ms": 61,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:11.101056+00:00",
+      "corr": "run_2026-06-11T23:12:10.606146+00:00",
       "attrs": {
         "node_id": "upper",
         "node_type": "agent",
         "agent_id": "Upper",
         "inputs": {
-          "text": null
+          "text": "world (greeted)"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 113,
+      "t_ms": 112,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:11.101056+00:00",
+      "corr": "run_2026-06-11T23:12:10.606146+00:00",
       "attrs": {
         "node_id": "upper",
         "success": true,
-        "duration_ms": 51.25633301213384,
+        "duration_ms": 51.180707989260554,
         "error": null,
-        "output": "{\"text\": \"\", \"tokens_in\": 18, \"tokens_out\": 18}",
-        "run_id": "run_2026-06-11T23:00:11.101056+00:00",
+        "output": "{\"text\": \"WORLD (GREETED)\", \"tokens_in\": 18, \"tokens_out\": 18}",
+        "run_id": "run_2026-06-11T23:12:10.606146+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 113,
+      "t_ms": 112,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:11.101056+00:00",
+      "corr": "run_2026-06-11T23:12:10.606146+00:00",
       "attrs": {
         "dag_name": "chain",
-        "run_id": "run_2026-06-11T23:00:11.101056+00:00",
+        "run_id": "run_2026-06-11T23:12:10.606146+00:00",
         "num_nodes": 2,
-        "duration_ms": 113.054
+        "duration_ms": 112.438
       }
     }
   ]

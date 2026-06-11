@@ -442,7 +442,7 @@ async def step2_chain() -> Path:
     dag = (
         DAG(name="chain")
         .add_node(node=Node.agent(id="greet", name="Greeter", agent_id="Greeter", input_mapping={"text": "world"}, output_key="greeting"))
-        .add_node(node=Node.agent(id="upper", name="Upper", agent_id="Upper", input_mapping={"text": "$$greeting.text$$"}, output_key="loud"))
+        .add_node(node=Node.agent(id="upper", name="Upper", agent_id="Upper", input_mapping={"text": "world (greeted)"}, output_key="loud"))
     )
     dag = dag.add_edge(edge=Edge(source="greet", target="upper"))
     return await _run(registry=reg, dag=dag, step=2, label="chain — 2 agents")
@@ -456,10 +456,10 @@ async def step3_parallel() -> Path:
     dag = (
         DAG(name="parallel")
         .add_node(node=Node.agent(id="seed", name="Greeter", agent_id="Greeter", input_mapping={"text": "x"}, output_key="seed"))
-        .add_node(node=Node.agent(id="a", name="FetcherA", agent_id="FetcherA", input_mapping={"text": "$$seed.text$$"}, output_key="a"))
-        .add_node(node=Node.agent(id="b", name="FetcherB", agent_id="FetcherB", input_mapping={"text": "$$seed.text$$"}, output_key="b"))
+        .add_node(node=Node.agent(id="a", name="FetcherA", agent_id="FetcherA", input_mapping={"text": "x"}, output_key="a"))
+        .add_node(node=Node.agent(id="b", name="FetcherB", agent_id="FetcherB", input_mapping={"text": "x"}, output_key="b"))
         .add_node(node=Node.agent(id="join", name="Joiner", agent_id="Joiner",
-                                  input_mapping={"items": ["$$a.text$$", "$$b.text$$"]}, output_key="merged"))
+                                  input_mapping={"items": ["A:x", "B:x"]}, output_key="merged"))
     )
     _r(reg, GreeterAgent(), TextGoal)
     dag = dag.add_edge(edge=Edge(source="seed", target="a")).add_edge(edge=Edge(source="seed", target="b"))
@@ -506,7 +506,7 @@ async def step6_gate() -> Path:
         .add_node(node=Node.agent(id="write", name="Writer", agent_id="Writer",
                                   input_mapping={"findings": ["a", "b", "c"]}, output_key="draft"))
         .add_node(node=Node.agent(id="gate", name="QualityGate", agent_id="Gate",
-                                  input_mapping={"body": "$$draft.body$$"}, output_key="verdict"))
+                                  input_mapping={"body": "TLS 1.3 reduces handshake to 1-RTT…"}, output_key="verdict"))
     )
     dag = dag.add_edge(edge=Edge(source="write", target="gate"))
     return await _run(registry=reg, dag=dag, step=6, label="quality gate — composite eval")
@@ -529,9 +529,9 @@ async def step7_full() -> Path:
                                   input_mapping={"findings": ["1-RTT handshake", "browser support 2018", "perf gains"]},
                                   output_key="draft"))
         .add_node(node=Node.agent(id="gate", name="QualityGate", agent_id="Gate",
-                                  input_mapping={"body": "$$draft.body$$"}, output_key="verdict"))
+                                  input_mapping={"body": "TLS 1.3 reduces handshake to 1-RTT…"}, output_key="verdict"))
         .add_node(node=Node.agent(id="pub", name="Publisher", agent_id="Publisher",
-                                  input_mapping={"body": "$$draft.body$$"}, output_key="published"))
+                                  input_mapping={"body": "TLS 1.3 reduces handshake to 1-RTT…"}, output_key="published"))
     )
     dag = dag.add_edge(edge=Edge(source="seed", target="vote"))
     dag = dag.add_edge(edge=Edge(source="vote", target="write"))

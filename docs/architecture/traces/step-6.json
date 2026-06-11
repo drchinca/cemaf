@@ -3,23 +3,23 @@
   "step": 6,
   "label": "quality gate \u2014 composite eval",
   "dag_name": "gate",
-  "total_ms": 624,
+  "total_ms": 322,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
+      "corr": "run_2026-06-11T23:12:11.624725+00:00",
       "attrs": {
         "dag_name": "gate",
-        "run_id": "run_2026-06-11T23:00:12.381322+00:00"
+        "run_id": "run_2026-06-11T23:12:11.624725+00:00"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
+      "corr": "run_2026-06-11T23:12:11.624725+00:00",
       "attrs": {
         "node_id": "write",
         "node_type": "agent",
@@ -38,14 +38,14 @@
       "t_ms": 321,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
+      "corr": "run_2026-06-11T23:12:11.624725+00:00",
       "attrs": {
         "node_id": "write",
         "success": true,
-        "duration_ms": 321.18779100710526,
+        "duration_ms": 321.45454199053347,
         "error": null,
         "output": "{\"body\": \"TLS 1.3 reduces handshake to 1-RTT\\u2026\", \"citations\": [{\"claim\": \"a\", \"src\": \"rfc-8446\", \"supported\": true, \"strength\": 0.92}, {\"claim\": \"b\", \"src\": \"memory:research#3\", \"supported\": true, \"strength\": 0.88}, {\"claim\": \"c\", \"src\": \"cloudflare-blog-2018\", \"supported\": true, \"strength\": 0.81}], \"tokens_in\": 248, \"tokens_out\": 64}",
-        "run_id": "run_2026-06-11T23:00:12.381322+00:00",
+        "run_id": "run_2026-06-11T23:12:11.624725+00:00",
         "workspace_id": null
       }
     },
@@ -53,72 +53,42 @@
       "t_ms": 321,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
+      "corr": "run_2026-06-11T23:12:11.624725+00:00",
       "attrs": {
         "node_id": "gate",
         "node_type": "agent",
         "agent_id": "Gate",
         "inputs": {
-          "body": null
+          "body": "TLS 1.3 reduces handshake to 1-RTT\u2026"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 422,
-      "kind": "task.started",
+      "t_ms": 321,
+      "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
+      "corr": "run_2026-06-11T23:12:11.624725+00:00",
       "attrs": {
         "node_id": "gate",
-        "node_type": "agent",
-        "agent_id": "Gate",
-        "inputs": {
-          "body": null
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 624,
-      "kind": "task.started",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
-      "attrs": {
-        "node_id": "gate",
-        "node_type": "agent",
-        "agent_id": "Gate",
-        "inputs": {
-          "body": null
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 624,
-      "kind": "task.failed",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
-      "attrs": {
-        "node_id": "gate",
-        "success": false,
-        "duration_ms": 302.899,
-        "error": "Failed to build goal for agent 'Gate'",
-        "output": null,
-        "run_id": "run_2026-06-11T23:00:12.381322+00:00",
+        "success": true,
+        "duration_ms": 0.06162503268569708,
+        "error": null,
+        "output": "{\"composite\": 0.907, \"verdict\": \"pass\"}",
+        "run_id": "run_2026-06-11T23:12:11.624725+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 624,
+      "t_ms": 322,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:00:12.381322+00:00",
+      "corr": "run_2026-06-11T23:12:11.624725+00:00",
       "attrs": {
         "dag_name": "gate",
-        "run_id": "run_2026-06-11T23:00:12.381322+00:00",
+        "run_id": "run_2026-06-11T23:12:11.624725+00:00",
         "num_nodes": 2,
-        "duration_ms": 624.374
+        "duration_ms": 321.924
       }
     }
   ]
