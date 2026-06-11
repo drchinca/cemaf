@@ -111,9 +111,9 @@ Full diagram + per-module details: [modules.md](modules.md).
 - [RLM](rlm.md) — Recursive LLM for 1M+ token contexts
 
 ### Self-Hosting (Layer 2)
-- [Audit](audit.md) — AuditTrail, anomaly detection
-- [Knowledge Graph](knowledge.md) — entities + relations backed by memory
-- [Meta Layer](meta.md) — MetaArchitect, MetaSpecifier, MetaSynthesizer, MetaScaffolder, app_synthesis DAG
+- [Self-Hosting Layer](self-hosting.md) — the whole Layer 2: meta-agents, meta-tools, and the pre-built meta-DAGs
+- [Audit & anomaly detection](self-hosting.md#self_audit) — the `self_audit` meta-DAG over AuditTrail
+- [Knowledge refresh](self-hosting.md#knowledge_refresh) — entities + relations backed by memory
 
 ---
 
@@ -128,14 +128,14 @@ Full diagram + per-module details: [modules.md](modules.md).
 | Detect prompt injection via tools | [moderation.md § ModeratingLLMClient](moderation.md) |
 | Track what the LLM saw | [context.md § patches](context.md) |
 | Run recorded executions | [replay.md](replay.md) |
-| Build self-specifying apps | [meta.md § app_synthesis](meta.md) |
+| Build self-specifying apps | [self-hosting.md § feature_synthesis](self-hosting.md#feature_synthesis) |
 | Add a new cross-cutting controller | [modules.md § placement decisions](modules.md#placement-decisions--worked-examples) |
 
 ---
 
 ## Project stats
 
-- **2735+ tests** | **100% passing** | TDD from day one
+- **Comprehensive test suite** (unit + integration) | **100% passing** | TDD from day one
 - **Python 3.14+** | fully typed | protocol-based design
 - Glass-box audit | provenance tracking | budget enforcement | structured halt signals
 - Six LLM providers supported out-of-box; exact token counting via provider APIs
