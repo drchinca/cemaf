@@ -103,14 +103,21 @@ class RunTracer:
 # ---------- helpers ----------
 
 
+# Module-level bus reference: AgentContext doesn't expose event_bus, so we set
+# this before each _run() and the agents publish through it from inside .run().
+_ACTIVE_BUS: InMemoryEventBus | None = None
+
+
 async def _emit(ctx: AgentContext, kind: str, payload: dict[str, Any], source: str) -> None:
-    """Publish an event from inside an agent (handles missing event_bus gracefully)."""
-    bus = getattr(ctx, "event_bus", None)
-    if bus is None:
+    """Publish an event from inside an agent via the active EventBus."""
+    if _ACTIVE_BUS is None:
         return
-    await bus.publish(
+    await _ACTIVE_BUS.publish(
         Event.create(
-            type=kind, payload=payload, source=source, correlation_id=getattr(ctx, "correlation_id", None)
+            type=kind,
+            payload=payload,
+            source=source,
+            correlation_id=getattr(ctx, "run_id", None),
         )
     )
 
@@ -412,16 +419,21 @@ class PublisherAgent(Agent[PublishGoal, PublishResult]):
 
 
 async def _run(*, registry: AgentRegistry, dag: DAG, step: int, label: str) -> Path:
+    global _ACTIVE_BUS
     bus = InMemoryEventBus()
-    tracer = RunTracer()
-    tracer.attach(bus)
-    services = RuntimeServices(event_bus=bus)
-    config = ExecutorConfig()
-    executor = create_executor(agent_registry=registry, services=services, config=config)
-    result = await executor.run(dag=dag)
-    print(f"step {step:>1}  {label:<32}  status={result.status.value}  events={len(tracer.events)}")
-    path = _write(tracer, step=step, label=label, dag_name=dag.name)
-    return path
+    _ACTIVE_BUS = bus  # agents close over this to emit domain events
+    try:
+        tracer = RunTracer()
+        tracer.attach(bus)
+        services = RuntimeServices(event_bus=bus)
+        config = ExecutorConfig()
+        executor = create_executor(agent_registry=registry, services=services, config=config)
+        result = await executor.run(dag=dag)
+        print(f"step {step:>1}  {label:<32}  status={result.status.value}  events={len(tracer.events)}")
+        path = _write(tracer, step=step, label=label, dag_name=dag.name)
+        return path
+    finally:
+        _ACTIVE_BUS = None
 
 
 def _r(reg: AgentRegistry, agent: Agent, goal_type: type[BaseModel]) -> AgentRegistry:

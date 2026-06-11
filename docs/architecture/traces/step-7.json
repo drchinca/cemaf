@@ -3,23 +3,23 @@
   "step": 7,
   "label": "full flow \u2014 research\u2192vote\u2192write\u2192gate\u2192publish",
   "dag_name": "full_flow",
-  "total_ms": 537,
+  "total_ms": 536,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "dag_name": "full_flow",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00"
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "seed",
         "node_type": "agent",
@@ -34,14 +34,14 @@
       "t_ms": 61,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "seed",
         "success": true,
-        "duration_ms": 61.123707972001284,
+        "duration_ms": 60.823457955848426,
         "error": null,
         "output": "{\"text\": \"Hello, TLS 1.3!\", \"tokens_in\": 12, \"tokens_out\": 8}",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00",
         "workspace_id": null
       }
     },
@@ -49,7 +49,7 @@
       "t_ms": 61,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "vote",
         "node_type": "agent",
@@ -65,25 +65,68 @@
       }
     },
     {
-      "t_ms": 154,
+      "t_ms": 61,
+      "kind": "council.ballot",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "agent": "ResearcherA",
+        "vote": "sufficient",
+        "weight": 0.82
+      }
+    },
+    {
+      "t_ms": 92,
+      "kind": "council.ballot",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "agent": "ResearcherB",
+        "vote": "sufficient",
+        "weight": 0.71
+      }
+    },
+    {
+      "t_ms": 123,
+      "kind": "council.ballot",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "agent": "Skeptic",
+        "vote": "insufficient",
+        "weight": 0.58
+      }
+    },
+    {
+      "t_ms": 153,
+      "kind": "council.decided",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "decision": "sufficient",
+        "weighted_score": 0.95
+      }
+    },
+    {
+      "t_ms": 153,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "vote",
         "success": true,
-        "duration_ms": 93.38012500666082,
+        "duration_ms": 92.83050004160032,
         "error": null,
         "output": "{\"decision\": \"sufficient\", \"weighted_score\": 0.95}",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 155,
+      "t_ms": 154,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "write",
         "node_type": "agent",
@@ -99,25 +142,95 @@
       }
     },
     {
-      "t_ms": 476,
+      "t_ms": 154,
+      "kind": "auction.bid",
+      "source": "Writer",
+      "corr": "",
+      "attrs": {
+        "candidate": "Writer.fast",
+        "fitness": 0.82,
+        "load": 0.05,
+        "score": 0.78
+      }
+    },
+    {
+      "t_ms": 154,
+      "kind": "auction.bid",
+      "source": "Writer",
+      "corr": "",
+      "attrs": {
+        "candidate": "Writer.careful",
+        "fitness": 0.81,
+        "load": 0.64,
+        "score": 0.29
+      }
+    },
+    {
+      "t_ms": 154,
+      "kind": "auction.award",
+      "source": "Writer",
+      "corr": "",
+      "attrs": {
+        "winner": "Writer.fast",
+        "saved_p95_ms": 1400
+      }
+    },
+    {
+      "t_ms": 475,
+      "kind": "citation.added",
+      "source": "Writer",
+      "corr": "",
+      "attrs": {
+        "claim": "1-RTT handshake",
+        "src": "rfc-8446",
+        "supported": true,
+        "strength": 0.92
+      }
+    },
+    {
+      "t_ms": 475,
+      "kind": "citation.added",
+      "source": "Writer",
+      "corr": "",
+      "attrs": {
+        "claim": "browser support 2018",
+        "src": "memory:research#3",
+        "supported": true,
+        "strength": 0.88
+      }
+    },
+    {
+      "t_ms": 475,
+      "kind": "citation.added",
+      "source": "Writer",
+      "corr": "",
+      "attrs": {
+        "claim": "perf gains",
+        "src": "cloudflare-blog-2018",
+        "supported": true,
+        "strength": 0.81
+      }
+    },
+    {
+      "t_ms": 475,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "write",
         "success": true,
-        "duration_ms": 321.17470900993794,
+        "duration_ms": 321.2427499820478,
         "error": null,
         "output": "{\"body\": \"TLS 1.3 reduces handshake to 1-RTT\\u2026\", \"citations\": [{\"claim\": \"1-RTT handshake\", \"src\": \"rfc-8446\", \"supported\": true, \"strength\": 0.92}, {\"claim\": \"browser support 2018\", \"src\": \"memory:research#3\", \"supported\": true, \"strength\": 0.88}, {\"claim\": \"perf gains\", \"src\": \"cloudflare-blog-2018\", \"supported\": true, \"strength\": 0.81}], \"tokens_in\": 248, \"tokens_out\": 64}",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 476,
+      "t_ms": 475,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "gate",
         "node_type": "agent",
@@ -129,25 +242,42 @@
       }
     },
     {
-      "t_ms": 476,
+      "t_ms": 475,
+      "kind": "eval.completed",
+      "source": "QualityGate",
+      "corr": "",
+      "attrs": {
+        "composite": 0.907,
+        "threshold": 0.8,
+        "sub": {
+          "deterministic": 1.0,
+          "semantic": 0.91,
+          "judge": 0.81,
+          "citation_membership": 1.0
+        },
+        "verdict": "pass"
+      }
+    },
+    {
+      "t_ms": 475,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "gate",
         "success": true,
-        "duration_ms": 0.04129100125283003,
+        "duration_ms": 0.05087495082989335,
         "error": null,
         "output": "{\"composite\": 0.907, \"verdict\": \"pass\"}",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 476,
+      "t_ms": 475,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "pub",
         "node_type": "agent",
@@ -159,30 +289,61 @@
       }
     },
     {
-      "t_ms": 537,
+      "t_ms": 535,
+      "kind": "content.published",
+      "source": "Publisher",
+      "corr": "",
+      "attrs": {
+        "artifact_id": "tls-1-3-brief",
+        "len_chars": 35
+      }
+    },
+    {
+      "t_ms": 535,
+      "kind": "memory.extracted",
+      "source": "Publisher",
+      "corr": "",
+      "attrs": {
+        "tier": "PROJECT",
+        "items": 4,
+        "scope": "session\u2192project"
+      }
+    },
+    {
+      "t_ms": 536,
+      "kind": "blueprint.harvested",
+      "source": "Publisher",
+      "corr": "",
+      "attrs": {
+        "new_blueprint_id": "research-publish-v4",
+        "score": 0.86
+      }
+    },
+    {
+      "t_ms": 536,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "node_id": "pub",
         "success": true,
-        "duration_ms": 60.470833035651594,
+        "duration_ms": 60.526832996401936,
         "error": null,
         "output": "{\"artifact_id\": \"tls-1-3-brief\"}",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 537,
+      "t_ms": 536,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:12:11.947249+00:00",
+      "corr": "run_2026-06-11T23:52:16.808218+00:00",
       "attrs": {
         "dag_name": "full_flow",
-        "run_id": "run_2026-06-11T23:12:11.947249+00:00",
+        "run_id": "run_2026-06-11T23:52:16.808218+00:00",
         "num_nodes": 5,
-        "duration_ms": 537.067
+        "duration_ms": 536.042
       }
     }
   ]
