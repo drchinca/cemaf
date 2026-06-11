@@ -250,6 +250,58 @@ async def test_recovery_hint_trail_survives_agent_exception() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recovery_info_surfaces_on_task_completed_event() -> None:
+    """A node that recovered MUST tell subscribers — otherwise the audit trail
+    and harvest engine can't react to recovery patterns.
+
+    Closes the observability seam: recovery used to be silent on the EventBus
+    (only a logger.info). Now ``recovery_attempts`` rides the TASK_COMPLETED
+    payload so any subscriber can correlate it with a run.
+    """
+    from cemaf.events.bus import InMemoryEventBus
+    from cemaf.events.protocols import Event, EventType
+
+    captured: list[Event] = []
+
+    class _Recorder:
+        async def __call__(self, event: Event) -> None:
+            captured.append(event)
+
+    event_bus = InMemoryEventBus()
+    event_bus.subscribe(EventType.TASK_COMPLETED, _Recorder())
+
+    writer = _LearningWriter()
+    registry = AgentRegistry()
+    registry.register_agent(agent_instance=writer, goal_type=_DraftGoal)
+    pipeline = create_interceptor_pipeline(
+        interceptors=(
+            GateEvalInterceptor(
+                evaluators=(LengthEvaluator(min_length=100),),
+                node_pattern="write",
+                threshold=0.5,
+                on_failure=GateFailureMode.RECOVER,
+            ),
+        )
+    )
+    executor = create_executor(
+        agent_registry=registry,
+        config=ExecutorConfig(enable_events=True),
+        services=RuntimeServices(
+            event_bus=event_bus,
+            interceptor_pipeline=pipeline,
+            max_recovery_attempts=2,
+        ),
+    )
+    await executor.run(dag=_dag())
+
+    write_events = [e for e in captured if e.payload.get("node_id") == "write"]
+    assert len(write_events) == 1
+    payload = write_events[0].payload
+    assert payload["success"] is True
+    assert payload["recovery_attempts"] == 1  # one RECOVER fired before success
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_create_executor_threads_max_recovery_attempts() -> None:
     """The canonical entry point ``create_executor`` must wire the recovery budget.
 
