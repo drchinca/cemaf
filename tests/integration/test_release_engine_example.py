@@ -46,6 +46,10 @@ async def test_produce_runs_engine_and_writes_artifacts(example) -> None:
     assert report["council"]["verdict"] == "ship"  # council decided
     assert report["council"]["tally"] == {"ship": 2.0, "hold": 1.0}
     assert report["auction"]["winner"] == "writer-standby"  # auction picked low-load
+    # The interceptor gate RECOVERED the writer: its short first draft tripped the
+    # length gate, which fed back a hint and re-ran the agent (SPEC-01a RECOVER).
+    assert report["recovery"]["attempts"] == 1  # exactly one RECOVER fired
+    assert report["recovery"]["writer_runs"] == 2  # stub → revised
     assert report["online_evals"] == 1  # eval ran
     assert report["blueprints_harvested"] == 1  # harvest distilled a blueprint
     assert report["cost_usd"] > 0  # budget tracked

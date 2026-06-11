@@ -12,7 +12,8 @@ script. Every station is a first-class CEMAF citizen:
     │             │
     │             ▼
     └─ publish (AGENT)    renders the release notes artifact
-                  │
+                  │             ▲ RECOVER: a too-short first draft trips the length
+                  │             │ gate, which feeds the writer a hint and re-runs it
                   ├─ events ─▶ ONLINE-EVAL  (quality gate on the draft)
                   └─ events ─▶ HARVEST       (distil this run into a reusable blueprint)
 
@@ -63,7 +64,12 @@ from cemaf.council.types import Opinion
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
-from cemaf.interceptors import GateEvalInterceptor, create_interceptor_pipeline
+from cemaf.interceptors import (
+    GateEvalInterceptor,
+    GateFailureMode,
+    create_interceptor_pipeline,
+)
+from cemaf.interceptors.types import RECOVERY_HINTS_KEY
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.dag import (
     DAG,
@@ -127,10 +133,18 @@ class _WriteGoal(BaseModel):
 
 
 class Writer:
-    """A WRITE-capable agent selected by auction; renders the release notes."""
+    """A WRITE-capable agent selected by auction; renders the release notes.
+
+    Models a real LLM writer that revises on feedback: its first draft is a terse
+    stub that fails the length gate, so the gate emits a RECOVER hint; on the
+    re-run the writer reads the hint and produces the full notes. This is the
+    interceptor spine's RECOVER decision (SPEC-01a) end-to-end — the gate doesn't
+    just block, it asks for a fix and the agent supplies one.
+    """
 
     def __init__(self, agent_id: str, load: float) -> None:
         self._id, self._load = AgentID(agent_id), load
+        self.attempts = 0  # surfaced in the run report to prove a recovery happened
 
     @property
     def id(self) -> AgentID:
@@ -153,6 +167,21 @@ class Writer:
         return self._load
 
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[str]:
+        self.attempts += 1
+        hints = context.global_memory.get(RECOVERY_HINTS_KEY, [])
+        saw_length_hint = isinstance(hints, list) and any(
+            h.get("code") == "length" for h in hints
+        )
+
+        if not saw_length_hint:
+            # First-pass stub — too short; the length gate will ask for a revision.
+            return AgentResult.ok(
+                output=f"# Release {CHANGESET['version']}\n\n_draft pending._\n",
+                state=AgentState(),
+                metadata={"cost_estimate_usd": 0.02, "tokens_total": 120, "overall_score": 0.4},
+            )
+
+        # Recovered draft — the gate's feedback arrived; write the full notes.
         bullets = "\n".join(f"- {c}" for c in CHANGESET["changes"])
         notes = (
             f"# Release {CHANGESET['version']}\n\n"
@@ -180,13 +209,15 @@ def build_engine() -> tuple[object, dict[str, object]]:
     registry.register_instance(item=Reviewer("alice", "ship", "tests pass, scope clean"))
     registry.register_instance(item=Reviewer("bob", "ship", "changelog is clear"))
     registry.register_instance(item=Reviewer("carol", "hold", "wants another reviewer"))
+    writer_primary = Writer("writer-primary", load=0.8)
+    writer_standby = Writer("writer-standby", load=0.2)
     registry.register_agent(
-        agent_instance=Writer("writer-primary", load=0.8),
+        agent_instance=writer_primary,
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
     registry.register_agent(
-        agent_instance=Writer("writer-standby", load=0.2),
+        agent_instance=writer_standby,
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
@@ -214,14 +245,18 @@ def build_engine() -> tuple[object, dict[str, object]]:
     )
 
     # Interceptor spine (SPEC-01a): a POST gate on the draft. Unlike the OBSERVE
-    # eval above (which only records), this GATE genuinely BLOCKS — if the notes
-    # were too short, the write node fails and nothing downstream publishes.
+    # eval above (which only records), this GATE acts. In RECOVER mode it doesn't
+    # merely block — when the first draft is too short it emits a feedback hint
+    # and the executor re-runs the writer (bounded by max_recovery_attempts); the
+    # writer reads the hint and revises. If recovery is exhausted the gate
+    # downgrades to a hard REJECT and nothing downstream publishes.
     gate = create_interceptor_pipeline(
         interceptors=(
             GateEvalInterceptor(
                 evaluators=(LengthEvaluator(min_length=120),),
                 node_pattern="write",
                 threshold=0.5,
+                on_failure=GateFailureMode.RECOVER,
             ),
         )
     )
@@ -241,12 +276,14 @@ def build_engine() -> tuple[object, dict[str, object]]:
             council_aggregator=DefaultVoteAggregator(),
             online_eval_pipeline=online,
             interceptor_pipeline=gate,
+            max_recovery_attempts=2,  # the RECOVER budget the gate above draws on
         ),
     )
     probes = {
         "online": online,
         "harvest_source": harvest_source,
         "budget_guard": budget_guard,
+        "writer_standby": writer_standby,  # auction winner — its attempts prove the recovery
     }
     return executor, probes
 
@@ -307,7 +344,7 @@ def dry_run() -> None:
         guard = f"{cond.field}=={cond.value}" if cond else edge.condition.value
         print(f"  edge           : {edge.source} → {edge.target}  (when {guard})")
     print("\n  subsystems wired: council · auction · context-compiler · token-budget ·")
-    print("                    budget-guard · online-eval · interceptor-gate (blocks) ·")
+    print("                    budget-guard · online-eval · interceptor-gate (RECOVER) ·")
     print("                    blueprint-harvest · events")
     print("\n  → run with --produce to execute and write artifacts to ./.release_out/")
 
@@ -341,6 +378,12 @@ async def produce() -> int:
             "ballots": review.metadata.get("council", {}).get("ballots") if review else None,
         },
         "auction": {"winner": write.metadata.get("selection", {}).get("agent_id")},
+        "recovery": {
+            # The gate asked the writer to revise its too-short first draft;
+            # recovery_attempts==1 (one RECOVER) and the writer ran twice.
+            "attempts": write.metadata.get("recovery_attempts", 0),
+            "writer_runs": probes["writer_standby"].attempts,  # type: ignore[attr-defined]
+        },
         "online_evals": len(probes["online"]._results),  # type: ignore[attr-defined]
         "blueprints_harvested": len(list(probes["harvest_source"].load())),  # type: ignore[attr-defined]
         "cost_usd": round(sum(float(r.metadata.get("cost_estimate_usd", 0)) for r in run.node_results), 4),
@@ -351,6 +394,10 @@ async def produce() -> int:
     print("PRODUCE — engine ran end-to-end\n")
     print(f"  council verdict     : {report['council']['verdict']}  (tally {report['council']['tally']})")
     print(f"  auction winner      : {report['auction']['winner']}")
+    print(
+        f"  gate recovery       : {report['recovery']['attempts']} recover(s); "
+        f"writer ran {report['recovery']['writer_runs']}x (stub → revised)"
+    )
     print(f"  online evals run    : {report['online_evals']}")
     print(f"  blueprints harvested: {report['blueprints_harvested']}")
     print(f"  total cost          : ${report['cost_usd']}")
