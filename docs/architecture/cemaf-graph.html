@@ -208,6 +208,10 @@
   .dnode.done rect{stroke:#14b8a6;stroke-width:1.5;}
   .dnode.failed rect{stroke:#ec4899;stroke-width:1.8;}
   .dnode.skipped rect{opacity:.28;}
+  /* ghost: heal-lane nodes/edges visible always, dim when off, lit when cf_fail on */
+  .dnode.ghost rect{opacity:.32;stroke-dasharray:3 3;}
+  .dnode.ghost text{opacity:.45;}
+  .dedge.ghost{stroke:#566;stroke-dasharray:3 5;opacity:.32;}
   .dnode.pulse rect{animation:dpulse 1.1s ease-in-out 2;}
   @keyframes dpulse{0%,100%{stroke:#0b0e14;}50%{stroke:#a855f7;stroke-width:2.2;}}
   .dedge{fill:none;stroke:#2b3650;stroke-width:1.6;transition:stroke .25s, opacity .25s;}
@@ -224,9 +228,15 @@
   .elabel{font-family:ui-monospace,Menlo,monospace;font-size:9px;fill:var(--soft);text-anchor:middle;pointer-events:none;}
   /* checkpoint flags + scrub head */
   .ck-flag{cursor:pointer;}
-  .ck-flag rect{fill:#0b0e14;stroke:#3b82f6;stroke-width:1;transition:stroke .15s, fill .15s;}
-  .ck-flag:hover rect{stroke:#fbbf4d;fill:#141a26;}
-  .ck-flag text{font-family:ui-monospace,Menlo,monospace;font-size:9px;fill:var(--soft);text-anchor:middle;pointer-events:none;}
+  .ck-flag rect{fill:rgba(59,130,246,.10);stroke:#3b82f6;stroke-width:1;transition:stroke .15s, fill .15s;}
+  .ck-flag:hover rect{stroke:#fbbf4d;fill:rgba(245,158,11,.12);}
+  .ck-flag text{font-family:ui-monospace,Menlo,monospace;font-size:10px;fill:var(--ink);pointer-events:none;}
+  .ck-flag .ck-id{font-weight:700;fill:#6ba3ff;text-anchor:start;}
+  .ck-flag .ck-meta{font-size:9px;fill:var(--soft);text-anchor:end;}
+  .ck-flag .ck-tail{fill:#3b82f6;opacity:.7;}
+  .ck-flag.pulse rect{stroke:#fbbf4d;animation:ck-pulse .9s ease-out;}
+  @keyframes ck-pulse{0%{box-shadow:0 0 0 0 rgba(251,191,77,.6);}100%{box-shadow:0 0 0 12px rgba(251,191,77,0);}}
+  .ck-drop{stroke:#3b82f6;stroke-width:1;stroke-dasharray:2 3;opacity:.35;}
   .scrub-head{stroke:#fbbf4d;stroke-width:1.6;pointer-events:none;}
   .scrub-head circle{fill:#fbbf4d;}
 
@@ -1372,11 +1382,11 @@ const CITATIONS_FAIL_ATTEMPT1 = [
 
 /* Checkpoints */
 const CHECKPOINTS = [
-  {id:'ck-1', t: 600,  lbl:'after BlueprintLoader', tokens:'0.1k', usd:0.000},
-  {id:'ck-2', t:1900,  lbl:'after Librarian',       tokens:'0.4k', usd:0.001},
-  {id:'ck-3', t:3700,  lbl:'after Researcher',      tokens:'1.8k', usd:0.002},
-  {id:'ck-4', t:5100,  lbl:'after Council',         tokens:'2.0k', usd:0.003},
-  {id:'ck-5', t:7700,  lbl:'after CitationTracker', tokens:'2.9k', usd:0.005},
+  {id:'ck-1', t: 600,  lbl:'after BlueprintLoader', tokens:'0.1k', usd:0.000, producer:'a_bp'},
+  {id:'ck-2', t:1900,  lbl:'after Librarian',       tokens:'0.4k', usd:0.001, producer:'a_lib'},
+  {id:'ck-3', t:3700,  lbl:'after Researcher',      tokens:'1.8k', usd:0.002, producer:'a_research'},
+  {id:'ck-4', t:5100,  lbl:'after Council',         tokens:'2.0k', usd:0.003, producer:'a_council'},
+  {id:'ck-5', t:7700,  lbl:'after CitationTracker', tokens:'2.9k', usd:0.005, producer:'a_cite'},
 ];
 
 /* Capability ribbon — 12 lines, hover to pulse */
@@ -1749,12 +1759,19 @@ function buildDagView(){
     const mx=(x0+x1)/2;
     return `M${x0},${y0} C${mx},${y0} ${mx},${y1} ${x1},${y1}`;
   }
+  // backward (alt) edges arc up over the lane to read as "this is a DAG, not a Gantt"
+  function arcBack(x0,y0,x1,y1){
+    // x1 is to the LEFT of x0 (re-fetch); pull control points up above the lane
+    const apex = Math.min(y0,y1) - 38;
+    const cmx = (x0+x1)/2;
+    return `M${x0},${y0} C${x0+10},${apex} ${cmx},${apex} ${x1},${y1}`;
+  }
   A_EDGES.forEach(e=>{
     const a=A_NODES_BASE.find(n=>n.id===e.s), b=A_NODES_BASE.find(n=>n.id===e.t);
     if(!a||!b) return;
     const x0=tToX(a.t1)+2, x1=tToX(b.t0)-2, y0=agentY(a), y1=agentY(b);
     const p=document.createElementNS(SVGNS_LOCAL,'path');
-    p.setAttribute('d',curve(x0,y0,x1,y1));
+    p.setAttribute('d', e.alt ? arcBack(x0,y0,x1,y1) : curve(x0,y0,x1,y1));
     p.setAttribute('class','dedge'+(e.alt?' alt':''));
     p.setAttribute('marker-end','url(#darrow)');
     p.dataset.key=e.s+'>'+e.t;
@@ -1765,7 +1782,9 @@ function buildDagView(){
     if(e.label){
       const lt=document.createElementNS(SVGNS_LOCAL,'text');
       lt.setAttribute('class','elabel');
-      lt.setAttribute('x',(x0+x1)/2); lt.setAttribute('y',(y0+y1)/2-4);
+      // alt-arc label sits at the apex of the backward arc, not the midpoint of a straight line
+      const ly = e.alt ? (Math.min(y0,y1) - 44) : ((y0+y1)/2 - 4);
+      lt.setAttribute('x',(x0+x1)/2); lt.setAttribute('y',ly);
       lt.textContent=e.label;
       if(e.branch) lt.dataset.branch=e.branch;
       if(e.alt) lt.dataset.alt='1';
@@ -1968,21 +1987,57 @@ function buildDagView(){
   A_NODES_BASE.forEach(makeAgentNode);
   C_NODES_BASE.forEach(makeContextNode);
 
-  // ---- checkpoint flags ----
+  // ---- checkpoint mini-strip ----
+  // Promoted from a tiny flag to a labeled card with a dotted drop-line to
+  // its producing agent — answers "where are the checkpoints?" at a glance.
+  const Y_CK_STRIP = Y_TIMELINE - 38;
+  const CK_W = 78, CK_H = 22;
+  // Lane label for the strip
+  const ckLbl=document.createElementNS(SVGNS_LOCAL,'text');
+  ckLbl.setAttribute('class','lane-lbl');
+  ckLbl.setAttribute('x',AXIS_X0-12); ckLbl.setAttribute('y',Y_CK_STRIP+14);
+  ckLbl.setAttribute('text-anchor','end');
+  ckLbl.setAttribute('font-size','9'); ckLbl.setAttribute('opacity','.55');
+  ckLbl.textContent='CHECKPOINTS';
+  svg.appendChild(ckLbl);
   const ckEls={};
   CHECKPOINTS.forEach(ck=>{
     const x=tToX(ck.t);
+    const producer = A_NODES_BASE.find(n=>n.id===ck.producer);
+
+    // dotted vertical line from producing agent's bottom edge down to the chip top
+    if(producer){
+      const dropX = tToX(producer.t1)-2;
+      const ay = agentY(producer) + 26; // ~bottom of agent box
+      const drop=document.createElementNS(SVGNS_LOCAL,'path');
+      drop.setAttribute('d',`M${dropX},${ay} L${dropX},${Y_CK_STRIP-2} L${x},${Y_CK_STRIP-2}`);
+      drop.setAttribute('class','ck-drop');
+      drop.setAttribute('fill','none');
+      svg.appendChild(drop);
+    }
+
+    // chip itself
     const g=document.createElementNS(SVGNS_LOCAL,'g');
     g.setAttribute('class','ck-flag');
-    g.setAttribute('transform',`translate(${x-13},${Y_TIMELINE-22})`);
+    g.setAttribute('transform',`translate(${x-CK_W/2},${Y_CK_STRIP})`);
     g.dataset.id=ck.id;
     const r=document.createElementNS(SVGNS_LOCAL,'rect');
-    r.setAttribute('width',26); r.setAttribute('height',16); r.setAttribute('rx',3);
+    r.setAttribute('width',CK_W); r.setAttribute('height',CK_H); r.setAttribute('rx',5);
     g.appendChild(r);
-    const t=document.createElementNS(SVGNS_LOCAL,'text');
-    t.setAttribute('x',13); t.setAttribute('y',11);
-    t.textContent=ck.id;
-    g.appendChild(t);
+    const tid=document.createElementNS(SVGNS_LOCAL,'text');
+    tid.setAttribute('class','ck-id'); tid.setAttribute('x',8); tid.setAttribute('y',13);
+    tid.textContent=ck.id;
+    g.appendChild(tid);
+    const tmeta=document.createElementNS(SVGNS_LOCAL,'text');
+    tmeta.setAttribute('class','ck-meta'); tmeta.setAttribute('x',CK_W-8); tmeta.setAttribute('y',13);
+    tmeta.setAttribute('text-anchor','end');
+    tmeta.textContent=`${ck.tokens} · $${ck.usd.toFixed(3)}`;
+    g.appendChild(tmeta);
+    // small flag tail pointing down to the time strip — makes it read as a checkpoint
+    const tail=document.createElementNS(SVGNS_LOCAL,'path');
+    tail.setAttribute('d',`M${CK_W/2-3},${CK_H} L${CK_W/2+3},${CK_H} L${CK_W/2},${CK_H+5} Z`);
+    tail.setAttribute('class','ck-tail');
+    g.appendChild(tail);
     g.addEventListener('click',()=>{ jumpToTime(ck.t); replayFrom(ck.t); });
     g.addEventListener('mouseenter',ev=>showCkTip(ev,ck));
     g.addEventListener('mousemove',moveTip);
@@ -2428,20 +2483,24 @@ function buildDagView(){
   function applyTopology(t){
     const branch=activeBranch();
     Object.values(nodeMap).forEach(({g,pip,n,lane})=>{
-      if(lane==='agent' && n.branch && n.branch!==branch){
-        g.style.display='none'; return;
-      }
+      const offBranch = (lane==='agent' && n.branch && n.branch!==branch);
       // counterfactual: hide gate when toggle is on (audit will reflect bad output reaching publisher)
       if(cfNogate.checked && n.id==='a_gate'){ g.style.display='none'; return; }
       g.style.display='';
+      // off-branch heal nodes are always visible but ghosted — proves the recover lane exists
+      g.classList.toggle('ghost', offBranch);
       g.classList.remove('active','done','skipped');
       if(pip) pip.setAttribute('fill','#566');
+      if(offBranch) return;
       if(t>=n.t1){ g.classList.add('done'); if(pip) pip.setAttribute('fill','#14b8a6'); }
       else if(t>=n.t0){ g.classList.add('active'); if(pip) pip.setAttribute('fill','#fbbf4d'); }
     });
     A_EDGES.forEach(e=>{
       const p=eMap[e.s+'>'+e.t]; if(!p) return;
-      if(e.branch && e.branch!==branch){ p.style.display='none'; return; }
+      const offBranch = e.branch && e.branch!==branch;
+      // ghost off-branch edges instead of hiding — keep the recover lane visible always
+      if(offBranch){ p.style.display=''; p.classList.add('ghost'); p.classList.remove('active','done'); return; }
+      p.classList.remove('ghost');
       if(e.alt){ p.style.display=''; return; } // always shown thin
       p.style.display='';
       p.classList.remove('active','done','skipped');
@@ -2451,9 +2510,9 @@ function buildDagView(){
     });
     edgeLabelEls.forEach(lt=>{
       const br=lt.dataset.branch, isAlt=lt.dataset.alt;
-      let show = !(br && br!==branch);
-      if(show){ lt.style.display=''; lt.style.opacity = isAlt ? '.45' : '.85'; }
-      else lt.style.display='none';
+      const onBranch = !(br && br!==branch);
+      lt.style.display='';
+      lt.style.opacity = onBranch ? (isAlt ? '.55' : '.9') : '.28';
     });
     C_EDGES.forEach(e=>{
       const p=eMap[e.s+'>'+e.t]; if(!p) return;
