@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CEMAF — Architecture Atlas</title>
+<style>
+  :root {
+    --ink: #1a2233;
+    --ink-soft: #51607a;
+    --line: #d8dee9;
+    --paper: #fbfcfe;
+    --card: #ffffff;
+    --foundation: #2563eb;  /* blue   */
+    --fabric: #0d9488;      /* teal   */
+    --capability: #b45309;  /* amber  */
+    --orchestration: #7c3aed;/* violet */
+    --layer2: #db2777;      /* pink   */
+    --good: #047857;
+    --bad: #b91c1c;
+    --shadow: 0 1px 2px rgba(20,30,55,.06), 0 8px 24px rgba(20,30,55,.06);
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #eef4ff 0%, transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, #effaf7 0%, transparent 55%),
+      var(--paper);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace; }
+
+  header.masthead {
+    max-width: 1180px; margin: 0 auto; padding: 56px 28px 24px;
+  }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 700;
+  }
+  h1 { font-size: clamp(30px, 5vw, 52px); margin: 8px 0 6px; letter-spacing: -.02em; }
+  .lede { font-size: 18px; color: var(--ink-soft); max-width: 760px; margin: 0; }
+  .meta-row { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill {
+    font-size: 12.5px; font-weight: 600; padding: 5px 11px; border-radius: 999px;
+    background: #fff; border: 1px solid var(--line); color: var(--ink-soft);
+    box-shadow: var(--shadow);
+  }
+  .pill b { color: var(--ink); }
+
+  /* tabs */
+  nav.tabs {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(251,252,254,.82); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .tabs-inner {
+    max-width: 1180px; margin: 0 auto; padding: 10px 20px;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .tab {
+    border: 1px solid transparent; background: transparent; cursor: pointer;
+    font: inherit; font-weight: 600; font-size: 14px; color: var(--ink-soft);
+    padding: 8px 14px; border-radius: 10px; transition: .16s;
+  }
+  .tab:hover { color: var(--ink); background: #fff; }
+  .tab[aria-selected="true"] {
+    color: #fff; background: var(--ink); border-color: var(--ink);
+    box-shadow: var(--shadow);
+  }
+
+  main { max-width: 1180px; margin: 0 auto; padding: 30px 20px 90px; }
+  .view { display: none; animation: fade .28s ease; }
+  .view.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px);} to {opacity:1; transform:none;} }
+  .view h2 { font-size: 24px; margin: 4px 0 4px; letter-spacing: -.01em; }
+  .view .sub { color: var(--ink-soft); margin: 0 0 22px; max-width: 820px; }
+
+  /* generic card grid */
+  .grid { display: grid; gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px 18px; transition: .18s;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(20,30,55,.08), 0 16px 40px rgba(20,30,55,.10); }
+  .card h3 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .tag {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px;
+    border-radius: 6px; margin-left: auto; color: #fff;
+  }
+
+  /* tier stack */
+  .tier {
+    border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px;
+    border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow);
+    position: relative;
+  }
+  .tier::before {
+    content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px;
+    border-radius: 4px; background: var(--accent, var(--line));
+  }
+  .tier .tier-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .tier .tier-name { font-weight: 800; font-size: 14px; }
+  .tier .tier-desc { font-size: 12.5px; color: var(--ink-soft); }
+  .mods { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mod {
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    padding: 3px 9px; border-radius: 7px; background: #f4f6fb; border: 1px solid var(--line);
+    color: var(--ink); white-space: nowrap;
+  }
+  .mod b { color: var(--accent, var(--ink)); }
+  .arrow-up {
+    text-align: center; color: var(--ink-soft); font-size: 12px; margin: -6px 0 8px;
+    letter-spacing: .04em;
+  }
+
+  /* flow (pipeline) */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .step {
+    display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: stretch;
+  }
+  .rail { display: flex; flex-direction: column; align-items: center; }
+  .node-dot {
+    width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+    display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 13px;
+    box-shadow: var(--shadow);
+  }
+  .rail .line { flex: 1; width: 2px; background: var(--line); margin: 2px 0; min-height: 14px; }
+  .step:last-child .rail .line { display: none; }
+  .step-body { padding-bottom: 16px; }
+  .step-body .card { padding: 13px 16px; }
+  .step h4 { margin: 0 0 3px; font-size: 14.5px; }
+  .step .where { font-size: 11.5px; color: var(--ink-soft); }
+  .branch {
+    margin-top: 8px; display: flex; flex-wrap: wrap; gap: 7px;
+  }
+  .chip {
+    font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff;
+  }
+  .chip.good { color: var(--good); border-color: #b7e4cd; background: #f0fbf5; }
+  .chip.bad  { color: var(--bad);  border-color: #f3c6c6; background: #fdf2f2; }
+  .chip.loop { color: var(--orchestration); border-color: #ddd0f7; background: #f7f3fe; }
+
+  /* two-seam diagram */
+  .seam { border:1px solid var(--line); border-radius: var(--radius); background: var(--card);
+    box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
+  .seam h3 { margin: 0 0 4px; font-size: 16px; }
+  .seam .seam-sub { color: var(--ink-soft); font-size: 13px; margin: 0 0 14px; }
+  .lane { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .resolver {
+    display: grid; grid-template-columns: 150px 1fr auto; gap: 12px; align-items: center;
+    padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcff;
+  }
+  .resolver .rname { font-weight: 800; font-size: 13.5px; }
+  .resolver .rwhen { font-size: 12.5px; color: var(--ink-soft); }
+  .resolver .rwhen code { background:#eef1f7; padding:1px 5px; border-radius:5px; }
+
+  /* lifecycle horizontal */
+  .lifecycle { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 0; }
+  .phase { position: relative; padding: 14px 16px 14px 18px; }
+  .phase + .phase { border-left: 2px dashed var(--line); }
+  .phase .pname { font-weight: 800; font-size: 13.5px; margin-bottom: 4px; }
+  .phase .pbody { font-size: 12.5px; color: var(--ink-soft); }
+  .phase .pwhere { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--fabric); margin-top: 6px; }
+
+  /* reactive hub */
+  .hub-wrap { display:grid; grid-template-columns: 1fr; gap: 14px; }
+  .hub {
+    text-align:center; font-weight:800; padding: 14px; border-radius: 12px;
+    background: var(--ink); color:#fff; box-shadow: var(--shadow);
+  }
+  .subs { display:grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin: 6px 0 22px; }
+  .legend span { display:flex; align-items:center; gap:7px; font-size:12.5px; color: var(--ink-soft); }
+  .principles { display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+  .principles .card h3 { font-size:14px; }
+  .num { font-weight:800; color:#fff; background:var(--orchestration); width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:12px;}
+
+  footer { max-width:1180px; margin:0 auto; padding: 0 20px 60px; color: var(--ink-soft); font-size: 12.5px; }
+  footer code { background:#eef1f7; padding:1px 5px; border-radius:5px; }
+  .src-note { border-top:1px solid var(--line); padding-top:14px; }
+  @media (max-width: 640px){ .resolver{grid-template-columns:1fr; } header.masthead{padding-top:36px;} }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="eyebrow">Context Engineering Multi-Agent Framework</div>
+  <h1>CEMAF Architecture Atlas</h1>
+  <p class="lede">A ground-truth tour of the framework — from the dependency tiers down to the single node hot-path where every feature is a station. Each view is drawn from <code class="mono">src/cemaf/</code>, not the ideal.</p>
+  <div class="meta-row">
+    <span class="pill"><b>40</b>&nbsp;modules</span>
+    <span class="pill"><b>2</b>&nbsp;layers, one-way arrow</span>
+    <span class="pill"><b>2</b>&nbsp;dispatch seams</span>
+    <span class="pill"><b>23</b>&nbsp;RuntimeServices deps</span>
+    <span class="pill">protocol-first · BYO-X</span>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Architecture views">
+  <div class="tabs-inner" role="tablist">
+    <button class="tab" role="tab" aria-selected="true"  data-view="overview">Overview</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="engine">Core Engine</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="agentic">Agentic Behaviours</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="context">Context Lifecycle</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="runtime">Runtime &amp; Reactive</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="principles">Principles</button>
+  </div>
+</nav>
+
+<main>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="view active" id="overview">
+    <h2>Dependency tiers</h2>
+    <p class="sub">Modules placed by <b>measured import fan-in</b> — the real coupling, not the org chart. Each tier depends only on the tiers below it. Hover a tier to focus it.</p>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--foundation)"></i>Foundation</span>
+      <span><i class="dot" style="background:var(--fabric)"></i>Shared fabric</span>
+      <span><i class="dot" style="background:var(--capability)"></i>Capabilities</span>
+      <span><i class="dot" style="background:var(--orchestration)"></i>Orchestration</span>
+      <span><i class="dot" style="background:var(--layer2)"></i>Self-hosting (Layer 2)</span>
+    </div>
+
+    <div class="tier" style="--accent:var(--layer2)">
+      <div class="tier-head"><span class="tier-name" style="color:var(--layer2)">Layer 2 · Self-Hosting</span><span class="tier-desc">CEMAF's first client — consumes the base via contracts, never imported back</span></div>
+      <div class="mods"><span class="mod"><b>meta</b></span><span class="mod">audit</span><span class="mod">knowledge</span></div>
+    </div>
+    <div class="arrow-up">▲ &nbsp; consumes via Protocol only (one-way) &nbsp; ▲</div>
+
+    <div class="tier" style="--accent:var(--orchestration)">
+      <div class="tier-head"><span class="tier-name" style="color:var(--orchestration)">Tier 3 · Orchestration</span><span class="tier-desc">top of Layer 1 · fan-out 14</span></div>
+      <div class="mods"><span class="mod"><b>orchestration</b></span><span class="mod">resolvers/</span><span class="mod">interceptors</span><span class="mod">bootstrap</span><span class="mod">RuntimeServices</span></div>
+    </div>
+    <div class="arrow-up">▲</div>
+
+    <div class="tier" style="--accent:var(--capability)">
+      <div class="tier-head"><span class="tier-name" style="color:var(--capability)">Tier 2 · Capabilities</span><span class="tier-desc">work units · quality/safety · integrations</span></div>
+      <div class="mods">
+        <span class="mod">agents</span><span class="mod">tools</span><span class="mod">skills</span><span class="mod">sandbox</span><span class="mod">blueprint</span><span class="mod">evals</span><span class="mod">council</span><span class="mod">iteration</span><span class="mod">resilience</span><span class="mod">citation</span><span class="mod">moderation</span><span class="mod">validation</span><span class="mod">generation</span><span class="mod">streaming</span><span class="mod">mcp</span><span class="mod">rlm</span><span class="mod">cache</span><span class="mod">persistence</span><span class="mod">ingestion</span><span class="mod">state</span><span class="mod">catalog</span><span class="mod">security</span><span class="mod">trust</span><span class="mod">improvement</span><span class="mod">scheduler</span><span class="mod">replay</span><span class="mod">docs_api</span>
+      </div>
+    </div>
+    <div class="arrow-up">▲</div>
+
+    <div class="tier" style="--accent:var(--fabric)">
+      <div class="tier-head"><span class="tier-name" style="color:var(--fabric)">Tier 1 · Shared fabric</span><span class="tier-desc">the substrate every capability builds on</span></div>
+      <div class="mods"><span class="mod"><b>context</b>&nbsp;(10)</span><span class="mod"><b>observability</b>&nbsp;(10)</span><span class="mod"><b>events</b>&nbsp;(9)</span><span class="mod"><b>llm</b>&nbsp;(8)</span><span class="mod"><b>retrieval</b>&nbsp;(7)</span><span class="mod"><b>memory</b>&nbsp;(7)</span></div>
+    </div>
+    <div class="arrow-up">▲</div>
+
+    <div class="tier" style="--accent:var(--foundation)">
+      <div class="tier-head"><span class="tier-name" style="color:var(--foundation)">Tier 0 · Foundation</span><span class="tier-desc">imported by nearly everything</span></div>
+      <div class="mods"><span class="mod"><b>core</b>&nbsp;(fan-in 38)</span><span class="mod"><b>config</b>&nbsp;(fan-in 18)</span></div>
+      <p class="card-note" style="margin:10px 0 0;font-size:12.5px;color:var(--ink-soft)">Result[T] · NewType ids · enums · <code class="mono">utc_now</code> · Settings · provider registry</p>
+    </div>
+
+    <div class="card" style="margin-top:22px;border-left:4px solid var(--good)">
+      <h3><span class="dot" style="background:var(--good)"></span>The one-way boundary, precisely</h3>
+      <p>No Layer-2 package is a structural dependency of the base. Three import sites cross down, with differing mechanisms: <code class="mono">orchestration → knowledge.protocols.KnowledgeGraph</code> (runtime Protocol), <code class="mono">security → audit.protocols.AuditLog</code> (TYPE_CHECKING only), and <code class="mono">security → audit.models</code> (a lazy, in-method concrete import that dodges a parse-time cycle). No base module imports <code class="mono">meta</code> at all.</p>
+    </div>
+  </section>
+
+  <!-- ============ CORE ENGINE ============ -->
+  <section class="view" id="engine">
+    <h2>The node hot-path</h2>
+    <p class="sub">Every node travels one path: <code class="mono">ContextNodeExecutor.execute_node</code>. Features aren't branches — they're stations on this line. An unwired interceptor pipeline is a no-op; behaviour is byte-identical to running without it.</p>
+    <div class="flow">
+
+      <div class="step"><div class="rail"><div class="node-dot" style="background:var(--orchestration)">1</div><div class="line"></div></div>
+        <div class="step-body"><div class="card">
+          <h4>Resolve</h4>
+          <div class="where">resolvers/ · first-match-wins</div>
+          <div class="branch">
+            <span class="chip">CouncilResolver → <b>NodeComplete</b> (verdict steers DAG, agent never runs)</span>
+            <span class="chip">Auction / Static → <b>RunAgent</b></span>
+          </div>
+        </div></div></div>
+
+      <div class="step"><div class="rail"><div class="node-dot" style="background:var(--fabric)">2</div><div class="line"></div></div>
+        <div class="step-body"><div class="card">
+          <h4>Prep context</h4>
+          <div class="where">recall global_memory (MemoryManager) → compile under TokenBudget (ContextCompiler)</div>
+        </div></div></div>
+
+      <div class="step"><div class="rail"><div class="node-dot" style="background:var(--capability)">3</div><div class="line"></div></div>
+        <div class="step-body"><div class="card">
+          <h4>PRE interceptors · <span class="mono">run_pre</span></h4>
+          <div class="where">enrich context, or short-circuit</div>
+          <div class="branch"><span class="chip good">ACCEPT → continue</span><span class="chip bad">REJECT → fail, agent never runs</span></div>
+        </div></div></div>
+
+      <div class="step"><div class="rail"><div class="node-dot" style="background:var(--orchestration)">4</div><div class="line"></div></div>
+        <div class="step-body"><div class="card" style="border:1px dashed var(--orchestration);background:#fcfaff">
+          <h4>Recovery loop &nbsp;<span class="chip loop">≤ max_recovery_attempts (default 2)</span></h4>
+          <div class="where">inject last <span class="mono">MAX_VISIBLE_HINTS</span> → <span class="mono">agent.run</span> → record ProvenanceLink → ingest to session memory → POST</div>
+          <div class="branch">
+            <span class="chip good">ACCEPT → success</span>
+            <span class="chip bad">REJECT → gate_rejected</span>
+            <span class="chip loop">RECOVER + budget → re-run with hint ↺</span>
+            <span class="chip bad">RECOVER + spent → downgrade to REJECT</span>
+          </div>
+        </div></div></div>
+
+      <div class="step"><div class="rail"><div class="node-dot" style="background:var(--good)">5</div></div>
+        <div class="step-body"><div class="card">
+          <h4>Emit</h4>
+          <div class="where">DAGExecutor → TASK_COMPLETED / TASK_FAILED · payload carries <span class="mono">recovery_attempts</span>, <span class="mono">gate_rejected</span></div>
+        </div></div></div>
+
+    </div>
+
+    <h2 style="margin-top:32px">The two dispatch seams</h2>
+    <p class="sub">All extensibility lives here. Both are split single-method <code class="mono">@runtime_checkable</code> Protocols — a POST-only interceptor needn't implement <code class="mono">pre</code>.</p>
+
+    <div class="seam">
+      <h3>Seam 1 · NodeResolver chain <span class="tag" style="background:var(--orchestration)">orchestration/resolvers/</span></h3>
+      <p class="seam-sub">First <code class="mono">matches()</code> wins → <code class="mono">ResolveOutcome = RunAgent | NodeComplete</code>. Add a node kind = register a resolver, not edit code.</p>
+      <div class="lane">
+        <div class="resolver"><span class="rname" style="color:var(--layer2)">CouncilResolver</span><span class="rwhen">matches <code>config["council"]</code> → deliberate, vote, return verdict</span><span class="tag" style="background:var(--layer2)">SPEC-10</span></div>
+        <div class="resolver"><span class="rname" style="color:var(--capability)">AuctionResolver</span><span class="rwhen">matches <code>config["capability"]</code> <em>only when an agent_selector is wired</em>; else falls through</span><span class="tag" style="background:var(--capability)">SPEC-09</span></div>
+        <div class="resolver"><span class="rname" style="color:var(--ink-soft)">StaticRefResolver</span><span class="rwhen">always matches → <code>RunAgent(node.ref_id)</code> · universal fallback</span><span class="tag" style="background:var(--ink-soft)">base</span></div>
+      </div>
+    </div>
+
+    <div class="seam">
+      <h3>Seam 2 · Interceptor spine <span class="tag" style="background:var(--orchestration)">interceptors/</span> <span class="tag" style="background:var(--capability)">SPEC-01a</span></h3>
+      <p class="seam-sub">Ordered PRE → execute → POST. Empty = no-op.</p>
+      <div class="lane">
+        <div class="resolver"><span class="rname">PreInterceptor</span><span class="rwhen"><code>pre()</code> → ACCEPT (enrich ctx) | REJECT</span><span class="tag" style="background:var(--capability)">PRE</span></div>
+        <div class="resolver"><span class="rname">PostInterceptor</span><span class="rwhen"><code>post()</code> → ACCEPT | REJECT | <b>RECOVER</b></span><span class="tag" style="background:var(--capability)">POST</span></div>
+        <div class="resolver"><span class="rname" style="color:var(--good)">GateEvalInterceptor</span><span class="rwhen">runs Evaluators on output · <code>on_failure = REJECT</code> (block) | <code>RECOVER</code> (retry + hint)</span><span class="tag" style="background:var(--good)">gate</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ AGENTIC ============ -->
+  <section class="view" id="agentic">
+    <h2>Agentic behaviours</h2>
+    <p class="sub">An <code class="mono">Agent[GoalT, ResultT]</code> is a typed protocol resolved from the registry. Single agents, competitive auctions, and deliberative councils are three ways the engine decides <em>who</em> answers — plus the self-hosting meta-agents that build the framework itself.</p>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-bottom:20px">
+      <div class="card"><h3><span class="dot" style="background:var(--capability)"></span>Built-in agents<span class="tag" style="background:var(--capability)">agents/</span></h3><p><b>Librarian</b> · <b>Researcher</b> · <b>Summarizer</b> · <b>Writer</b> — each a typed <code class="mono">Agent[Goal,Result]</code>, registered in the <code class="mono">AgentRegistry</code>.</p></div>
+      <div class="card"><h3><span class="dot" style="background:var(--layer2)"></span>Meta-agents (Layer 2)<span class="tag" style="background:var(--layer2)">meta/agents.py</span></h3><p><b>ArchitectAgent</b> · <b>AgentSynthesizer</b> · <b>AuditAgent</b> · <b>KnowledgeGraphAgent</b> · <b>DreamAgent</b> · <b>SolutionDesignerAgent</b> — standard <code class="mono">Agent[Goal,Result]</code> impls that introspect &amp; extend CEMAF.</p></div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <div class="card" style="border-left:4px solid var(--capability)">
+        <h3>Auction selection <span class="tag" style="background:var(--capability)">SPEC-09</span></h3>
+        <p>N agents bid on a capability; deterministic max-bid wins. Capabilities: <span class="mono">RESEARCH · SUMMARIZE · WRITE · LIBRARY · QUALITY</span>.</p>
+        <p style="margin-top:10px;color:var(--ink)"><b>score</b> = <span class="mono">0.5·match + 0.3·(1−load) + 0.2·budget_headroom</span></p>
+        <p style="margin-top:4px">Tie-break is deterministic; absent a selector, nodes resolve statically.</p>
+      </div>
+      <div class="card" style="border-left:4px solid var(--layer2)">
+        <h3>Agent council <span class="tag" style="background:var(--layer2)">SPEC-10</span></h3>
+        <p>N members deliberate on one question; a pluggable <code class="mono">VoteAggregator</code> decides. Methods: <span class="mono">MAJORITY · WEIGHTED · QUORUM · UNANIMOUS</span>.</p>
+        <p style="margin-top:10px"><b>Multi-round</b> (<code class="mono">rounds=N</code>): round 2+ broadcasts prior opinions; members may revise; early-stops when the tally settles. The verdict becomes the node output and steers the DAG.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;border-left:4px solid var(--orchestration)">
+      <h3>The capability substrate</h3>
+      <p>Agents act through <b>Tools</b> (<code class="mono">@tool</code>, schema-validated) and <b>Skills</b> (multi-tool kits). The polyglot coding kit runs inside a <b>ShellSandbox</b> (cwd-confined, time/output-bounded, network-screened). A bounded <b>IterationLoop</b> (SPEC-08) parses pytest/ruff/mypy failures into <code class="mono">FailureSignal</code>s and re-attempts until tests pass — feedback as a first-class control structure.</p>
+    </div>
+  </section>
+
+  <!-- ============ CONTEXT LIFECYCLE ============ -->
+  <section class="view" id="context">
+    <h2>Context lifecycle</h2>
+    <p class="sub">Context is the asset; tokens are the cost; provenance is the audit trail. The <code class="mono">Context</code> object is immutable (copy-on-write) — every mutation carries a typed <code class="mono">ContextPatch</code> source.</p>
+
+    <div class="card" style="padding:6px 4px;margin-bottom:18px">
+      <div class="lifecycle">
+        <div class="phase"><div class="pname">① Ingest</div><div class="pbody">Adapters format / compress / prioritise raw data into ContextSources.</div><div class="pwhere">ingestion/</div></div>
+        <div class="phase"><div class="pname">② Recall</div><div class="pbody">MemoryManager pulls relevant items by scope + topic before the agent runs.</div><div class="pwhere">memory/</div></div>
+        <div class="phase"><div class="pname">③ Compile</div><div class="pbody">ContextCompiler selects under TokenBudget — by <b>priority, not recency</b>.</div><div class="pwhere">context/compiler.py</div></div>
+        <div class="phase"><div class="pname">④ Use</div><div class="pbody">The compiled slice is what <code class="mono">agent.run</code> sees; a ProvenanceLink records it.</div><div class="pwhere">orchestration/</div></div>
+        <div class="phase"><div class="pname">⑤ Ingest result</div><div class="pbody">Output written back to session memory; events fire.</div><div class="pwhere">memory/session.py</div></div>
+        <div class="phase"><div class="pname">⑥ Extract</div><div class="pbody">On dispose, distil SESSION → PROJECT for the next run.</div><div class="pwhere">memory/extraction</div></div>
+      </div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+      <div class="card"><h3><span class="dot" style="background:var(--fabric)"></span>Selection algorithms</h3><p>Greedy · Knapsack · Optimal — drop from the bottom of the priority order when over budget. Exclusions are tracked with a reason (<code class="mono">BUDGET_EXCEEDED</code>, <code class="mono">LOW_PRIORITY</code>).</p></div>
+      <div class="card"><h3><span class="dot" style="background:var(--fabric)"></span>Memory scopes &amp; tiers</h3><p>Scopes: <span class="mono">SESSION · PROJECT · USER · GLOBAL</span>. Tiered store L0/L1/L2 progressive recall; semantic + episodic; dedup on write.</p></div>
+      <div class="card"><h3><span class="dot" style="background:var(--fabric)"></span>Context types</h3><p><span class="mono">RESOURCE · MEMORY · SKILL</span> — each with behaviour rules (cacheable, shareable, compressible, TTL, default priority).</p></div>
+      <div class="card"><h3><span class="dot" style="background:var(--good)"></span>Provenance</h3><p>Every patch records <code class="mono">source · reason · correlation_id</code>; every node run records a ProvenanceLink. Silent mutation is forbidden.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ RUNTIME & REACTIVE ============ -->
+  <section class="view" id="runtime">
+    <h2>Runtime &amp; the reactive plane</h2>
+    <p class="sub">One composition root wires ~23 injectable dependencies; the executor runs the DAG and emits events. Quality, audit, and learning subscribe asynchronously — off the hot path.</p>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:20px">
+      <div class="card" style="border-left:4px solid var(--orchestration)">
+        <h3><span class="mono">create_executor()</span> <span class="tag" style="background:var(--orchestration)">base root</span></h3>
+        <p>Builds the ContextNodeExecutor (threads all 23 RuntimeServices deps incl. <code class="mono">max_recovery_attempts</code>), assembles the resolver chain <span class="mono">[Council, Auction?, Static]</span>, subscribes online-eval + quality-police when an event bus is present, wraps in an InstrumentedDAGExecutor when a tracer is present.</p>
+      </div>
+      <div class="card" style="border-left:4px solid var(--layer2)">
+        <h3><span class="mono">create_meta_executor()</span> <span class="tag" style="background:var(--layer2)">Layer-2 root</span></h3>
+        <p>Auto-builds AuditTrail from the EventBus and a KnowledgeGraph from the MemoryManager, registers the meta-agents/tools, then <b>delegates to <span class="mono">create_executor</span></b> — so Layer 2 inherits every base primitive (incl. the RECOVER budget) for free.</p>
+      </div>
+    </div>
+
+    <div class="hub-wrap">
+      <div class="hub">DAGExecutor &nbsp;—emits→&nbsp; EventBus &nbsp;(pub/sub)<br><span style="font-weight:500;font-size:12.5px;opacity:.85">TASK_STARTED · TASK_COMPLETED · TASK_FAILED · DAG_STARTED · DAG_COMPLETED · DAG_CHECKPOINT · SYSTEM_ERROR</span></div>
+      <div class="subs">
+        <div class="card"><h3><span class="dot" style="background:var(--good)"></span>OnlineEvalPipeline</h3><p>consumes task events, scores output, re-emits <span class="mono">EVAL_COMPLETED</span>. <code class="mono">evals/online.py</code></p></div>
+        <div class="card"><h3><span class="dot" style="background:var(--bad)"></span>QualityPolice</h3><p>subscribes to <span class="mono">EVAL_COMPLETED</span> (not raw task events); z-score anomaly + halt gate. <code class="mono">evals/police.py</code></p></div>
+        <div class="card"><h3><span class="dot" style="background:var(--layer2)"></span>AuditTrail</h3><p>EventBus → AuditEntry; feeds the KnowledgeGraph. <code class="mono">audit/subscriber.py</code></p></div>
+        <div class="card"><h3><span class="dot" style="background:var(--capability)"></span>BlueprintHarvester</h3><p>distils high-scoring runs into reusable blueprints. <code class="mono">blueprint/harvest.py</code></p></div>
+        <div class="card"><h3><span class="dot" style="background:var(--fabric)"></span>Memory subscriber</h3><p>persists memory events. <code class="mono">events/memory_subscriber.py</code></p></div>
+      </div>
+    </div>
+    <p class="sub" style="margin-top:16px"><b>Two-hop chain:</b> the executor emits task events → OnlineEvalPipeline re-emits <code class="mono">EVAL_COMPLETED</code> → QualityPolice subscribes to <em>that</em>. <code class="mono">recovery_attempts</code> and <code class="mono">gate_rejected</code> ride the task payload so audit &amp; harvest correlate recovery without re-walking results.</p>
+  </section>
+
+  <!-- ============ PRINCIPLES ============ -->
+  <section class="view" id="principles">
+    <h2>The architecture in five sentences</h2>
+    <p class="sub">If you remember nothing else.</p>
+    <div class="principles">
+      <div class="card"><h3><span class="num">1</span>&nbsp;Protocol-first</h3><p>Every integration point (LLMClient, VectorStore, MemoryManager, Evaluator, NodeResolver, Interceptor, KnowledgeGraph, AuditLog) is a <code class="mono">@runtime_checkable</code> Protocol; implementations are structural — bring your own.</p></div>
+      <div class="card"><h3><span class="num">2</span>&nbsp;One hot-path, many stations</h3><p>Features are PRE/POST interceptor stations and resolver entries on a single <code class="mono">execute_node</code> flow — not bespoke branches.</p></div>
+      <div class="card"><h3><span class="num">3</span>&nbsp;Immutable data + provenance</h3><p>Context is copy-on-write; every mutation carries a ContextPatch source; every node run records a ProvenanceLink.</p></div>
+      <div class="card"><h3><span class="num">4</span>&nbsp;Budgeted, priority-selected context</h3><p>TokenBudget + ContextCompiler drop by priority, not recency, before each agent call.</p></div>
+      <div class="card"><h3><span class="num">5</span>&nbsp;Strict layering</h3><p>Layer 2 self-hosting consumes the base only through contracts; the base never imports it — so CEMAF introspects itself without a cycle.</p></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="src-note">
+    Ground truth: every structural claim is verifiable against <code>src/cemaf/</code>. Companion reference: <a href="deep-architecture.md">deep-architecture.md</a> · module index: <a href="spec-module-map.md">spec-module-map.md</a>.
+    Regenerate the module count &amp; fan-in figures with the commands in <code>deep-architecture.md</code> after any refactor.
+  </div>
+</footer>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  const views = document.querySelectorAll('.view');
+  function show(id){
+    views.forEach(v => v.classList.toggle('active', v.id === id));
+    tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === id)));
+    if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
+  }
+  tabs.forEach(t => t.addEventListener('click', () => show(t.dataset.view)));
+  // deep-link support
+  const initial = location.hash.replace('#','');
+  if ([...views].some(v => v.id === initial)) show(initial);
+  // keyboard left/right between tabs
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const ids = [...tabs].map(t => t.dataset.view);
+    const cur = ids.indexOf([...tabs].find(t => t.getAttribute('aria-selected') === 'true').dataset.view);
+    const next = e.key === 'ArrowRight' ? (cur+1)%ids.length : (cur-1+ids.length)%ids.length;
+    show(ids[next]);
+  });
+</script>
+</body>
+</html>
