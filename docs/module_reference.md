@@ -191,8 +191,8 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 - **Purpose**: Runtime services bundle (DI container) for orchestration
 - **Key Classes**:
-  - `RuntimeServices`: Frozen dataclass bundling 16 optional dependencies across observability, quality, memory, content safety, context, LLM/retrieval, and recovery categories
-- **Features**: All fields optional (default `None`), used by `bootstrap.create_executor()`
+  - `RuntimeServices`: Frozen dataclass bundling the injectable runtime dependencies across observability, quality, memory, content safety, context, LLM/retrieval, knowledge, agent-selection, council, interceptors, blueprints, and recovery categories
+- **Features**: All deps optional (default `None`; `max_recovery_attempts` defaults to 2), used by `bootstrap.create_executor()`
 
 ### `deep_agent.py`
 
@@ -223,13 +223,18 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 - **Purpose**: Runtime services bundle for orchestration components
 - **Key Classes**:
-  - `RuntimeServices`: Frozen dataclass bundling 15+ optional dependencies grouped by concern:
-    - Observability: `run_logger`, `event_bus`, `health_monitor`, `budget_guard`
+  - `RuntimeServices`: Frozen dataclass bundling the injectable runtime dependencies grouped by concern:
+    - Observability: `run_logger`, `event_bus`, `health_monitor`, `budget_guard`, `tracer`
     - Quality: `online_eval_pipeline`, `quality_police`
     - Memory: `memory_manager`, `session_manager`
     - Content safety: `moderation_pipeline`
     - Context: `context_compiler`, `token_budget`, `domain_context`
     - LLM + Retrieval: `llm_client`, `vector_store`
+    - Knowledge (SPEC-02/07): `knowledge_graph`
+    - Agent selection (SPEC-09): `agent_selector`
+    - Council (SPEC-10): `council_aggregator`
+    - Interceptors (SPEC-01a): `interceptor_pipeline`, `max_recovery_attempts` (RECOVER budget, default 2)
+    - Blueprints: `blueprint_library`, `blueprint_selector`
     - Recovery: `auto_heal_manager`
 - **Used By**: `bootstrap.create_executor()` composition root
 

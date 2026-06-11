@@ -448,8 +448,24 @@ services = RuntimeServices(
     llm_client=my_llm,
     vector_store=my_vector_store,
 
-    # Recovery
+    # Knowledge (SPEC-02/07)
+    knowledge_graph=my_kg,
+
+    # Agent selection (SPEC-09) / Council (SPEC-10)
+    agent_selector=my_selector,
+    council_aggregator=my_aggregator,
+
+    # Interceptor spine (SPEC-01a) — PRE/POST chain + RECOVER budget
+    interceptor_pipeline=my_pipeline,
+    max_recovery_attempts=2,
+
+    # Blueprints
+    blueprint_library=my_library,
+    blueprint_selector=my_selector_hook,
+
+    # Recovery / tracing
     auto_heal_manager=my_heal_manager,
+    tracer=my_tracer,
 )
 ```
 

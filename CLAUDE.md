@@ -15,7 +15,7 @@ The base framework provides composable primitives for building multi-agent syste
 │                     ORCHESTRATION                            │
 │  DAGExecutor → topological sort → node dispatch → context    │
 │  ContextNodeExecutor → agent resolution → goal building      │
-│  RuntimeServices → 16 optional deps, frozen dataclass        │
+│  RuntimeServices → ~20 injectable deps, frozen dataclass     │
 │  bootstrap.create_executor() → composition root              │
 └──────────────┬──────────────────────────────────┬────────────┘
                │                                  │
@@ -166,6 +166,7 @@ Frozen dataclass bundling all optional runtime dependencies. Injected into `Cont
 | Observability | `event_bus` | `EventBus \| None` |
 | Observability | `health_monitor` | `HealthMonitor \| None` |
 | Observability | `budget_guard` | `BudgetGuard \| None` |
+| Observability | `tracer` | `Tracer \| None` |
 | Quality | `online_eval_pipeline` | `OnlineEvalPipeline \| None` |
 | Quality | `quality_police` | `QualityPolice \| None` |
 | Memory | `memory_manager` | `MemoryManager \| None` |
@@ -176,6 +177,13 @@ Frozen dataclass bundling all optional runtime dependencies. Injected into `Cont
 | Context | `domain_context` | `DomainContext \| None` |
 | LLM + Retrieval | `llm_client` | `LLMClient \| None` |
 | LLM + Retrieval | `vector_store` | `VectorStore \| None` |
+| Knowledge (SPEC-02/07) | `knowledge_graph` | `KnowledgeGraph \| None` |
+| Agent selection (SPEC-09) | `agent_selector` | `AgentSelector \| None` |
+| Council (SPEC-10) | `council_aggregator` | `VoteAggregator \| None` |
+| Interceptors (SPEC-01a) | `interceptor_pipeline` | `InterceptorPipeline \| None` |
+| Interceptors (SPEC-01a) | `max_recovery_attempts` | `int` (default 2 — RECOVER budget) |
+| Blueprints | `blueprint_library` | `BlueprintLibrary \| None` |
+| Blueprints | `blueprint_selector` | `BlueprintSelectorHook \| None` |
 | Recovery | `auto_heal_manager` | `AutoHealManager \| None` |
 
 ### Result Pattern
