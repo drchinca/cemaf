@@ -255,6 +255,69 @@ flowchart TD
     RESULT -->|No| HEAL
 ```
 
+## Interceptor Spine & RECOVER
+
+CEMAF has **two distinct recovery mechanisms** — don't confuse them:
+
+| | Auto-Healing (`AutoHealManager`) | Interceptor RECOVER (SPEC-01a) |
+|---|---|---|
+| Fires on | an agent that **failed / raised** | a successful result a POST gate **judges inadequate** |
+| Driven by | error-type / message → `RecoveryStrategy` | a `GateEvalInterceptor` (or any POST interceptor) returning `RECOVER` |
+| What it changes | mutates the **context** then retries | feeds the agent a **`RecoveryHint`** then re-runs it |
+| Bound by | 2 healing attempts (state-hash guarded) | `max_recovery_attempts` (default 2) |
+
+The **interceptor spine** is the PRE→execute→POST chain every AGENT node passes
+through (empty pipeline = no-op). A POST interceptor inspects the result and
+returns ACCEPT, REJECT (fail the node — blocks `ON_SUCCESS`/`JSON_RULE` edges),
+or **RECOVER** (re-run the agent with feedback). The first shipped interceptor,
+`GateEvalInterceptor`, runs evaluators on the node output:
+
+```python
+from cemaf.interceptors import (
+    GateEvalInterceptor,
+    GateFailureMode,
+    create_interceptor_pipeline,
+)
+from cemaf.evals.evaluators import LengthEvaluator
+
+# REJECT mode (default): a failing gate fails the node, blocking downstream.
+blocking_gate = create_interceptor_pipeline(
+    interceptors=(
+        GateEvalInterceptor(
+            evaluators=(LengthEvaluator(min_length=120),),
+            node_pattern="write",          # node id, or "*" for all AGENT nodes
+            threshold=0.5,
+        ),
+    )
+)
+
+# RECOVER mode: a failing gate re-runs the agent with the eval reason as a hint.
+recovering_gate = create_interceptor_pipeline(
+    interceptors=(
+        GateEvalInterceptor(
+            evaluators=(LengthEvaluator(min_length=120),),
+            node_pattern="write",
+            threshold=0.5,
+            on_failure=GateFailureMode.RECOVER,
+        ),
+    )
+)
+
+services = RuntimeServices(
+    interceptor_pipeline=recovering_gate,
+    max_recovery_attempts=2,   # 0 disables recovery (RECOVER degrades to REJECT)
+)
+```
+
+On each RECOVER, the executor surfaces the most recent hints (the last
+`MAX_VISIBLE_HINTS`, in chronological order) under
+`AgentContext.global_memory[RECOVERY_HINTS_KEY]` — the agent reads them and
+revises. When `max_recovery_attempts` is exhausted, RECOVER **downgrades to
+REJECT** (stamps `gate_rejected`) so a deterministic gate can never loop forever.
+A node that recovered carries `recovery_attempts` in `NodeResult.metadata` and on
+the `TASK_COMPLETED` event payload. See SPEC-01a for the full contract;
+`examples/release_engine.py` demonstrates a RECOVER end-to-end.
+
 ## Health Checks & Pre-execution Validation
 
 Register health checks to validate prerequisites before executing DAG nodes:
