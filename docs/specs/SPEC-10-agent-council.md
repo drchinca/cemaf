@@ -2,7 +2,7 @@
 title: Agent Council — Deliberative Multi-Agent Decisions
 spec_id: SPEC-10
 status: Implemented
-last_reviewed: 2026-06-06
+last_reviewed: 2026-06-10
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: []
@@ -19,9 +19,20 @@ depends_on: []
 
 **Status: Implemented.** Lives in `cemaf/council/` (`types.py`, `protocols.py`,
 `aggregator.py`, `council.py`); `Node.council` in `cemaf/orchestration/dag.py`;
-`_run_council` in `cemaf/orchestration/context_node_executor.py`; wired via
+council node dispatch lives in `cemaf/orchestration/resolvers/council.py`
+(`CouncilResolver`, part of the NodeResolver chain — it replaced the original
+`_run_council` branch when execute_node migrated to the resolver seam); wired via
 `RuntimeServices.council_aggregator` + `cemaf/bootstrap.py`. Unit tests:
 `tests/unit/council/`; integration: `tests/integration/test_agent_council.py`.
+
+> **Multi-round deliberation (shipped).** §5 originally listed multi-round debate
+> as out of scope. It has since shipped via `CouncilConfig.rounds` (default 1):
+> round 2+ broadcasts each member's prior-round opinions under
+> `AgentContext.global_memory[COUNCIL_PRIOR_ROUND_KEY]` so members may revise;
+> the council early-stops when a round's tally is unchanged. Reachable from the
+> DAG via `Node.council(rounds=N)` (the `CouncilResolver` threads it into
+> `CouncilConfig`). Tests: `tests/unit/council/test_multi_round.py`,
+> `tests/integration/test_agent_council.py::test_council_node_rounds_propagates_through_resolver`.
 
 ## Contents
 
@@ -247,10 +258,13 @@ def create_agent_council[ResultT](
 
 ### Council node + downstream flow
 
-`Node.council(...)` (new `dag.py` factory, `NodeType.AGENT` with
-`config["council"] = {options, method, ...}`) runs *before* agent resolution in
-`execute_node` — a dedicated `_run_council()` returns its own `NodeResult`
-(it does **not** go through `_build_goal`/`agent.run`):
+`Node.council(...)` (`dag.py` factory, `NodeType.AGENT` with
+`config["council"] = {options, method, rounds, ...}`) is dispatched by
+`CouncilResolver` in the NodeResolver chain — it matches on `config["council"]`
+and returns its own `NodeResult` (it does **not** go through
+`_build_goal`/`agent.run`). *(Originally a dedicated `_run_council()` branch in
+`execute_node`; migrated to the resolver seam so adding a node "kind" is
+registering a resolver, not a new `if`-branch.)*
 
 - `NodeResult.output` = the `winning_choice` string (or `""` when no decision),
   so a downstream `$$node.output$$` ref and `EdgeCondition.JSON_RULE` can route
@@ -410,8 +424,9 @@ Feature: Agent Council deliberative decisions
 
 ## 5. Out of Scope
 
-- **Multi-round debate** (members see each other's opinions and revise) — v1 is
-  single-round; a `DebatingCouncil` is a future subclass.
+- ~~**Multi-round debate**~~ — **shipped.** Members see each other's opinions and
+  may revise via `CouncilConfig.rounds > 1` (no subclass needed — it's a config
+  knob on the existing `AgentCouncil`). See the multi-round note above §1.
 - **LLM-judge as aggregator** — the default aggregators are deterministic;
   an LLM-based `VoteAggregator` is a valid BYO-X impl but not shipped here.
 - **Dynamic member selection** — members are fixed at council construction
