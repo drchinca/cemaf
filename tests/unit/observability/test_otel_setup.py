@@ -14,7 +14,11 @@ import pytest
 
 from cemaf.observability.otel_setup import configure_otel
 
-_OTEL_PRESENT = importlib.util.find_spec("opentelemetry.sdk") is not None
+# find_spec on a dotted path raises if the parent package is absent entirely
+_OTEL_PRESENT = (
+    importlib.util.find_spec("opentelemetry") is not None
+    and importlib.util.find_spec("opentelemetry.sdk") is not None
+)
 
 
 @pytest.mark.skipif(not _OTEL_PRESENT, reason="otel extra not installed")
