@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
+from cemaf.bootstrap import create_executor
 from cemaf.context.context import Context
 from cemaf.core.types import AgentID, NodeID
 from cemaf.evals.evaluators import LengthEvaluator
@@ -246,6 +247,48 @@ async def test_recovery_hint_trail_survives_agent_exception() -> None:
     trail = result.metadata["recovery_hints_trail"]
     assert isinstance(trail, list) and len(trail) == 1
     assert trail[0]["code"] == "length"
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_create_executor_threads_max_recovery_attempts() -> None:
+    """The canonical entry point ``create_executor`` must wire the recovery budget.
+
+    Without this, RuntimeServices.max_recovery_attempts is a dead-end seam — the
+    primitive exists but no one going through bootstrap can configure it. This
+    test proves the field actually flows from the services bundle into the
+    ContextNodeExecutor that the bootstrap composition root builds.
+    """
+    writer = _LearningWriter()
+    registry = AgentRegistry()
+    registry.register_agent(agent_instance=writer, goal_type=_DraftGoal)
+
+    pipeline = create_interceptor_pipeline(
+        interceptors=(
+            GateEvalInterceptor(
+                evaluators=(LengthEvaluator(min_length=100),),
+                node_pattern="write",
+                threshold=0.5,
+                on_failure=GateFailureMode.RECOVER,
+            ),
+        )
+    )
+    services = RuntimeServices(
+        interceptor_pipeline=pipeline,
+        max_recovery_attempts=2,
+    )
+    executor = create_executor(
+        agent_registry=registry,
+        config=ExecutorConfig(enable_events=False),
+        services=services,
+    )
+    run = await executor.run(dag=_dag())
+
+    write_result = next(r for r in run.node_results if r.node_id == NodeID("write"))
+    # Bootstrap-built executor honoured the recovery budget end-to-end:
+    # attempt 1 was short → RECOVER; attempt 2 saw the hint → produced ≥100 chars.
+    assert write_result.success is True
+    assert write_result.metadata["recovery_attempts"] == 1
+    assert writer.attempts == 2
 
 
 @pytest.mark.asyncio
