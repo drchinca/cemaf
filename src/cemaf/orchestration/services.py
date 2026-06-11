@@ -121,6 +121,12 @@ class RuntimeServices:
     # Interceptor spine (SPEC-01a) — PRE→execute→POST chain per AGENT node; None/empty = no-op
     interceptor_pipeline: InterceptorPipeline | None = None
 
+    # Recovery budget — caps how many times a POST RECOVER decision may re-run an
+    # agent with a hint (SPEC-01a RECOVER extension). 0 disables recovery (RECOVER
+    # decisions degrade to REJECT at the executor); default matches
+    # ContextNodeExecutor's own default so behaviour is unchanged when omitted.
+    max_recovery_attempts: int = 2
+
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None
     blueprint_selector: BlueprintSelectorHook | None = None
