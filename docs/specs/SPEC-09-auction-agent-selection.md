@@ -41,18 +41,23 @@ in `cemaf/llm/model_router.py`. Unit tests: `tests/unit/agents/test_selection.py
 
 ## 1. Context
 
-`ContextNodeExecutor.execute_node` resolves an agent by `node.ref_id`
-(`context_node_executor.py:72-93`) — one agent per node, bound when the DAG is
-authored. There is no notion of agent capability, load, or budget-awareness in
-selection. Separately, `ModelRouter` is handed `fidelity` and `token_budget` and
-**discards them** (`model_router.py:118` — `del fidelity, token_budget,
-correlation_id`), routing purely on a char-count complexity estimate.
+> **Baseline (the problem this spec resolved).** `ContextNodeExecutor` resolved an
+> agent solely by `node.ref_id` — one agent per node, bound when the DAG was
+> authored, with no notion of capability, load, or budget-awareness. Separately,
+> `ModelRouter` was handed `fidelity` and **discarded it**, routing purely on a
+> char-count complexity estimate.
 
-This is the one mechanism from the axocoatl comparison audit that is a genuine
-gap *and* one CEMAF is positioned to ship cheaply: `BudgetGuard` already exposes
-`cost_utilization` / `token_utilization` (`budget_guard.py:46-116`), and the
-registry already indexes agents. An auction is: let N agents bid on a node,
-score by (capability match, load, budget headroom), run the highest bidder.
+This was the one mechanism from the axocoatl comparison audit that was a genuine
+gap *and* one CEMAF was positioned to ship cheaply: `BudgetGuard` already exposed
+`cost_utilization` / `token_utilization`, and the registry already indexed agents.
+An auction is: let N agents bid on a node, score by (capability match, load,
+budget headroom), run the highest bidder.
+
+> **As shipped:** static `ref_id` resolution now lives in `StaticRefResolver` (the
+> always-matches fallback in the NodeResolver chain); auction dispatch is
+> `AuctionResolver`. `ModelRouter` no longer discards `fidelity` — it applies a
+> per-tier floor via `_apply_fidelity_floor` (`FIDELITY_FLOOR` / `Fidelity` from
+> `agents.selection`). See the §2 contract and the status banner above.
 
 ```mermaid
 sequenceDiagram
@@ -227,8 +232,8 @@ silent disagreement: index = "who may bid", advertiser = "how well they bid").
 
 **Candidate resolvability.** Every agent returned by `get_candidates` MUST be
 resolvable back through `registry.get(str(agent.id))` — the executor resolves the
-winning `Bid.agent_id` via the existing `self._registry.get(agent_name)` path
-(`context_node_executor.py:81`), so `Bid.agent_id == agent.id` is the registry key.
+winning `Bid.agent_id` via the existing `self._registry.get(agent_name)` path,
+so `Bid.agent_id == agent.id` is the registry key.
 
 DAG factory (`dag.py`), next to `Node.agent`:
 
@@ -437,8 +442,8 @@ in [0.0, 1.0].
 
 **Fidelity wiring note.** `Fidelity` and `_FIDELITY_FLOOR` live in `selection.py`
 for colocation with `Capability`, but the floor is applied in
-`model_router.py` (Invariant 9) — `ModelRouter.route` already receives
-`fidelity` (today discarded at `model_router.py:118`); the change is to stop
-discarding it and floor the estimator score. The auction itself does not consult
-fidelity; the two share this spec only because both stop wasting signals the
-system already computes.
+`model_router.py` (Invariant 9) — `ModelRouter` receives `fidelity` and (as
+shipped) floors the estimator score to the tier's minimum via
+`_apply_fidelity_floor`, rather than discarding it. The auction itself does not
+consult fidelity; the two share this spec only because both stop wasting signals
+the system already computes.
