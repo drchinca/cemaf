@@ -1808,17 +1808,25 @@ function buildDagView(){
   `;
   document.head.appendChild(ladStyle);
 
-  // ---- Section divider: above is the real run, below is the demo composition ----
+  // ---- Section divider + narrative bridge between real run + demo composition ----
   const divider=document.createElement('div');
-  divider.style.cssText='display:flex;align-items:center;gap:14px;margin:28px 0 14px;padding:0 4px;';
+  divider.style.cssText='display:flex;align-items:center;gap:14px;margin:28px 0 10px;padding:0 4px;';
   divider.innerHTML=
-    '<span style="height:1px;flex:1;background:linear-gradient(to right, transparent, var(--line));"></span>'+
-    '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">'+
-      '<span style="font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--soft);font-weight:700;">Demo composition</span>'+
-      '<span style="font-size:11px;color:#566;font-style:italic;">illustrative — shows every primitive composed in one DAG</span>'+
+    '<span style="height:1px;flex:1;background:linear-gradient(to right, transparent, var(--t2));opacity:.4;"></span>'+
+    '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'+
+      '<span style="font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--t2);font-weight:700;">↓ Demo composition</span>'+
     '</div>'+
-    '<span style="height:1px;flex:1;background:linear-gradient(to left, transparent, var(--line));"></span>';
+    '<span style="height:1px;flex:1;background:linear-gradient(to left, transparent, var(--t2));opacity:.4;"></span>';
   inner.appendChild(divider);
+
+  // Narrative bridge — explains what the bottom half adds beyond the real traces above
+  const bridge=document.createElement('div');
+  bridge.style.cssText='font-size:13px;color:var(--ink);line-height:1.55;margin:0 0 16px;padding:12px 14px;border-radius:9px;background:rgba(245,158,11,.06);border-left:3px solid var(--t2);';
+  bridge.innerHTML=
+    '<b>Above:</b> 7 real runs producing real EventBus traces. '+
+    '<b>Below:</b> what one fully-loaded run looks like — every CEMAF primitive composed in a single DAG, with checkpoints, recover-lane, citations, and quality gates. '+
+    '<span style="color:var(--soft);font-style:italic">Toggle "Try breaking it" to see what burns when each primitive is removed.</span>';
+  inner.appendChild(bridge);
 
   // ---- Counterfactual strip — hoisted above the DAG so it's the first eyeline ----
   const cfStrip=document.createElement('div'); cfStrip.className='cf-strip';
