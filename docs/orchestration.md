@@ -336,6 +336,48 @@ executor = ContextNodeExecutor(
 result = await executor.execute_node(node=node, context=ctx)
 ```
 
+## Node Resolver Chain
+
+How `execute_node` decides *what* runs for a node — agent lookup, an auction, a
+council deliberation — is a **first-match-wins resolver chain**, not a stack of
+`if` branches. Each resolver implements the `NodeResolver` protocol
+(`orchestration/resolvers/protocols.py`):
+
+```python
+@runtime_checkable
+class NodeResolver(Protocol):
+    @property
+    def resolver_id(self) -> str: ...
+    def matches(self, *, node: Node) -> bool: ...
+    async def resolve(
+        self, *, node: Node, resolved_inputs: object, run_id: str, start: float
+    ) -> ResolveOutcome: ...   # ResolveOutcome = RunAgent | NodeComplete
+```
+
+A resolver returns one of two outcomes:
+
+- **`RunAgent(agent_name=...)`** — "I picked who runs; the executor takes it from
+  here" (builds the goal, runs the agent, runs the interceptor chain).
+- **`NodeComplete(result=...)`** — "I produced the `NodeResult` myself; skip
+  agent execution" (used by the council, which deliberates and returns a verdict).
+
+The executor registers three built-ins, most-specific first:
+
+| Resolver | `matches` when | Outcome | Spec |
+|----------|----------------|---------|------|
+| `CouncilResolver` | `node.config["council"]` present | `NodeComplete` (verdict steers the DAG) | SPEC-10 |
+| `AuctionResolver` | `node.config["capability"]` present **and** an `agent_selector` is wired | `RunAgent` (winning bid; falls through to `ref_id` if no candidates) | SPEC-09 |
+| `StaticRefResolver` | always (universal fallback) | `RunAgent(node.ref_id)` | — |
+
+`AuctionResolver` is only registered when `RuntimeServices.agent_selector` is set
+— absent a selector, auction nodes fall through to static resolution, preserving
+the prior "static unless a selector is wired" semantics.
+
+**Adding a node "kind" is registering a resolver, not editing `execute_node`.**
+The dispatch loop walks the chain and the first `matches()` wins; `Node.council`
+and `Node.auction` are just factories that stamp the config key their resolver
+looks for.
+
 ## Budget-Guarded Execution
 
 Pass a `BudgetGuard` to `DAGExecutor` for automatic cost and token enforcement:
