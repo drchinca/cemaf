@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-12
+
+**README polish: rich-text dual-DAG framing + industry-standards table.**
+
+No source code in `src/cemaf/` changed in this release; the package surface is identical to 2.1.0.
+
+**Changed:**
+- Removed two AI-feeling screenshots (`docs/architecture/img/dag-showcase.png` and `architecture-atlas.png`) from the README. Replaced with rich-text:
+  - **The dual DAG · agents on top, context below** — ASCII rendering of the agent-lane / context-lane / recover-lane structure with a one-line summary of the structured-event stream emitted per `executor.run(dag)` call.
+  - **What CEMAF makes the industry standard** — 9-row table mapping the hard problems the agentic-AI ecosystem keeps re-solving (token budget, citation grounding, agent selection, council voting, recover loop, observability, BYO-X integration, blueprint flywheel, framework boundary) to the CEMAF primitive that solves each as a first-class node-kind or `Protocol` rather than glue code.
+- Architecture Atlas image swapped for a quoted text pointer — same link target, less visual noise.
+
+**Reverted:**
+- README architecture diagram is back to ASCII box-drawing (was briefly Mermaid in 2.1.0). The Mermaid render read as AI-generated; ASCII matches the rest of the README's voice.
+
 ## [2.1.0] - 2026-06-12
 
 **Investor-ready interactive showcase + real CEMAF trace generator + docs cleanup.**
