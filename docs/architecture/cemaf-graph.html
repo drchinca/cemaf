@@ -1752,6 +1752,7 @@ function buildDagView(){
     stepBtnsEl.querySelectorAll('button').forEach(b=>{
       const isActive = +b.dataset.step===n;
       b.classList.toggle('on', isActive);
+      b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
       if(isActive){ b.style.background=''; b.style.borderColor=''; }
       else { b.style.background='rgba(11,14,20,.7)'; b.style.borderColor=''; }
     });
@@ -1835,6 +1836,8 @@ function buildDagView(){
       const b=document.createElement('button');
       b.dataset.step=s.step;
       b.title=`${s.label}${meta?'\n'+meta:''}`;
+      b.setAttribute('aria-pressed','false');
+      b.setAttribute('aria-label',`Step ${s.step}: ${s.label}${meta?', '+meta:''}`);
       b.innerHTML=`<span style="color:var(--soft);font-weight:700;margin-right:5px">${s.step}</span>${SHORT[s.step]||''}`;
       b.style.cssText='font:inherit;font-size:11.5px;color:var(--ink);background:rgba(11,14,20,.7);border:1px solid var(--line);border-radius:7px;padding:5px 10px;cursor:pointer;font-weight:500;transition:all .12s;display:inline-flex;align-items:center;';
       // hover only paints inactive buttons; .on state owns its own bg via CSS
@@ -3008,9 +3011,19 @@ function buildDagView(){
     out.classList.toggle('show', elapsed>=T_TOTAL);
   }
 
-  // wire accordion
+  // wire accordion — keyboard reachable, ARIA-correct
   colR.querySelectorAll('.acc-sec h3').forEach(h=>{
-    h.addEventListener('click',()=>h.parentElement.classList.toggle('collapsed'));
+    h.setAttribute('role','button');
+    h.setAttribute('tabindex','0');
+    h.setAttribute('aria-expanded', String(!h.parentElement.classList.contains('collapsed')));
+    const toggle=()=>{
+      const collapsed=h.parentElement.classList.toggle('collapsed');
+      h.setAttribute('aria-expanded', String(!collapsed));
+    };
+    h.addEventListener('click',toggle);
+    h.addEventListener('keydown',e=>{
+      if(e.key===' '||e.key==='Enter'){ e.preventDefault(); toggle(); }
+    });
   });
 
   let endHoldUntil=0;
