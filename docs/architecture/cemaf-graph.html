@@ -1697,7 +1697,8 @@ function buildDagView(){
       '<span id="realAuditMeta" style="font-size:11px;color:var(--soft);font-family:ui-monospace,Menlo,monospace;"></span>'+
     '</div>'+
     '<div id="realAuditTeach" style="font-size:12.5px;color:var(--ink);line-height:1.5;margin:0 0 10px;padding:8px 10px;border-radius:7px;background:rgba(20,184,166,.06);border-left:3px solid var(--t1);"></div>'+
-    '<div id="realAuditList" style="font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.55;max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>';
+    '<div id="realAuditSummary" style="display:flex;gap:5px;flex-wrap:wrap;margin:0 0 10px;"></div>'+
+    '<div id="realAuditList" style="font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.55;max-height:380px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;scrollbar-width:thin;"></div>';
   inner.appendChild(realAudit);
 
   // Step ladder reads from inlined TRACE_DATA so file:// works without a server
@@ -1757,6 +1758,31 @@ function buildDagView(){
     };
     const teach=document.getElementById('realAuditTeach');
     if(teach) teach.innerHTML = TEACH[n] || `<b>Step ${n}.</b> ${trace.label}`;
+    // Event-kind summary chips — heat map of what fired
+    const summary=document.getElementById('realAuditSummary');
+    if(summary){
+      const counts={};
+      trace.events.forEach(e=>{ counts[e.kind]=(counts[e.kind]||0)+1; });
+      const order=['dag.started','task.started','task.completed','council.ballot','council.decided',
+                   'auction.bid','auction.award','citation.added','eval.completed','memory.hit',
+                   'memory.extracted','content.published','blueprint.harvested','dag.completed'];
+      const known=new Set(order);
+      const sorted=[...order.filter(k=>k in counts), ...Object.keys(counts).filter(k=>!known.has(k))];
+      summary.innerHTML=sorted.map(k=>{
+        const c=counts[k];
+        const tier=k.startsWith('task.failed')?'var(--t4)':
+                   k.startsWith('task.completed')?'var(--t1)':
+                   k.startsWith('dag.')?'var(--t3)':
+                   k.startsWith('eval.')?'var(--t2)':
+                   k.startsWith('council.')?'var(--t3)':
+                   k.startsWith('auction.')?'var(--t2)':
+                   k.startsWith('citation.')?'var(--t1)':
+                   k.startsWith('blueprint.')?'var(--t3)':
+                   k.startsWith('memory.')?'var(--t1)':
+                   'var(--soft)';
+        return `<span style="display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;padding:2px 7px;border-radius:6px;background:rgba(11,14,20,.6);border:1px solid var(--line);">${k} <b style="color:${tier};font-weight:700;">×${c}</b></span>`;
+      }).join('');
+    }
     const list=document.getElementById('realAuditList');
     list.innerHTML='';
     trace.events.forEach(ev=>{
