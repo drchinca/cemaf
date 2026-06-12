@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-12
+
+**Investor-ready interactive showcase + real CEMAF trace generator + docs cleanup.**
+
+No source code in `src/cemaf/` changed in this release; the package surface is identical to 2.0.0. The `2.1.0` minor bump reflects the *new runnable demo capability* added under `docs/architecture/`.
+
+**Added:**
+- **Interactive DAG showcase** at `docs/architecture/cemaf-graph.html` — two tabs: AST-exact module dependency graph (40 modules, 167 imports) and an animated dual-DAG demo with 11 agents, 7 context surfaces, checkpoints, recover band, counterfactual toggles, event-kind summary, OTel-shape audit ticker. Works on `file://` (no server needed).
+- **Real CEMAF trace generator** at `docs/architecture/scripts/produce_dag_trace.py` — runs CEMAF end-to-end via `executor.run(dag)` for 7 progressive scenarios (`hello → chain → parallel → council → auction → gate → full flow`). Captures `EventBus` output via `subscribe_all` and writes structured JSON traces (`docs/architecture/traces/step-1.json`…`step-7.json` + `index.json`). Step 7 produces 26 real events in 537ms with zero failures. Traces are inlined into the showcase so the demo is verifiable, not mocked.
+- **Architecture Atlas** at `docs/architecture/cemaf-architecture.html` — interactive multi-view tour with every module placed by measured import fan-in.
+- **README hero**: clickable DAG showcase screenshot above the fold; Mermaid Layer 1/2 architecture diagram (renders inline on GitHub); architecture atlas screenshot.
+
+**Cleaned up:**
+- **Deleted 19 redundant `_extended.md` companion files** plus their summary index (~11.7k lines) — LLM-generated boilerplate from January 2026 with no incoming links; canonicals (events.md, scheduler.md, observability.md, etc.) remain authoritative and are linked from `docs/index.md`.
+- Fixed 3 stale facts: `docs/config.md` (`SettingsProvider` import path), `docs/env_configuration.md` (Claude 3 → Claude 4 model table), `docs/skills.md` (`Skill[InputT]` must be a `BaseModel`, not `str`).
+
+**Fixed (showcase):**
+- `rebuild()` resets transient run state (`endHoldUntil`, `previewT`, `lastTraceKey`, `lastT`) — toggling a counterfactual during the loop's end-hold no longer freezes the demo at t=0.
+- `applyAll()` skipped when the DAG tab isn't active — saves CPU on the module-graph tab.
+- Mobile (`@max-width:640px`): Python card `pre` wraps instead of horizontal-scrolling; trace correlation ID hidden.
+- Accessibility (WCAG 2.4.11): focus rings on counterfactual labels + step ladder + cf-strip buttons; `aria-pressed` on step buttons; accordion `h3`s keyboard-reachable (`role=button`, `tabindex=0`, Space/Enter handler, `aria-expanded` synced with collapsed state).
+
 ## [2.0.0] - 2026-06-03
 
 **Domain-agnostic core + persisted state machines + Hugging Face integration.**
