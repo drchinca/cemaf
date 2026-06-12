@@ -1641,17 +1641,18 @@ function buildDagView(){
     '<p class="h-sub">One task running below. <b>11 agents</b>, <b>7 context surfaces</b>, full audit trail. <b style="color:var(--t2)">→ try toggling "Turn off the quality gate" on the right.</b></p>';
   hero.appendChild(head);
   const py=document.createElement('div'); py.className='py-card';
-  py.innerHTML='<div class="py-head"><span class="ttl">8-line entry · cemaf bootstrap</span><button id="pyCopy" type="button">copy</button></div>'+
-    '<pre><span class="kw">from</span> cemaf <span class="kw">import</span> bootstrap, RuntimeServices\n\n'+
-    'services = <span class="fn">RuntimeServices</span>(\n'+
-    '    llm_client=...,        <span class="cm"># any LLMClient</span>\n'+
-    '    memory_manager=...,    <span class="cm"># any MemoryStore</span>\n'+
-    '    interceptor_pipeline=...,\n'+
-    ')\n'+
-    'executor = bootstrap.<span class="fn">create_executor</span>(\n'+
-    '    agent_registry=registry, services=services,\n'+
-    ')\n'+
-    'result = <span class="kw">await</span> executor.<span class="fn">run</span>(dag)</pre>';
+  py.innerHTML='<div class="py-head"><span class="ttl">This produced the traces above ↑</span><button id="pyCopy" type="button">copy</button></div>'+
+    '<pre><span class="cm"># docs/architecture/scripts/produce_dag_trace.py</span>\n'+
+    '<span class="kw">from</span> cemaf <span class="kw">import</span> AgentRegistry, DAG, Node, create_executor\n'+
+    '<span class="kw">from</span> cemaf.events.bus <span class="kw">import</span> InMemoryEventBus\n'+
+    '<span class="kw">from</span> cemaf.orchestration.services <span class="kw">import</span> RuntimeServices\n\n'+
+    'bus = <span class="fn">InMemoryEventBus</span>()\n'+
+    'bus.<span class="fn">subscribe_all</span>(tracer.on_event)  <span class="cm"># every event captured</span>\n\n'+
+    'registry = <span class="fn">AgentRegistry</span>()\n'+
+    'registry.<span class="fn">register_agent</span>(agent_instance=Council(), goal_type=CouncilGoal)\n'+
+    'services = <span class="fn">RuntimeServices</span>(event_bus=bus)\n\n'+
+    'executor = <span class="fn">create_executor</span>(agent_registry=registry, services=services)\n'+
+    'result = <span class="kw">await</span> executor.<span class="fn">run</span>(dag=dag)</pre>';
   hero.appendChild(py);
   inner.appendChild(hero);
 
