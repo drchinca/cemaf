@@ -24,8 +24,42 @@
 >
 > Deeper read: [`docs/architecture/deep-architecture.md`](docs/architecture/deep-architecture.md) · [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) (interactive atlas) · [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
 
-[![CEMAF DAG showcase — real EventBus output from 7 progressive runs](docs/architecture/img/dag-showcase.png)](docs/architecture/cemaf-graph.html)
-<sub><i>Click → opens the interactive demo. Step ladder loads real CEMAF traces produced by `executor.run(dag)`; the demo composition below shows every primitive (council, auction, interceptor, eval gate, recover lane, citations, blueprints) composed in one DAG.</i></sub>
+### The dual DAG · agents on top, context below
+
+```
+   AGENT DAG  ─────────────────────────────────────────────────
+   bp ─→ lib ─→ research ─→ council(3) ─→ writer.fast(auction)
+                                              │
+                      cite ─→ gate ─→ publish │   recover lane
+                                              │   ─────────────
+                                              │   gate↯ → heal → writer.attempt2
+                                              ↓
+   CONTEXT DAG  ────────────────────────────────────────────────
+   blueprint  KG  memory[L0/L1/L2]  research.findings  draft.body
+   citations  session→PROJECT
+   ─────────────────────────────────────────────────────────────
+   ↑ every read/write a wire · every patch carries source + reason + run_id
+```
+
+CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
+
+### What CEMAF makes the industry standard
+
+The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has been re-implementing for two years.
+
+| Hard problem the field keeps re-solving | CEMAF's standard |
+|---|---|
+| "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. |
+| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. |
+| "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. |
+| "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. |
+| "What happens when an LLM call fails the eval?" | `RECOVER` budget (`max_recovery_attempts ≤ 2`), `AutoHealManager` mutates the goal with `FailureSignal` context, agent re-runs with a patched goal. |
+| "How do I observe this in production?" | OTel GenAI-shape events on the `EventBus` (`gen_ai.request.model`, `usage.input_tokens`, `cost_usd`, `span`), `correlation_id` propagation, structured logs, Prometheus metrics. |
+| "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. |
+| "How do I scale a successful run into a reusable template?" | `BlueprintHarvester` distills high-scoring runs into reusable `SemanticBlueprint`s, discoverable via `library.search(...)`. The flywheel is a node, not a script. |
+| "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** |
+
+[**See it run — open the interactive demo →**](docs/architecture/cemaf-graph.html)
 
 ---
 
@@ -111,8 +145,7 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-[![CEMAF Architecture Atlas — every module placed by import fan-in, not by feature](docs/architecture/img/architecture-atlas.png)](docs/architecture/cemaf-architecture.html)
-<sub><i>The interactive atlas (click image): every CEMAF module placed by measured import fan-in. Tier 4 is the single node hub each feature funnels through; Tier 0 is the foundation everything depends on. Tabs cover Core Bytes / Agent Behaviours / Context Lifecycle / Runtime + Reactive / Principles.</i></sub>
+> **Interactive companion:** [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) — the architecture atlas. Every module placed by measured import fan-in (not by feature category). **Tier 4** is the single node hub each feature funnels through; **Tier 0** is the foundation everything depends on. Five tabs: Core Bytes · Agent Behaviours · Context Lifecycle · Runtime + Reactive · Principles.
 
 **Read [docs/architecture.md](docs/architecture.md)** for the canonical software architecture we build toward, **[docs/patterns.md](docs/patterns.md)** for the design patterns catalog, and **[docs/modules.md](docs/modules.md)** for ideal package boundaries.
 
