@@ -467,6 +467,8 @@
   .hero-headline .eyebrow-badge{display:inline-block;font-size:10px;letter-spacing:.26em;text-transform:uppercase;font-weight:700;
     color:var(--t1);background:rgba(20,184,166,.07);border:1px solid rgba(20,184,166,.22);
     padding:4px 9px;border-radius:999px;margin-bottom:12px;align-self:flex-start;}
+  .hero-headline .h-def{margin:0 0 14px;font-size:14.5px;line-height:1.55;color:var(--ink);max-width:62ch;}
+  .hero-headline .h-def b{color:var(--t1);font-weight:600;}
   .hero-headline .h-big{font-size:32px;line-height:1.12;letter-spacing:-.015em;font-weight:700;color:var(--ink);margin:0 0 10px;}
   .hero-headline .h-big em{font-style:normal;background:linear-gradient(90deg,var(--t1),var(--t2));-webkit-background-clip:text;background-clip:text;color:transparent;}
   .hero-headline .h-sub{margin:0;font-size:13.5px;color:var(--soft);line-height:1.55;max-width:62ch;}
@@ -1636,7 +1638,8 @@ function buildDagView(){
   // ---- HERO ROW: headline + python card ----
   const hero=document.createElement('div'); hero.className='hero-row';
   const head=document.createElement('div'); head.className='hero-headline';
-  head.innerHTML='<span class="eyebrow-badge">CEMAF · multi-agent orchestration with context as a first-class artifact</span>'+
+  head.innerHTML='<span class="eyebrow-badge">CEMAF</span>'+
+    '<p class="h-def">A Python framework for multi-agent systems with <b>context as a first-class artifact</b> and <b>glass-box observability</b> — every agent decision, every context byte, every dollar emitted as a structured event.</p>'+
     '<h1 class="h-big"><em>Every agent decision. Every context byte. Every dollar.</em></h1>'+
     '<p class="h-sub"><b>7 real CEMAF runs</b> with structured EventBus output below, then a fully-loaded <b>demo composition</b> showing every primitive in one DAG. <b style="color:var(--t2)">→ click step 7 to see 26 real events in 537ms.</b></p>';
   hero.appendChild(head);
