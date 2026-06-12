@@ -460,7 +460,13 @@
   @media (max-width:640px){
     .hero-row{grid-template-columns:1fr;}
     .py-card{font-size:10px;}
+    .py-card pre{white-space:pre-wrap;font-size:9.5px;}
+    .status-line .corr{display:none;}
   }
+  /* keyboard focus ring on counterfactual labels — WCAG 2.4.11 */
+  .cf-cluster label:focus-within{outline:2px solid var(--t1);outline-offset:2px;border-radius:7px;}
+  .cf-strip button:focus-visible{outline:2px solid var(--t1);outline-offset:2px;}
+  #stepBtns button:focus-visible{outline:2px solid var(--t1);outline-offset:2px;}
 
   /* ---- investor-ready refinements ---- */
   /* hero v3 */
