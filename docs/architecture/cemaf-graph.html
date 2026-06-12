@@ -1738,9 +1738,12 @@ function buildDagView(){
     const trace = TRACE_DATA && TRACE_DATA.traces && TRACE_DATA.traces[String(n)];
     if(!trace){ stepInfoEl.textContent='trace step '+n+' missing'; return; }
     currentStep=n;
-    // Update step buttons
+    // Update step buttons — clear inline bg/border so the .on class gradient wins
     stepBtnsEl.querySelectorAll('button').forEach(b=>{
-      b.classList.toggle('on', +b.dataset.step===n);
+      const isActive = +b.dataset.step===n;
+      b.classList.toggle('on', isActive);
+      if(isActive){ b.style.background=''; b.style.borderColor=''; }
+      else { b.style.background='rgba(11,14,20,.7)'; b.style.borderColor=''; }
     });
     stepInfoEl.textContent=`step ${n} · ${trace.events.length} events · ${trace.total_ms}ms · dag=${trace.dag_name}`;
     // Render events into the real audit panel
@@ -1824,8 +1827,9 @@ function buildDagView(){
       b.title=`${s.label}${meta?'\n'+meta:''}`;
       b.innerHTML=`<span style="color:var(--soft);font-weight:700;margin-right:5px">${s.step}</span>${SHORT[s.step]||''}`;
       b.style.cssText='font:inherit;font-size:11.5px;color:var(--ink);background:rgba(11,14,20,.7);border:1px solid var(--line);border-radius:7px;padding:5px 10px;cursor:pointer;font-weight:500;transition:all .12s;display:inline-flex;align-items:center;';
-      b.addEventListener('mouseenter',()=>{ b.style.borderColor='var(--t1)'; b.style.background='rgba(20,184,166,.08)'; });
-      b.addEventListener('mouseleave',()=>{ b.style.borderColor=''; b.style.background='rgba(11,14,20,.7)'; });
+      // hover only paints inactive buttons; .on state owns its own bg via CSS
+      b.addEventListener('mouseenter',()=>{ if(!b.classList.contains('on')){ b.style.borderColor='var(--t1)'; b.style.background='rgba(20,184,166,.08)'; } });
+      b.addEventListener('mouseleave',()=>{ if(!b.classList.contains('on')){ b.style.borderColor=''; b.style.background='rgba(11,14,20,.7)'; } });
       b.addEventListener('click',()=>loadStep(s.step));
       stepBtnsEl.appendChild(b);
     });
@@ -1835,7 +1839,10 @@ function buildDagView(){
   // CSS for the .on state on step buttons
   const ladStyle=document.createElement('style');
   ladStyle.textContent=`
-    #stepBtns button.on{background:rgba(20,184,166,.18);border-color:var(--t1);color:var(--t1);}
+    #stepBtns button.on{background:linear-gradient(180deg, rgba(20,184,166,.28), rgba(20,184,166,.14));
+      border-color:var(--t1);color:var(--t1);font-weight:700;
+      box-shadow:0 0 0 3px rgba(20,184,166,.18), inset 0 1px 0 rgba(255,255,255,.05);}
+    #stepBtns button.on > span:first-child{color:var(--t1);}
   `;
   document.head.appendChild(ladStyle);
 
