@@ -83,33 +83,36 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 
 ## Architecture at a Glance
 
+```mermaid
+flowchart TB
+    subgraph L2["LAYER 2 · Self-Hosting"]
+        direction LR
+        meta[meta/<br/>MetaSpecifier · MetaScaffolder<br/>MetaArchitect · MetaSynthesizer]
+        audit[audit/]
+        knowledge[knowledge/]
+    end
+
+    subgraph L1["LAYER 1 · Base Framework"]
+        direction TB
+        bootstrap["bootstrap.create_executor(...)<br/><i>composition root</i>"]
+        orchestration["orchestration/<br/>DAGExecutor · ContextNodeExecutor<br/><i>topo sort → node dispatch → context</i>"]
+        capabilities["agents · tools · skills · blueprint<br/>context · memory · retrieval · rlm<br/>llm · generation · streaming<br/>evals · moderation · validation · citation"]
+        infra["events · observability · resilience<br/>persistence · mcp · cache · replay · ingestion"]
+        bootstrap --> orchestration
+        orchestration --> capabilities
+        orchestration --> infra
+    end
+
+    L2 -.->|one-way dependency| L1
+
+    classDef l2 fill:#3a1f4a,stroke:#a855f7,color:#fff
+    classDef l1 fill:#1f2a3a,stroke:#14b8a6,color:#e6ecf5
+    class meta,audit,knowledge l2
+    class bootstrap,orchestration,capabilities,infra l1
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          LAYER 2  —  Self-Hosting                    │
-│   audit/  •  knowledge/  •  meta/  (MetaSpecifier, MetaScaffolder…)  │
-│                              ▲                                       │
-│                              │ one-way dependency                    │
-│ ─────────────────────────────┴─────────────────────────────────────  │
-│                          LAYER 1  —  Base Framework                  │
-│                                                                      │
-│  orchestration/  ──────  DAGExecutor + ContextNodeExecutor          │
-│       │                  (topo sort → node dispatch → context)       │
-│       ▼                                                              │
-│  agents/  •  tools/  •  skills/  •  blueprint/                       │
-│  context/ •  memory/ •  retrieval/ •  rlm/                          │
-│  llm/     •  generation/ • streaming/                                │
-│  evals/   •  moderation/ • validation/ • citation/                  │
-│  events/  •  observability/ • resilience/ • persistence/            │
-│  mcp/     •  cache/    • replay/    • ingestion/                    │
-│                                                                      │
-│  Composition root:                                                   │
-│    bootstrap.create_executor(                                        │
-│        agent_registry=registry,                                      │
-│        services=RuntimeServices(...),    # 15+ optional deps         │
-│        config=ExecutorConfig(...),        # sizing / timeouts        │
-│    )                                                                 │
-└─────────────────────────────────────────────────────────────────────┘
-```
+
+[![CEMAF Architecture Atlas — every module placed by import fan-in, not by feature](docs/architecture/img/architecture-atlas.png)](docs/architecture/cemaf-architecture.html)
+<sub><i>The interactive atlas (click image): every CEMAF module placed by measured import fan-in. Tier 4 is the single node hub each feature funnels through; Tier 0 is the foundation everything depends on. Tabs cover Core Bytes / Agent Behaviours / Context Lifecycle / Runtime + Reactive / Principles.</i></sub>
 
 **Read [docs/architecture.md](docs/architecture.md)** for the canonical software architecture we build toward, **[docs/patterns.md](docs/patterns.md)** for the design patterns catalog, and **[docs/modules.md](docs/modules.md)** for ideal package boundaries.
 
