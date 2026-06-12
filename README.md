@@ -24,6 +24,9 @@
 >
 > Deeper read: [`docs/architecture/deep-architecture.md`](docs/architecture/deep-architecture.md) · [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) (interactive atlas) · [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
 
+[![CEMAF DAG showcase — real EventBus output from 7 progressive runs](docs/architecture/img/dag-showcase.png)](docs/architecture/cemaf-graph.html)
+<sub><i>Click → opens the interactive demo. Step ladder loads real CEMAF traces produced by `executor.run(dag)`; the demo composition below shows every primitive (council, auction, interceptor, eval gate, recover lane, citations, blueprints) composed in one DAG.</i></sub>
+
 ---
 
 ## Table of Contents
