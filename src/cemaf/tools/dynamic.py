@@ -86,14 +86,34 @@ class DynamicToolFactory:
         registry: ToolRegistry,
         sandbox: LocalSandbox | None = None,
         persist_dir: Path | None = None,
+        allow_in_process_exec: bool = False,
     ) -> None:
         self._llm = llm_client
         self._registry = registry
         self._sandbox = sandbox or LocalSandbox()
         self._persist_dir = persist_dir
+        # SECURITY: registering a dynamic tool compiles LLM-generated source and runs
+        # it IN-PROCESS with full host privileges (filesystem, env, network). This is a
+        # remote-code-execution surface driven by model output. It is OFF by default;
+        # the caller must explicitly opt in, having accepted that the generating LLM and
+        # its prompt chain are trusted. Sandbox-test (run_code in a subprocess) still runs
+        # regardless — but the *registered* tool executes in-process, hence the gate.
+        self._allow_in_process_exec = allow_in_process_exec
 
     async def generate_and_register(self, spec: GeneratedToolSpec) -> Result[GenerationResult]:
-        """Full pipeline: generate code → validate syntax → sandbox-test → register."""
+        """Full pipeline: generate code → validate syntax → sandbox-test → register.
+
+        Fails closed unless ``allow_in_process_exec=True`` was passed at construction —
+        registration compiles + runs LLM-generated code in-process (RCE surface).
+        """
+        if not self._allow_in_process_exec:
+            return Result.fail(
+                "dynamic tool registration is disabled: compiling LLM-generated code runs "
+                "in-process with full host privileges. Construct DynamicToolFactory with "
+                "allow_in_process_exec=True only when the generating LLM and prompt chain "
+                "are trusted."
+            )
+
         # 1. Generate code via LLM
         code_result = await self._generate_code(spec)
         if not code_result.success:
@@ -175,7 +195,16 @@ class DynamicToolFactory:
         spec: GeneratedToolSpec,
         code: str,
     ) -> Tool:
-        """Compile generated source into a live Tool instance via exec."""
+        """Compile generated source into a live Tool instance via exec.
+
+        Defense-in-depth: refuse to exec unless the factory was explicitly opted in.
+        The public entrypoint already gates this, but a direct caller must not bypass it.
+        """
+        if not self._allow_in_process_exec:
+            raise PermissionError(
+                "in-process exec of generated tool code is disabled "
+                "(construct DynamicToolFactory with allow_in_process_exec=True)"
+            )
         module_name = f"badox_dynamic_{tool_id}"
         # Create a fresh module namespace and compile the generated code into it.
         module_ns: dict[str, Any] = {"__name__": module_name}

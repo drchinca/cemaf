@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from cemaf.agents.selection import FIDELITY_FLOOR, Fidelity
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
@@ -21,6 +22,20 @@ from cemaf.llm.protocols import (
 )
 from cemaf.observability.protocols import Logger
 from cemaf.resilience.circuit_breaker import CircuitOpenError
+
+# String-keyed view of the single-source FIDELITY_FLOOR (SPEC-09 Invariant 9), so
+# a `Fidelity` StrEnum or a raw value string ("high") both resolve. agents.selection
+# imports neither llm nor model_router, so this import introduces no cycle.
+_FIDELITY_FLOOR_BY_VALUE: dict[str, float] = {f.value: floor for f, floor in FIDELITY_FLOOR.items()}
+
+
+def _apply_fidelity_floor(*, score: float, fidelity: object | None) -> float:
+    """Raise the route score to the fidelity tier's floor, if a known fidelity is given."""
+    if fidelity is None:
+        return score
+    key = fidelity.value if isinstance(fidelity, Fidelity) else str(fidelity).lower()
+    floor = _FIDELITY_FLOOR_BY_VALUE.get(key)
+    return max(score, floor) if floor is not None else score
 
 
 @runtime_checkable
@@ -115,8 +130,9 @@ class ModelRouter:
         token_budget: object | None = None,
         correlation_id: str | None = None,
     ) -> CompletionResult:
-        del fidelity, token_budget, correlation_id  # forward-compat; ignored by router
+        del token_budget, correlation_id  # forward-compat; ignored by router
         score = self._estimator.estimate(messages, tools)
+        score = _apply_fidelity_floor(score=score, fidelity=fidelity)
         candidates = self._select_route(score)
 
         last_error: str = "No route available"

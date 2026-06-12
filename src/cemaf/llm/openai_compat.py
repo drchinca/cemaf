@@ -300,8 +300,23 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
     if msg.tool_call_id:
         d["tool_call_id"] = msg.tool_call_id
     if msg.tool_calls:
-        d["tool_calls"] = [tc.to_dict() for tc in msg.tool_calls]
+        d["tool_calls"] = [_tool_call_to_wire(tc) for tc in msg.tool_calls]
     return d
+
+
+def _tool_call_to_wire(tc: ToolCall) -> dict[str, Any]:
+    """Serialize a ToolCall for the OpenAI wire protocol — `arguments` MUST be a JSON string.
+
+    Ollama and the OpenAI SDK reject an object here ("cannot unmarshal object into
+    field arguments of type string"), so a dict payload is JSON-encoded on the way out.
+    """
+    args = tc.arguments
+    arguments = args if isinstance(args, str) else json.dumps(args)
+    return {
+        "id": tc.id,
+        "type": "function",
+        "function": {"name": tc.name, "arguments": arguments},
+    }
 
 
 def _parse_arguments(args: str | dict[str, Any]) -> dict[str, Any]:

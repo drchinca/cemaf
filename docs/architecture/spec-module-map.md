@@ -1,6 +1,6 @@
 # Spec → Module Map
 
-> One-page index from SPEC-00..06 (Enterprise Context Brain) concepts to the modules that house them. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
+> One-page index from SPEC-00..10 concepts to the modules that house them. SPEC-00..06 form the Enterprise Context Brain target architecture; SPEC-07 (hub-and-spoke KG), SPEC-08 (failure-feedback loop), SPEC-09 (auction agent selection), and SPEC-10 (agent council) are landed capabilities. SPEC-07/08 close audit gaps #9 and #13; SPEC-09 closes the auction gap from the axocoatl audit; SPEC-10 builds the deliberative council layer surfaced as missing by the buried-pattern excavation. Source-of-truth for where to look — and where to land — each concept during the multi-phase build-out.
 
 ## Conventions
 
@@ -21,7 +21,8 @@
 | `RecoveryRequest` (projection type) | SPEC-00 §2, SPEC-06 §2 | `cemaf/core/types.py` | scaffold pending |
 | `AcquiredLease` | SPEC-00 §2, SPEC-04 §2 | `cemaf/task/lease.py` | scaffold pending |
 | `Citation` + `cited_evidence_refs` predicate | SPEC-00 §2 | `cemaf/citation/` | partial — predicate pending |
-| `RuntimeServices` extensions (datasource_registry, task_repository, guardian_mesh, meta_dispatcher, structured_generator, interceptor_pipeline) | SPEC-00 §2 | `cemaf/orchestration/services.py` | partial — needs new fields |
+| `RuntimeServices` extensions — landed: `interceptor_pipeline`, `agent_selector`, `council_aggregator`, `knowledge_graph`, `max_recovery_attempts`; pending: `datasource_registry`, `task_repository`, `guardian_mesh`, `meta_dispatcher`, `structured_generator` | SPEC-00 §2 | `cemaf/orchestration/services.py` | partial — core fields landed |
+| `RuntimeServices.knowledge_graph` | SPEC-02 §2 | `cemaf/orchestration/services.py` | landed |
 | `bootstrap.create_executor()` wiring of new services | SPEC-00 §2 | `cemaf/bootstrap.py` | partial |
 | OTel GenAI spans (`gen_ai.tool.execute`, `gen_ai.agent.run`, `cemaf.interceptor.*`) | SPEC-00 §9 | `cemaf/observability/` | partial |
 | GATE evaluator SLOs registry | SPEC-00 §8 | `cemaf/evals/gate.py` | scaffold pending |
@@ -30,11 +31,12 @@
 
 | Spec concept | Source spec | Target module | Status |
 |---|---|---|---|
-| `NodeInterceptor` Protocol (PRE / POST phases) | SPEC-01 §2 | `cemaf/interceptors/protocols.py` | scaffold pending |
-| `InterceptorPipeline` | SPEC-01 §2 | `cemaf/interceptors/pipeline.py` | scaffold pending |
-| `ChainProfile` enum (DEFAULT / RECOVERY) | SPEC-01 §2 | `cemaf/interceptors/profiles.py` | scaffold pending |
-| `InterceptorContext` (PRE/POST payload) | SPEC-01 §2 | `cemaf/interceptors/context.py` | scaffold pending |
-| Pipeline integration into `ContextNodeExecutor` | SPEC-01 §2 | `cemaf/orchestration/context_node_executor.py` | partial — hooks pending |
+| `PreInterceptor` / `PostInterceptor` Protocols (split phases) | SPEC-01a §2 | `cemaf/interceptors/protocols.py` | landed (SPEC-01a slice) |
+| `InterceptorPipeline` + `GateEvalInterceptor` | SPEC-01a §2 | `cemaf/interceptors/{pipeline,gate_eval}.py` | landed (SPEC-01a slice) |
+| `DecisionKind` ACCEPT/REJECT/**RECOVER** + `RecoveryHint` + `GateFailureMode` | SPEC-01a §2 | `cemaf/interceptors/types.py` | landed (RECOVER shipped) |
+| `ChainProfile` enum (DEFAULT / RECOVERY) | SPEC-01 §2 | `cemaf/interceptors/profiles.py` | scaffold pending (full SPEC-01) |
+| `InterceptorContext` (PRE/POST payload) | SPEC-01 §2 | `cemaf/interceptors/context.py` | scaffold pending (full SPEC-01) |
+| Pipeline integration into `ContextNodeExecutor` (PRE/POST + bounded RECOVER loop) | SPEC-01a §2 | `cemaf/orchestration/context_node_executor.py` | landed |
 
 ## KG and DataSource services (SPEC-02)
 
@@ -90,6 +92,68 @@
 | Self-resolution loop in `DAGExecutor` (RECOVERY profile) | SPEC-06 §2 | `cemaf/orchestration/executor.py` | partial |
 | Recovery DAG factory | SPEC-06 §2 | `cemaf/meta/recovery_dag.py` | scaffold pending |
 | Audit-gate on recovery acceptance | SPEC-06 §2 | `cemaf/audit/recovery_gate.py` | scaffold pending |
+
+### NodeResolver dispatch chain (orchestration seam — underpins SPEC-06 routing)
+
+The bespoke council / auction / static `if`-branches in `execute_node` were
+migrated to a first-match-wins resolver chain. Adding a node "kind" is now
+registering a resolver, not editing `execute_node`. This is the seam a future
+`MetaDispatcher` (SPEC-06) plugs a recovery-routing resolver into.
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `NodeResolver` protocol + `ResolveOutcome` (`RunAgent | NodeComplete`) | (orchestration) | `cemaf/orchestration/resolvers/protocols.py` | landed |
+| `CouncilResolver` / `AuctionResolver` / `StaticRefResolver` (first-match-wins) | SPEC-09/10 | `cemaf/orchestration/resolvers/{council,auction,static_ref}.py` | landed |
+| Resolver-chain dispatch in `execute_node` | (orchestration) | `cemaf/orchestration/context_node_executor.py` | landed |
+
+## Hub & spoke knowledge (SPEC-07)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `SpokeCacheConfig` / `SpokeStats` | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `LocalSpokeCache` (bounded LRU + TTL + negative cache) | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `HubKnowledgeGraph` (write-through + invalidation publish) | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `KGInvalidationEvent` + `kg.invalidation` topic | SPEC-07 §2, §9 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `SpokeReadHubWriteKG` (drop-in `KnowledgeGraph` facade) | SPEC-07 §1 | `cemaf/knowledge/hub_spoke.py` | landed |
+| `create_hub_spoke_kg()` factory | SPEC-07 §2 | `cemaf/knowledge/hub_spoke.py` | landed |
+| Composition-root wiring (`enable_hub_spoke_kg`) | SPEC-07 §1 | `cemaf/meta/bootstrap.py` | landed |
+
+## Failure-feedback loop (SPEC-08)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `FailureSignal` / `FailureItem` / `FailureKind` | SPEC-08 §2 | `cemaf/iteration/types.py` | landed |
+| `IterationLimits` / `IterationOutcome` / `IterationReport` / `HaltSignal` | SPEC-08 §2 | `cemaf/iteration/types.py` | landed |
+| `FailureParser` Protocol (specificity + max_items) | SPEC-08 §2 | `cemaf/iteration/protocols.py` | landed |
+| `PytestParser` / `RuffParser` / `MypyParser` / `ShellFallbackParser` | SPEC-08 §2 | `cemaf/iteration/parsers.py` | landed |
+| `IterationLoop` (attempt → verify → parse → re-attempt) | SPEC-08 §2 | `cemaf/iteration/loop.py` | landed |
+
+> SPEC-08 is a per-task substrate, not a `RuntimeService` — the canonical caller is the `iccha_autonomy` control plane (per CLAUDE.md substrate boundary). It composes with, but does not replace, `core/recovery.AutoHealManager` (orthogonal failure surfaces: verifier `ShellResult` vs. Python exception).
+
+## Auction-based agent selection (SPEC-09)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `Capability` / `Fidelity` enums | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| `BidContext` / `Bid` | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| `CapabilityAdvertiser` (optional protocol) / `AgentSelector` | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| `DefaultAgentSelector` (deterministic max-bid) | SPEC-09 §2 | `cemaf/agents/selection.py` | landed |
+| Registry capability index + `get_candidates` | SPEC-09 §2 | `cemaf/agents/registry.py` | landed |
+| `Node.auction(capability=...)` opt-in factory | SPEC-09 §2 | `cemaf/orchestration/dag.py` | landed |
+| `AuctionResolver` dispatch + provenance (NodeResolver chain) | SPEC-09 §2, §9 | `cemaf/orchestration/resolvers/auction.py` | landed |
+| `RuntimeServices.agent_selector` wiring | SPEC-09 §2 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | landed |
+| ModelRouter fidelity floor (stops discarding `fidelity`) | SPEC-09 §3 Inv 9 | `cemaf/llm/model_router.py` | landed |
+
+## Agent council (SPEC-10)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `CouncilQuestion` / `Opinion` / `Ballot` / `CouncilDecision` / `CouncilConfig` | SPEC-10 §2 | `cemaf/council/types.py` | landed |
+| `CouncilMember` / `VoteAggregator` protocols | SPEC-10 §2 | `cemaf/council/protocols.py` | landed |
+| `DefaultVoteAggregator` (majority/weighted/quorum/unanimous) | SPEC-10 §2 | `cemaf/council/aggregator.py` | landed |
+| `AgentCouncil` (concurrent, timed) + `create_agent_council` adapter; multi-round via `CouncilConfig.rounds` | SPEC-10 §2 | `cemaf/council/council.py` | landed |
+| `Node.council` (incl. `rounds=N`) + `CouncilResolver` dispatch (output steers DAG) | SPEC-10 §2 | `cemaf/orchestration/dag.py`, `cemaf/orchestration/resolvers/council.py` | landed |
+| `RuntimeServices.council_aggregator` wiring | SPEC-10 §2 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | landed |
 
 ## Phase 2+ implementation plan
 

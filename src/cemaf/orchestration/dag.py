@@ -219,6 +219,86 @@ class Node:
         )
 
     @classmethod
+    def council(
+        cls,
+        id: str,
+        name: str,
+        members: tuple[str, ...],
+        options: tuple[str, ...],
+        prompt: str = "",
+        method: str = "majority",
+        rounds: int = 1,
+        description: str = "",
+        config: JSON | None = None,
+        input_mapping: JSON | None = None,
+        output_key: str = "",
+    ) -> Node:
+        """Create a council node (SPEC-10) — N member agents deliberate, a vote decides.
+
+        `ref_id` stays empty; `config["council"]` carries the member agent names,
+        the question options/prompt, the method, and the round count. The
+        executor resolves members from the registry and runs the council only
+        when an aggregator is wired; output_key receives the winning choice
+        ('' on no-decision). `method` is an `AggregationMethod` value to avoid a
+        dag→council import cycle. `rounds=N>1` enables multi-round deliberation
+        (peers see prior-round opinions and may revise); default 1 is the
+        single-round ensemble baseline.
+        """
+        if rounds < 1:
+            raise ValueError("rounds must be >= 1")
+        merged = {
+            **(config or {}),
+            "council": {
+                "members": list(members),
+                "options": list(options),
+                "prompt": prompt,
+                "method": method,
+                "rounds": rounds,
+            },
+        }
+        return cls(
+            id=NodeID(id),
+            type=NodeType.AGENT,
+            name=name,
+            description=description,
+            ref_id="",
+            config=merged,
+            input_mapping=input_mapping or {},
+            output_key=output_key,
+        )
+
+    @classmethod
+    def auction(
+        cls,
+        id: str,
+        name: str,
+        capability: str,
+        description: str = "",
+        config: JSON | None = None,
+        input_mapping: JSON | None = None,
+        output_key: str = "",
+    ) -> Node:
+        """Create an AGENT node selected by auction (SPEC-09).
+
+        `ref_id` stays empty; `config["capability"]` carries the requested
+        capability. The executor runs the auction only when an AgentSelector is
+        wired, else falls through to static resolution (ref_id, here empty → error).
+        `capability` is a `Capability` value (its `.value` string) to avoid a
+        dag→agents import cycle.
+        """
+        merged = {**(config or {}), "capability": capability}
+        return cls(
+            id=NodeID(id),
+            type=NodeType.AGENT,
+            name=name,
+            description=description,
+            ref_id="",
+            config=merged,
+            input_mapping=input_mapping or {},
+            output_key=output_key,
+        )
+
+    @classmethod
     def checkpoint(
         cls,
         id: str,

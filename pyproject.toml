@@ -1,6 +1,6 @@
 [project]
 name = "cemaf"
-version = "2.0.0"
+version = "2.1.0"
 description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -119,6 +119,12 @@ prometheus = [
     "prometheus-client>=0.20",
 ]
 
+# OpenTelemetry tracing + metrics export (observability.otel_setup.configure_otel)
+otel = [
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+]
+
 # Web UI (architecture advisor)
 web = [
     "fastapi>=0.115",
@@ -148,6 +154,8 @@ all = [
     "anthropic~=0.40",
     "huggingface_hub>=1.0",
     "prometheus-client>=0.20",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "sse-starlette>=2.0",

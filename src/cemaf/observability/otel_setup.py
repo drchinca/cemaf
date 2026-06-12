@@ -38,11 +38,11 @@ def configure_otel(
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.sdk.trace.sampling import ParentBasedSampler, TraceIdRatioBased
+        from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
     except ImportError as exc:
         raise ImportError(
-            "opentelemetry-sdk and opentelemetry-exporter-otlp-proto-grpc are required. "
-            "Install with: uv add opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc"
+            "OpenTelemetry export requires the 'otel' extra. "
+            "Install with: pip install 'cemaf[otel]' (or 'cemaf[all]')."
         ) from exc
 
     import importlib.metadata
@@ -60,7 +60,7 @@ def configure_otel(
         }
     )
 
-    sampler = ParentBasedSampler(root=TraceIdRatioBased(sampling_ratio))
+    sampler = ParentBased(root=TraceIdRatioBased(sampling_ratio))
 
     tracer_provider = TracerProvider(resource=resource, sampler=sampler)
     tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))

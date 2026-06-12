@@ -25,6 +25,11 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.blueprint.harvest import BlueprintHarvesterEngine
+from cemaf.blueprint.harvest_defaults import (
+    InMemoryRunCorrelator,
+    RecipeBlueprintDistiller,
+    ScoreThresholdHarvestPolicy,
+)
 from cemaf.blueprint.library import BlueprintEntryKind, BlueprintLibrary
 from cemaf.blueprint.sources import InMemoryWritableBlueprintSource
 from cemaf.context.budget import TokenBudget
@@ -32,11 +37,6 @@ from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.meta.blueprint_selector import LibraryBlueprintSelectorHook
-from cemaf.meta.harvest_defaults import (
-    InMemoryRunCorrelator,
-    RecipeBlueprintDistiller,
-    ScoreThresholdHarvestPolicy,
-)
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 
 

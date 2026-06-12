@@ -101,7 +101,9 @@ cemaf/
 - **Role**: The top of Layer 1. Owns `DAGExecutor`, `ContextNodeExecutor`, `RuntimeServices`, node-type handlers, bootstrap glue.
 - **Contains**:
   - `executor.py` — `DAGExecutor`, `ExecutorConfig`, `NodeResult`, `ExecutionResult`, `HaltSignal`, `HaltReason`
-  - `context_node_executor.py` — `NodeExecutor` impl that dispatches to agents
+  - `context_node_executor.py` — `NodeExecutor` impl; dispatches each node through the resolver chain, then runs the interceptor PRE/POST chain (incl. the bounded RECOVER loop)
+  - `resolvers/` — `NodeResolver` chain (first-match-wins): `CouncilResolver`, `AuctionResolver`, `StaticRefResolver`; adding a node kind = registering a resolver
+  - `results.py` — `NodeResult`, `ExecutionResult` (leaf value types, extracted to break import cycles)
   - `services.py` — `RuntimeServices` frozen dataclass (15+ optional deps)
   - `node_handlers.py` — router, loop, parallel, conditional handlers
   - `dag.py` — `DAG`, `Node`, `Edge`, `EdgeCondition`

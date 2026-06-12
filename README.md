@@ -18,6 +18,15 @@
 
 **Open source** context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
+> **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
+> - **Module graph** — every module in `src/cemaf/` as a node, every `import` as an edge, AST-exact (regenerate with [`docs/architecture/build_graph_data.py`](docs/architecture/build_graph_data.py)).
+> - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Generate fresh traces with [`uv run python docs/architecture/scripts/produce_dag_trace.py`](docs/architecture/scripts/produce_dag_trace.py).
+>
+> Deeper read: [`docs/architecture/deep-architecture.md`](docs/architecture/deep-architecture.md) · [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) (interactive atlas) · [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
+
+[![CEMAF DAG showcase — real EventBus output from 7 progressive runs](docs/architecture/img/dag-showcase.png)](docs/architecture/cemaf-graph.html)
+<sub><i>Click → opens the interactive demo. Step ladder loads real CEMAF traces produced by `executor.run(dag)`; the demo composition below shows every primitive (council, auction, interceptor, eval gate, recover lane, citations, blueprints) composed in one DAG.</i></sub>
+
 ---
 
 ## Table of Contents
@@ -74,33 +83,36 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 
 ## Architecture at a Glance
 
+```mermaid
+flowchart TB
+    subgraph L2["LAYER 2 · Self-Hosting"]
+        direction LR
+        meta[meta/<br/>MetaSpecifier · MetaScaffolder<br/>MetaArchitect · MetaSynthesizer]
+        audit[audit/]
+        knowledge[knowledge/]
+    end
+
+    subgraph L1["LAYER 1 · Base Framework"]
+        direction TB
+        bootstrap["bootstrap.create_executor(...)<br/><i>composition root</i>"]
+        orchestration["orchestration/<br/>DAGExecutor · ContextNodeExecutor<br/><i>topo sort → node dispatch → context</i>"]
+        capabilities["agents · tools · skills · blueprint<br/>context · memory · retrieval · rlm<br/>llm · generation · streaming<br/>evals · moderation · validation · citation"]
+        infra["events · observability · resilience<br/>persistence · mcp · cache · replay · ingestion"]
+        bootstrap --> orchestration
+        orchestration --> capabilities
+        orchestration --> infra
+    end
+
+    L2 -.->|one-way dependency| L1
+
+    classDef l2 fill:#3a1f4a,stroke:#a855f7,color:#fff
+    classDef l1 fill:#1f2a3a,stroke:#14b8a6,color:#e6ecf5
+    class meta,audit,knowledge l2
+    class bootstrap,orchestration,capabilities,infra l1
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          LAYER 2  —  Self-Hosting                    │
-│   audit/  •  knowledge/  •  meta/  (MetaSpecifier, MetaScaffolder…)  │
-│                              ▲                                       │
-│                              │ one-way dependency                    │
-│ ─────────────────────────────┴─────────────────────────────────────  │
-│                          LAYER 1  —  Base Framework                  │
-│                                                                      │
-│  orchestration/  ──────  DAGExecutor + ContextNodeExecutor          │
-│       │                  (topo sort → node dispatch → context)       │
-│       ▼                                                              │
-│  agents/  •  tools/  •  skills/  •  blueprint/                       │
-│  context/ •  memory/ •  retrieval/ •  rlm/                          │
-│  llm/     •  generation/ • streaming/                                │
-│  evals/   •  moderation/ • validation/ • citation/                  │
-│  events/  •  observability/ • resilience/ • persistence/            │
-│  mcp/     •  cache/    • replay/    • ingestion/                    │
-│                                                                      │
-│  Composition root:                                                   │
-│    bootstrap.create_executor(                                        │
-│        agent_registry=registry,                                      │
-│        services=RuntimeServices(...),    # 15+ optional deps         │
-│        config=ExecutorConfig(...),        # sizing / timeouts        │
-│    )                                                                 │
-└─────────────────────────────────────────────────────────────────────┘
-```
+
+[![CEMAF Architecture Atlas — every module placed by import fan-in, not by feature](docs/architecture/img/architecture-atlas.png)](docs/architecture/cemaf-architecture.html)
+<sub><i>The interactive atlas (click image): every CEMAF module placed by measured import fan-in. Tier 4 is the single node hub each feature funnels through; Tier 0 is the foundation everything depends on. Tabs cover Core Bytes / Agent Behaviours / Context Lifecycle / Runtime + Reactive / Principles.</i></sub>
 
 **Read [docs/architecture.md](docs/architecture.md)** for the canonical software architecture we build toward, **[docs/patterns.md](docs/patterns.md)** for the design patterns catalog, and **[docs/modules.md](docs/modules.md)** for ideal package boundaries.
 
@@ -265,6 +277,24 @@ print(result.final_context.get("findings"))
 See `examples/hello_world.py` for a complete runnable example and
 `tests/integration/test_full_stack.py` for a realistic 3-agent pipeline
 wiring `SqliteMemoryStore`, `BudgetGuard`, `ContextCompiler`, and `EventBus`.
+
+### The whole engine, end-to-end
+
+`examples/release_engine.py` is the flagship — a release-notes engine that
+composes the full framework into one declarative DAG: a **council** of reviewer
+agents votes ship/hold → the verdict **steers** the DAG → an **auction** picks
+the least-loaded writer → the draft is **quality-gated** → the run is **harvested**
+into a reusable blueprint, with full provenance. It has a real run lifecycle:
+
+```bash
+uv run python examples/release_engine.py --dry-run   # plan: show stations + DAG, no side effects
+uv run python examples/release_engine.py --produce   # run for real → ./.release_out/{RELEASE_NOTES.md,run_report.json}
+uv run python examples/release_engine.py --wipe       # remove produced artifacts
+```
+
+This is the answer to "what is CEMAF *for*": you declare the stations, the engine
+threads every subsystem through them, and you get the artifact plus the provenance
+that proves how it was produced.
 
 ---
 

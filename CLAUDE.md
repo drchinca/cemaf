@@ -15,7 +15,7 @@ The base framework provides composable primitives for building multi-agent syste
 │                     ORCHESTRATION                            │
 │  DAGExecutor → topological sort → node dispatch → context    │
 │  ContextNodeExecutor → agent resolution → goal building      │
-│  RuntimeServices → 16 optional deps, frozen dataclass        │
+│  RuntimeServices → ~20 injectable deps, frozen dataclass     │
 │  bootstrap.create_executor() → composition root              │
 └──────────────┬──────────────────────────────────┬────────────┘
                │                                  │
@@ -125,6 +125,14 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Knowledge Refresh | MetaAuditor → KnowledgeGraphAgent → verify both outputs propagate through context |
 | Quality Degradation | Seed good + bad scores → run self_audit_dag → verify anomaly detected in report |
 | Registry Introspection | MetaArchitect discovers meta-agents → includes them in generated DAG |
+| Hub & Spoke KG | HubKnowledgeGraph over real MemoryBackedKnowledgeGraph + real EventBus → write → spoke evicts → re-read returns fresh value (`test_hub_spoke_kg.py`) |
+| Failure-Feedback Loop | IterationLoop + real ShellSandbox + RunTestsSkill → fail-then-pass fixture → verify re-attempt converges (`test_iteration_sandbox.py`) |
+| Auction Agent Selection | Real registry + DefaultAgentSelector + executor + BudgetGuard → two WRITE agents compete → low-load winner runs, recorded in metadata; static node unaffected (`test_agent_auction.py`) |
+| Agent Council | Real council members + executor + DefaultVoteAggregator → deliberate → vote → winning choice becomes NodeResult.output (steers DAG); no-decision = success+empty; full DAGExecutor.run (`test_agent_council.py`) |
+| Blueprint Harvest | `create_blueprint_harvester()` + real EventBus → high-scoring run distilled into a reusable blueprint, discoverable by `library.search` (`test_blueprint_harvest_factory.py`) |
+| Composed Engine | ONE DAG run threads council → auction → agent → online-eval → harvest through one composition root (`test_composed_engine.py`); `examples/composed_engine.py` is the runnable canonical "whole engine" demo |
+| Interceptor GATE | GateEvalInterceptor (POST) on a real 2-node DAG: short output fails the gate → downstream never runs; long output passes; empty pipeline = no-op; gate-reject doesn't burn retries (`test_interceptor_gate.py`) |
+| NodeResolver dispatch | execute_node dispatches via the resolver chain (council/auction/static, first-match wins); a custom resolver registered ahead of the built-ins claims its node and short-circuits — adding a node 'kind' is registering a resolver, not a new `if`-branch (`test_resolver_chain.py`) |
 
 ## Pattern Reference
 
@@ -158,6 +166,7 @@ Frozen dataclass bundling all optional runtime dependencies. Injected into `Cont
 | Observability | `event_bus` | `EventBus \| None` |
 | Observability | `health_monitor` | `HealthMonitor \| None` |
 | Observability | `budget_guard` | `BudgetGuard \| None` |
+| Observability | `tracer` | `Tracer \| None` |
 | Quality | `online_eval_pipeline` | `OnlineEvalPipeline \| None` |
 | Quality | `quality_police` | `QualityPolice \| None` |
 | Memory | `memory_manager` | `MemoryManager \| None` |
@@ -168,6 +177,13 @@ Frozen dataclass bundling all optional runtime dependencies. Injected into `Cont
 | Context | `domain_context` | `DomainContext \| None` |
 | LLM + Retrieval | `llm_client` | `LLMClient \| None` |
 | LLM + Retrieval | `vector_store` | `VectorStore \| None` |
+| Knowledge (SPEC-02/07) | `knowledge_graph` | `KnowledgeGraph \| None` |
+| Agent selection (SPEC-09) | `agent_selector` | `AgentSelector \| None` |
+| Council (SPEC-10) | `council_aggregator` | `VoteAggregator \| None` |
+| Interceptors (SPEC-01a) | `interceptor_pipeline` | `InterceptorPipeline \| None` |
+| Interceptors (SPEC-01a) | `max_recovery_attempts` | `int` (default 2 — RECOVER budget) |
+| Blueprints | `blueprint_library` | `BlueprintLibrary \| None` |
+| Blueprints | `blueprint_selector` | `BlueprintSelectorHook \| None` |
 | Recovery | `auto_heal_manager` | `AutoHealManager \| None` |
 
 ### Result Pattern
@@ -203,16 +219,22 @@ return Result.fail(error="Rate limit exceeded")
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `agents` | Agent[GoalT, ResultT] ABC, AgentRegistry, built-in agents | `base.py`, `registry.py`, `context_agents.py` |
-| `skills` | Skill protocol — composable capabilities for agents | `base.py`, `protocols.py` |
+| `agents` | Agent[GoalT, ResultT] ABC, AgentRegistry, built-in agents (Librarian/Researcher/Summarizer/Writer), opt-in auction selection (SPEC-09) | `base.py`, `registry.py`, `context_agents.py`, `selection.py` |
+| `council` | Deliberative multi-agent decisions (SPEC-10) — N members vote, pluggable VoteAggregator (majority/weighted/quorum/unanimous), ballot provenance | `council.py`, `aggregator.py`, `protocols.py`, `types.py` |
+| `skills` | Skill protocol + built-in kits. `skills/coding/` is the polyglot file/shell/test kit a coding loop calls | `base.py`, `protocols.py`, `coding/` |
 | `tools` | Tool ABC, ToolSchema, ToolRegistry, @tool decorator | `base.py`, `registry.py` |
+| `sandbox` | `ShellSandbox` — cwd-confined, time/output-bounded, env-scrubbed, network-screened subprocess execution (the polyglot substrate) | `shell.py` |
+| `state` | `StateMachine` FSM primitive — domain-neutral state + transition modelling | `fsm.py` |
+
+> **Substrate, not application.** `sandbox` + `skills/coding` are generic capabilities — they execute commands and manipulate files inside a confined workspace, but they do not decide *what* to build. Spec→code orchestration (the agent loop that reads a spec and drives these skills until tests pass) lives in the `iccha_autonomy` control plane, which depends on CEMAF. Keep that boundary: CEMAF stays domain- and task-agnostic.
 
 ### Orchestration (how work gets coordinated)
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py` |
-| `blueprint` | Semantic blueprint definitions for structured generation | `base.py`, `core.py`, `parser.py` |
+| `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers, NodeResult/ExecutionResult (results.py), NodeResolver dispatch chain (resolvers/ — council/auction/static, first-match wins; replaces the old bespoke if-branches in execute_node) | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py`, `results.py`, `resolvers/` |
+| `interceptors` | The spine (SPEC-01a) — PRE→execute→POST chain every AGENT node passes through; GateEvalInterceptor makes a quality gate genuinely block downstream | `pipeline.py`, `protocols.py`, `gate_eval.py`, `types.py` |
+| `blueprint` | Semantic blueprint definitions for structured generation + the harvest flywheel (learn reusable blueprints from high-scoring runs via `create_blueprint_harvester()`) | `core.py`, `parser.py`, `library.py`, `harvest.py`, `harvest_defaults.py`, `factories.py` |
 | `scheduler` | Task scheduling | `base.py`, `protocols.py` |
 
 ### Context Engineering (what agents know)
@@ -238,6 +260,7 @@ return Result.fail(error="Rate limit exceeded")
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
 | `evals` | Evaluation framework — deterministic, semantic, LLM judge, online pipeline, QualityPolice | `protocols.py`, `hierarchy.py`, `online.py`, `police.py`, `tools.py` |
+| `iteration` | Failure-feedback loop (SPEC-08) — pytest/ruff/mypy parsers → `FailureSignal` → bounded `IterationLoop` re-attempts. Per-task substrate, not a RuntimeService | `loop.py`, `parsers.py`, `protocols.py`, `types.py` |
 | `moderation` | Content safety pipeline | `pipeline.py`, `protocols.py` |
 | `validation` | Input/output validation | `base.py`, `protocols.py` |
 | `citation` | Source citation tracking | `base.py`, `tracker.py` |
@@ -261,5 +284,5 @@ These modules are **opt-in consumers** of the base framework. No base module imp
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
 | `audit` | Structured audit trail — EventBus subscriber → AuditEntry, quality trend, z-score anomaly detection | `subscriber.py`, `trail.py`, `protocols.py`, `models.py` |
-| `knowledge` | Knowledge graph — entities and relations backed by MemoryManager | `graph.py`, `protocols.py`, `models.py` |
+| `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07) for bounded-LRU point-read acceleration | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
 | `meta` | Self-hosting agents, tools, DAGs, and bootstrap | `agents.py`, `tools.py`, `dags.py`, `bootstrap.py`, `registry.py` |

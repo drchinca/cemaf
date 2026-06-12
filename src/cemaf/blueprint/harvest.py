@@ -25,7 +25,7 @@ else. It has no hardcoded event types, no score thresholds, no derivation
 rules.
 
 Default implementations for the three decision protocols live in
-`cemaf.meta.harvest_defaults` (score-threshold policy, in-memory
+`cemaf.blueprint.harvest_defaults` (score-threshold policy, in-memory
 TTL-capped correlator, recipe distiller) — they're opt-in, not the only
 way.
 

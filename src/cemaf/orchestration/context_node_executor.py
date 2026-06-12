@@ -11,25 +11,86 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
+from cemaf.agents.selection import AgentSelector
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
 from cemaf.core.domain import DomainContext
 from cemaf.core.provenance import ProvenanceLink, SourceReference
-from cemaf.core.types import AgentID, NodeID, ProvenanceID
+from cemaf.core.types import JSON, AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
+from cemaf.council.protocols import VoteAggregator
+from cemaf.interceptors.pipeline import InterceptorPipeline
+from cemaf.interceptors.types import (
+    MAX_VISIBLE_HINTS,
+    RECOVERY_HINTS_KEY,
+    DecisionKind,
+    PostflightDecision,
+    RecoveryHint,
+)
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 from cemaf.memory.session import SessionManager
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.orchestration.dag import Node
 from cemaf.orchestration.executor import NodeResult
+from cemaf.orchestration.resolvers import (
+    AuctionResolver,
+    CouncilResolver,
+    NodeComplete,
+    NodeResolver,
+    ResolveOutcome,
+    RunAgent,
+    StaticRefResolver,
+)
 from cemaf.retrieval.protocols import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+def _failure_metadata(*, agent_name: str, bid_metadata: JSON | None) -> dict[str, Any]:
+    """Failure NodeResult metadata — carries the selection bid for provenance if present."""
+    meta: dict[str, Any] = {"agent_id": agent_name}
+    if bid_metadata is not None:
+        meta["selection"] = bid_metadata
+    return meta
+
+
+def _apply_recovery_exhausted(
+    *, result: NodeResult, decision: PostflightDecision, attempts: int
+) -> NodeResult:
+    """Downgrade a RECOVER request to a REJECT once the recovery budget is spent.
+
+    Mirrors the pipeline's ``_apply_reject`` shape (gate_rejected stamped so the
+    outer ``_execute_with_retry`` does not re-run a deterministic gate failure)
+    while preserving the recovery trail in metadata for provenance.
+    """
+    import dataclasses
+
+    block = dict(result.metadata.get("interceptors", {})) if result.metadata else {}
+    if not isinstance(block, dict):
+        block = {}
+    hint = decision.recovery_hint
+    block["rejected_by"] = decision.interceptor_id
+    block["reason"] = f"recovery exhausted after {attempts} attempt(s): {decision.reason or 'no reason'}"
+    block["rejected_output"] = result.output
+    block["gate_rejected"] = True
+    block["recovery_exhausted"] = True
+    block["recovery_attempts"] = attempts
+    if hint is not None:
+        block["last_recovery_hint"] = hint.to_dict()
+    new_metadata = {**(result.metadata or {}), "interceptors": block}
+    return dataclasses.replace(
+        result,
+        success=False,
+        output=None,
+        error=f"interceptor {decision.interceptor_id} rejected node after {attempts} recovery attempt(s)",
+        metadata=new_metadata,
+    )
 
 
 class ContextNodeExecutor:
@@ -48,8 +109,21 @@ class ContextNodeExecutor:
         context_compiler: ContextCompiler | None = None,
         token_budget: TokenBudget | None = None,
         blueprint_selector: BlueprintSelectorHook | None = None,
+        agent_selector: AgentSelector | None = None,
+        budget_guard: BudgetGuard | None = None,
+        council_aggregator: VoteAggregator | None = None,
+        interceptor_pipeline: InterceptorPipeline | None = None,
+        max_recovery_attempts: int = 2,
     ) -> None:
-        """Initialize with registry and optional compiler/budget for context compilation."""
+        """Initialize with registry and optional compiler/budget for context compilation.
+
+        ``max_recovery_attempts`` (SPEC-01a + RECOVER extension) caps how many times
+        a POST interceptor can ask the executor to re-run the same node with a
+        feedback hint before the result is treated as REJECT. 0 disables recovery
+        (any RECOVER decision is treated as REJECT immediately).
+        """
+        if max_recovery_attempts < 0:
+            raise ValueError("max_recovery_attempts must be >= 0")
         self._registry = agent_registry
         self._run_logger = run_logger
         self._domain_context = domain_context
@@ -60,6 +134,30 @@ class ContextNodeExecutor:
         self._context_compiler = context_compiler
         self._token_budget = token_budget
         self._blueprint_selector = blueprint_selector
+        self._agent_selector = agent_selector
+        self._budget_guard = budget_guard
+        self._council_aggregator = council_aggregator
+        self._interceptor_pipeline = interceptor_pipeline
+        self._max_recovery_attempts = max_recovery_attempts
+
+        # NodeResolver chain — first match wins, registered most-specific first.
+        # Council short-circuits with its own NodeResult; AuctionResolver picks an
+        # agent (or falls through to ref_id); StaticRefResolver is the universal
+        # fallback. When agent_selector is absent, auction is skipped — preserves
+        # the prior "static unless a selector is wired" semantics.
+        resolvers: list[NodeResolver] = [
+            CouncilResolver(registry=agent_registry, aggregator=council_aggregator),
+        ]
+        if agent_selector is not None:
+            resolvers.append(
+                AuctionResolver(
+                    registry=agent_registry,
+                    selector=agent_selector,
+                    budget_guard=budget_guard,
+                )
+            )
+        resolvers.append(StaticRefResolver())
+        self._resolvers: tuple[NodeResolver, ...] = tuple(resolvers)
 
     async def execute_node(
         self,
@@ -69,7 +167,23 @@ class ContextNodeExecutor:
         """Execute a single node by dispatching to the appropriate agent."""
         start = perf_counter()
 
-        agent_name = node.ref_id
+        # Resolved inputs (post $$ref$$ resolution) — read once, shared by resolvers
+        # (for an auction's goal_text) and the goal builder below.
+        resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+        run_id_value = str(context.get("_run_id", default=""))
+
+        # NodeResolver dispatch — replaces the bespoke council / auction / static
+        # if-branches. First resolver whose matches() returns True wins; council
+        # short-circuits with its own NodeResult, auction picks an agent (or falls
+        # through to ref_id), static returns ref_id. The executor never grows a
+        # branch when a new node kind is added — register a new resolver instead.
+        outcome = await self._resolve_node(
+            node=node, resolved_inputs=resolved_inputs, run_id=run_id_value, start=start
+        )
+        if isinstance(outcome, NodeComplete):
+            return outcome.result
+        bid_metadata = outcome.bid_metadata
+        agent_name = outcome.agent_name
         if not agent_name:
             return NodeResult(
                 node_id=node.id,
@@ -98,8 +212,7 @@ class ContextNodeExecutor:
                 error=f"Agent '{agent_name}' not found in registry",
             )
 
-        # Build goal from resolved inputs
-        resolved_inputs = context.get("_resolved_inputs", default=node.input_mapping)
+        # Build goal from resolved inputs (read once above, shared with the auction)
         goal = self._build_goal(agent_name=agent_name, inputs=resolved_inputs)
         if goal is None:
             return NodeResult(
@@ -145,28 +258,85 @@ class ContextNodeExecutor:
             artifacts=artifacts,
         )
 
+        # PRE interceptor chain (SPEC-01a). Runs on the already-built AgentContext;
+        # may enrich it (model_copy) or REJECT (skip the agent). Empty/None = no-op.
+        if self._interceptor_pipeline is not None and not self._interceptor_pipeline.is_empty:
+            agent_context, pre_reject = await self._interceptor_pipeline.run_pre(
+                node=node, context=agent_context
+            )
+            if pre_reject is not None:
+                return NodeResult(
+                    node_id=node.id,
+                    success=False,
+                    error=f"interceptor {pre_reject.interceptor_id} rejected node: {pre_reject.reason}",
+                    duration_ms=(perf_counter() - start) * 1000,
+                    metadata={
+                        "agent_id": agent_name,
+                        "interceptors": {
+                            "rejected_by": pre_reject.interceptor_id,
+                            "reason": pre_reject.reason,
+                            "phase": "pre",
+                            "gate_rejected": True,
+                        },
+                    },
+                )
+
         # Compute context hash for provenance
         context_hash = self._compute_context_hash(inputs=resolved_inputs)
 
+        # Recovery loop (SPEC-01a + RECOVER): a POST interceptor may ask the
+        # executor to re-run the agent with a feedback hint. Bounded by
+        # max_recovery_attempts; hints accumulate across attempts so the agent
+        # sees prior failures.
+        recovery_hints: list[RecoveryHint] = []
+        attempts_remaining = self._max_recovery_attempts
+
         try:
-            result = await agent.run(goal=goal, context=agent_context)
-            duration_ms = (perf_counter() - start) * 1000
-
-            # Build provenance link
-            if self._run_logger:
-                link = ProvenanceLink(
-                    id=ProvenanceID(f"prov_{node.id}_{utc_now().isoformat()}"),
-                    llm_call_id=f"llm_{node.id}",
-                    node_id=NodeID(str(node.id)),
-                    agent_id=AgentID(agent_name),
-                    context_sources=self._extract_source_refs(inputs=resolved_inputs),
-                    context_hash=context_hash,
-                    budget_utilization=0.0,
-                    cost_usd=0.0,
+            while True:
+                # Inject accumulated recovery hints into agent_context for THIS attempt.
+                # Show only the LAST MAX_VISIBLE_HINTS — keeps token cost bounded and
+                # ensures the freshest feedback wins when an agent has limited attention.
+                attempt_context = (
+                    agent_context.model_copy(
+                        update={
+                            "global_memory": {
+                                **agent_context.global_memory,
+                                RECOVERY_HINTS_KEY: [
+                                    h.to_dict() for h in recovery_hints[-MAX_VISIBLE_HINTS:]
+                                ],
+                            }
+                        }
+                    )
+                    if recovery_hints
+                    else agent_context
                 )
-                self._run_logger.record_provenance_link(link=link)
 
-            if result.success:
+                result = await agent.run(goal=goal, context=attempt_context)
+                duration_ms = (perf_counter() - start) * 1000
+
+                # Build provenance link (recorded once per attempt for an honest trail)
+                if self._run_logger:
+                    link = ProvenanceLink(
+                        id=ProvenanceID(f"prov_{node.id}_{utc_now().isoformat()}"),
+                        llm_call_id=f"llm_{node.id}",
+                        node_id=NodeID(str(node.id)),
+                        agent_id=AgentID(agent_name),
+                        context_sources=self._extract_source_refs(inputs=resolved_inputs),
+                        context_hash=context_hash,
+                        budget_utilization=0.0,
+                        cost_usd=0.0,
+                    )
+                    self._run_logger.record_provenance_link(link=link)
+
+                if not result.success:
+                    return NodeResult(
+                        node_id=node.id,
+                        success=False,
+                        error=result.error or f"Agent '{agent_name}' failed",
+                        duration_ms=duration_ms,
+                        metadata=_failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata),
+                    )
+
                 output = self._extract_output(result=result)
                 # context_output is the dict form for downstream node resolution
                 context_output = self._extract_output_for_context(result=result)
@@ -189,31 +359,72 @@ class ContextNodeExecutor:
                 merged_metadata["_context_output"] = context_output
                 if context_warnings:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
-                return NodeResult(
+                if bid_metadata is not None:
+                    merged_metadata["selection"] = bid_metadata
+                if recovery_hints:
+                    merged_metadata["recovery_attempts"] = len(recovery_hints)
+                success_result = NodeResult(
                     node_id=node.id,
                     success=True,
                     output=output,
                     duration_ms=duration_ms,
                     metadata=merged_metadata,
                 )
-            else:
-                return NodeResult(
-                    node_id=node.id,
-                    success=False,
-                    error=result.error or f"Agent '{agent_name}' failed",
-                    duration_ms=duration_ms,
-                    metadata={"agent_id": agent_name},
+
+                # POST interceptor chain (SPEC-01a). Runs only on a successful
+                # NodeResult; may REJECT (flip to failure + gate_rejected) or
+                # RECOVER (re-run the agent with a hint). Empty/None = no-op.
+                if self._interceptor_pipeline is None or self._interceptor_pipeline.is_empty:
+                    return success_result
+
+                success_result, post_decision = await self._interceptor_pipeline.run_post(
+                    node=node, context=attempt_context, result=success_result
                 )
+
+                if (
+                    post_decision is not None
+                    and post_decision.kind is DecisionKind.RECOVER
+                    and post_decision.recovery_hint is not None
+                    and attempts_remaining > 0
+                ):
+                    recovery_hints.append(post_decision.recovery_hint)
+                    attempts_remaining -= 1
+                    logger.info(
+                        "node %s: POST RECOVER from %s (%s); retrying with hint (%d remaining)",
+                        node.id,
+                        post_decision.interceptor_id,
+                        post_decision.recovery_hint.code,
+                        attempts_remaining,
+                    )
+                    continue
+
+                if post_decision is not None and post_decision.kind is DecisionKind.RECOVER:
+                    # RECOVER requested but budget exhausted (or recovery disabled) —
+                    # downgrade to REJECT so downstream blocks and gate_rejected stamps.
+                    return _apply_recovery_exhausted(
+                        result=success_result,
+                        decision=post_decision,
+                        attempts=len(recovery_hints),
+                    )
+
+                return success_result
 
         except Exception as e:
             duration_ms = (perf_counter() - start) * 1000
             logger.error("Agent '%s' raised exception: %s", agent_name, e, exc_info=True)
+            crash_metadata = _failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata)
+            # Preserve the recovery trail when an agent crashes mid-loop — without
+            # this, ops lose the diagnostic record of which hints were tried before
+            # the crash. The interceptors block keeps the same shape used elsewhere.
+            if recovery_hints:
+                crash_metadata["recovery_attempts"] = len(recovery_hints)
+                crash_metadata["recovery_hints_trail"] = [h.to_dict() for h in recovery_hints]
             return NodeResult(
                 node_id=node.id,
                 success=False,
                 error=str(e),
                 duration_ms=duration_ms,
-                metadata={"agent_id": agent_name},
+                metadata=crash_metadata,
             )
 
     def _build_goal(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> BaseModel | None:
@@ -239,6 +450,28 @@ class ContextNodeExecutor:
         except Exception as e:
             logger.warning("Failed to build goal for '%s': %s", agent_name, e)
             return None
+
+    async def _resolve_node(
+        self,
+        *,
+        node: Node,
+        resolved_inputs: dict[str, Any] | Any,
+        run_id: str,
+        start: float,
+    ) -> ResolveOutcome:
+        """Dispatch via the NodeResolver chain — first matching resolver wins.
+
+        Replaces the bespoke council / auction / static if-branches with one
+        uniform seam. Adding a new node kind = registering a new resolver.
+        """
+        for resolver in self._resolvers:
+            if resolver.matches(node=node):
+                return await resolver.resolve(
+                    node=node, resolved_inputs=resolved_inputs, run_id=run_id, start=start
+                )
+        # StaticRefResolver always matches → unreachable in practice, but keep an
+        # explicit fallback so a misconfigured chain fails closed instead of NoneType.
+        return RunAgent(agent_name=node.ref_id)
 
     def _query_text_for(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> str:
         """First populated well-known goal field in inputs; '' on miss."""

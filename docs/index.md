@@ -7,6 +7,8 @@ Context Engineering Multi-Agent Framework
 1. [**Architecture**](architecture.md) — the software architecture we build toward
 2. [**Design Patterns**](patterns.md) — the 12 patterns reviewers enforce
 3. [**Module Layout**](modules.md) — where each kind of thing lives
+4. [**Module Flow Graph**](architecture/cemaf-graph.html) — interactive force-directed graph of all 40 modules + import flow (open in a browser); hover any node to trace what it depends on / what depends on it
+5. [**Architecture Atlas**](architecture/cemaf-architecture.html) — a visual, multi-view tour (open in a browser); ground-truth companion to [deep-architecture.md](architecture/deep-architecture.md)
 
 ## Quick Links
 
@@ -14,6 +16,8 @@ Context Engineering Multi-Agent Framework
 - [Protocol Guide](protocol_guide.md) - Understanding protocol-based design
 - [Extension Patterns](extension_patterns.md) - How to extend CEMAF
 - [Module Reference](module_reference.md) - API reference
+- [Specs (SPEC-00..10)](specs/README.md) - The primary artifacts; code, tests, and docs derive from them
+- [Self-Hosting Layer](self-hosting.md) - CEMAF using CEMAF to audit and extend itself
 
 ---
 
@@ -43,6 +47,21 @@ DAG-based execution with parallel branches and conditional routing.
 | [agents.md](agents.md) | Full agent implementations |
 
 **Key Question**: "How do I coordinate multiple operations?"
+
+### 2b. Decision & Quality Gating (The Engine's Judgment)
+
+How a node decides *what* runs, and how quality gates block or recover. These are
+shipped specs (SPEC-01a/09/10) — the deliberative + quality-gating layer.
+
+| Doc | Purpose |
+|-----|---------|
+| [orchestration.md#node-resolver-chain](orchestration.md#node-resolver-chain) | NodeResolver dispatch — council / auction / static, first-match-wins |
+| [orchestration.md#interceptor-spine--recover](orchestration.md#interceptor-spine--recover) | PRE/POST interceptor chain + the RECOVER loop (vs auto-healing) |
+| [specs/SPEC-10-agent-council.md](specs/SPEC-10-agent-council.md) | AgentCouncil — N agents deliberate + vote; multi-round via `rounds` |
+| [specs/SPEC-09-auction-agent-selection.md](specs/SPEC-09-auction-agent-selection.md) | Auction selection — capability/load/budget-aware bidding |
+| [specs/SPEC-01a-interceptor-spine.md](specs/SPEC-01a-interceptor-spine.md) | Interceptor spine — GATE that blocks, RECOVER that retries-with-feedback |
+
+**Key Question**: "How does the engine decide and enforce quality?"
 
 ### 3. Edge Capabilities (The Differentiator)
 

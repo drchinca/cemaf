@@ -25,6 +25,8 @@ be a 15+ kwarg constructor with one field-per-concern:
         # LLM + Retrieval
         llm_client=llm,               # the LLMClient protocol impl (may be wrapped)
         vector_store=vectors,         # embedding-backed retrieval
+        # Knowledge
+        knowledge_graph=kg,           # shared KG (SPEC-02), optionally hub-spoke cached (SPEC-07)
         # Recovery
         auto_heal_manager=heal,       # autonomous heal on node failure
     )
@@ -53,14 +55,18 @@ OpenSpec deps. See `cemaf.meta.bootstrap`.
 
 from dataclasses import dataclass
 
+from cemaf.agents.selection import AgentSelector
 from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
 from cemaf.core.recovery import AutoHealManager
+from cemaf.council.protocols import VoteAggregator
 from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
+from cemaf.interceptors.pipeline import InterceptorPipeline
+from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.session import SessionManager
@@ -102,6 +108,24 @@ class RuntimeServices:
     # LLM + Retrieval
     llm_client: LLMClient | None = None
     vector_store: VectorStore | None = None
+
+    # Knowledge (SPEC-02 / SPEC-07) — shared KG, optionally hub-and-spoke cached
+    knowledge_graph: KnowledgeGraph | None = None
+
+    # Agent selection (SPEC-09) — opt-in auction; None → static ref_id only
+    agent_selector: AgentSelector | None = None
+
+    # Council vote aggregation (SPEC-10) — None → DefaultVoteAggregator when a council node runs
+    council_aggregator: VoteAggregator | None = None
+
+    # Interceptor spine (SPEC-01a) — PRE→execute→POST chain per AGENT node; None/empty = no-op
+    interceptor_pipeline: InterceptorPipeline | None = None
+
+    # Recovery budget — caps how many times a POST RECOVER decision may re-run an
+    # agent with a hint (SPEC-01a RECOVER extension). 0 disables recovery (RECOVER
+    # decisions degrade to REJECT at the executor); default matches
+    # ContextNodeExecutor's own default so behaviour is unchanged when omitted.
+    max_recovery_attempts: int = 2
 
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None

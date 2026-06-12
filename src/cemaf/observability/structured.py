@@ -4,7 +4,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TextIO
 
 from cemaf.core.types import JSON
 
@@ -18,11 +18,12 @@ class StructuredLogger:
         name: str = "cemaf",
         level: int = logging.INFO,
         context: dict[str, Any] | None = None,
+        stream: TextIO | None = None,
     ) -> None:
         self._name = name
         self._level = level
         self._context: dict[str, Any] = context or {}
-        self._stream = sys.stdout
+        self._stream = stream if stream is not None else sys.stdout
 
     def _emit(self, level: int, level_name: str, message: str, args: tuple[Any, ...], kwargs: JSON) -> None:
         """Format and write a single JSON line to stdout."""
@@ -65,4 +66,9 @@ class StructuredLogger:
     def with_context(self, **kwargs: Any) -> StructuredLogger:
         """Return new logger with merged context fields."""
         merged = {**self._context, **kwargs}
-        return StructuredLogger(name=self._name, level=self._level, context=merged)
+        return StructuredLogger(
+            name=self._name,
+            level=self._level,
+            context=merged,
+            stream=self._stream,
+        )

@@ -198,3 +198,25 @@ class ModelPricingRegistry:
             List of model IDs
         """
         return list(cls.PRICING.keys())
+
+    @classmethod
+    def register_zero_cost(cls, model_id: str) -> None:
+        """Register a model with zero USD pricing (local/free tiers such as Ollama)."""
+        cls.register_custom_pricing(
+            ModelPricing(
+                model_id=model_id,
+                prompt_price_per_million=0.0,
+                completion_price_per_million=0.0,
+            )
+        )
+
+    @classmethod
+    def compute_cost_usd(
+        cls,
+        model_id: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> float:
+        """Return USD cost for a call; unknown models default to 0.0."""
+        cost = cls.calculate_cost(model_id, prompt_tokens, completion_tokens)
+        return cost if cost is not None else 0.0

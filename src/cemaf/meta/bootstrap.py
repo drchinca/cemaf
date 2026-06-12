@@ -8,23 +8,23 @@ from pathlib import Path
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
 from cemaf.audit.protocols import AuditLog, AuditTrail
+from cemaf.blueprint.factories import create_blueprint_harvester
 from cemaf.blueprint.harvest import (
     BlueprintDistiller,
-    BlueprintHarvesterEngine,
     HarvestPolicy,
     RunCorrelator,
 )
 from cemaf.blueprint.library import WritableBlueprintSource
 from cemaf.bootstrap import create_executor
 from cemaf.knowledge.factories import create_knowledge_graph
+from cemaf.knowledge.hub_spoke import (
+    SpokeCacheConfig,
+    SpokeReadHubWriteKG,
+    create_hub_spoke_kg,
+)
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
-from cemaf.meta.harvest_defaults import (
-    InMemoryRunCorrelator,
-    RecipeBlueprintDistiller,
-    ScoreThresholdHarvestPolicy,
-)
 from cemaf.meta.registry import (
     register_blueprint_selector,
     register_meta_agents,
@@ -52,6 +52,12 @@ class MetaServices:
     openspec_runtime: OpenSpecRuntime | None = None
     openspec_workspace: OpenSpecWorkspace | None = None
     scaffold_output_dir: Path | None = None
+
+    # Hub-and-spoke KG caching (SPEC-07) — opt-in. When True and an EventBus is
+    # present, the resolved KG is wrapped in a HubKnowledgeGraph and meta-agents
+    # read through a shared spoke cache. Bounded by hub_spoke_config.
+    enable_hub_spoke_kg: bool = False
+    hub_spoke_config: SpokeCacheConfig | None = None
 
     # Blueprint harvest — fully opt-in. To enable, set enable_blueprint_harvester=True
     # and provide a writable_blueprint_source (e.g. SqliteBlueprintSource). The
@@ -86,12 +92,30 @@ def create_meta_executor(
     elif svc.event_bus is not None:
         audit_log, audit_trail = create_audit_system(event_bus=svc.event_bus)
 
-    # Resolve knowledge graph
+    # Resolve knowledge graph — precedence: explicit MetaServices KG, then the
+    # shared RuntimeServices KG (SPEC-02), then build one from the MemoryManager.
     kg: KnowledgeGraph | None = None
     if meta_services and meta_services.knowledge_graph:
         kg = meta_services.knowledge_graph
+    elif svc.knowledge_graph is not None:
+        kg = svc.knowledge_graph
     elif svc.memory_manager is not None:
         kg = create_knowledge_graph(memory_manager=svc.memory_manager)
+
+    # Optionally front the KG with a hub-and-spoke cache (SPEC-07). Meta-agents
+    # share one spoke; writes still hit the hub-of-record and invalidate it.
+    if (
+        kg is not None
+        and meta_services is not None
+        and meta_services.enable_hub_spoke_kg
+        and svc.event_bus is not None
+    ):
+        hub, spokes = create_hub_spoke_kg(
+            backing_kg=kg,
+            event_bus=svc.event_bus,
+            spoke_configs={"meta": meta_services.hub_spoke_config or SpokeCacheConfig()},
+        )
+        kg = SpokeReadHubWriteKG(hub=hub, spoke=spokes["meta"])
 
     # Register meta-agents if we have all required services
     if audit_trail is not None and kg is not None:
@@ -135,19 +159,15 @@ def create_meta_executor(
         and meta_services.writable_blueprint_source is not None
         and svc.event_bus is not None
     ):
-        policy = meta_services.harvest_policy or ScoreThresholdHarvestPolicy(
-            threshold=meta_services.blueprint_harvest_threshold,
-        )
-        correlator = meta_services.harvest_correlator or InMemoryRunCorrelator()
-        distiller = meta_services.harvest_distiller or RecipeBlueprintDistiller()
-        engine = BlueprintHarvesterEngine(
+        create_blueprint_harvester(
             writable_source=meta_services.writable_blueprint_source,
-            policy=policy,
-            correlator=correlator,
-            distiller=distiller,
+            event_bus=svc.event_bus,
             library=svc.blueprint_library,
+            threshold=meta_services.blueprint_harvest_threshold,
+            policy=meta_services.harvest_policy,
+            correlator=meta_services.harvest_correlator,
+            distiller=meta_services.harvest_distiller,
         )
-        engine.subscribe(event_bus=svc.event_bus)
 
     # Delegate to standard bootstrap
     return create_executor(

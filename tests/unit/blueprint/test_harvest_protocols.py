@@ -10,7 +10,7 @@ from cemaf.blueprint.harvest import (
     HarvestPolicy,
     RunCorrelator,
 )
-from cemaf.meta.harvest_defaults import (
+from cemaf.blueprint.harvest_defaults import (
     InMemoryRunCorrelator,
     RecipeBlueprintDistiller,
     ScoreThresholdHarvestPolicy,

@@ -53,17 +53,23 @@ sequenceDiagram
 ## Defining a Skill
 
 ```python
+from pydantic import BaseModel
 from cemaf.skills.base import Skill
 from cemaf.core.result import Result
 
-class ResearchSkill(Skill[str, dict]):
+
+class ResearchInput(BaseModel):
+    query: str
+
+
+class ResearchSkill(Skill[ResearchInput, dict]):
     @property
     def id(self) -> str:
         return "research"
 
-    async def execute(self, input: str, context: SkillContext) -> Result[dict]:
+    async def execute(self, input: ResearchInput, context: SkillContext) -> Result[dict]:
         # Use tools to accomplish the skill
-        search_result = await self._search_tool.execute(query=input)
+        search_result = await self._search_tool.execute(query=input.query)
         if not search_result.success:
             return Result.fail("Search failed")
 

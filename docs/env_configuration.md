@@ -22,12 +22,12 @@ The `CEMAF_LLM_MAX_TOKENS=4096` setting is **NOT** the context window size. It's
 
 | Model | Context Window | Max Response |
 |-------|---------------|--------------|
-| GPT-4 | 8,192 | 4,096 (default) |
-| GPT-4 Turbo | 128,000 | 16,384 |
 | GPT-4o | 128,000 | 16,384 |
-| Claude 3 Opus | 200,000 | 4,096 |
-| Claude 3 Sonnet | 200,000 | 4,096 |
-| Gemini Pro | 32,000 | 8,192 |
+| GPT-4.1 | 1,000,000 | 32,768 |
+| Claude Sonnet 4.6 | 1,000,000 | 64,000 |
+| Claude Opus 4.7 | 200,000 | 32,000 |
+| Claude Haiku 4.5 | 200,000 | 8,192 |
+| Gemini 2.5 Pro | 2,000,000 | 8,192 |
 
 **Note**: CEMAF uses `TokenBudget.for_model()` to automatically set appropriate context budgets based on the model.
 

@@ -53,6 +53,7 @@ from cemaf.orchestration.executor import (
     NodeResult,
 )
 from cemaf.orchestration.factories import create_dag_executor, create_dag_executor_from_config
+from cemaf.orchestration.file_checkpointer import FileCheckpointer
 from cemaf.orchestration.planner import Planner
 
 __all__ = [
@@ -75,6 +76,7 @@ __all__ = [
     "CheckpointingDAGExecutor",
     "DAGCheckpoint",
     "InMemoryCheckpointer",
+    "FileCheckpointer",
     # Factories
     "create_dag_executor",
     "create_dag_executor_from_config",
