@@ -14,7 +14,13 @@ import pytest
 
 from cemaf.observability.otel_setup import configure_otel
 
-_OTEL_PRESENT = importlib.util.find_spec("opentelemetry.sdk") is not None
+# find_spec on a submodule raises ModuleNotFoundError under Python 3.14 if the
+# parent package is absent (instead of returning None). Wrap defensively so
+# tests skip cleanly in CI environments without the 'otel' extra installed.
+try:
+    _OTEL_PRESENT = importlib.util.find_spec("opentelemetry.sdk") is not None
+except ModuleNotFoundError:
+    _OTEL_PRESENT = False
 
 
 @pytest.mark.skipif(not _OTEL_PRESENT, reason="otel extra not installed")
