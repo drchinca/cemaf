@@ -3009,6 +3009,10 @@ function buildDagView(){
   function loop(ts){
     if(!lastT) lastT=ts;
     const dt=ts-lastT; lastT=ts;
+    // skip work entirely when the DAG tab isn't active — saves CPU on the graph tab
+    if(document.body.dataset.tab!=='dag'){
+      requestAnimationFrame(loop); return;
+    }
     if(playing && previewT===null && !reducedMotion){
       if(endHoldUntil){
         // hold on the final frame so the run-output card lands
