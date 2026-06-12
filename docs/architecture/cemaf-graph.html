@@ -1879,7 +1879,7 @@ function buildDagView(){
 
   // ---- Row 1: dual DAG hero ----
   const dual=document.createElement('div'); dual.className='zone dual-wrap';
-  dual.innerHTML='<h3>Run topology <span class="sub">agent lane (top) · context lane (bottom) · shared time axis</span></h3>';
+  dual.innerHTML='<h3>Run topology <span class="sub">agent lane (top) · context lane (bottom) · shared time axis · <b style="color:var(--t2)">▶ press play in the right rail to animate</b></span></h3>';
   const scroll=document.createElement('div'); scroll.className='dual-scroll';
   const svg=document.createElementNS(SVGNS_LOCAL,'svg');
   svg.setAttribute('class','dual-svg');
@@ -2455,7 +2455,7 @@ function buildDagView(){
       '<div class="acc-body">'+
         '<div class="ctrls">'+
           '<button id="ctlRestart" title="restart">⏮</button>'+
-          '<button id="ctlPlay" class="active" title="play/pause">▶</button>'+
+          '<button id="ctlPlay" title="play/pause">▶</button>'+
           '<button id="ctlEnd" title="jump to end">⏭</button>'+
         '</div>'+
         '<input type="range" min="0" max="1000" value="0" class="scrub" id="scrub" aria-label="scrub run">'+
@@ -2597,7 +2597,7 @@ function buildDagView(){
   // ---- run state ----
   let TRACE = buildTrace('pass');
   let AUDIT = buildAuditScript('pass');
-  let elapsed=0, playing=true, speed=1.0, lastT=0;
+  let elapsed=0, playing=false, speed=1.0, lastT=0;
   let previewT=null, auditCursor=0;
   const auditEls=[];
 
