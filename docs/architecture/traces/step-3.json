@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "step": 3,
+  "label": "parallel \u2014 fan-out + fan-in",
+  "dag_name": "parallel",
+  "total_ms": 365,
+  "events": [
+    {
+      "t_ms": 0,
+      "kind": "dag.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "dag_name": "parallel",
+        "run_id": "run_2026-06-11T23:52:15.581339+00:00"
+      }
+    },
+    {
+      "t_ms": 0,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "seed",
+        "node_type": "agent",
+        "agent_id": "Greeter",
+        "inputs": {
+          "text": "x"
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 61,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "seed",
+        "success": true,
+        "duration_ms": 61.126916960347444,
+        "error": null,
+        "output": "{\"text\": \"Hello, x!\", \"tokens_in\": 12, \"tokens_out\": 8}",
+        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 61,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "a",
+        "node_type": "agent",
+        "agent_id": "FetcherA",
+        "inputs": {
+          "text": "x"
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 162,
+      "kind": "memory.hit",
+      "source": "FetcherA",
+      "corr": "",
+      "attrs": {
+        "tier": "L0",
+        "hits": 1
+      }
+    },
+    {
+      "t_ms": 162,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "a",
+        "success": true,
+        "duration_ms": 101.19254200253636,
+        "error": null,
+        "output": "{\"text\": \"A:x\", \"tokens_in\": 24, \"tokens_out\": 10}",
+        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 162,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "b",
+        "node_type": "agent",
+        "agent_id": "FetcherB",
+        "inputs": {
+          "text": "x"
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 323,
+      "kind": "memory.hit",
+      "source": "FetcherB",
+      "corr": "",
+      "attrs": {
+        "tier": "L1",
+        "hits": 3
+      }
+    },
+    {
+      "t_ms": 323,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "b",
+        "success": true,
+        "duration_ms": 161.19308402994648,
+        "error": null,
+        "output": "{\"text\": \"B:x\", \"tokens_in\": 64, \"tokens_out\": 32}",
+        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 324,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "join",
+        "node_type": "agent",
+        "agent_id": "Joiner",
+        "inputs": {
+          "items": [
+            "A:x",
+            "B:x"
+          ]
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 365,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "node_id": "join",
+        "success": true,
+        "duration_ms": 41.014667018316686,
+        "error": null,
+        "output": "{\"text\": \"A:x + B:x\", \"tokens_in\": 20, \"tokens_out\": 14}",
+        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 365,
+      "kind": "dag.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "attrs": {
+        "dag_name": "parallel",
+        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "num_nodes": 4,
+        "duration_ms": 365.12600000000003
+      }
+    }
+  ]
+}

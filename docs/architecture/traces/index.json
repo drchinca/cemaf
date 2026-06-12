@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "steps": [
+    {
+      "step": 1,
+      "label": "hello \u2014 single agent",
+      "path": "traces/step-1.json"
+    },
+    {
+      "step": 2,
+      "label": "chain \u2014 2 agents",
+      "path": "traces/step-2.json"
+    },
+    {
+      "step": 3,
+      "label": "parallel \u2014 fan-out + fan-in",
+      "path": "traces/step-3.json"
+    },
+    {
+      "step": 4,
+      "label": "council \u2014 3-member vote",
+      "path": "traces/step-4.json"
+    },
+    {
+      "step": 5,
+      "label": "auction + writer \u2014 competitive selection",
+      "path": "traces/step-5.json"
+    },
+    {
+      "step": 6,
+      "label": "quality gate \u2014 composite eval",
+      "path": "traces/step-6.json"
+    },
+    {
+      "step": 7,
+      "label": "full flow \u2014 research\u2192vote\u2192write\u2192gate\u2192publish",
+      "path": "traces/step-7.json"
+    }
+  ]
+}

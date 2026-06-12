@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "step": 4,
+  "label": "council \u2014 3-member vote",
+  "dag_name": "council",
+  "total_ms": 154,
+  "events": [
+    {
+      "t_ms": 0,
+      "kind": "dag.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "attrs": {
+        "dag_name": "council",
+        "run_id": "run_2026-06-11T23:52:15.947112+00:00"
+      }
+    },
+    {
+      "t_ms": 0,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "attrs": {
+        "node_id": "seed",
+        "node_type": "agent",
+        "agent_id": "Greeter",
+        "inputs": {
+          "text": "TLS 1.3"
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 61,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "attrs": {
+        "node_id": "seed",
+        "success": true,
+        "duration_ms": 61.10216700471938,
+        "error": null,
+        "output": "{\"text\": \"Hello, TLS 1.3!\", \"tokens_in\": 12, \"tokens_out\": 8}",
+        "run_id": "run_2026-06-11T23:52:15.947112+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 61,
+      "kind": "task.started",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "attrs": {
+        "node_id": "vote",
+        "node_type": "agent",
+        "agent_id": "Council",
+        "inputs": {
+          "findings": [
+            "1-RTT handshake",
+            "browser support 2018",
+            "perf gains"
+          ]
+        },
+        "goal_text": ""
+      }
+    },
+    {
+      "t_ms": 61,
+      "kind": "council.ballot",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "agent": "ResearcherA",
+        "vote": "sufficient",
+        "weight": 0.82
+      }
+    },
+    {
+      "t_ms": 92,
+      "kind": "council.ballot",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "agent": "ResearcherB",
+        "vote": "sufficient",
+        "weight": 0.71
+      }
+    },
+    {
+      "t_ms": 123,
+      "kind": "council.ballot",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "agent": "Skeptic",
+        "vote": "insufficient",
+        "weight": 0.58
+      }
+    },
+    {
+      "t_ms": 154,
+      "kind": "council.decided",
+      "source": "Council",
+      "corr": "",
+      "attrs": {
+        "decision": "sufficient",
+        "weighted_score": 0.95
+      }
+    },
+    {
+      "t_ms": 154,
+      "kind": "task.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "attrs": {
+        "node_id": "vote",
+        "success": true,
+        "duration_ms": 93.13916700193658,
+        "error": null,
+        "output": "{\"decision\": \"sufficient\", \"weighted_score\": 0.95}",
+        "run_id": "run_2026-06-11T23:52:15.947112+00:00",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 154,
+      "kind": "dag.completed",
+      "source": "dag_executor",
+      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "attrs": {
+        "dag_name": "council",
+        "run_id": "run_2026-06-11T23:52:15.947112+00:00",
+        "num_nodes": 2,
+        "duration_ms": 154.54100000000003
+      }
+    }
+  ]
+}

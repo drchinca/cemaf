@@ -52,7 +52,7 @@ sequenceDiagram
 ## Config Sources
 
 ```python
-from cemaf.config.loader import SettingsProvider
+from cemaf.config import SettingsProvider
 from cemaf.config.protocols import EnvConfigSource, DictConfigSource
 
 # Load from environment
