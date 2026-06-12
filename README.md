@@ -18,6 +18,12 @@
 
 **Open source** context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
+> **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
+> - **Module graph** — every module in `src/cemaf/` as a node, every `import` as an edge, AST-exact (regenerate with [`docs/architecture/build_graph_data.py`](docs/architecture/build_graph_data.py)).
+> - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Generate fresh traces with [`uv run python docs/architecture/scripts/produce_dag_trace.py`](docs/architecture/scripts/produce_dag_trace.py).
+>
+> Deeper read: [`docs/architecture/deep-architecture.md`](docs/architecture/deep-architecture.md) · [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) (interactive atlas) · [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
+
 ---
 
 ## Table of Contents
