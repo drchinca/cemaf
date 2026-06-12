@@ -2608,6 +2608,9 @@ function buildDagView(){
     AUDIT=buildAuditScript(br);
     auditList.innerHTML=''; auditEls.length=0; auditCursor=0;
     elapsed=0; playing=true; speed=1.0;
+    // reset transient run state — without this, toggling a counterfactual
+    // during the 1.6s end-of-loop hold leaves the run frozen at t=0
+    endHoldUntil=0; previewT=null; lastTraceKey=''; lastT=0;
     btnPlay.textContent='⏸'; btnPlay.classList.add('active');
     // reflect on cf labels
     [['cf_fail',cfFail],['cf_static',cfStatic],['cf_nogate',cfNogate],['cf_noctx',cfNoctx]].forEach(([id,el])=>{
