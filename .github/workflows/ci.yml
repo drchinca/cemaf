@@ -41,7 +41,7 @@ jobs:
         run: uv run bandit -r src/cemaf/ -c pyproject.toml
 
   docs:
-    name: Docs Audit (links + module graph)
+    name: Docs Audit (links + module graph + traces)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +62,9 @@ jobs:
 
       - name: Verify module graph is in sync with source (AST-exact)
         run: uv run python docs/architecture/build_graph_data.py --check
+
+      - name: Verify inlined showcase traces match on-disk JSONs
+        run: uv run python docs/architecture/scripts/produce_dag_trace.py --check
 
   test:
     name: Tests
