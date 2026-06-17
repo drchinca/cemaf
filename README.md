@@ -59,6 +59,26 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. |
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** |
 
+<details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
+
+```python
+from cemaf.context                 import Context, ContextPatch, TokenBudget, PriorityContextCompiler
+from cemaf.citation                import CitationTracker
+from cemaf.interceptors            import GateEvalInterceptor
+from cemaf.agents.selection        import AgentSelector         # auction selection
+from cemaf.council                 import VoteAggregator, DefaultVoteAggregator
+from cemaf.core.recovery           import AutoHealManager
+from cemaf.iteration               import FailureSignal
+from cemaf.blueprint               import Blueprint, BlueprintLibrary, BlueprintHarvesterEngine, create_blueprint_harvester
+from cemaf.orchestration           import DAG, Node, Edge, DAGExecutor
+from cemaf.orchestration.services  import RuntimeServices
+from cemaf.bootstrap               import create_executor
+```
+
+Live-verified at HEAD on every CI run — every name above resolves against `src/cemaf/`.
+
+</details>
+
 [**See it run — open the interactive demo →**](docs/architecture/cemaf-graph.html)
 
 ---
