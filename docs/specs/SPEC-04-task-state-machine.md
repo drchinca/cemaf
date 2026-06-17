@@ -15,6 +15,15 @@ depends_on: SPEC-01
 > receives a `TaskContext` that names its position, prior decisions, and the
 > retry ledger it inherits.
 
+**Status note (2026-06-17):** the SPEC remains `Reviewed` because the
+`TaskContext` integration (per-node task-aware execution) isn't shipped.
+However the **state-machine primitive itself ships in v2.0.0** at
+`cemaf/state/` (`StateMachine[StateT, EventT]`, `Transition`,
+`FsmState`, `FsmStore` protocol, `InMemoryFsmStore`) — domain-neutral,
+typed states + events, optimistic locking, append-only history, handler
+rollback. Use it standalone today; the `TaskContext` coordination layer
+is the remaining work.
+
 ## Contents
 
 - [1. Context](#1-context)
