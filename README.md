@@ -243,7 +243,11 @@ pip install "cemaf[all]"           # All optional dependencies
 # Development installation
 git clone https://github.com/drchinca/cemaf.git
 cd cemaf
-pip install -e ".[dev]"
+make install              # uv sync --extra dev
+make check                # lint + typecheck + every doc/code audit (CI-equivalent)
+make demo                 # regenerate the 7 real CEMAF run traces
+make showcase             # open the interactive demo in your browser
+make                      # print the full menu
 ```
 
 **Requirements**: Python 3.14+
