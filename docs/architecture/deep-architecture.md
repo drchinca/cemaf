@@ -50,7 +50,7 @@ root**. Every seam is a `@runtime_checkable` Protocol. **Layer 2** (`meta`,
 `audit`, `knowledge`) consumes the base through contracts and is never imported
 back — so CEMAF can introspect itself without a dependency cycle.
 
-The codebase is **40 modules** under `src/cemaf/` (every package listed in the
+The codebase is **41 modules** under `src/cemaf/` (every package listed in the
 View 1 tiers). The views below place them by *measured* coupling (import
 fan-in/fan-out), trace the one control-flow path that matters, and name the two
 seams where all extensibility lives.

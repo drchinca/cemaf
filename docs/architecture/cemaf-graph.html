@@ -1929,7 +1929,7 @@ function buildDagView(){
       ['Token budget · priority',   'TokenBudget · priority eviction',               'src/cemaf/context/budget.py'],
       ['Composition root',          'RuntimeServices · BYO-X protocols',             'src/cemaf/bootstrap.py'],
     ].map(([k,v,src])=>`<div class="vrow"><div class="vk">${k}</div><div class="vv">${v}</div><div class="vsrc"><code>${src}</code></div></div>`).join('')+
-    '<div class="vrow" style="margin-top:6px;border-top:1px solid var(--line);padding-top:8px;"><div class="vk">Module graph</div><div class="vv">42 modules · 167 imports · AST-exact</div><div class="vsrc">regenerate: <code>build_graph_data.py --check</code></div></div>';
+    '<div class="vrow" style="margin-top:6px;border-top:1px solid var(--line);padding-top:8px;"><div class="vk">Module graph</div><div class="vv">43 modules · 169 imports · AST-exact</div><div class="vsrc">regenerate: <code>build_graph_data.py --check</code></div></div>';
   dual.appendChild(verify);
   inner.appendChild(dual);
 
