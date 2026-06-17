@@ -37,3 +37,23 @@ Each spec adheres to `rules/spec-driven.md`:
 - §7 Correctness Properties — numbered claims citing §3/§4
 - §8 Eval Criteria — for any LLM behavior
 - §9 Observability Contract — OTel GenAI spans, log events, metrics
+
+## Spec-source drift audits
+
+Last verified 2026-06-12: SPEC-09 and SPEC-08 reference every class,
+factory, file path, and test by name. Audit script — run any of:
+
+```bash
+# SPEC-09 — Auction Agent Selection
+grep -nE "^class (Capability|Bid|BidContext|CapabilityAdvertiser|AgentSelector|DefaultAgentSelector)\b" \
+  src/cemaf/agents/selection.py
+test -f src/cemaf/orchestration/resolvers/auction.py
+test -f tests/integration/test_agent_auction.py
+
+# SPEC-08 — Failure-Feedback Loop
+grep -rE "^class (AutoHealManager|IterationLoop|FailureSignal|FailureParser|PytestParser|IterationOutcome|IterationReport)\b" src/
+test -f tests/integration/test_iteration_sandbox.py
+```
+
+Both pass clean as of the date above. If a spec rename refactor lands,
+re-run the matching greps and update the date here.
