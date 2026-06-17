@@ -57,3 +57,21 @@ test -f tests/integration/test_iteration_sandbox.py
 
 Both pass clean as of the date above. If a spec rename refactor lands,
 re-run the matching greps and update the date here.
+
+## Cross-doc link audit
+
+Last verified 2026-06-12: **0 broken file links + 0 broken anchor
+links across 83 markdown files** (`README.md`, all top-level
+user-facing docs, and every `.md` under `docs/`).
+
+Re-run any time with:
+
+```bash
+uv run python docs/architecture/scripts/check_doc_links.py
+```
+
+Exits non-zero on any broken link, so it's CI-wireable. Skips
+external URLs (link rot for `https://...` is a different problem)
+and ignores anything inside fenced code blocks or inline code spans
+(so Python type annotations like `Agent[GoalT](ABC):` don't trigger
+false positives).
