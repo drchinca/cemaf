@@ -47,17 +47,17 @@ CEMAF treats every agent decision and every context byte as a **first-class stru
 
 The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has been re-implementing for two years.
 
-| Hard problem the field keeps re-solving | CEMAF's standard |
-|---|---|
-| "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. |
-| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. |
-| "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. |
-| "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. |
-| "What happens when an LLM call fails the eval?" | `RECOVER` budget (`max_recovery_attempts ≤ 2`), `AutoHealManager` mutates the goal with `FailureSignal` context, agent re-runs with a patched goal. |
-| "How do I observe this in production?" | OTel GenAI-shape events on the `EventBus` (`gen_ai.request.model`, `usage.input_tokens`, `cost_usd`, `span`), `correlation_id` propagation, structured logs, Prometheus metrics. |
-| "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. |
-| "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. |
-| "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** |
+| Hard problem the field keeps re-solving | CEMAF's standard | Spec |
+|---|---|---|
+| "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) |
+| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. | [SPEC-05](docs/specs/SPEC-05-guardian-mesh.md) · [SPEC-01a](docs/specs/SPEC-01a-interceptor-spine.md) |
+| "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. | [SPEC-09](docs/specs/SPEC-09-auction-agent-selection.md) |
+| "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. | [SPEC-10](docs/specs/SPEC-10-agent-council.md) |
+| "What happens when an LLM call fails the eval?" | `RECOVER` budget (`max_recovery_attempts ≤ 2`), `AutoHealManager` mutates the goal with `FailureSignal` context, agent re-runs with a patched goal. | [SPEC-08](docs/specs/SPEC-08-failure-feedback-loop.md) |
+| "How do I observe this in production?" | OTel GenAI-shape events on the `EventBus` (`gen_ai.request.model`, `usage.input_tokens`, `cost_usd`, `span`), `correlation_id` propagation, structured logs, Prometheus metrics. | [observability.md](docs/observability.md) |
+| "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. | [patterns.md](docs/patterns.md) |
+| "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. | [SPEC-03](docs/specs/SPEC-03-blueprint-as-llm-input.md) |
+| "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 
