@@ -119,8 +119,8 @@ class LangChainCEMAFBridge:
 **MeridianSight Team** (Content generation):
 ```python
 # Adopted 3-level memory pattern
-# Brand → Project → Session scoping
-from cemaf.memory import MemoryScope
+# Tenant → Project → Session scoping
+from cemaf import MemoryScope
 
 # Extended with social media logic
 class SocialPostMemory(MemoryItem):
@@ -718,8 +718,8 @@ item = await store.get(MemoryScope.SESSION, "temp_data")
 
 # Different scopes for different lifetimes
 await store.set(MemoryItem(
-    scope=MemoryScope.BRAND,
-    key="brand_guidelines",
+    scope=MemoryScope.TENANT,
+    key="tenant_style_guide",
     value={"tone": "professional"},
     # No TTL = permanent
 ))
@@ -838,7 +838,8 @@ messages = compiled.to_messages()
 ### Pattern 4: Memory with Scoping
 
 ```python
-from cemaf.memory import InMemoryStore, MemoryScope
+from cemaf import MemoryScope
+from cemaf.memory import InMemoryStore
 
 store = InMemoryStore()
 
@@ -850,9 +851,9 @@ await store.set(MemoryItem(
     ttl=timedelta(hours=1),
 ))
 
-# Brand-scoped (permanent)
+# Tenant-scoped (permanent)
 await store.set(MemoryItem(
-    scope=MemoryScope.BRAND,
+    scope=MemoryScope.TENANT,
     key="guidelines",
     value={...},
 ))
