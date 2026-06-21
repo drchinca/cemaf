@@ -17,10 +17,10 @@ class TestOllamaCloudFactory:
         assert isinstance(client, OpenAICompatClient)
         assert client._base_url == "https://ollama.com/v1"  # type: ignore[attr-defined]
 
-    def test_factory_default_model_is_glm_5_2_cloud(self) -> None:
+    def test_factory_default_model_is_free_tier(self) -> None:
         client = create_llm_client(provider="ollama-cloud", api_key="test-key")
         assert isinstance(client, OpenAICompatClient)
-        assert client.config.model == "glm-5.2:cloud"
+        assert client.config.model == "gpt-oss:120b-cloud"
 
     def test_factory_accepts_custom_model(self) -> None:
         client = create_llm_client(

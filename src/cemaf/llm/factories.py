@@ -2,7 +2,7 @@
 
 Supports 8 providers out of the box:
     client = create_llm_client("ollama", model="qwen3.5")
-    client = create_llm_client("ollama-cloud", model="glm-5.2:cloud")
+    client = create_llm_client("ollama-cloud", model="gpt-oss:120b-cloud")
     client = create_llm_client("openai", api_key="sk-...")
     client = create_llm_client("anthropic", api_key="sk-ant-...")
     client = create_llm_client("gemini", api_key="AIza...")
@@ -84,6 +84,12 @@ def _create_ollama_tiered(**kwargs: Any) -> LLMClient:
 
 
 def _create_ollama_cloud(**kwargs: Any) -> LLMClient:
+    """Ollama Cloud (https://ollama.com/v1) — OpenAI-compatible bearer auth.
+
+    Free-tier models (verified): gpt-oss:20b-cloud, gpt-oss:120b-cloud,
+    qwen3-coder:480b-cloud, minimax-m2.1:cloud.
+    Subscription-only: glm-5.2:cloud, deepseek-v4-*:cloud, kimi-k2.*:cloud.
+    """
     from cemaf.llm.openai_compat import OpenAICompatClient
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("OLLAMA_CLOUD_API_KEY", ""))
@@ -92,7 +98,7 @@ def _create_ollama_cloud(**kwargs: Any) -> LLMClient:
     return OpenAICompatClient(  # type: ignore[return-value]
         base_url=kwargs.get("base_url", "https://ollama.com/v1"),
         api_key=api_key,
-        model=kwargs.get("model", "glm-5.2:cloud"),
+        model=kwargs.get("model", "gpt-oss:120b-cloud"),
     )
 
 
