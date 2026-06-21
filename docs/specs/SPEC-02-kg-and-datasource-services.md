@@ -15,6 +15,16 @@ depends_on: SPEC-01
 > and defines the `PullInterceptor` that realizes **pull-not-push** retrieval —
 > writing the canonical `ctx.surfaced_sources` set consumed by SPEC-05 cite-or-fail.
 
+**Status note (2026-06-17):** spec remains `Reviewed`. **Partially
+shipped:** `RuntimeServices.knowledge_graph` field exists (
+`src/cemaf/orchestration/services.py`) typed against the `KnowledgeGraph`
+protocol in `cemaf/knowledge/protocols.py`; default in-memory + memory-
+backed implementations ship in `cemaf/knowledge/graph.py`; the
+hub-and-spoke cache from SPEC-07 (Implemented) plugs in here.
+**Still aspirational:** the `DataSource` connector protocol and the
+`PullInterceptor` that writes `ctx.surfaced_sources` — that's the
+remaining work to close the loop with SPEC-05's cite-or-fail.
+
 ## Contents
 
 - [1. Context](#1-context)

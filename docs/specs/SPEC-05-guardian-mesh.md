@@ -17,6 +17,20 @@ budget_override: "≤810 lines (scenarios ≤32) — six guardians + §10 user-f
 > **audit** (both). Together they enforce the **low-to-zero hallucination,
 > total awareness, audited-and-assertive** property of the Context Brain.
 
+**Status note (2026-06-17):** spec remains `Reviewed`. **Component
+primitives ship today** and are usable independently — `CitationTracker`
+(`cemaf/citation/tracker.py`), `ModerationPipeline` (`cemaf/moderation/`),
+`OnlineEvalPipeline` + `HierarchicalJudge` (`cemaf/evals/`),
+`GateEvalInterceptor` (`cemaf/interceptors/gate_eval.py`, SPEC-01a),
+audit subscriber (`cemaf/audit/`). **Still aspirational:** the
+auto-injecting `GuardianMesh` factory that wires all six into a single
+`InterceptorPipeline` with the right PRE/POST ordering, plus the
+goal-completion guardian and the unified ctx.surfaced_sources legitimacy
+check (which depends on SPEC-02's PullInterceptor). README Row 2 cites
+this spec for grounded-claim enforcement — that part is real today via
+`CitationTracker` + `GateEvalInterceptor`; the auto-injection part is
+the remaining work.
+
 ## Contents
 
 - [Glossary](#glossary)

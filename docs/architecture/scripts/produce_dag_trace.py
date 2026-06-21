@@ -27,6 +27,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -563,10 +565,86 @@ STEPS = {
 }
 
 
+SHOWCASE_HTML = REPO_ROOT / "docs" / "architecture" / "cemaf-graph.html"
+TRACE_DATA_RE = re.compile(
+    r"/\*TRACE-DATA\*/const TRACE_DATA = (.+?);/\*END-TRACE-DATA\*/", re.DOTALL
+)
+
+
+def check_inlined_matches_disk() -> int:
+    """Verify the inlined TRACE_DATA block in cemaf-graph.html matches the
+    on-disk trace JSONs by event-count and event-kind set per step.
+
+    Durations are intentionally NOT compared — they're run-relative monotonic
+    nanoseconds and naturally jitter ±1ms between runs.
+
+    Returns 0 if clean, 1 on drift. Designed to be called from CI.
+    """
+    if not SHOWCASE_HTML.exists():
+        print(f"FAIL: {SHOWCASE_HTML} not found")
+        return 1
+    src = SHOWCASE_HTML.read_text(encoding="utf-8")
+    m = TRACE_DATA_RE.search(src)
+    if not m:
+        print("FAIL: no /*TRACE-DATA*/ block in cemaf-graph.html")
+        return 1
+    try:
+        inlined = json.loads(m.group(1))
+    except json.JSONDecodeError as exc:
+        print(f"FAIL: inlined TRACE_DATA isn't valid JSON: {exc}")
+        return 1
+
+    drift: list[str] = []
+    for step in sorted(STEPS):
+        disk_path = TRACE_DIR / f"step-{step}.json"
+        if not disk_path.exists():
+            drift.append(f"step-{step}.json missing on disk")
+            continue
+        disk = json.loads(disk_path.read_text(encoding="utf-8"))
+        inl = inlined.get("traces", {}).get(str(step))
+        if inl is None:
+            drift.append(f"step {step} missing in inlined TRACE_DATA")
+            continue
+        if len(inl["events"]) != len(disk["events"]):
+            drift.append(
+                f"step {step}: inlined {len(inl['events'])} events vs disk "
+                f"{len(disk['events'])} events"
+            )
+            continue
+        inl_kinds = {e["kind"] for e in inl["events"]}
+        disk_kinds = {e["kind"] for e in disk["events"]}
+        if inl_kinds != disk_kinds:
+            drift.append(
+                f"step {step}: event-kind set differs "
+                f"(only inlined: {inl_kinds - disk_kinds}, "
+                f"only disk: {disk_kinds - inl_kinds})"
+            )
+
+    if drift:
+        print("TRACE_DATA drift detected — re-run produce_dag_trace.py and re-inline:")
+        for d in drift:
+            print(f"  ✗ {d}")
+        return 1
+    print(
+        f"TRACE_DATA inlined in cemaf-graph.html matches "
+        f"{len(STEPS)} on-disk trace JSONs (event-count + event-kinds)"
+    )
+    return 0
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--step", type=int, choices=sorted(STEPS), help="Run a single step (default: all)")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify inlined TRACE_DATA in cemaf-graph.html matches the on-disk traces. "
+        "Exits non-zero on drift. Skips running the steps.",
+    )
     args = parser.parse_args()
+
+    if args.check:
+        sys.exit(check_inlined_matches_disk())
 
     targets = [args.step] if args.step else sorted(STEPS)
     written: list[Path] = []

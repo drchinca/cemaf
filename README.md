@@ -7,7 +7,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-2700+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Tests](https://img.shields.io/badge/Tests-3400+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
 [![Coverage](https://img.shields.io/badge/Coverage-80%25-brightgreen?style=flat-square)](.)
 [![CI](https://img.shields.io/github/actions/workflow/status/drchinca/cemaf/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/drchinca/cemaf/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
@@ -47,17 +47,37 @@ CEMAF treats every agent decision and every context byte as a **first-class stru
 
 The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has been re-implementing for two years.
 
-| Hard problem the field keeps re-solving | CEMAF's standard |
-|---|---|
-| "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. |
-| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. |
-| "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. |
-| "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. |
-| "What happens when an LLM call fails the eval?" | `RECOVER` budget (`max_recovery_attempts ≤ 2`), `AutoHealManager` mutates the goal with `FailureSignal` context, agent re-runs with a patched goal. |
-| "How do I observe this in production?" | OTel GenAI-shape events on the `EventBus` (`gen_ai.request.model`, `usage.input_tokens`, `cost_usd`, `span`), `correlation_id` propagation, structured logs, Prometheus metrics. |
-| "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. |
-| "How do I scale a successful run into a reusable template?" | `BlueprintHarvester` distills high-scoring runs into reusable `SemanticBlueprint`s, discoverable via `library.search(...)`. The flywheel is a node, not a script. |
-| "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** |
+| Hard problem the field keeps re-solving | CEMAF's standard | Spec |
+|---|---|---|
+| "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) |
+| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. | [SPEC-05](docs/specs/SPEC-05-guardian-mesh.md) · [SPEC-01a](docs/specs/SPEC-01a-interceptor-spine.md) |
+| "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. | [SPEC-09](docs/specs/SPEC-09-auction-agent-selection.md) |
+| "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. | [SPEC-10](docs/specs/SPEC-10-agent-council.md) |
+| "What happens when an LLM call fails the eval?" | `RECOVER` budget (`max_recovery_attempts ≤ 2`), `AutoHealManager` mutates the goal with `FailureSignal` context, agent re-runs with a patched goal. | [SPEC-08](docs/specs/SPEC-08-failure-feedback-loop.md) |
+| "How do I observe this in production?" | OTel GenAI-shape events on the `EventBus` (`gen_ai.request.model`, `usage.input_tokens`, `cost_usd`, `span`), `correlation_id` propagation, structured logs, Prometheus metrics. | [observability.md](docs/observability.md) |
+| "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. | [patterns.md](docs/patterns.md) |
+| "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. | [SPEC-03](docs/specs/SPEC-03-blueprint-as-llm-input.md) |
+| "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
+
+<details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
+
+```python
+from cemaf.context                 import Context, ContextPatch, TokenBudget, PriorityContextCompiler
+from cemaf.citation                import CitationTracker
+from cemaf.interceptors            import GateEvalInterceptor
+from cemaf.agents.selection        import AgentSelector         # auction selection
+from cemaf.council                 import VoteAggregator, DefaultVoteAggregator
+from cemaf.core.recovery           import AutoHealManager
+from cemaf.iteration               import FailureSignal
+from cemaf.blueprint               import Blueprint, BlueprintLibrary, BlueprintHarvesterEngine, create_blueprint_harvester
+from cemaf.orchestration           import DAG, Node, Edge, DAGExecutor
+from cemaf.orchestration.services  import RuntimeServices
+from cemaf.bootstrap               import create_executor
+```
+
+Live-verified at HEAD on every CI run — every name above resolves against `src/cemaf/`.
+
+</details>
 
 [**See it run — open the interactive demo →**](docs/architecture/cemaf-graph.html)
 
@@ -223,7 +243,11 @@ pip install "cemaf[all]"           # All optional dependencies
 # Development installation
 git clone https://github.com/drchinca/cemaf.git
 cd cemaf
-pip install -e ".[dev]"
+make install              # uv sync --extra dev
+make check                # lint + typecheck + every doc/code audit (CI-equivalent)
+make demo                 # regenerate the 7 real CEMAF run traces
+make showcase             # open the interactive demo in your browser
+make                      # print the full menu
 ```
 
 **Requirements**: Python 3.14+

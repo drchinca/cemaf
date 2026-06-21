@@ -84,8 +84,7 @@ pytest tests/     # run tests
 ## Your First Tool
 
 ```python
-from cemaf.tools.base import Tool, ToolSchema
-from cemaf.core.result import Result
+from cemaf import Tool, ToolSchema, Result
 
 class SearchTool(Tool):
     @property
@@ -108,8 +107,7 @@ class SearchTool(Tool):
 ## Your First DAG
 
 ```python
-from cemaf.orchestration.dag import DAG, Node, Edge
-from cemaf.core.types import NodeID
+from cemaf import DAG, Node, Edge, NodeID
 
 dag = DAG(name="research-pipeline")
 dag = dag.add_node(Node.tool(id="search", name="Search", tool_id="search", output_key="results"))
@@ -124,8 +122,7 @@ dag.save_mermaid("dag.md")  # Saves as markdown with mermaid
 ## Execute a DAG
 
 ```python
-from cemaf.orchestration.executor import DAGExecutor
-from cemaf.context.context import Context
+from cemaf import DAGExecutor, Context
 
 executor = DAGExecutor(node_executor=my_executor)
 initial_context = Context(data={"query": "context engineering"})

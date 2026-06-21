@@ -37,3 +37,66 @@ Each spec adheres to `rules/spec-driven.md`:
 - §7 Correctness Properties — numbered claims citing §3/§4
 - §8 Eval Criteria — for any LLM behavior
 - §9 Observability Contract — OTel GenAI spans, log events, metrics
+
+## Spec-source drift audits
+
+Last verified 2026-06-12: **all 5 Implemented specs** reference every
+class, factory, file path, and test by name. Zero drift across the
+implemented surface.
+
+```bash
+# SPEC-01a — Interceptor Spine
+for f in cemaf/interceptors/{types,protocols,pipeline,gate_eval}.py \
+         cemaf/orchestration/results.py \
+         tests/unit/interceptors/test_pipeline.py \
+         tests/integration/test_interceptor_gate.py; do test -f "src/$f" || test -f "$f"; done
+grep -nE "interceptor_pipeline" src/cemaf/orchestration/services.py
+
+# SPEC-07 — Hub & Spoke Knowledge
+grep -nE "^(class|def) (LocalSpokeCache|HubKnowledgeGraph|SpokeReadHubWriteKG|create_hub_spoke_kg)\b" \
+  src/cemaf/knowledge/hub_spoke.py
+grep -nE "enable_hub_spoke_kg" src/cemaf/meta/bootstrap.py
+test -f tests/integration/test_hub_spoke_kg.py
+
+# SPEC-08 — Failure-Feedback Loop
+grep -rE "^class (AutoHealManager|IterationLoop|FailureSignal|FailureParser|PytestParser|IterationOutcome|IterationReport)\b" src/
+test -f tests/integration/test_iteration_sandbox.py
+
+# SPEC-09 — Auction Agent Selection
+grep -nE "^class (Capability|Bid|BidContext|CapabilityAdvertiser|AgentSelector|DefaultAgentSelector)\b" \
+  src/cemaf/agents/selection.py
+test -f src/cemaf/orchestration/resolvers/auction.py
+test -f tests/integration/test_agent_auction.py
+
+# SPEC-10 — Agent Council
+for f in cemaf/council/{types,protocols,aggregator,council}.py \
+         cemaf/orchestration/resolvers/council.py \
+         tests/integration/test_agent_council.py; do test -f "src/$f" || test -f "$f"; done
+grep -nE "^class CouncilResolver\b" src/cemaf/orchestration/resolvers/council.py
+grep -nE "council_aggregator" src/cemaf/orchestration/services.py
+grep -nE "rounds: int" src/cemaf/council/types.py   # multi-round deliberation
+```
+
+All clean as of the date above. If a spec rename refactor lands,
+re-run the matching greps and update the date here. Specs marked
+`Reviewed` (00, 01, 02, 03, 04, 05, 06) are design docs without a
+matching implementation surface — they're audited separately when
+they transition to `Implemented`.
+
+## Cross-doc link audit
+
+Last verified 2026-06-12: **0 broken file links + 0 broken anchor
+links across 83 markdown files** (`README.md`, all top-level
+user-facing docs, and every `.md` under `docs/`).
+
+Re-run any time with:
+
+```bash
+uv run python docs/architecture/scripts/check_doc_links.py
+```
+
+Exits non-zero on any broken link, so it's CI-wireable. Skips
+external URLs (link rot for `https://...` is a different problem)
+and ignores anything inside fenced code blocks or inline code spans
+(so Python type annotations like `Agent[GoalT](ABC):` don't trigger
+false positives).

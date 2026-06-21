@@ -21,8 +21,14 @@ Thank you for considering contributing to CEMAF (Context Engineering Multi-Agent
 4. Create virtual environment and install dependencies:
 
    ```bash
+   make install              # uv sync --extra dev
+   ```
+
+   Or step-by-step if you prefer:
+
+   ```bash
    uv venv
-   uv sync
+   uv sync --extra dev
    ```
 
 5. Install pre-commit hooks:
@@ -73,24 +79,22 @@ async def test_your_feature():
 
 ### 4. Run Quality Checks
 
-Before committing, ensure all checks pass:
+Before committing, run the consolidated check — it's identical to what CI runs:
 
 ```bash
-# Run all tests with coverage
-uv run pytest tests/ --cov=cemaf --cov-report=term-missing
-
-# Run linting
-uv run ruff check src tests
-
-# Run formatting check
-uv run ruff format --check src tests
-
-# Run type checking
-uv run mypy src
-
-# Run security scan
-uv run bandit -r src -c pyproject.toml
+make check
 ```
+
+That runs lint + format-check + typecheck + every doc/code audit (internal markdown links, module-graph sync, inlined trace-data drift). For finer granularity:
+
+```bash
+make lint            # ruff check + ruff format --check
+make typecheck       # mypy
+make coverage        # pytest with --cov-fail-under=80
+make audit-all       # links + graph + traces (just the doc audits)
+```
+
+If you prefer raw commands, the recipes in `Makefile` are thin wrappers — copy any line to a terminal and it runs unchanged.
 
 ### 5. Commit Your Changes
 
@@ -163,29 +167,19 @@ async def calculate_total(items: list[dict[str, float]]) -> float:
 ### Running Tests
 
 ```bash
-# All tests with coverage
-uv run pytest tests/ --cov=cemaf --cov-report=term-missing --cov-report=html
+make test                # all tests (unit + integration), verbose
+make test-unit           # unit only
+make test-integration    # integration only
+make coverage            # pytest with coverage, fails under 80%
+```
 
-# Unit tests only
-uv run pytest tests/unit/
+For one-off targeting (the Makefile recipes don't cover every flag):
 
-# Integration tests
-uv run pytest tests/integration/
-
-# Specific test file
-uv run pytest tests/unit/test_dag.py
-
-# Specific test function
-uv run pytest tests/unit/test_dag.py::test_node_creation
-
-# Skip slow tests
-uv run pytest tests/ -m "not slow"
-
-# With verbose output
-uv run pytest -v
-
-# Stop on first failure
-uv run pytest -x
+```bash
+uv run pytest tests/unit/test_dag.py                       # a file
+uv run pytest tests/unit/test_dag.py::test_node_creation   # a function
+uv run pytest tests/ -m "not slow"                          # skip slow
+uv run pytest -x                                            # stop on first fail
 ```
 
 ### Test Markers

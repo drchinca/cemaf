@@ -83,17 +83,17 @@ store = InMemoryStore()
 await store.set(
     key="user_preference",
     value={"theme": "dark"},
-    scope=MemoryScope.PERSONAE
+    scope=MemoryScope.USER
 )
 
 # Retrieve memory
-item = await store.get("user_preference", scope=MemoryScope.PERSONAE)
+item = await store.get("user_preference", scope=MemoryScope.USER)
 
 # List by scope
-items = await store.list_by_scope(MemoryScope.PERSONAE)
+items = await store.list_by_scope(MemoryScope.USER)
 
 # Search
-results = await store.search("preference", scope=MemoryScope.PERSONAE)
+results = await store.search("preference", scope=MemoryScope.USER)
 ```
 
 ## Memory Item
