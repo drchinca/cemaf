@@ -1,7 +1,8 @@
 """Factory functions for LLM client components.
 
-Supports 7 providers out of the box:
+Supports 8 providers out of the box:
     client = create_llm_client("ollama", model="qwen3.5")
+    client = create_llm_client("ollama-cloud", model="gpt-oss:120b-cloud")
     client = create_llm_client("openai", api_key="sk-...")
     client = create_llm_client("anthropic", api_key="sk-ant-...")
     client = create_llm_client("gemini", api_key="AIza...")
@@ -82,6 +83,25 @@ def _create_ollama_tiered(**kwargs: Any) -> LLMClient:
     )
 
 
+def _create_ollama_cloud(**kwargs: Any) -> LLMClient:
+    """Ollama Cloud (https://ollama.com/v1) — OpenAI-compatible bearer auth.
+
+    Free-tier models (verified): gpt-oss:20b-cloud, gpt-oss:120b-cloud,
+    qwen3-coder:480b-cloud, minimax-m2.1:cloud.
+    Subscription-only: glm-5.2:cloud, deepseek-v4-*:cloud, kimi-k2.*:cloud.
+    """
+    from cemaf.llm.openai_compat import OpenAICompatClient
+
+    api_key: str = str(kwargs.get("api_key") or os.getenv("OLLAMA_CLOUD_API_KEY", ""))
+    if not api_key:
+        raise ValueError("api_key required for Ollama Cloud (or set OLLAMA_CLOUD_API_KEY)")
+    return OpenAICompatClient(  # type: ignore[return-value]
+        base_url=kwargs.get("base_url", "https://ollama.com/v1"),
+        api_key=api_key,
+        model=kwargs.get("model", "gpt-oss:120b-cloud"),
+    )
+
+
 def _create_groq(**kwargs: Any) -> LLMClient:
     from cemaf.llm.openai_compat import OpenAICompatClient
 
@@ -139,6 +159,7 @@ llm_registry.register(backend="anthropic", factory=_create_anthropic)
 llm_registry.register(backend="openai", factory=_create_openai)
 llm_registry.register(backend="ollama", factory=_create_ollama)
 llm_registry.register(backend="ollama-tiered", factory=_create_ollama_tiered)
+llm_registry.register(backend="ollama-cloud", factory=_create_ollama_cloud)
 llm_registry.register(backend="groq", factory=_create_groq)
 llm_registry.register(backend="together", factory=_create_together)
 llm_registry.register(backend="huggingface", factory=_create_huggingface)
@@ -157,7 +178,7 @@ def create_llm_client(
     """Create an LLM client for any supported provider.
 
     Args:
-        provider: One of: openai, anthropic, ollama, gemini, groq, together, huggingface, mock
+        provider: One of: openai, anthropic, ollama, ollama-cloud, gemini, groq, together, huggingface, mock
         **kwargs: Provider-specific args (api_key, model, base_url, etc.)
 
     Examples:

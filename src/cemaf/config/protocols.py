@@ -69,6 +69,7 @@ class LLMSettings(BaseModel):
         "vertex",
         "ollama",
         "ollama-tiered",
+        "ollama-cloud",
         "groq",
         "together",
         "gemini",
