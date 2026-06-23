@@ -199,7 +199,8 @@ class SqliteBlueprintSource:
         # loop at import time.
         import sqlite3
 
-        with sqlite3.connect(self._db_path) as conn:
+        conn = sqlite3.connect(self._db_path, timeout=self._busy_timeout_ms / 1000)
+        try:
             conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
             conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
             conn.execute(_CREATE_TABLE)
@@ -211,6 +212,8 @@ class SqliteBlueprintSource:
             )
             for row in cursor.fetchall():
                 yield _row_to_entry(row)
+        finally:
+            conn.close()
 
 
 __all__ = ["SqliteBlueprintSource"]

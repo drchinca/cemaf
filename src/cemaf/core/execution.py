@@ -390,8 +390,13 @@ async def with_execution_context[T](
         CancelledException: If cancelled
         TimeoutException: If timeout exceeded
     """
-    # Check pre-conditions
-    ctx.raise_if_inactive()
+    # Check pre-conditions. If this rejects before the coroutine is wrapped,
+    # close it so callers do not leak an unawaited coroutine object.
+    try:
+        ctx.raise_if_inactive()
+    except Exception:
+        coro.close()
+        raise
 
     # Wrap with cancellation
     coro_with_cancel = with_cancellation(coro, ctx.cancellation_token)

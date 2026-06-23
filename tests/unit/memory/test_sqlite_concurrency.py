@@ -63,6 +63,19 @@ async def test_concurrent_reads_and_writes_coexist(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_multiple_store_instances_share_one_writer_lane(tmp_path: Path) -> None:
+    """Separate store instances pointed at one db should not trip SQLITE_BUSY."""
+    stores = [SqliteMemoryStore(db_path=str(tmp_path / "multi-instance.db")) for _ in range(4)]
+    try:
+        await asyncio.gather(*(stores[i % len(stores)].set(item=_item(f"k{i}", f"v{i}")) for i in range(200)))
+        items = await stores[0].list_by_scope(scope=MemoryScope.PROJECT)
+        assert len(items) == 200
+        assert {item.key for item in items} == {f"k{i}" for i in range(200)}
+    finally:
+        await asyncio.gather(*(store.close() for store in stores))
+
+
+@pytest.mark.asyncio
 async def test_wal_pragma_is_set(tmp_path: Path) -> None:
     """Journal mode must be WAL — regression for the root cause."""
     store = SqliteMemoryStore(db_path=str(tmp_path / "pragma.db"))
