@@ -41,7 +41,7 @@
    ↑ every read/write a wire · every patch carries source + reason + run_id
 ```
 
-CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
+CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(statement, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
 
 ### What CEMAF makes the industry standard
 
@@ -50,7 +50,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | Hard problem the field keeps re-solving | CEMAF's standard | Spec |
 |---|---|---|
 | "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) |
-| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. | [SPEC-05](docs/specs/SPEC-05-guardian-mesh.md) · [SPEC-01a](docs/specs/SPEC-01a-interceptor-spine.md) |
+| "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every factual statement must trace to a retrieved source, or the gate halts downstream. | [SPEC-05](docs/specs/SPEC-05-guardian-mesh.md) · [SPEC-01a](docs/specs/SPEC-01a-interceptor-spine.md) |
 | "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. | [SPEC-09](docs/specs/SPEC-09-auction-agent-selection.md) |
 | "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. | [SPEC-10](docs/specs/SPEC-10-agent-council.md) |
 | "What happens when an LLM call fails the eval?" | `RECOVER` budget (`max_recovery_attempts ≤ 2`), `AutoHealManager` mutates the goal with `FailureSignal` context, agent re-runs with a patched goal. | [SPEC-08](docs/specs/SPEC-08-failure-feedback-loop.md) |
