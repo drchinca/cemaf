@@ -5,6 +5,7 @@
 # you can copy any recipe line into a terminal and it will run unchanged.
 
 .PHONY: help install test test-unit test-integration coverage lint typecheck format \
+        benchmark benchmark-report \
         check audit-links audit-graph audit-traces audit-all \
         demo demo-step traces showcase docs-search clean
 
@@ -49,6 +50,14 @@ typecheck:  ## MyPy strict-typed check
 
 format:  ## Apply Ruff format in place (use before commit)
 	uv run ruff format src/cemaf/
+
+benchmark:  ## Run local benchmark + veracity checks
+	uv run python benchmarks/run_benchmarks.py
+
+benchmark-report:  ## Generate local JSON + Markdown benchmark evidence
+	uv run python benchmarks/run_benchmarks.py \
+		--json-out benchmarks/results/local-baseline.json \
+		--markdown-out benchmarks/results/local-baseline.md
 
 # ---- audits (the work surfaced over fires 1..N) ----------------------------
 

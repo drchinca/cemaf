@@ -1,0 +1,371 @@
+{
+  "benchmark_scale": 1,
+  "benchmarks": [
+    {
+      "category": "orchestration",
+      "iterations": 300,
+      "max_ms": 0.117395,
+      "mean_ms": 0.116841,
+      "median_ms": 0.11669,
+      "metadata": {
+        "edges": 19,
+        "nodes": 20
+      },
+      "min_ms": 0.116365,
+      "name": "DAG construction (20 nodes)",
+      "ops_per_sec": 8558.66,
+      "p95_ms": 0.117393,
+      "repetitions": 5,
+      "samples_ms": [
+        0.117395,
+        0.117385,
+        0.11669,
+        0.11637,
+        0.116365
+      ],
+      "total_ms": 175.261084,
+      "warmup": 1
+    },
+    {
+      "category": "evals",
+      "iterations": 2000,
+      "max_ms": 0.015555,
+      "mean_ms": 0.015346,
+      "median_ms": 0.01528,
+      "metadata": {
+        "samples_cycle": 100,
+        "window_size": 50
+      },
+      "min_ms": 0.015211,
+      "name": "QualityPolice scoring + trend",
+      "ops_per_sec": 65161.845,
+      "p95_ms": 0.015531,
+      "repetitions": 5,
+      "samples_ms": [
+        0.01528,
+        0.015434,
+        0.015251,
+        0.015555,
+        0.015211
+      ],
+      "total_ms": 153.464041,
+      "warmup": 1
+    },
+    {
+      "category": "context",
+      "iterations": 2000,
+      "max_ms": 0.006571,
+      "mean_ms": 0.006489,
+      "median_ms": 0.006523,
+      "metadata": {
+        "patches_per_iteration": 1
+      },
+      "min_ms": 0.006379,
+      "name": "Context patch apply + provenance",
+      "ops_per_sec": 154103.979,
+      "p95_ms": 0.006565,
+      "repetitions": 5,
+      "samples_ms": [
+        0.006538,
+        0.006379,
+        0.006434,
+        0.006571,
+        0.006523
+      ],
+      "total_ms": 64.891251,
+      "warmup": 1
+    },
+    {
+      "category": "tools",
+      "iterations": 2000,
+      "max_ms": 0.003279,
+      "mean_ms": 0.003241,
+      "median_ms": 0.003257,
+      "metadata": {
+        "required_params": 1
+      },
+      "min_ms": 0.003186,
+      "name": "Tool validated_execute()",
+      "ops_per_sec": 308506.271,
+      "p95_ms": 0.003279,
+      "repetitions": 5,
+      "samples_ms": [
+        0.003275,
+        0.003279,
+        0.003209,
+        0.003257,
+        0.003186
+      ],
+      "total_ms": 32.414252,
+      "warmup": 1
+    },
+    {
+      "category": "orchestration",
+      "iterations": 100,
+      "max_ms": 0.043685,
+      "mean_ms": 0.041015,
+      "median_ms": 0.040556,
+      "metadata": {
+        "nodes": 1
+      },
+      "min_ms": 0.038847,
+      "name": "DAG execution (1 agent node)",
+      "ops_per_sec": 24381.274,
+      "p95_ms": 0.043299,
+      "repetitions": 5,
+      "samples_ms": [
+        0.040234,
+        0.041754,
+        0.040556,
+        0.038847,
+        0.043685
+      ],
+      "total_ms": 20.507542,
+      "warmup": 1
+    },
+    {
+      "category": "orchestration",
+      "iterations": 50,
+      "max_ms": 0.169239,
+      "mean_ms": 0.164332,
+      "median_ms": 0.167426,
+      "metadata": {
+        "edges": 4,
+        "nodes": 5
+      },
+      "min_ms": 0.157917,
+      "name": "DAG execution (5 agent chain)",
+      "ops_per_sec": 6085.255,
+      "p95_ms": 0.168877,
+      "repetitions": 5,
+      "samples_ms": [
+        0.167426,
+        0.169239,
+        0.167427,
+        0.15965,
+        0.157917
+      ],
+      "total_ms": 41.082916,
+      "warmup": 1
+    },
+    {
+      "category": "context",
+      "iterations": 200,
+      "max_ms": 0.092995,
+      "mean_ms": 0.091529,
+      "median_ms": 0.091592,
+      "metadata": {
+        "budget_tokens": 10000,
+        "sources": 70
+      },
+      "min_ms": 0.090467,
+      "name": "Context compilation (70 sources)",
+      "ops_per_sec": 10925.439,
+      "p95_ms": 0.092734,
+      "repetitions": 5,
+      "samples_ms": [
+        0.091689,
+        0.090467,
+        0.091592,
+        0.092995,
+        0.090904
+      ],
+      "total_ms": 91.529499,
+      "warmup": 1
+    },
+    {
+      "category": "context",
+      "iterations": 200,
+      "max_ms": 0.004771,
+      "mean_ms": 0.004542,
+      "median_ms": 0.004476,
+      "metadata": {
+        "preserve_recent": 2,
+        "sources": 10
+      },
+      "min_ms": 0.004425,
+      "name": "Context compaction (10 sources)",
+      "ops_per_sec": 220163.305,
+      "p95_ms": 0.004739,
+      "repetitions": 5,
+      "samples_ms": [
+        0.00461,
+        0.004771,
+        0.004428,
+        0.004425,
+        0.004476
+      ],
+      "total_ms": 4.542083,
+      "warmup": 1
+    },
+    {
+      "category": "events",
+      "iterations": 1000,
+      "max_ms": 0.004116,
+      "mean_ms": 0.004045,
+      "median_ms": 0.00404,
+      "metadata": {
+        "subscribers": 1
+      },
+      "min_ms": 0.003986,
+      "name": "EventBus pub/sub",
+      "ops_per_sec": 247232.028,
+      "p95_ms": 0.004111,
+      "repetitions": 5,
+      "samples_ms": [
+        0.003993,
+        0.003986,
+        0.004089,
+        0.004116,
+        0.00404
+      ],
+      "total_ms": 20.223917,
+      "warmup": 1
+    },
+    {
+      "category": "orchestration",
+      "iterations": 5,
+      "max_ms": 1.547167,
+      "mean_ms": 1.510264,
+      "median_ms": 1.510158,
+      "metadata": {
+        "runs_per_batch": 32
+      },
+      "min_ms": 1.473467,
+      "name": "Shared executor concurrent batch (32 runs)",
+      "ops_per_sec": 662.136,
+      "p95_ms": 1.543466,
+      "repetitions": 3,
+      "samples_ms": [
+        1.473467,
+        1.547167,
+        1.510158
+      ],
+      "total_ms": 22.653959,
+      "warmup": 1
+    }
+  ],
+  "environment": {
+    "generated_at": "2026-06-23T03:48:14.753303+00:00",
+    "implementation": "CPython",
+    "machine": "arm64",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "python": "3.14.0"
+  },
+  "project": "cemaf",
+  "schema_version": 1,
+  "summary": {
+    "benchmarks": 10,
+    "veracity_checks": 7,
+    "veracity_checks_failed": 0,
+    "veracity_checks_passed": 7
+  },
+  "veracity_checks": [
+    {
+      "check_id": "agent-dag-units-of-work",
+      "evidence": "Ran one registered Agent through create_executor() 25 times with distinct inputs.",
+      "metrics": {
+        "avg_ms": 0.066,
+        "elapsed_ms": 1.661,
+        "runs": 25,
+        "successes": 25
+      },
+      "passed": true,
+      "source": "README.md: Overview / A different shape of agent system",
+      "statement": "Typed agent DAG nodes execute as isolated units of work and propagate outputs."
+    },
+    {
+      "check_id": "pull-cost-absent-services-do-not-run",
+      "evidence": "Injected a CountingLLMClient into RuntimeServices and executed 25 no-op agent DAG runs.",
+      "metrics": {
+        "avg_ms": 0.041,
+        "elapsed_ms": 1.031,
+        "llm_calls": 0,
+        "runs": 25
+      },
+      "passed": true,
+      "source": "README.md: CEMAF is PULL / services absent or unused do not run",
+      "statement": "A deterministic registered agent run does not call an LLM just because an LLM client exists."
+    },
+    {
+      "check_id": "context-budget-selection",
+      "evidence": "Compiled 30 oversized artifacts into a 400-token available budget.",
+      "metrics": {
+        "available_tokens": 400,
+        "compiled_tokens": 315,
+        "input_sources": 30,
+        "selected_keys": [
+          "doc_0"
+        ],
+        "selected_sources": 1,
+        "within_budget": true
+      },
+      "passed": true,
+      "source": "README.md: Hard Problems / Context Growth and Cost",
+      "statement": "Context compilation respects TokenBudget and drops lower-priority sources when needed."
+    },
+    {
+      "check_id": "context-patch-provenance",
+      "evidence": "Applied tool and agent patches, inspected timeline, and rolled back to a prior patch ID.",
+      "metrics": {
+        "final_hash": "3d4c02a43595b0d1",
+        "patches": 3,
+        "rollback_hash": "39e1712d9ba1734f",
+        "sources": [
+          "tool",
+          "agent",
+          "tool"
+        ]
+      },
+      "passed": true,
+      "source": "README.md: Immutable context with provenance",
+      "statement": "Context changes are immutable patches with source, reason, timeline, and rollback."
+    },
+    {
+      "check_id": "typed-event-stream",
+      "evidence": "Published 100 TASK_COMPLETED events through InMemoryEventBus.publish_batch().",
+      "metrics": {
+        "elapsed_ms": 0.041,
+        "events_per_sec": 2409638.8,
+        "published": 100,
+        "received": 100
+      },
+      "passed": true,
+      "source": "README.md: Glass-box by default / EventBus output",
+      "statement": "The event bus emits typed execution events with correlation metadata."
+    },
+    {
+      "check_id": "shared-executor-concurrency-isolation",
+      "evidence": "Ran 64 concurrent calls through one executor with distinct initial context values.",
+      "metrics": {
+        "elapsed_ms": 3.245,
+        "mismatches": 0,
+        "runs": 64,
+        "runs_per_sec": 19722.9
+      },
+      "passed": true,
+      "source": "README.md: Concurrent-Run Contamination",
+      "statement": "Concurrent calls on one DAGExecutor keep per-run context isolated."
+    },
+    {
+      "check_id": "rlm-large-context-querying",
+      "evidence": "Queried a deterministic 40-section corpus for 20 ground-truth answers via create_rlm_tool().",
+      "metrics": {
+        "accuracy": 1.0,
+        "avg_chunks_examined": 120.0,
+        "avg_depth": 4.0,
+        "avg_llm_calls": 151.0,
+        "avg_ms_per_question": 4.0,
+        "correct": 20,
+        "elapsed_ms": 79.996,
+        "failures": [],
+        "questions": 20,
+        "total_llm_calls": 3020
+      },
+      "passed": true,
+      "source": "docs/rlm.md and README.md: rlm/ recursive context queries",
+      "statement": "RLM can query a document larger than one prompt window by chunking and recursive aggregation."
+    }
+  ]
+}
