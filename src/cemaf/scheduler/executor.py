@@ -49,6 +49,7 @@ class AsyncJobExecutor:
         self._task: asyncio.Task[None] | None = None
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._results: list[JobResult] = []
+        self._in_flight_job_ids: set[str] = set()
 
     def add_job(self, job: Job) -> None:
         """Add a job to the scheduler."""
@@ -102,8 +103,15 @@ class AsyncJobExecutor:
         job = self._jobs.get(job_id)
         if not job:
             raise KeyError(f"Job not found: {job_id}")
+        if not self._try_mark_in_flight(job):
+            return JobResult.failure(
+                job_id=job.id,
+                started_at=utc_now(),
+                error="Job already running",
+                status=JobStatus.CANCELLED,
+            )
 
-        return await self._execute_job(job)
+        return await self._execute_job_with_slot(job)
 
     async def _scheduler_loop(self) -> None:
         """Main scheduler loop."""
@@ -114,8 +122,12 @@ class AsyncJobExecutor:
                 for job in list(self._jobs.values()):
                     if not job.enabled:
                         continue
+                    if self._is_singleton(job) and job.id in self._in_flight_job_ids:
+                        continue
 
                     if job.trigger.should_run(now):
+                        if not self._try_mark_in_flight(job):
+                            continue
                         # Schedule job execution
                         asyncio.create_task(self._execute_with_semaphore(job))
 
@@ -132,15 +144,22 @@ class AsyncJobExecutor:
 
     async def _execute_with_semaphore(self, job: Job) -> None:
         """Execute job with concurrency limiting."""
-        async with self._semaphore:
-            result = await self._execute_job(job)
-            self._results.append(result)
+        result = await self._execute_job_with_slot(job)
+        self._results.append(result)
 
-            if self._on_complete:
-                try:
-                    await self._on_complete(result)
-                except Exception as e:
-                    logger.error("on_complete callback error: %s", e)
+        if self._on_complete:
+            try:
+                await self._on_complete(result)
+            except Exception as e:
+                logger.error("on_complete callback error: %s", e)
+
+    async def _execute_job_with_slot(self, job: Job) -> JobResult:
+        """Execute a job while holding concurrency and singleton claims."""
+        try:
+            async with self._semaphore:
+                return await self._execute_job(job)
+        finally:
+            self._in_flight_job_ids.discard(job.id)
 
     async def _execute_job(self, job: Job) -> JobResult:
         """Execute a single job with timeout and retries."""
@@ -196,3 +215,17 @@ class AsyncJobExecutor:
             error=last_error or "Unknown error",
             status=status,
         )
+
+    def _try_mark_in_flight(self, job: Job) -> bool:
+        """Claim singleton execution ownership for the job when required."""
+        if not self._is_singleton(job):
+            return True
+        if job.id in self._in_flight_job_ids:
+            return False
+        self._in_flight_job_ids.add(job.id)
+        return True
+
+    @staticmethod
+    def _is_singleton(job: Job) -> bool:
+        """Whether the job should reject concurrent execution."""
+        return bool(job.metadata.get("singleton", False))

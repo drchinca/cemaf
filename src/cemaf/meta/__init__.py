@@ -42,25 +42,30 @@ from cemaf.meta.agents import (
     AgentSynthesizer,
     ArchitectAgent,
     AuditAgent,
+    DreamAgent,
     KnowledgeGraphAgent,
 )
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
 from cemaf.meta.dags import (
+    create_dream_dag,
     create_feature_synthesis_dag,
     create_knowledge_refresh_dag,
     create_self_audit_dag,
 )
+from cemaf.meta.dreaming import DreamingMode, DreamingModeHandle
 from cemaf.meta.goals import (
     ArchitectGoal,
     ArchitectResult,
     AuditGoal,
     AuditResult,
+    DreamGoal,
+    DreamResult,
     KnowledgeGraphGoal,
     KnowledgeGraphResult,
     SynthesizerGoal,
     SynthesizerResult,
 )
-from cemaf.meta.registry import register_meta_agents
+from cemaf.meta.registry import register_dream_agent, register_meta_agents
 from cemaf.meta.tools import (
     GenerateDAGTool,
     IntrospectRegistryTool,
@@ -73,24 +78,32 @@ __all__ = [
     "AgentSynthesizer",
     "ArchitectAgent",
     "AuditAgent",
+    "DreamAgent",
     "KnowledgeGraphAgent",
     # Bootstrap
     "MetaServices",
     "create_meta_executor",
     # DAGs
+    "create_dream_dag",
     "create_feature_synthesis_dag",
     "create_knowledge_refresh_dag",
     "create_self_audit_dag",
+    # Dreaming mode
+    "DreamingMode",
+    "DreamingModeHandle",
     # Goals
     "ArchitectGoal",
     "ArchitectResult",
     "AuditGoal",
     "AuditResult",
+    "DreamGoal",
+    "DreamResult",
     "KnowledgeGraphGoal",
     "KnowledgeGraphResult",
     "SynthesizerGoal",
     "SynthesizerResult",
     # Registry
+    "register_dream_agent",
     "register_meta_agents",
     # Tools
     "GenerateDAGTool",
