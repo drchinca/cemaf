@@ -665,6 +665,15 @@ class DAGExecutor:
                     _payload["recovery_attempts"] = _recovery_attempts
                 if _gate_rejected:
                     _payload["gate_rejected"] = True
+                # Surface the node's decision metadata (council verdict + ballots,
+                # auction winner + score, gate verdict) into the audit-feeding
+                # event, so the audit trail's NODE_EXECUTED entry records WHAT was
+                # decided — not just that a node ran. Without this the trail is
+                # blind to the very decisions the glassbox claims to capture.
+                for _decision_key in ("council", "selection", "auction", "gate"):
+                    _decision = result.metadata.get(_decision_key)
+                    if _decision is not None:
+                        _payload[_decision_key] = _decision
                 await self._emit_event(
                     event_type=EventType.TASK_COMPLETED if result.success else EventType.TASK_FAILED,
                     payload=_payload,

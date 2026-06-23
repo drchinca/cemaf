@@ -230,18 +230,26 @@ async def build_trace(*, result: ExecutionResult, audit_log: AuditLog) -> RunTra
     """Reconstruct a complete per-step trace from CEMAF's observability surfaces."""
     run_id = str(result.run_id)
     audit_entries = await audit_log.query(run_id=run_id, limit=500)
-    # Audit events grouped by their node (audit payloads carry node_id when present).
+    # Audit events grouped by their node (audit payloads carry node_id when present),
+    # plus the decision metadata the executor now writes into the audit event so the
+    # trail itself records WHAT each node decided.
     events_by_node: dict[str, list[str]] = {}
+    audit_decisions_by_node: dict[str, JSON] = {}
     for entry in audit_entries:
         node_id = str(entry.payload.get("node_id", ""))
         events_by_node.setdefault(node_id, []).append(entry.type.value)
+        for key in ("council", "selection", "auction", "gate"):
+            if key in entry.payload:
+                audit_decisions_by_node.setdefault(node_id, {})[key] = entry.payload[key]
 
     steps: list[StepTrace] = []
     for node_result in result.node_results:
         nid = str(node_result.node_id)
-        decision: JSON = {}
+        # Prefer decisions reconstructed from the AUDIT TRAIL (proves the trail
+        # captured them); fall back to NodeResult.metadata if absent.
+        decision: JSON = dict(audit_decisions_by_node.get(nid, {}))
         for key in ("council", "selection", "auction", "gate", "recovery"):
-            if key in node_result.metadata:
+            if key not in decision and key in node_result.metadata:
                 decision[key] = node_result.metadata[key]
         steps.append(
             StepTrace(

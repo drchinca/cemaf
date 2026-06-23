@@ -93,3 +93,30 @@ async def test_audit_subscriber_records_per_node_task_events() -> None:
     # One per node (research, summarize, review).
     node_ids = {str(e.payload.get("node_id")) for e in node_executed}
     assert {"research", "summarize", "review"} <= node_ids
+
+
+@pytest.mark.asyncio
+async def test_audit_trail_records_node_decisions() -> None:
+    """The audit trail itself (not just NodeResult.metadata) carries decisions.
+
+    Before the fix, auction/council verdicts lived only in NodeResult.metadata
+    and the audit trail was blind to them. Now the executor writes decision
+    metadata into the TASK_COMPLETED payload, so NODE_EXECUTED entries record
+    WHAT each node decided.
+    """
+    example = _load_example()
+    result, audit_log = await example.run_traced(use_otel=False)
+
+    entries = await audit_log.query(run_id=str(result.run_id), limit=500)
+    by_node = {
+        str(e.payload.get("node_id")): e.payload for e in entries if e.type == AuditEntryType.NODE_EXECUTED
+    }
+
+    # Auction decision is in the audit payload for the summarize node.
+    assert "selection" in by_node["summarize"]
+    assert by_node["summarize"]["selection"]["agent_id"] in {"SummarizerIdle", "SummarizerBusy"}
+
+    # Council verdict + ballots are in the audit payload for the review node.
+    assert "council" in by_node["review"]
+    assert by_node["review"]["council"]["winning_choice"] == "approve"
+    assert len(by_node["review"]["council"]["ballots"]) == 3
