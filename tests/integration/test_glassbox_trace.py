@@ -38,8 +38,8 @@ def _load_example():
 async def test_every_node_is_fully_traced() -> None:
     """100% per-node coverage: each node has an audit event + timing."""
     example = _load_example()
-    result, audit_log = await example.run_traced(use_otel=False)
-    trace = await example.build_trace(result=result, audit_log=audit_log)
+    result, audit_log, citation_tracker = await example.run_traced(use_otel=False)
+    trace = await example.build_trace(result=result, audit_log=audit_log, citation_tracker=citation_tracker)
 
     assert trace.status == "completed"
     assert trace.coverage["total_nodes"] == 3
@@ -58,8 +58,8 @@ async def test_every_node_is_fully_traced() -> None:
 async def test_trace_captures_decisions_provenance_and_citations() -> None:
     """The trace surfaces WHAT was decided, WHY context changed, and source citations."""
     example = _load_example()
-    result, audit_log = await example.run_traced(use_otel=False)
-    trace = await example.build_trace(result=result, audit_log=audit_log)
+    result, audit_log, citation_tracker = await example.run_traced(use_otel=False)
+    trace = await example.build_trace(result=result, audit_log=audit_log, citation_tracker=citation_tracker)
 
     steps = {s.node_id: s for s in trace.steps}
 
@@ -78,15 +78,22 @@ async def test_trace_captures_decisions_provenance_and_citations() -> None:
     for prov in trace.context_provenance:
         assert prov["reason"], "every context change must carry a reason"
 
-    # Citation: the research claim is backed by a named source.
-    assert any(c["source_id"] == "doc.cemaf_design#traceability" for c in trace.citations)
+    # Citation: comes from the REAL CitationTracker registry (has a generated
+    # citation_id), not a hand-pasted dict. The tracker also holds a cited fact
+    # binding the Researcher's output to that source.
+    assert trace.citations, "no citations registered"
+    cite = trace.citations[0]
+    assert cite["citation_id"].startswith("cite")
+    assert cite["source_id"] == "doc.cemaf_design#traceability"
+    assert citation_tracker.get_all_citations(), "tracker registry is empty"
+    assert citation_tracker.get_cited_facts(), "no cited fact bound to a source"
 
 
 @pytest.mark.asyncio
 async def test_audit_subscriber_records_per_node_task_events() -> None:
     """Regression: TASK_COMPLETED must produce per-node NODE_EXECUTED audit entries."""
     example = _load_example()
-    result, audit_log = await example.run_traced(use_otel=False)
+    result, audit_log, _tracker = await example.run_traced(use_otel=False)
 
     entries = await audit_log.query(run_id=str(result.run_id), limit=500)
     node_executed = [e for e in entries if e.type == AuditEntryType.NODE_EXECUTED]
@@ -105,7 +112,7 @@ async def test_audit_trail_records_node_decisions() -> None:
     WHAT each node decided.
     """
     example = _load_example()
-    result, audit_log = await example.run_traced(use_otel=False)
+    result, audit_log, _tracker = await example.run_traced(use_otel=False)
 
     entries = await audit_log.query(run_id=str(result.run_id), limit=500)
     by_node = {

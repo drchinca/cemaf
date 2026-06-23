@@ -44,6 +44,7 @@ from cemaf.agents.selection import Capability, DefaultAgentSelector
 from cemaf.audit.factories import create_audit_system
 from cemaf.audit.protocols import AuditLog
 from cemaf.bootstrap import create_executor
+from cemaf.citation.tracker import CitationTracker
 from cemaf.context.patch import PatchOperation, PatchSource
 from cemaf.core.types import JSON, AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
@@ -56,6 +57,8 @@ from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.results import ExecutionResult
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.protocols import Document, VectorStore
 
 # ---------------------------------------------------------------------------
 # Demo agents — each one records WHY it pulled the context it used, so the
@@ -68,10 +71,13 @@ class _ResearchGoal(BaseModel):
 
 
 class Researcher:
-    """Pulls a fact and records its provenance via a ContextPatch."""
+    """Retrieves a fact from a real vector store and cites it via the real
+    CitationTracker subsystem — no hand-pasted citation dicts."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, vector_store: VectorStore, citation_tracker: CitationTracker) -> None:
         self._id = AgentID("TraceResearcher")
+        self._vector_store = vector_store
+        self._citations = citation_tracker
 
     @property
     def id(self) -> AgentID:
@@ -86,18 +92,21 @@ class Researcher:
         return ()
 
     async def run(self, goal: _ResearchGoal, context: AgentContext) -> AgentResult[str]:
-        fact = (
-            "CEMAF reconstructs a per-step trace from its audit trail, context "
-            "patch provenance, citations, and node timing."
-        )
+        # Real retrieval against the seeded vector store.
+        results = await self._vector_store.search_by_text(query_text=goal.topic, k=1)
+        if not results:
+            return AgentResult.fail(error="no source found for topic", state=AgentState())
+
+        top = results[0]
+        fact = top.document.content
+        # Real citation: register the SearchResult, then bind the fact to it.
+        citation = self._citations.track_search_result(top)
+        self._citations.create_cited_fact(fact=fact, citations=[citation], confidence=top.score)
+
         return AgentResult.ok(
             output=fact,
             state=AgentState(),
-            metadata={
-                "cost_estimate_usd": 0.01,
-                "citation": {"source_id": "doc.cemaf_design#traceability", "score": 0.91},
-                "provenance_reason": "retrieved top-1 doc for the research topic",
-            },
+            metadata={"cost_estimate_usd": 0.01},
         )
 
 
@@ -226,7 +235,12 @@ class RunTrace:
         }
 
 
-async def build_trace(*, result: ExecutionResult, audit_log: AuditLog) -> RunTrace:
+async def build_trace(
+    *,
+    result: ExecutionResult,
+    audit_log: AuditLog,
+    citation_tracker: CitationTracker | None = None,
+) -> RunTrace:
     """Reconstruct a complete per-step trace from CEMAF's observability surfaces."""
     run_id = str(result.run_id)
     audit_entries = await audit_log.query(run_id=run_id, limit=500)
@@ -278,12 +292,20 @@ async def build_trace(*, result: ExecutionResult, audit_log: AuditLog) -> RunTra
             }
         )
 
-    # Citations surfaced via node metadata (the Researcher attached one).
+    # Citations from the real CitationTracker registry — each is a Citation the
+    # Researcher registered from an actual SearchResult, not a hand-pasted dict.
     citations: list[JSON] = []
-    for node_result in result.node_results:
-        cite = node_result.metadata.get("citation")
-        if isinstance(cite, dict):
-            citations.append({"node_id": str(node_result.node_id), **cite})
+    if citation_tracker is not None:
+        for citation in citation_tracker.get_all_citations():
+            citations.append(
+                {
+                    "citation_id": citation.id,
+                    "source_id": citation.source_id,
+                    "source_type": citation.source_type,
+                    "title": citation.title,
+                    "confidence": citation.confidence,
+                }
+            )
 
     nodes_with_audit = sum(1 for s in steps if s.audit_events)
     nodes_with_timing = sum(1 for s in steps if s.duration_ms >= 0)
@@ -341,12 +363,29 @@ def _build_dag() -> DAG:
     )
 
 
-async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditLog]:
+async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditLog, CitationTracker]:
     event_bus = InMemoryEventBus()
     audit_log, _audit_trail = create_audit_system(event_bus=event_bus)
 
+    # Real retrieval source + real citation tracker for the Researcher.
+    vector_store = InMemoryVectorStore(embedding_provider=MockEmbeddingProvider(dimension=64))
+    await vector_store.add(
+        Document(
+            id="doc.cemaf_design#traceability",
+            content=(
+                "CEMAF reconstructs a per-step trace from its audit trail, context "
+                "patch provenance, citations, and node timing."
+            ),
+            metadata={"title": "CEMAF Design — Traceability", "namespace": "design"},
+        )
+    )
+    citation_tracker = CitationTracker(event_bus=event_bus)
+
     registry = AgentRegistry()
-    registry.register_agent(agent_instance=Researcher(), goal_type=_ResearchGoal)
+    registry.register_agent(
+        agent_instance=Researcher(vector_store=vector_store, citation_tracker=citation_tracker),
+        goal_type=_ResearchGoal,
+    )
     registry.register_agent(
         agent_instance=Summarizer("SummarizerBusy", load=0.9),
         goal_type=_WriteGoal,
@@ -400,7 +439,7 @@ async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditL
         ),
     )
     result = await executor.run(dag=_build_dag())
-    return result, audit_log
+    return result, audit_log, citation_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -433,11 +472,12 @@ def _print_transcript(trace: RunTrace) -> None:
     else:
         print("    (no explicit ContextPatch provenance in this run)")
 
-    print("\n--- citations (which source backed which claim) ---")
+    print("\n--- citations (real CitationTracker registry) ---")
     if trace.citations:
         for cite in trace.citations:
             print(
-                f"    node='{cite.get('node_id')}'  source={cite.get('source_id')}  score={cite.get('score')}"
+                f"    id={cite.get('citation_id')}  source={cite.get('source_id')}  "
+                f"title='{cite.get('title')}'  confidence={cite.get('confidence')}"
             )
     else:
         print("    (no citations attached)")
@@ -456,8 +496,8 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    result, audit_log = await run_traced(use_otel=args.otel)
-    trace = await build_trace(result=result, audit_log=audit_log)
+    result, audit_log, citation_tracker = await run_traced(use_otel=args.otel)
+    trace = await build_trace(result=result, audit_log=audit_log, citation_tracker=citation_tracker)
 
     _print_transcript(trace)
 
