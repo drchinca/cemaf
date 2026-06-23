@@ -29,6 +29,9 @@ from pydantic import BaseModel
 
 from cemaf import DAG, AgentRegistry, Edge, Node, create_executor
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
+from cemaf.agents.selection import Capability, DefaultAgentSelector
+from cemaf.blueprint import BlueprintLibrary, InMemoryWritableBlueprintSource, create_blueprint_harvester
+from cemaf.citation.tracker import CitationTracker
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
@@ -36,13 +39,18 @@ from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 from cemaf.context.source import ContextSource
 from cemaf.core.enums import NodeType
 from cemaf.core.result import Result
-from cemaf.core.types import AgentID, FinishReason, NodeID, TokenCount, ToolID
+from cemaf.core.types import AgentID, FinishReason, NodeID, RunID, TokenCount, ToolID
+from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.evals.police import QualityPolice, QualityPoliceConfig
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
+from cemaf.interceptors import GateEvalInterceptor, create_interceptor_pipeline
 from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, StreamChunk, ToolDefinition
+from cemaf.observability.budget_guard import BudgetGuard
+from cemaf.orchestration.dag import Condition, ConditionOperator, EdgeCondition
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.retrieval.protocols import Document, SearchResult
 from cemaf.rlm import create_rlm_tool
 from cemaf.skills.base import Skill
 from cemaf.tools.base import Tool, ToolResult, ToolSchema
@@ -119,6 +127,23 @@ class BenchResult(BaseModel):
     output: int = 0
 
 
+class TagGoal(BaseModel):
+    tag: str
+
+
+class TagResult(BaseModel):
+    tag: str
+    run_id: str
+
+
+class WriteGoal(BaseModel):
+    objective: str = "write"
+
+
+class WriteResult(BaseModel):
+    article: str
+
+
 class NoOpAgent(Agent[BenchGoal, BenchResult]):
     """Small registered agent for executor benchmarks."""
 
@@ -140,6 +165,119 @@ class NoOpAgent(Agent[BenchGoal, BenchResult]):
     async def run(self, goal: BenchGoal, context: AgentContext) -> AgentResult[BenchResult]:
         self.run_count += 1
         return AgentResult.ok(output=BenchResult(output=goal.value + 1), state=AgentState())
+
+
+class YieldingTagAgent(Agent[TagGoal, TagResult]):
+    """Agent that forces async interleaving and echoes per-run state."""
+
+    @property
+    def id(self) -> AgentID:
+        return AgentID("bench_tag_agent")
+
+    @property
+    def description(self) -> str:
+        return "Echoes tag and run ID after an async hop"
+
+    @property
+    def skills(self) -> tuple[Skill[Any, Any], ...]:
+        return ()
+
+    async def run(self, goal: TagGoal, context: AgentContext) -> AgentResult[TagResult]:
+        await asyncio.sleep(0)
+        return AgentResult.ok(output=TagResult(tag=goal.tag, run_id=context.run_id), state=AgentState())
+
+
+class WriteLoadAgent(Agent[WriteGoal, WriteResult]):
+    """WRITE-capable agent with deterministic load for auction checks."""
+
+    def __init__(self, agent_id: str, load: float, *, ran: list[str]) -> None:
+        self._id = AgentID(agent_id)
+        self._load = load
+        self._ran = ran
+
+    @property
+    def id(self) -> AgentID:
+        return self._id
+
+    @property
+    def description(self) -> str:
+        return f"writer {self._id}"
+
+    @property
+    def skills(self) -> tuple[Skill[Any, Any], ...]:
+        return ()
+
+    @property
+    def capabilities(self) -> frozenset[Capability]:
+        return frozenset({Capability.WRITE})
+
+    @property
+    def current_load(self) -> float:
+        return self._load
+
+    async def run(self, goal: WriteGoal, context: AgentContext) -> AgentResult[WriteResult]:
+        self._ran.append(str(self._id))
+        return AgentResult.ok(
+            output=WriteResult(article=f"written-by:{self._id}:{goal.objective}"),
+            state=AgentState(),
+        )
+
+
+class CouncilVoteAgent(Agent[BenchGoal, str]):
+    """Agent that also implements the CouncilMember deliberate() protocol."""
+
+    def __init__(self, agent_id: str, choice: str) -> None:
+        self._id = AgentID(agent_id)
+        self._choice = choice
+
+    @property
+    def id(self) -> AgentID:
+        return self._id
+
+    @property
+    def description(self) -> str:
+        return f"votes {self._choice}"
+
+    @property
+    def skills(self) -> tuple[Skill[Any, Any], ...]:
+        return ()
+
+    async def run(self, goal: BenchGoal, context: AgentContext) -> AgentResult[str]:
+        return AgentResult.ok(output=self._choice, state=AgentState())
+
+    async def deliberate(self, *, question: object, goal: object, context: AgentContext) -> Any:
+        from cemaf.council.types import Opinion
+
+        await asyncio.sleep(0)
+        return Opinion(member_id=self._id, choice=self._choice)
+
+
+class GateTextAgent(Agent[BenchGoal, str]):
+    """Generator/consumer agent for GATE interceptor checks."""
+
+    def __init__(self, agent_id: str, text: str, *, ran: list[str] | None = None) -> None:
+        self._id = AgentID(agent_id)
+        self._text = text
+        self._ran = ran
+        self.runs = 0
+
+    @property
+    def id(self) -> AgentID:
+        return self._id
+
+    @property
+    def description(self) -> str:
+        return f"gate text agent {self._id}"
+
+    @property
+    def skills(self) -> tuple[Skill[Any, Any], ...]:
+        return ()
+
+    async def run(self, goal: BenchGoal, context: AgentContext) -> AgentResult[str]:
+        self.runs += 1
+        if self._ran is not None:
+            self._ran.append(str(self._id))
+        return AgentResult.ok(output=self._text, state=AgentState())
 
 
 class RequiredNoOpTool(Tool):
@@ -246,13 +384,19 @@ class CorpusLLMClient(CountingLLMClient):
         self.call_count += 1
         prompt = "\n".join(str(message.content) for message in messages)
         self.prompts.append(prompt)
+        await asyncio.sleep(0)
 
         match = re.search(r"question\s+(q\d{2})", prompt, flags=re.IGNORECASE)
         content = "NOT_FOUND"
         if match:
             question_id = match.group(1).lower()
             answer = self._answers.get(question_id)
-            if answer and answer in prompt:
+            source_pattern = re.compile(
+                rf"QUESTION_ID={re.escape(question_id)}\s+ANSWER={re.escape(answer or '')}\b",
+                flags=re.IGNORECASE,
+            )
+            aggregation_prompt = "I have gathered information" in prompt or "Synthesize these" in prompt
+            if answer and (source_pattern.search(prompt) or (aggregation_prompt and answer in prompt)):
                 content = answer
             else:
                 content = f"NOT_FOUND:{question_id}"
@@ -412,6 +556,103 @@ def _agent_dag(name: str = "bench", nodes: int = 1, *, structured_output: bool =
             dag = dag.add_edge(Edge(source=NodeID(previous), target=NodeID(f"a{i}")))
         previous = f"a{i}"
     return dag
+
+
+def _tag_router_dag() -> DAG:
+    router = Node(
+        id=NodeID("route"),
+        type=NodeType.ROUTER,
+        name="route",
+        config={"route_key": "branch"},
+        routes={"left": "left", "right": "right"},
+        output_key="route_targets",
+    )
+    left = Node(
+        id=NodeID("left"),
+        type=NodeType.AGENT,
+        name="left",
+        ref_id="bench_tag_agent",
+        input_mapping={"tag": "$$tag$$"},
+        output_key="tag_out",
+        structured_output=True,
+    )
+    right = Node(
+        id=NodeID("right"),
+        type=NodeType.AGENT,
+        name="right",
+        ref_id="bench_tag_agent",
+        input_mapping={"tag": "$$tag$$"},
+        output_key="tag_out",
+        structured_output=True,
+    )
+    return DAG(
+        name="bench-router-concurrency",
+        nodes=(router, left, right),
+        edges=(
+            Edge(source=NodeID("route"), target=NodeID("left")),
+            Edge(source=NodeID("route"), target=NodeID("right")),
+        ),
+        entry_node=NodeID("route"),
+    )
+
+
+def _gate_dag(*, retry: bool = True) -> DAG:
+    gen = Node(
+        id=NodeID("gen"),
+        type=NodeType.AGENT,
+        name="gen",
+        ref_id="gen",
+        output_key="draft",
+        retry_on_failure=retry,
+        max_retries=3,
+    )
+    use = Node.agent(id="use", name="use", agent_id="use", output_key="final")
+    return DAG(
+        name="bench-gate",
+        nodes=(gen, use),
+        edges=(Edge(source=NodeID("gen"), target=NodeID("use"), condition=EdgeCondition.ON_SUCCESS),),
+        entry_node=NodeID("gen"),
+    )
+
+
+async def _publish_blueprint_run(
+    *,
+    bus: InMemoryEventBus,
+    run_id: str,
+    node_id: str,
+    goal_text: str,
+    output: str,
+    score: float,
+) -> None:
+    for event in (
+        Event.create(
+            type=EventType.TASK_STARTED,
+            payload={
+                "run_id": run_id,
+                "node_id": node_id,
+                "goal_text": goal_text,
+                "inputs": {"objective": goal_text},
+            },
+            correlation_id=run_id,
+        ),
+        Event.create(
+            type=EventType.TASK_COMPLETED,
+            payload={"run_id": run_id, "node_id": node_id, "output": output, "success": True},
+            correlation_id=run_id,
+        ),
+        Event.create(
+            type=EventType.EVAL_COMPLETED,
+            payload={
+                "run_id": run_id,
+                "node_id": node_id,
+                "overall_score": score,
+                "overall_passed": True,
+                "results": [],
+            },
+            correlation_id=run_id,
+        ),
+    ):
+        await bus.publish(event)
 
 
 def bench_dag_construction(scale: int) -> BenchmarkResult:
@@ -659,11 +900,14 @@ def _build_rlm_corpus() -> tuple[str, dict[str, str]]:
     for i in range(40):
         question_id = f"q{i:02d}" if i < 20 else f"distractor_{i:02d}"
         answer = answers.get(question_id, f"distractor_answer_{i:02d}")
+        decoy_id = f"q{i % 20:02d}"
+        decoy = answers[decoy_id] if i >= 20 else f"near_match_{i:02d}"
         sections.append(
             "\n".join(
                 (
                     f"SECTION {i:02d}",
                     f"QUESTION_ID={question_id} ANSWER={answer}",
+                    f"DECOY_REF_FOR={decoy_id} WRONG_ANSWER={decoy}",
                     f"BODY {filler}",
                 )
             )
@@ -826,33 +1070,470 @@ async def check_event_bus_check() -> VeracityCheck:
 
 
 async def check_concurrency_check() -> VeracityCheck:
-    _, executor = _create_agent_executor()
-    dag = _agent_dag(name="check-concurrent", nodes=1, structured_output=True)
-    runs = 64
+    registry = AgentRegistry()
+    registry.register_agent(agent_instance=YieldingTagAgent(), goal_type=TagGoal)
+    bus = InMemoryEventBus()
+    received: list[Event] = []
 
-    async def run_one(value: int) -> int:
-        result = await executor.run(dag=dag, initial_context=Context(data={"value": value}))
+    async def capture(event: Event) -> None:
+        received.append(event)
+
+    bus.subscribe_all(capture)
+    executor = create_executor(
+        agent_registry=registry,
+        services=RuntimeServices(event_bus=bus),
+        config=ExecutorConfig(enable_logging=False, enable_events=True),
+    )
+    dag = _tag_router_dag()
+    runs = 64
+    expected_run_ids = {f"bench-run-{i}" for i in range(runs)}
+
+    async def run_one(value: int) -> tuple[str, str, str]:
+        branch = "left" if value % 2 == 0 else "right"
+        run_id = RunID(f"bench-run-{value}")
+        result = await executor.run(
+            dag=dag,
+            initial_context=Context(data={"tag": f"tag-{value}", "branch": branch}),
+            run_id=run_id,
+        )
         if not result.success:
-            return -1
-        output = result.final_context.get("out0")
-        return int(output["output"]) if isinstance(output, dict) else -1
+            return (str(run_id), branch, "FAILED")
+        output = result.final_context.get("tag_out")
+        if not isinstance(output, dict):
+            return (str(run_id), branch, "MISSING")
+        executed_node_ids = {str(node_result.node_id) for node_result in result.node_results}
+        branch_ok = branch in executed_node_ids and ({"left", "right"} - {branch}).isdisjoint(
+            executed_node_ids
+        )
+        if output.get("tag") != f"tag-{value}" or not branch_ok:
+            return (str(run_id), branch, str(output))
+        return (str(run_id), branch, "OK")
 
     start = time.perf_counter()
     outputs = await asyncio.gather(*(run_one(i) for i in range(runs)))
     elapsed_ms = (time.perf_counter() - start) * 1000
-    expected = [i + 1 for i in range(runs)]
-    mismatches = sum(1 for actual, wanted in zip(outputs, expected, strict=True) if actual != wanted)
+    mismatches = sum(1 for _, _, status in outputs if status != "OK")
+    wrong_correlation_events = sum(
+        1
+        for event in received
+        if event.correlation_id is not None and event.correlation_id not in expected_run_ids
+    )
+    dag_completed_ids = {
+        event.correlation_id for event in received if event.type == EventType.DAG_COMPLETED.value
+    }
+    missing_completed_ids = expected_run_ids - {item for item in dag_completed_ids if item is not None}
     return VeracityCheck(
         check_id="shared-executor-concurrency-isolation",
-        statement="Concurrent calls on one DAGExecutor keep per-run context isolated.",
+        statement=(
+            "Concurrent calls on one DAGExecutor keep per-run routes, context, "
+            "and event correlation isolated."
+        ),
         source="README.md: Concurrent-Run Contamination",
-        evidence="Ran 64 concurrent calls through one executor with distinct initial context values.",
-        passed=mismatches == 0,
+        evidence=(
+            "Ran 64 concurrent router DAG calls through one executor with explicit "
+            "run IDs and EventBus capture."
+        ),
+        passed=mismatches == 0 and wrong_correlation_events == 0 and not missing_completed_ids,
         metrics={
             "runs": runs,
             "mismatches": mismatches,
+            "captured_events": len(received),
+            "wrong_correlation_events": wrong_correlation_events,
+            "missing_dag_completed_events": len(missing_completed_ids),
             "elapsed_ms": round(elapsed_ms, 3),
             "runs_per_sec": round(runs / (elapsed_ms / 1000), 1) if elapsed_ms > 0 else 0.0,
+        },
+    )
+
+
+async def check_auction_selection_check() -> VeracityCheck:
+    ran: list[str] = []
+    registry = AgentRegistry()
+    registry.register_agent(
+        agent_instance=WriteLoadAgent("WriterBusy", load=0.9, ran=ran),
+        goal_type=WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
+    registry.register_agent(
+        agent_instance=WriteLoadAgent("WriterIdle", load=0.1, ran=ran),
+        goal_type=WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
+    executor = create_executor(
+        agent_registry=registry,
+        services=RuntimeServices(
+            agent_selector=DefaultAgentSelector(),
+            budget_guard=BudgetGuard(max_cost_usd=10.0, max_total_tokens=100_000),
+        ),
+        config=ExecutorConfig(enable_logging=False, enable_events=False),
+    )
+    node = Node.auction(
+        id="write",
+        name="write",
+        capability=Capability.WRITE.value,
+        input_mapping={"objective": "draft benchmark evidence"},
+        output_key="article",
+    )
+    dag = DAG(name="bench-auction", nodes=(node,), edges=(), entry_node=node.id)
+
+    start = time.perf_counter()
+    result = await executor.run(dag=dag)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    node_result = next((item for item in result.node_results if item.node_id == NodeID("write")), None)
+    selection = node_result.metadata.get("selection", {}) if node_result is not None else {}
+    candidate_count = len(registry.get_candidates(capability=Capability.WRITE))
+    passed = (
+        result.success
+        and node_result is not None
+        and node_result.success
+        and candidate_count == 2
+        and selection.get("agent_id") == "WriterIdle"
+        and ran == ["WriterIdle"]
+    )
+    return VeracityCheck(
+        check_id="auction-selects-low-load-agent",
+        statement=(
+            "Auction selection chooses among capable agents by deterministic bid "
+            "metadata and only runs the winner."
+        ),
+        source="README.md: Hard problems table / Auction selection",
+        evidence=("Ran a Node.auction DAG with two WRITE-capable agents and a wired DefaultAgentSelector."),
+        passed=passed,
+        metrics={
+            "candidates": candidate_count,
+            "selected_agent": selection.get("agent_id"),
+            "selected_score": round(float(selection.get("score", 0.0)), 4),
+            "winner_run_count": ran.count("WriterIdle"),
+            "loser_run_count": ran.count("WriterBusy"),
+            "elapsed_ms": round(elapsed_ms, 3),
+        },
+    )
+
+
+async def check_council_vote_check() -> VeracityCheck:
+    registry = AgentRegistry()
+    for agent_id, choice in (("v1", "approve"), ("v2", "approve"), ("v3", "reject")):
+        registry.register_agent(agent_instance=CouncilVoteAgent(agent_id, choice), goal_type=BenchGoal)
+    ship_ran: list[str] = []
+    registry.register_agent(
+        agent_instance=GateTextAgent("shipper", "shipped", ran=ship_ran),
+        goal_type=BenchGoal,
+    )
+    gate = Node.council(
+        id="gate",
+        name="ship gate",
+        members=("v1", "v2", "v3"),
+        options=("approve", "reject"),
+        prompt="ship it?",
+        output_key="verdict",
+    )
+    ship = Node.agent(id="ship", name="ship", agent_id="shipper", output_key="ship_out")
+    dag = DAG(
+        name="bench-council",
+        nodes=(gate, ship),
+        edges=(
+            Edge(
+                source=NodeID("gate"),
+                target=NodeID("ship"),
+                condition=EdgeCondition.JSON_RULE,
+                condition_rule=Condition(
+                    field="verdict",
+                    operator=ConditionOperator.EQUALS,
+                    value="approve",
+                ),
+            ),
+        ),
+        entry_node=NodeID("gate"),
+    )
+    executor = create_executor(
+        agent_registry=registry,
+        config=ExecutorConfig(enable_logging=False, enable_events=False),
+    )
+
+    start = time.perf_counter()
+    result = await executor.run(dag=dag)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    gate_result = next((item for item in result.node_results if item.node_id == NodeID("gate")), None)
+    ship_result = next((item for item in result.node_results if item.node_id == NodeID("ship")), None)
+    council = gate_result.metadata.get("council", {}) if gate_result is not None else {}
+    tally = council.get("tally", {})
+    ballots = council.get("ballots", ())
+    passed = (
+        result.success
+        and gate_result is not None
+        and ship_result is not None
+        and gate_result.output == "approve"
+        and tally == {"approve": 2.0, "reject": 1.0}
+        and len(ballots) == 3
+        and ship_ran == ["shipper"]
+    )
+    return VeracityCheck(
+        check_id="council-vote-steers-dag",
+        statement=(
+            "Council nodes aggregate member votes, preserve ballot metadata, and steer downstream DAG edges."
+        ),
+        source="README.md: Hard problems table / Council node-kind",
+        evidence=("Ran a Node.council DAG with three voters and a JSON_RULE edge opened by the verdict."),
+        passed=passed,
+        metrics={
+            "winning_choice": council.get("winning_choice"),
+            "ballots": len(ballots),
+            "tally": tally,
+            "downstream_runs": ship_ran.count("shipper"),
+            "elapsed_ms": round(elapsed_ms, 3),
+        },
+    )
+
+
+async def check_gate_interceptor_check() -> VeracityCheck:
+    def executor_for(gen: GateTextAgent, ran: list[str]) -> Any:
+        registry = AgentRegistry()
+        registry.register_agent(agent_instance=gen, goal_type=BenchGoal)
+        registry.register_agent(
+            agent_instance=GateTextAgent("use", "used", ran=ran),
+            goal_type=BenchGoal,
+        )
+        pipeline = create_interceptor_pipeline(
+            interceptors=(
+                GateEvalInterceptor(
+                    evaluators=(LengthEvaluator(min_length=100),),
+                    node_pattern="gen",
+                    threshold=0.5,
+                ),
+            )
+        )
+        return create_executor(
+            agent_registry=registry,
+            services=RuntimeServices(interceptor_pipeline=pipeline),
+            config=ExecutorConfig(enable_logging=False, enable_events=False),
+        )
+
+    fail_ran: list[str] = []
+    fail_gen = GateTextAgent("gen", "short")
+    fail_executor = executor_for(fail_gen, fail_ran)
+    fail_run = await fail_executor.run(dag=_gate_dag(retry=True))
+    fail_gen_result = next(item for item in fail_run.node_results if item.node_id == NodeID("gen"))
+
+    pass_ran: list[str] = []
+    pass_gen = GateTextAgent("gen", "x" * 200)
+    pass_executor = executor_for(pass_gen, pass_ran)
+    pass_run = await pass_executor.run(dag=_gate_dag(retry=True))
+    pass_gen_result = next(item for item in pass_run.node_results if item.node_id == NodeID("gen"))
+
+    fail_interceptors = fail_gen_result.metadata.get("interceptors", {})
+    pass_interceptors = pass_gen_result.metadata.get("interceptors", {})
+    passed = (
+        not fail_gen_result.success
+        and fail_interceptors.get("gate_rejected") is True
+        and fail_ran == []
+        and fail_gen.runs == 1
+        and pass_gen_result.success
+        and pass_interceptors.get("gate_eval:gen") == {"gate": "passed", "evaluators": 1}
+        and pass_ran == ["use"]
+    )
+    return VeracityCheck(
+        check_id="gate-eval-blocks-downstream",
+        statement=(
+            "A POST GATE interceptor rejects failing output, blocks downstream "
+            "nodes, and does not burn retries."
+        ),
+        source="README.md: Hard problems table / Citation membership and gate halt",
+        evidence=("Ran failing and passing two-node DAGs through GateEvalInterceptor and LengthEvaluator."),
+        passed=passed,
+        metrics={
+            "fail_gate_rejected": fail_interceptors.get("gate_rejected") is True,
+            "fail_downstream_runs": len(fail_ran),
+            "fail_generator_runs": fail_gen.runs,
+            "pass_downstream_runs": len(pass_ran),
+            "pass_gate_metadata": pass_interceptors.get("gate_eval:gen"),
+        },
+    )
+
+
+def check_citation_tracker_check() -> VeracityCheck:
+    tracker = CitationTracker()
+    results = [
+        SearchResult(
+            document=Document(
+                id="doc_grounding_1",
+                content="CEMAF stores context changes as immutable patches.",
+                metadata={"title": "Context Docs", "source_type": "document", "section": "context"},
+            ),
+            score=0.96,
+            rank=1,
+            metadata={"retriever": "benchmark"},
+        ),
+        SearchResult(
+            document=Document(
+                id="doc_grounding_2",
+                content="Each context patch carries source, reason, and correlation metadata.",
+                metadata={"title": "Patch Docs", "source_type": "document", "section": "patches"},
+            ),
+            score=0.91,
+            rank=2,
+            metadata={"retriever": "benchmark"},
+        ),
+    ]
+    citations = tracker.track_search_results(results)
+    cited_fact, patch = tracker.create_cited_fact_patch(
+        fact="CEMAF context updates carry immutable patch provenance.",
+        citations=citations,
+        path="research.findings",
+        confidence=0.95,
+        verification_status="verified",
+        correlation_id="bench-citation",
+        agent_id="researcher",
+        node_id="grounding",
+    )
+    context = Context().apply(patch)
+    tracker.record_uncited_fact("An unsupported factual statement was intentionally recorded.")
+    report = tracker.get_citation_report()
+    stored_fact = context.get(f"research.findings.{cited_fact.id}")
+    passed = (
+        report["total_citations"] == 2
+        and report["total_cited_facts"] == 1
+        and report["total_uncited_facts"] == 1
+        and patch.source == PatchSource.TOOL
+        and patch.correlation_id == "bench-citation"
+        and isinstance(stored_fact, dict)
+        and stored_fact.get("citation_count") == 2
+        and stored_fact.get("agent_id") == "researcher"
+        and stored_fact.get("node_id") == "grounding"
+    )
+    return VeracityCheck(
+        check_id="citation-tracker-provenance",
+        statement=(
+            "CitationTracker turns retrieved sources into cited factual statements and provenance patches."
+        ),
+        source="README.md: Hard problems table / grounded output enforcement",
+        evidence=(
+            "Tracked two SearchResult sources, created a cited-fact ContextPatch, "
+            "and recorded one uncited statement."
+        ),
+        passed=passed,
+        metrics={
+            "citations": report["total_citations"],
+            "cited_facts": report["total_cited_facts"],
+            "uncited_facts": report["total_uncited_facts"],
+            "citation_rate": report["citation_rate"],
+            "patch_source": patch.source.value,
+            "patch_correlation_id": patch.correlation_id,
+        },
+    )
+
+
+async def check_blueprint_harvest_check() -> VeracityCheck:
+    bus = InMemoryEventBus()
+    source = InMemoryWritableBlueprintSource()
+    library = BlueprintLibrary()
+    engine = create_blueprint_harvester(
+        writable_source=source,
+        event_bus=bus,
+        library=library,
+        threshold=0.8,
+    )
+    try:
+        await _publish_blueprint_run(
+            bus=bus,
+            run_id="bench-blueprint-run",
+            node_id="writer",
+            goal_text="Write a product launch announcement",
+            output="# Launch\nWe shipped a reusable benchmark artifact.",
+            score=0.95,
+        )
+        entries = tuple(source.load())
+        hits = library.search(query="product launch announcement", k=3)
+        resolved = library.resolve(entry_id=hits[0][0].id) if hits else None
+        passed = len(entries) == 1 and len(library) == 1 and bool(hits) and resolved is not None
+        return VeracityCheck(
+            check_id="blueprint-harvest-search",
+            statement=(
+                "BlueprintHarvesterEngine distills high-scoring runs into reusable, searchable blueprints."
+            ),
+            source="README.md: Hard problems table / BlueprintHarvesterEngine",
+            evidence=(
+                "Published task/eval events through InMemoryEventBus and searched "
+                "the harvested BlueprintLibrary."
+            ),
+            passed=passed,
+            metrics={
+                "source_entries": len(entries),
+                "library_entries": len(library),
+                "search_hits": len(hits),
+                "top_hit_id": hits[0][0].id if hits else "",
+                "top_hit_score": hits[0][1] if hits else 0.0,
+                "resolved": resolved is not None,
+            },
+        )
+    finally:
+        engine.unsubscribe()
+
+
+async def check_rlm_concurrency_check() -> VeracityCheck:
+    corpus, answers = _build_rlm_corpus()
+    subset_ids = tuple(sorted(answers.keys())[:12])
+    llm = CorpusLLMClient(answers=answers)
+    max_tokens = 2200
+    tool = create_rlm_tool(
+        llm_client=llm,
+        token_estimator=SimpleTokenEstimator(chars_per_token=4.0),
+        chunk_size=180,
+        max_depth=4,
+        max_tokens=max_tokens,
+    )
+
+    async def run_one(question_id: str) -> tuple[bool, int, float, str]:
+        result = await tool.execute(
+            instruction=f"For question {question_id}, return the answer string.",
+            content=corpus,
+            max_depth=4,
+            max_tokens=max_tokens,
+            chunk_size=180,
+        )
+        if not result.success:
+            return (False, 0, 0.0, "")
+        answer = str(result.data)
+        expected = answers[question_id]
+        leaks = sum(1 for other_id, token in answers.items() if other_id != question_id and token in answer)
+        coverage = float(
+            result.metadata.get(
+                "coverage_ratio",
+                int(result.metadata.get("chunks_examined", 0))
+                / max(1, int(result.metadata.get("total_chunks_created", 1))),
+            )
+        )
+        return (
+            answer == expected and leaks == 0,
+            int(result.metadata.get("llm_calls_made", 0)),
+            coverage,
+            answer,
+        )
+
+    start = time.perf_counter()
+    outcomes = await asyncio.gather(*(run_one(question_id) for question_id in subset_ids))
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    passes = sum(1 for ok, _, _, _ in outcomes if ok)
+    mismatches = len(subset_ids) - passes
+    total_llm_calls = sum(calls for _, calls, _, _ in outcomes)
+    min_coverage = min((coverage for _, _, coverage, _ in outcomes), default=0.0)
+    sample_failures = [subset_ids[i] for i, (ok, _, _, _) in enumerate(outcomes) if not ok][:5]
+    return VeracityCheck(
+        check_id="rlm-concurrent-query-isolation",
+        statement=(
+            "Concurrent calls through one RLM tool remain query-isolated without cross-answer contamination."
+        ),
+        source="README.md: Concurrent-Run Contamination + docs/rlm.md parallel chunk processing",
+        evidence=("Executed 12 concurrent question lookups against one shared RLM tool and mock LLM client."),
+        passed=mismatches == 0 and min_coverage >= 1.0,
+        metrics={
+            "concurrent_queries": len(subset_ids),
+            "mismatches": mismatches,
+            "sample_failures": sample_failures,
+            "total_llm_calls": total_llm_calls,
+            "avg_llm_calls": round(total_llm_calls / len(subset_ids), 2),
+            "min_coverage": round(min_coverage, 4),
+            "elapsed_ms": round(elapsed_ms, 3),
+            "queries_per_sec": round(len(subset_ids) / (elapsed_ms / 1000), 2) if elapsed_ms > 0 else 0.0,
         },
     )
 
@@ -860,59 +1541,93 @@ async def check_concurrency_check() -> VeracityCheck:
 async def check_rlm_check() -> VeracityCheck:
     corpus, answers = _build_rlm_corpus()
     llm = CorpusLLMClient(answers=answers)
+    max_tokens = 2200
+    reserved_output_tokens = 1000
+    available_tokens = max_tokens - reserved_output_tokens
     tool = create_rlm_tool(
         llm_client=llm,
         token_estimator=SimpleTokenEstimator(chars_per_token=4.0),
         chunk_size=180,
         max_depth=4,
-        max_tokens=700,
+        max_tokens=max_tokens,
     )
 
     start = time.perf_counter()
     correct = 0
     total_chunks = 0
+    total_chunks_created = 0
     total_llm_calls = 0
     total_depth = 0
+    coverage_values: list[float] = []
     failures: list[str] = []
+    wrong_answer_leaks = 0
     for question_id, expected in answers.items():
         result = await tool.execute(
             instruction=f"For question {question_id}, return the answer string.",
             content=corpus,
             max_depth=4,
-            max_tokens=700,
+            max_tokens=max_tokens,
             chunk_size=180,
         )
         answer = str(result.data) if result.success else ""
-        if expected in answer:
+        leaked_answers = [
+            other for other_id, other in answers.items() if other_id != question_id and other in answer
+        ]
+        wrong_answer_leaks += len(leaked_answers)
+        if answer == expected:
             correct += 1
         else:
             failures.append(question_id)
-        total_chunks += int(result.metadata.get("chunks_examined", 0))
+        chunks_examined = int(result.metadata.get("chunks_examined", 0))
+        chunks_created = int(result.metadata.get("total_chunks_created", 0))
+        total_chunks += chunks_examined
+        total_chunks_created += chunks_created
         total_llm_calls += int(result.metadata.get("llm_calls_made", 0))
         total_depth += int(result.metadata.get("depth_reached", 0))
+        coverage_values.append(
+            float(
+                result.metadata.get(
+                    "coverage_ratio", chunks_examined / chunks_created if chunks_created else 0.0
+                )
+            )
+        )
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     questions = len(answers)
     accuracy = correct / questions if questions else 0.0
+    avg_llm_calls = total_llm_calls / questions if questions else 0.0
+    min_coverage = min(coverage_values) if coverage_values else 0.0
+    max_avg_llm_calls = 250.0
     return VeracityCheck(
         check_id="rlm-large-context-querying",
         statement=(
             "RLM can query a document larger than one prompt window by chunking and recursive aggregation."
         ),
         source="docs/rlm.md and README.md: rlm/ recursive context queries",
-        evidence=(
-            "Queried a deterministic 40-section corpus for 20 ground-truth answers via create_rlm_tool()."
+        evidence=("Queried a deterministic 40-section corpus with decoys for 20 exact ground-truth answers."),
+        passed=(
+            accuracy == 1.0
+            and wrong_answer_leaks == 0
+            and available_tokens > 0
+            and min_coverage >= 1.0
+            and avg_llm_calls <= max_avg_llm_calls
         ),
-        passed=accuracy == 1.0,
         metrics={
             "questions": questions,
             "correct": correct,
             "accuracy": round(accuracy, 4),
             "failures": failures,
+            "wrong_answer_leaks": wrong_answer_leaks,
+            "max_tokens": max_tokens,
+            "reserved_output_tokens": reserved_output_tokens,
+            "available_context_tokens": available_tokens,
             "elapsed_ms": round(elapsed_ms, 3),
             "avg_ms_per_question": round(elapsed_ms / questions, 3),
             "avg_chunks_examined": round(total_chunks / questions, 2),
-            "avg_llm_calls": round(total_llm_calls / questions, 2),
+            "avg_chunks_created": round(total_chunks_created / questions, 2),
+            "min_coverage": round(min_coverage, 4),
+            "avg_llm_calls": round(avg_llm_calls, 2),
+            "max_avg_llm_calls": max_avg_llm_calls,
             "avg_depth": round(total_depth / questions, 2),
             "total_llm_calls": total_llm_calls,
         },
@@ -927,6 +1642,12 @@ async def run_veracity_checks() -> list[VeracityCheck]:
         check_context_provenance_check(),
         await check_event_bus_check(),
         await check_concurrency_check(),
+        await check_auction_selection_check(),
+        await check_council_vote_check(),
+        await check_gate_interceptor_check(),
+        check_citation_tracker_check(),
+        await check_blueprint_harvest_check(),
+        await check_rlm_concurrency_check(),
         await check_rlm_check(),
     ]
 

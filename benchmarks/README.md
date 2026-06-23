@@ -20,7 +20,8 @@ The harness reports two kinds of evidence:
 
 - `veracity_checks`: executable checks tied to README/docs capability statements, including DAG
   execution, pull-cost behavior, token-budget context selection, patch provenance, event delivery,
-  shared-executor concurrency isolation, and RLM large-context retrieval accuracy.
+  shared-executor concurrency isolation, auction selection, council voting, gate interception,
+  citation provenance, blueprint harvesting, and RLM large-context retrieval/concurrency accuracy.
 - `benchmarks`: timing numbers with repeated samples, mean, median, p95, throughput, iteration count, and environment metadata.
 
 The numbers are machine-local. Use them as reproducible evidence for the current checkout, not as universal performance guarantees.
