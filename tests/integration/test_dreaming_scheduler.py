@@ -12,11 +12,10 @@ from cemaf.scheduler.primitives import InMemoryJobStore, JobRunStatus, ManagedSc
 @pytest.mark.asyncio
 async def test_dreaming_mode_runs_under_managed_scheduler() -> None:
     memory_manager = create_memory_manager()
-    await memory_manager.remember(
-        scope=MemoryScope.PROJECT,
-        key="fact",
-        value={"summary": "A durable project fact."},
-    )
+    # Two items share content (a real duplicate) so consolidation has work to do.
+    duplicate = {"summary": "A durable project fact."}
+    await memory_manager.remember(scope=MemoryScope.PROJECT, key="fact", value=duplicate)
+    await memory_manager.remember(scope=MemoryScope.PROJECT, key="fact_dup", value=duplicate)
 
     mode = DreamingMode(min_sessions=1, use_lock_gate=False)
     handle = mode.build(memory_manager=memory_manager, current_sessions=1)
@@ -40,5 +39,6 @@ async def test_dreaming_mode_runs_under_managed_scheduler() -> None:
     assert len(runs) == 1
     assert runs[0].status == JobRunStatus.COMPLETED
     assert isinstance(runs[0].result, dict)
-    assert runs[0].result["consolidated_count"] >= 1
+    # The duplicate was genuinely merged away (real consolidation, not a count).
+    assert runs[0].result["consolidated_count"] == 1
     assert heartbeat is not None
