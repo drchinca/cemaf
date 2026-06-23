@@ -75,10 +75,12 @@ async def test_trace_captures_decisions_provenance_and_citations() -> None:
     assert "selection" in steps["summarize"].decision
     assert steps["summarize"].decision["selection"]["agent_id"] in {"SummarizerIdle", "SummarizerBusy"}
 
-    # Council decision records the full ballot set (every vote is visible).
+    # Council decision records the full ballot set (every vote is visible)
+    # AND each ballot carries the member's own rationale (WHY they voted).
     council = steps["review"].decision["council"]
     assert council["winning_choice"] == "approve"
     assert len(council["ballots"]) == 3
+    assert all(b["rationale"] for b in council["ballots"]), "a ballot is missing its rationale"
 
     # Context provenance: every produced key names its source node + reason.
     prov_paths = {p["path"] for p in trace.context_provenance}

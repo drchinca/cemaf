@@ -171,3 +171,20 @@ class TestDeterminism:
         assert set(meta) == {"winning_choice", "method", "decided", "quorum_met", "tally", "ballots"}
         assert meta["winning_choice"] == "A"
         assert isinstance(meta["ballots"], list)
+
+
+class TestBallotRationale:
+    """A member's reason for its vote must survive aggregation into the ballot."""
+
+    def test_rationale_carried_into_ballot(self) -> None:
+        op = Opinion(
+            member_id=AgentID("m1"),
+            choice="A",
+            rationale="A is the safest option given the constraints.",
+        )
+        d = _agg(AggregationMethod.MAJORITY).aggregate(question=Q, opinions=(op,))
+        ballot = d.ballots[0]
+        assert ballot.rationale == "A is the safest option given the constraints."
+        # And it survives serialization (the audit-trail / metadata path).
+        assert ballot.to_dict()["rationale"] == "A is the safest option given the constraints."
+        assert d.to_metadata()["ballots"][0]["rationale"] == op.rationale
