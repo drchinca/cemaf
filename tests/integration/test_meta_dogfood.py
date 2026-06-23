@@ -7,6 +7,8 @@ managed background jobs using only CEMAF primitives.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from cemaf.agents.registry import AgentRegistry
@@ -235,3 +237,59 @@ async def test_dogfood_singleton_lease_prevents_double_run() -> None:
     assert JobRunStatus.DEFERRED in statuses
     deferred = next(r for r in runs if r.status == JobRunStatus.DEFERRED)
     assert deferred.metadata.get("reason") == "lease_held"
+
+
+@pytest.mark.asyncio
+async def test_dogfood_live_loop_fires_self_audit_autonomously() -> None:
+    """The real autonomous path (SPEC-11 §4): start() → trigger fires → job runs → stop().
+
+    Everything else in this module drives jobs via run_now(). This proves the
+    scheduler's own loop picks up a due job and executes it with no manual kick —
+    the actual dog-fooding promise of an unattended deployment.
+    """
+    from datetime import timedelta
+
+    memory_manager = create_memory_manager()
+    agent_registry = AgentRegistry()
+    event_bus = InMemoryEventBus()
+    audit_log, audit_trail = create_audit_system(event_bus=event_bus)
+    kg = create_knowledge_graph(memory_manager=memory_manager)
+
+    services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
+    executor = create_meta_executor(
+        agent_registry=agent_registry,
+        services=services,
+        meta_services=MetaServices(audit_log=audit_log, audit_trail=audit_trail, knowledge_graph=kg),
+    )
+
+    # Fast check interval so the loop fires within the test's patience window.
+    scheduler = create_managed_scheduler(
+        worker_id="live_loop_worker",
+        check_interval_seconds=0.05,
+    )
+    # A tiny interval trigger fires on the first loop tick (no nightshift gate).
+    await bootstrap_meta_dogfood(
+        scheduler=scheduler,
+        executor=executor,
+        memory_manager=memory_manager,
+        defaults=DogfoodDefaults(
+            self_audit_interval=timedelta(seconds=1),
+            nightshift_window=None,
+        ),
+    )
+
+    await scheduler.start()
+    try:
+        # Poll for the loop to autonomously run self_audit (cap ~5s).
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            runs = await scheduler.list_runs(job_id=SELF_AUDIT_JOB_ID)
+            if any(r.status == JobRunStatus.COMPLETED for r in runs):
+                break
+    finally:
+        await scheduler.stop()
+
+    runs = await scheduler.list_runs(job_id=SELF_AUDIT_JOB_ID)
+    completed = [r for r in runs if r.status == JobRunStatus.COMPLETED]
+    assert completed, f"loop never ran self_audit autonomously; saw {[r.status for r in runs]}"
+    assert await scheduler.worker_status() in {"active", "stale"}
