@@ -2,8 +2,8 @@
 
 The glassbox_trace example reconstructs a per-step trace from CEMAF's audit
 trail, context-patch provenance, citations, and node timing. This test asserts
-the enforceable form of the "99.99% traceability" claim: EVERY node in a real
-run has a per-step audit record AND timing — no black-box steps.
+per-step coverage: EVERY node in a real run has an audit record AND positive
+timing — no black-box steps.
 
 It also pins the framework fix that made this possible: the audit subscriber
 now maps TASK_COMPLETED/TASK_FAILED → NODE_EXECUTED, so per-node executions
@@ -43,15 +43,23 @@ async def test_every_node_is_fully_traced() -> None:
 
     assert trace.status == "completed"
     assert trace.coverage["total_nodes"] == 3
-    # The headline claim: no node is a black box.
+    # No node is a black box: each has an audit record AND positive timing.
     assert trace.coverage["fully_traced"] is True
     assert trace.coverage["nodes_with_audit_events"] == trace.coverage["total_nodes"]
     assert trace.coverage["nodes_with_timing"] == trace.coverage["total_nodes"]
 
-    # Each step carries a per-node audit record.
+    # Each step carries a per-node audit record and real (positive) timing —
+    # the `> 0` here would fail under the old tautological `>= 0` default.
     for step in trace.steps:
         assert step.audit_events, f"node {step.node_id} has no audit events — black box"
         assert AuditEntryType.NODE_EXECUTED.value in step.audit_events
+        assert step.duration_ms > 0, f"node {step.node_id} has no real timing"
+
+    # Agent nodes record their own reasoning (the research + summarize agents do).
+    assert trace.coverage["nodes_with_reasoning"] >= 2
+    reasoning_by_node = {s.node_id: s.reasoning for s in trace.steps}
+    assert reasoning_by_node["research"], "research agent recorded no reasoning"
+    assert "scored" in reasoning_by_node["research"]
 
 
 @pytest.mark.asyncio
