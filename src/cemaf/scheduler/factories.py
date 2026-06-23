@@ -15,11 +15,7 @@ def _load_scheduler_settings(settings: Settings | None = None) -> SchedulerSetti
         max_concurrent_jobs=int(os.getenv("CEMAF_SCHEDULER_MAX_CONCURRENT_JOBS", "10")),
         default_job_timeout_seconds=float(os.getenv("CEMAF_SCHEDULER_DEFAULT_JOB_TIMEOUT_SECONDS", "300.0")),
         default_max_retries=int(os.getenv("CEMAF_SCHEDULER_DEFAULT_MAX_RETRIES", "3")),
-        enable_persistence=os.getenv("CEMAF_SCHEDULER_ENABLE_PERSISTENCE", "false").lower() == "true",
         check_interval_seconds=float(os.getenv("CEMAF_SCHEDULER_CHECK_INTERVAL_SECONDS", "1.0")),
-        heartbeat_interval_seconds=float(os.getenv("CEMAF_SCHEDULER_HEARTBEAT_INTERVAL_SECONDS", "10.0")),
-        heartbeat_ttl_seconds=float(os.getenv("CEMAF_SCHEDULER_HEARTBEAT_TTL_SECONDS", "30.0")),
-        worker_id=os.getenv("CEMAF_SCHEDULER_WORKER_ID", ""),
     )
 
 
