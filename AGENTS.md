@@ -7,7 +7,7 @@ CEMAF is a protocol-first, multi-agent orchestration framework for context engin
 The project has two layers:
 
 - Layer 1: base framework primitives under `src/cemaf/`, including orchestration, agents, tools, context, memory, evals, moderation, events, resilience, observability, retrieval, and LLM integration.
-- Layer 2: self-hosting consumers under `audit/`, `knowledge/`, and `meta/`. These may consume the base framework, but base modules must not import self-hosting modules.
+- Layer 2: opt-in self-hosting consumers under `src/cemaf/audit/`, `src/cemaf/knowledge/`, and `src/cemaf/meta/`. These may consume the base framework, but base modules must not import self-hosting modules.
 
 Primary composition entry points:
 

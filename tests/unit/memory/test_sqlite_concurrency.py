@@ -1,9 +1,8 @@
-"""Regression tests — SqliteMemoryStore must tolerate concurrent writes.
+"""Regression tests for SqliteMemoryStore concurrent writes.
 
-Before the fix, every operation opened its own aiosqlite connection with
-no WAL + no busy_timeout. Under concurrent load this raised SQLITE_BUSY
-silently (the error bubbled up as `OperationalError: database is locked`).
-Production persistence was single-writer.
+Each store instance has its own connection lock, so multiple instances pointed
+at one database need process-level writer coordination in addition to SQLite's
+WAL and busy_timeout settings.
 """
 
 from __future__ import annotations
@@ -55,7 +54,7 @@ async def test_concurrent_reads_and_writes_coexist(tmp_path: Path) -> None:
             *[writer(i) for i in range(30)],
             *[reader() for _ in range(30)],
         )
-        # No exceptions; all readers saw ≥20 items, writers all returned None
+        # No exceptions; all readers saw >=20 items, writers all returned None
         read_counts = [r for r in results if isinstance(r, int)]
         assert all(c >= 20 for c in read_counts)
     finally:
@@ -76,8 +75,44 @@ async def test_multiple_store_instances_share_one_writer_lane(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_multiple_event_loops_share_process_writer_lane(tmp_path: Path) -> None:
+    """Threaded event loops share one process-local writer lock per db path."""
+    db_path = str(tmp_path / "threaded-loop.db")
+    worker_count = 4
+    items_per_worker = 50
+
+    def run_writer(worker_id: int) -> None:
+        async def write_batch() -> None:
+            store = SqliteMemoryStore(db_path=db_path, busy_timeout_ms=0)
+            try:
+                await asyncio.gather(
+                    *(
+                        store.set(item=_item(f"worker-{worker_id}-key-{i}", f"value-{i}"))
+                        for i in range(items_per_worker)
+                    )
+                )
+            finally:
+                await store.close()
+
+        asyncio.run(write_batch())
+
+    await asyncio.gather(*(asyncio.to_thread(run_writer, worker_id) for worker_id in range(worker_count)))
+
+    verifier = SqliteMemoryStore(db_path=db_path, busy_timeout_ms=0)
+    try:
+        items = await verifier.list_by_scope(scope=MemoryScope.PROJECT)
+    finally:
+        await verifier.close()
+
+    assert len(items) == worker_count * items_per_worker
+    assert {item.key for item in items} == {
+        f"worker-{worker_id}-key-{i}" for worker_id in range(worker_count) for i in range(items_per_worker)
+    }
+
+
+@pytest.mark.asyncio
 async def test_wal_pragma_is_set(tmp_path: Path) -> None:
-    """Journal mode must be WAL — regression for the root cause."""
+    """Journal mode must be WAL - regression for the root cause."""
     store = SqliteMemoryStore(db_path=str(tmp_path / "pragma.db"))
     try:
         conn = await store._connection()
