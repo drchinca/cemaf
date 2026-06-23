@@ -52,6 +52,17 @@ from cemaf.meta.dags import (
     create_knowledge_refresh_dag,
     create_self_audit_dag,
 )
+from cemaf.meta.dogfood import (
+    DREAMING_JOB_ID,
+    KNOWLEDGE_REFRESH_JOB_ID,
+    SELF_AUDIT_JOB_ID,
+    DogfoodDefaults,
+    DogfoodJobs,
+    bootstrap_meta_dogfood,
+    register_dreaming_job,
+    register_knowledge_refresh_job,
+    register_self_audit_job,
+)
 from cemaf.meta.dreaming import DreamingMode, DreamingModeHandle
 from cemaf.meta.goals import (
     ArchitectGoal,
@@ -91,6 +102,16 @@ __all__ = [
     # Dreaming mode
     "DreamingMode",
     "DreamingModeHandle",
+    # Dog-fooded meta-scheduler (SPEC-11)
+    "SELF_AUDIT_JOB_ID",
+    "KNOWLEDGE_REFRESH_JOB_ID",
+    "DREAMING_JOB_ID",
+    "DogfoodJobs",
+    "DogfoodDefaults",
+    "bootstrap_meta_dogfood",
+    "register_self_audit_job",
+    "register_knowledge_refresh_job",
+    "register_dreaming_job",
     # Goals
     "ArchitectGoal",
     "ArchitectResult",
