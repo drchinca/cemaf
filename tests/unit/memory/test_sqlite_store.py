@@ -39,9 +39,17 @@ def db_path(tmp_path: object) -> str:
     return str(tmp_path / "test_memory.db")  # type: ignore[operator]
 
 
-async def test_get_set_roundtrip(db_path: str) -> None:
+@pytest.fixture
+async def store(db_path: str):
+    sqlite_store = SqliteMemoryStore(db_path=db_path)
+    try:
+        yield sqlite_store
+    finally:
+        await sqlite_store.close()
+
+
+async def test_get_set_roundtrip(store: SqliteMemoryStore) -> None:
     """Store and retrieve an item with all fields intact."""
-    store = SqliteMemoryStore(db_path=db_path)
     item = _make_item(key="roundtrip", value={"nested": {"a": 1}}, confidence=0.75)
 
     await store.set(item=item)
@@ -54,16 +62,14 @@ async def test_get_set_roundtrip(db_path: str) -> None:
     assert retrieved.scope == MemoryScope.TENANT
 
 
-async def test_get_missing_returns_none(db_path: str) -> None:
+async def test_get_missing_returns_none(store: SqliteMemoryStore) -> None:
     """Get on a non-existent key returns None."""
-    store = SqliteMemoryStore(db_path=db_path)
     result = await store.get(scope=MemoryScope.TENANT, key="nonexistent")
     assert result is None
 
 
-async def test_set_overwrites_existing(db_path: str) -> None:
+async def test_set_overwrites_existing(store: SqliteMemoryStore) -> None:
     """Setting the same scope+key replaces the item."""
-    store = SqliteMemoryStore(db_path=db_path)
     await store.set(item=_make_item(key="dup", value={"v": 1}))
     await store.set(item=_make_item(key="dup", value={"v": 2}))
 
@@ -72,24 +78,21 @@ async def test_set_overwrites_existing(db_path: str) -> None:
     assert retrieved.value == {"v": 2}
 
 
-async def test_delete_existing(db_path: str) -> None:
+async def test_delete_existing(store: SqliteMemoryStore) -> None:
     """Delete returns True for existing items and removes them."""
-    store = SqliteMemoryStore(db_path=db_path)
     await store.set(item=_make_item(key="to_delete"))
 
     assert await store.delete(scope=MemoryScope.TENANT, key="to_delete") is True
     assert await store.get(scope=MemoryScope.TENANT, key="to_delete") is None
 
 
-async def test_delete_nonexistent(db_path: str) -> None:
+async def test_delete_nonexistent(store: SqliteMemoryStore) -> None:
     """Delete returns False for non-existent items."""
-    store = SqliteMemoryStore(db_path=db_path)
     assert await store.delete(scope=MemoryScope.TENANT, key="nope") is False
 
 
-async def test_list_by_scope(db_path: str) -> None:
+async def test_list_by_scope(store: SqliteMemoryStore) -> None:
     """List returns only items matching the requested scope."""
-    store = SqliteMemoryStore(db_path=db_path)
     await store.set(item=_make_item(scope=MemoryScope.TENANT, key="b1"))
     await store.set(item=_make_item(scope=MemoryScope.TENANT, key="b2"))
     await store.set(item=_make_item(scope=MemoryScope.PROJECT, key="p1"))
@@ -102,9 +105,8 @@ async def test_list_by_scope(db_path: str) -> None:
     assert {item.key for item in brand_items} == {"b1", "b2"}
 
 
-async def test_cleanup_expired(db_path: str) -> None:
+async def test_cleanup_expired(store: SqliteMemoryStore) -> None:
     """Cleanup removes expired items and returns count."""
-    store = SqliteMemoryStore(db_path=db_path)
     # Already-expired item
     past = utc_now() - timedelta(hours=1)
     expired_item = MemoryItem(
@@ -130,9 +132,8 @@ async def test_cleanup_expired(db_path: str) -> None:
     assert await store.get(scope=MemoryScope.TENANT, key="alive") is not None
 
 
-async def test_list_by_scope_excludes_expired(db_path: str) -> None:
+async def test_list_by_scope_excludes_expired(store: SqliteMemoryStore) -> None:
     """list_by_scope does not return expired items."""
-    store = SqliteMemoryStore(db_path=db_path)
     past = utc_now() - timedelta(hours=1)
     expired_item = MemoryItem(
         scope=MemoryScope.TENANT,
@@ -154,19 +155,22 @@ async def test_list_by_scope_excludes_expired(db_path: str) -> None:
 async def test_persistence_across_instances(db_path: str) -> None:
     """Data survives closing and reopening a new store instance."""
     store1 = SqliteMemoryStore(db_path=db_path)
-    await store1.set(item=_make_item(key="persistent", value={"survives": True}))
-
-    # New instance, same db path
     store2 = SqliteMemoryStore(db_path=db_path)
-    retrieved = await store2.get(scope=MemoryScope.TENANT, key="persistent")
+    try:
+        await store1.set(item=_make_item(key="persistent", value={"survives": True}))
 
-    assert retrieved is not None
-    assert retrieved.value == {"survives": True}
+        # New instance, same db path
+        retrieved = await store2.get(scope=MemoryScope.TENANT, key="persistent")
+
+        assert retrieved is not None
+        assert retrieved.value == {"survives": True}
+    finally:
+        await store1.close()
+        await store2.close()
 
 
-async def test_scope_path_preserved(db_path: str) -> None:
+async def test_scope_path_preserved(store: SqliteMemoryStore) -> None:
     """scope_path field roundtrips through SQLite."""
-    store = SqliteMemoryStore(db_path=db_path)
     item = _make_item(key="pathed", scope_path="project/campaign/assets")
     await store.set(item=item)
 
@@ -175,9 +179,8 @@ async def test_scope_path_preserved(db_path: str) -> None:
     assert retrieved.scope_path == "project/campaign/assets"
 
 
-async def test_scope_path_none_preserved(db_path: str) -> None:
+async def test_scope_path_none_preserved(store: SqliteMemoryStore) -> None:
     """scope_path=None roundtrips correctly."""
-    store = SqliteMemoryStore(db_path=db_path)
     item = _make_item(key="no_path", scope_path=None)
     await store.set(item=item)
 

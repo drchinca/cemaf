@@ -4,6 +4,8 @@ Unit tests for RLM query engine.
 Tests recursive query execution with divide-and-conquer strategy.
 """
 
+from collections.abc import Callable
+
 import pytest
 
 from cemaf.context.budget import TokenBudget
@@ -54,6 +56,38 @@ class MockLLMClient:
         """Mock message token counting."""
         total = sum(len(str(m.content)) for m in messages)
         return TokenCount(total // 4)
+
+
+class PromptFailingLLMClient(MockLLMClient):
+    """Mock LLM that fails when a prompt matches the configured predicate."""
+
+    def __init__(
+        self,
+        should_fail: Callable[[str], bool],
+        *,
+        failure: str = "Injected LLM failure",
+    ) -> None:
+        super().__init__(responses=["Branch answer", "Aggregated answer"])
+        self._should_fail = should_fail
+        self._failure = failure
+
+    async def complete(
+        self,
+        messages: list[Message],
+        tools: list | None = None,
+        config_override: LLMConfig | None = None,
+    ) -> CompletionResult:
+        prompt = "\n".join(str(message.content) for message in messages)
+        self.calls.append(messages)
+        self.call_count += 1
+        if self._should_fail(prompt):
+            return CompletionResult.fail(self._failure)
+        return CompletionResult.ok(
+            message=Message.assistant(f"Answer {self.call_count}"),
+            prompt_tokens=10,
+            completion_tokens=5,
+            model="mock",
+        )
 
 
 class TestDivideAndConquerQueryEngine:
@@ -267,6 +301,89 @@ class TestDivideAndConquerQueryEngine:
         assert result.success is False
         assert result.error is not None
         assert "LLM error" in result.error
+
+    @pytest.mark.asyncio
+    async def test_recursive_left_branch_failure_propagates(self, compiler: PriorityContextCompiler) -> None:
+        """Failure below the left recursive branch returns a failed query result."""
+        llm_client = PromptFailingLLMClient(
+            lambda prompt: "[Chunk left_fail]" in prompt,
+            failure="left branch unavailable",
+        )
+        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        chunks = (
+            ContextChunk(chunk_id="left_fail", content="left failure content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="left_ok", content="left ok content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="right_ok_1", content="right ok content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="right_ok_2", content="right ok content", token_count=TokenCount(500)),
+        )
+
+        result = await engine.query(
+            instruction="Analyze branches",
+            chunks=chunks,
+            budget=TokenBudget(max_tokens=100),
+            max_depth=2,
+        )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "left branch unavailable" in result.error
+        assert result.metadata.get("strategy") == "partial_coverage"
+
+    @pytest.mark.asyncio
+    async def test_recursive_right_branch_failure_propagates(self, compiler: PriorityContextCompiler) -> None:
+        """Failure below the right recursive branch returns a failed query result."""
+        llm_client = PromptFailingLLMClient(
+            lambda prompt: "[Chunk right_fail]" in prompt,
+            failure="right branch unavailable",
+        )
+        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        chunks = (
+            ContextChunk(chunk_id="left_ok_1", content="left ok content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="left_ok_2", content="left ok content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="right_fail", content="right failure content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="right_ok", content="right ok content", token_count=TokenCount(500)),
+        )
+
+        result = await engine.query(
+            instruction="Analyze branches",
+            chunks=chunks,
+            budget=TokenBudget(max_tokens=100),
+            max_depth=2,
+        )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "right branch unavailable" in result.error
+        assert result.metadata.get("strategy") == "partial_coverage"
+
+    @pytest.mark.asyncio
+    async def test_recursive_aggregation_failure_returns_partial_success_metadata(
+        self, compiler: PriorityContextCompiler
+    ) -> None:
+        """Aggregation failure keeps partial answers but records fallback metadata."""
+        llm_client = PromptFailingLLMClient(
+            lambda prompt: "two parts of the context" in prompt,
+            failure="aggregator unavailable",
+        )
+        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        chunks = (
+            ContextChunk(chunk_id="left_ok", content="left ok content", token_count=TokenCount(500)),
+            ContextChunk(chunk_id="right_ok", content="right ok content", token_count=TokenCount(500)),
+        )
+
+        result = await engine.query(
+            instruction="Synthesize branches",
+            chunks=chunks,
+            budget=TokenBudget(max_tokens=100),
+            max_depth=2,
+        )
+
+        assert result.success is True
+        assert result.answer is not None
+        assert "Aggregation failed: aggregator unavailable" in result.answer
+        assert result.metadata["strategy"] == "divide_and_conquer"
+        assert result.metadata["aggregation_success"] is False
+        assert result.metadata["aggregation_error"] == "aggregator unavailable"
 
     @pytest.mark.asyncio
     async def test_token_usage_tracking(self, engine: DivideAndConquerQueryEngine) -> None:

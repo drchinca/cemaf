@@ -720,6 +720,7 @@ print(f"Metadata: {result.metadata}")
   - Single table with scope/key primary key
   - JSON-serialized values, TTL/expiry columns
   - Supports `scope_path` for hierarchical scoping
+  - WAL mode, `busy_timeout`, and process-local write coordination per database path
   - Production-ready alternative to `InMemoryStore`
 
 ### `memory/factories.py`

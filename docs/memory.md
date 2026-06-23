@@ -304,7 +304,7 @@ print(f"Deduplicated: {report.deduplicated_count}, Skipped: {report.skipped_coun
 
 ## SQLite Backend
 
-Persistent memory store backed by SQLite via `aiosqlite`. Auto-creates the table on first use, handles TTL expiration, and supports `scope_path` for hierarchical queries.
+Persistent memory store backed by SQLite via `aiosqlite`. Auto-creates the table on first use, handles TTL expiration, and supports `scope_path` for hierarchical queries. Store instances in one Python process coordinate connection setup and writes per database path; separate processes rely on SQLite WAL mode and `busy_timeout`.
 
 ```python
 from cemaf.memory.sqlite_store import SqliteMemoryStore
