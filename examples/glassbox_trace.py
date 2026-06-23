@@ -1,31 +1,36 @@
-"""See inside the agents' minds — per-step glassbox traceability for one run.
+"""Glassbox per-step traceability for one DAG run.
 
-This is the answer to: "we want 99.99% traceability — to SEE inside the agents'
-minds, not a black box: what each agent did, where, how, and why, with audit +
-citation + provenance + timing at every step."
+Reconstructs a complete, per-step trace of a run from CEMAF's own observability
+surfaces — no black-box steps, every node accounted for with what it did, what
+it decided, why, what it cited, and how long it took:
 
-It runs one goal through a DAG and reconstructs a complete per-step trace from
-CEMAF's own observability surfaces — nothing bolted on:
+  - AuditTrail        → every node/eval event, keyed by run_id, now carrying the
+                        node's decision metadata (auction winner, council verdict)
+  - Context.patches   → ContextPatch provenance: which node wrote each key
+  - CitationTracker   → the real citation subsystem: source-id + confidence per
+                        retrieved claim, plus the cited-fact binding
+  - NodeResult        → per-node decision metadata + the agent's own `reasoning`
+  - Tracer (optional) → OTel spans, exported when `--otel` is passed
 
-  - AuditTrail        → every node/agent/eval event, keyed by correlation_id (run_id)
-  - Context.patches   → ContextPatch provenance: who pulled what context and WHY
-  - CitationTracker   → which source backed which claim (and which claims are uncited)
-  - NodeResult        → per-node decision metadata (auction winner, gate verdict), timing
-  - Tracer (optional) → OTel GenAI spans, exported when `--otel` is passed
+Scope/honesty: the demo agents are deterministic (no live LLM), so "reasoning"
+is each agent's recorded rationale string, not chain-of-thought from a model.
+With real LLM agents the same `reasoning` field carries their actual rationale —
+the trace plumbing is identical. This proves the framework captures per-step
+provenance; it is not a claim about model cognition.
 
-Three outputs (the AskUserQuestion answer was "all of them"):
+Three outputs:
   1. A human-readable step-by-step transcript (default).
   2. A structured JSON trace artifact (--json PATH) — machine-checkable.
-  3. OTel spans to the console exporter (--otel) — view in a real tracer.
+  3. OTel spans (--otel) — view in a real tracer.
 
 Run:
     uv run python examples/glassbox_trace.py
     uv run python examples/glassbox_trace.py --json /tmp/trace.json
     uv run python examples/glassbox_trace.py --otel        # needs cemaf[otel]
 
-The build_trace() function is imported by tests/integration/test_glassbox_trace.py,
-which asserts EVERY node in the run has an audit record + timing — machine-proven
-step coverage, the enforceable form of the 99.99% traceability claim.
+build_trace() is imported by tests/integration/test_glassbox_trace.py, which
+asserts EVERY node has an audit record AND positive timing — machine-proven
+per-step coverage.
 """
 
 from __future__ import annotations
@@ -103,10 +108,15 @@ class Researcher:
         citation = self._citations.track_search_result(top)
         self._citations.create_cited_fact(fact=fact, citations=[citation], confidence=top.score)
 
+        reasoning = (
+            f"Searched the store for '{goal.topic}'; top hit "
+            f"'{top.document.id}' scored {top.score:.2f}, above other matches, "
+            "so I returned its content as the grounded fact."
+        )
         return AgentResult.ok(
             output=fact,
             state=AgentState(),
-            metadata={"cost_estimate_usd": 0.01},
+            metadata={"cost_estimate_usd": 0.01, "reasoning": reasoning},
         )
 
 
@@ -147,10 +157,19 @@ class Summarizer:
             "CEMAF is glassbox: every step is auditable, cited, and provenance-tracked "
             f"(based on: {goal.facts[:60]}...)."
         )
+        reasoning = (
+            f"Condensed the {len(goal.facts.split())}-word research fact into a "
+            "single grounded sentence, preserving the auditable/cited/provenance claim."
+        )
         return AgentResult.ok(
             output=summary,
             state=AgentState(),
-            metadata={"cost_estimate_usd": 0.02, "tokens_total": len(summary.split()), "overall_score": 0.95},
+            metadata={
+                "cost_estimate_usd": 0.02,
+                "tokens_total": len(summary.split()),
+                "overall_score": 0.95,
+                "reasoning": reasoning,
+            },
         )
 
 
@@ -161,9 +180,10 @@ class _ReviewGoal(BaseModel):
 class Reviewer:
     """Council member."""
 
-    def __init__(self, member_id: str, vote: str) -> None:
+    def __init__(self, member_id: str, vote: str, rationale: str = "") -> None:
         self._id = AgentID(member_id)
         self._vote = vote
+        self._rationale = rationale
 
     @property
     def id(self) -> AgentID:
@@ -181,7 +201,7 @@ class Reviewer:
         return AgentResult.ok(output=self._vote, state=AgentState())
 
     async def deliberate(self, *, question: object, goal: object, context: AgentContext) -> Opinion:
-        return Opinion(member_id=self._id, choice=self._vote)
+        return Opinion(member_id=self._id, choice=self._vote, rationale=self._rationale)
 
 
 # ---------------------------------------------------------------------------
@@ -191,12 +211,13 @@ class Reviewer:
 
 @dataclass(frozen=True)
 class StepTrace:
-    """Everything we know about one DAG node — the 'inside the mind' record."""
+    """Everything we know about one DAG node."""
 
     node_id: str
     success: bool
     duration_ms: float
     decision: JSON  # auction/council/gate metadata — WHAT it decided
+    reasoning: str  # the agent's own rationale — WHY it produced this output
     audit_events: tuple[str, ...]  # audit entry types attributed to this run step
     output_preview: str
 
@@ -223,6 +244,7 @@ class RunTrace:
                     "success": s.success,
                     "duration_ms": s.duration_ms,
                     "decision": s.decision,
+                    "reasoning": s.reasoning,
                     "audit_events": list(s.audit_events),
                     "output_preview": s.output_preview,
                 }
@@ -265,12 +287,15 @@ async def build_trace(
         for key in ("council", "selection", "auction", "gate", "recovery"):
             if key not in decision and key in node_result.metadata:
                 decision[key] = node_result.metadata[key]
+        # The agent's own rationale, if it recorded one in its result metadata.
+        reasoning = str(node_result.metadata.get("reasoning", ""))
         steps.append(
             StepTrace(
                 node_id=nid,
                 success=node_result.success,
                 duration_ms=node_result.duration_ms,
                 decision=decision,
+                reasoning=reasoning,
                 audit_events=tuple(events_by_node.get(nid, ())),
                 output_preview=str(node_result.output)[:80],
             )
@@ -308,12 +333,17 @@ async def build_trace(
             )
 
     nodes_with_audit = sum(1 for s in steps if s.audit_events)
-    nodes_with_timing = sum(1 for s in steps if s.duration_ms >= 0)
+    # A node that actually executed records a positive wall-clock duration. The
+    # old `>= 0` check was tautological (the default is 0.0); `> 0` proves the
+    # node really ran and was timed.
+    nodes_with_timing = sum(1 for s in steps if s.duration_ms > 0)
+    nodes_with_reasoning = sum(1 for s in steps if s.reasoning)
     coverage = {
         "total_nodes": len(steps),
         "nodes_with_audit_events": nodes_with_audit,
         "nodes_with_timing": nodes_with_timing,
-        # Every node has a per-step audit record AND timing → no black-box steps.
+        "nodes_with_reasoning": nodes_with_reasoning,
+        # Every node has a per-step audit record AND real (positive) timing.
         "fully_traced": (
             len(steps) > 0 and nodes_with_audit == len(steps) and nodes_with_timing == len(steps)
         ),
@@ -396,8 +426,13 @@ async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditL
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
-    for member_id, vote in (("rev_a", "approve"), ("rev_b", "approve"), ("rev_c", "reject")):
-        registry.register_instance(item=Reviewer(member_id, vote))
+    reviewers = (
+        ("rev_a", "approve", "Summary is accurate and grounded in the cited fact."),
+        ("rev_b", "approve", "Concise and preserves the auditable/cited claim."),
+        ("rev_c", "reject", "Wants the source title named inline before shipping."),
+    )
+    for member_id, vote, rationale in reviewers:
+        registry.register_instance(item=Reviewer(member_id, vote, rationale))
 
     tracer = None
     if use_otel:
@@ -458,6 +493,8 @@ def _print_transcript(trace: RunTrace) -> None:
     print("--- per-step trace (what each agent did, decided, how long) ---")
     for i, step in enumerate(trace.steps, start=1):
         print(f"\n  STEP {i}: node='{step.node_id}'  success={step.success}  {step.duration_ms:.2f}ms")
+        if step.reasoning:
+            print(f"    reasoning    : {step.reasoning}")
         if step.decision:
             for key, val in step.decision.items():
                 print(f"    decision[{key}]: {val}")
