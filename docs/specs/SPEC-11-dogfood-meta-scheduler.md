@@ -1,7 +1,7 @@
 ---
 title: Dog-Fooded Meta-Scheduler — CEMAF Using CEMAF
 spec_id: SPEC-11
-status: Draft
+status: Implemented
 last_reviewed: 2026-06-23
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
@@ -9,6 +9,13 @@ depends_on: [SPEC-00]
 ---
 
 # SPEC-11: Dog-Fooded Meta-Scheduler
+
+> **Status: Implemented (#197).** Wiring lives in `cemaf/meta/dogfood.py`
+> (`bootstrap_meta_dogfood`, `register_self_audit_job`,
+> `register_knowledge_refresh_job`, `register_dreaming_job`); durable
+> scheduler primitives in `cemaf/scheduler/primitives.py` and
+> `cemaf/scheduler/heartbeats.py`. Integration tests live in
+> `tests/integration/test_meta_dogfood.py`.
 
 > CEMAF is a self-hosting framework. Its `meta/` layer carries meta-agents
 > (`MetaAuditor`, `MetaSynthesizer`, `MetaArchitect`, `MetaKnowledgeGraph`,
