@@ -133,17 +133,26 @@ async def test_dogfood_knowledge_refresh_runs_under_scheduler() -> None:
 
 @pytest.mark.asyncio
 async def test_dogfood_dreaming_runs_and_consolidates_memory() -> None:
+    """Dreaming genuinely MERGES duplicate memories — the store shrinks.
+
+    Seeds two items with identical content (a real duplicate) plus one unique.
+    After the dream cycle the redundant twin must be gone, proving consolidation
+    is a real merge, not the old `consolidated_count = item_count` tautology.
+    """
+    from cemaf.memory.semantic import MemoryQuery
+
     memory_manager = create_memory_manager()
-    await memory_manager.remember(
-        scope=MemoryScope.PROJECT,
-        key="fact_one",
-        value={"summary": "CEMAF self-hosts."},
-    )
+    duplicate_value = {"summary": "CEMAF self-hosts."}
+    await memory_manager.remember(scope=MemoryScope.PROJECT, key="fact_one", value=duplicate_value)
+    await memory_manager.remember(scope=MemoryScope.PROJECT, key="fact_one_dup", value=duplicate_value)
     await memory_manager.remember(
         scope=MemoryScope.PROJECT,
         key="fact_two",
         value={"summary": "Meta-agents run on their own scheduler."},
     )
+
+    before = await memory_manager.recall(query=MemoryQuery(text="", limit=50))
+    assert len(before) == 3
 
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
@@ -176,7 +185,12 @@ async def test_dogfood_dreaming_runs_and_consolidates_memory() -> None:
     assert len(runs) == 1
     assert runs[0].status == JobRunStatus.COMPLETED
     assert isinstance(runs[0].result, dict)
-    assert runs[0].result.get("consolidated_count", 0) >= 1
+    # Exactly one redundant duplicate was merged away.
+    assert runs[0].result.get("consolidated_count", 0) == 1
+
+    # The store genuinely shrank: the duplicate twin is gone, unique facts remain.
+    after = await memory_manager.recall(query=MemoryQuery(text="", limit=50))
+    assert len(after) == 2
 
 
 @pytest.mark.asyncio

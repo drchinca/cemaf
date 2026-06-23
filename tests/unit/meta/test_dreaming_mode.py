@@ -28,7 +28,21 @@ class FakeMemoryManager:
         return {"scope": scope.value, "key": key, "value": value}
 
     async def recall(self, query: Any) -> tuple[Any, ...]:
-        return tuple(self._items.values())
+        from cemaf.core.enums import MemoryScope as _Scope
+        from cemaf.core.types import Confidence
+        from cemaf.memory.base import MemoryItem
+        from cemaf.memory.semantic import MemorySearchResult
+
+        results = []
+        for rank, raw in enumerate(self._items.values()):
+            item = MemoryItem(
+                scope=_Scope.PROJECT,
+                key=str(raw["key"]),
+                value=raw["value"],
+                confidence=Confidence(float(raw.get("confidence", 1.0))),
+            )
+            results.append(MemorySearchResult(item=item, similarity=1.0, combined_score=1.0, rank=rank))
+        return tuple(results)
 
     async def recall_by_key(self, scope: MemoryScope, key: str) -> Any | None:
         return self._items.get(key)
@@ -73,7 +87,10 @@ class TestDreamingMode:
         )
         handle = mode.build(
             memory_manager=FakeMemoryManager(
-                items={"fact": {"scope": "project", "key": "fact", "value": "data"}}
+                items={
+                    "fact": {"key": "fact", "value": "data"},
+                    "fact_dup": {"key": "fact_dup", "value": "data"},
+                }
             ),  # type: ignore[arg-type]
             current_sessions=2,
             last_execution=datetime(2026, 6, 9, 0, 0, tzinfo=UTC),
@@ -81,6 +98,7 @@ class TestDreamingMode:
 
         output = await handle.handler()
 
+        # One real duplicate ("data" appears twice) was merged away.
         assert output["consolidated_count"] == 1
         assert handle.session_gate is not None
         assert handle.session_gate._current_count == 0
