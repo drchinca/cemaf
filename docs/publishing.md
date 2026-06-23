@@ -87,27 +87,6 @@ If GitHub Actions is unavailable, you can publish manually:
    pip index versions cemaf
    ```
 
-### Testing with TestPyPI
-
-Before publishing to production PyPI, you can test with TestPyPI:
-
-1. **Manually trigger workflow**
-   - Go to: https://github.com/drchinca/cemaf/actions
-   - Select "Publish to PyPI" workflow
-   - Click "Run workflow"
-   - This publishes to TestPyPI only
-
-2. **Test installation**
-   ```bash
-   pip install --index-url https://test.pypi.org/simple/ cemaf
-   ```
-
-3. **Verify it works**
-   ```python
-   from cemaf.context import Context
-   print("Success!")
-   ```
-
 ## PyPI Trusted Publishing Setup
 
 CEMAF uses PyPI's trusted publishing (OIDC) for secure, token-free publishing.
@@ -182,14 +161,9 @@ The publishing workflow (`.github/workflows/publish-to-pypi.yml`) consists of:
    - Publishes to PyPI using trusted publishing
    - Environment: `pypi`
 
-3. **Publish to TestPyPI** (on manual trigger)
-   - Downloads build artifacts
-   - Publishes to TestPyPI
-   - Environment: `testpypi`
-
 **Triggers:**
 - `release: types: [published]` - Automatic on GitHub release
-- `workflow_dispatch` - Manual trigger from Actions tab
+- `workflow_dispatch` - Manual trigger (build artifacts only, no publish)
 
 ## Troubleshooting
 
@@ -209,7 +183,7 @@ The publishing workflow (`.github/workflows/publish-to-pypi.yml`) consists of:
 **Solution:**
 1. Verify trusted publishing is configured on PyPI
 2. Check workflow has `id-token: write` permission
-3. Verify environment name matches (`pypi` or `testpypi`)
+3. Verify environment name matches (`pypi`)
 
 ### Version conflict
 
