@@ -44,6 +44,18 @@ def compiler() -> PriorityContextCompiler:
     return PriorityContextCompiler(token_estimator=SimpleTokenEstimator())
 
 
+async def _shrink(_text: str) -> str:
+    """A real (tiny) summarizer so compaction genuinely reduces tokens.
+
+    Without a summarizer, compact()'s truncation fallback only shrinks content
+    above ~2000 chars; below that it returns the combined text verbatim, which
+    the [type:id] framing makes LARGER — correctly triggering the never-grow
+    no-op guard. Tests that verify summary *mechanics* must supply a summarizer
+    so the summary path actually runs.
+    """
+    return "S"
+
+
 class TestCompactPreserveRecent:
     """compact() preserves the N most recent (by position) sources."""
 
@@ -57,7 +69,7 @@ class TestCompactPreserveRecent:
         ]
         ctx = _compiled(sources)
 
-        result = await compiler.compact(compiled=ctx, preserve_recent=2)
+        result = await compiler.compact(compiled=ctx, preserve_recent=2, summarizer=_shrink)
 
         # recent1 and recent2 should be preserved, old1+old2 compacted into summary
         source_ids = [s.source_id for s in result.sources]
@@ -102,7 +114,7 @@ class TestCompactHighPriorityPreservation:
         ]
         ctx = _compiled(sources)
 
-        result = await compiler.compact(compiled=ctx, preserve_recent=1)
+        result = await compiler.compact(compiled=ctx, preserve_recent=1, summarizer=_shrink)
 
         source_ids = [s.source_id for s in result.sources]
         assert "system" in source_ids
@@ -131,15 +143,18 @@ class TestCompactSummaryGeneration:
 
     @pytest.mark.asyncio
     async def test_summary_source_created(self, compiler: PriorityContextCompiler) -> None:
+        # Large content so the truncation fallback genuinely reduces tokens
+        # (and preserves the head text), exercising the no-summarizer path while
+        # still shrinking — not the never-grow no-op.
         sources = [
-            _source("old1", "old content alpha", priority=10),
-            _source("old2", "old content beta", priority=10),
-            _source("old3", "old content gamma", priority=10),
+            _source("old1", "old content alpha " + "filler " * 400, priority=10),
+            _source("old2", "old content beta " + "filler " * 400, priority=10),
+            _source("old3", "old content gamma " + "filler " * 400, priority=10),
             _source("recent", "recent content", priority=10),
         ]
         ctx = _compiled(sources)
 
-        result = await compiler.compact(compiled=ctx, preserve_recent=1)
+        result = await compiler.compact(compiled=ctx, preserve_recent=1, summary_budget_tokens=100)
 
         summary_sources = [s for s in result.sources if s.source_type == "compacted_summary"]
         assert len(summary_sources) == 1
@@ -157,7 +172,7 @@ class TestCompactSummaryGeneration:
         ]
         ctx = _compiled(sources)
 
-        result = await compiler.compact(compiled=ctx, preserve_recent=1)
+        result = await compiler.compact(compiled=ctx, preserve_recent=1, summarizer=_shrink)
 
         summary = [s for s in result.sources if s.source_type == "compacted_summary"][0]
         assert "a" in summary.metadata["compacted_from"]
@@ -169,7 +184,7 @@ class TestCompactSummaryGeneration:
         sources = [_source(f"s{i}", f"content {i}" * 20, priority=10) for i in range(5)]
         ctx = _compiled(sources)
 
-        result = await compiler.compact(compiled=ctx, preserve_recent=2)
+        result = await compiler.compact(compiled=ctx, preserve_recent=2, summarizer=_shrink)
 
         assert result.metadata["compacted"] is True
         assert result.metadata["compacted_source_count"] == 3
@@ -225,7 +240,8 @@ class TestCompactTruncationFallback:
     @pytest.mark.asyncio
     async def test_no_truncation_when_within_budget(self, compiler: PriorityContextCompiler) -> None:
         sources = [
-            _source("old", "short", priority=10),
+            _source("old1", "old content", priority=10),
+            _source("old2", "more old content", priority=10),
             _source("recent", "recent", priority=10),
         ]
         ctx = _compiled(sources)
@@ -234,6 +250,7 @@ class TestCompactTruncationFallback:
             compiled=ctx,
             preserve_recent=1,
             summary_budget_tokens=1000,
+            summarizer=_shrink,
         )
 
         summary = [s for s in result.sources if s.source_type == "compacted_summary"][0]
@@ -255,6 +272,33 @@ class TestCompactTokenAccounting:
 
         result = await compiler.compact(compiled=ctx, preserve_recent=1)
 
-        # Summary + recent; total should be less than original if summary is smaller
+        # Compaction must shrink (large sources → smaller summary), never grow.
         assert result.total_tokens > 0
-        assert result.total_tokens != ctx.total_tokens  # Should differ
+        assert result.total_tokens < ctx.total_tokens
+
+
+class TestCompactNeverGrows:
+    """Invariant: compaction must never emit more tokens than the input."""
+
+    @pytest.mark.asyncio
+    async def test_small_sources_compaction_is_noop_not_growth(
+        self, compiler: PriorityContextCompiler
+    ) -> None:
+        """With tiny sources, the [type:id] framing would cost more than it saves;
+        compaction must return the original unchanged, never a larger context."""
+        sources = [_source(f"s{i}", f"fact {i}", priority=10) for i in range(5)]
+        ctx = _compiled(sources)
+
+        result = await compiler.compact(compiled=ctx, preserve_recent=2)
+
+        # The bug was emitting MORE tokens here. Never larger than the input.
+        assert result.total_tokens <= ctx.total_tokens
+
+    @pytest.mark.asyncio
+    async def test_output_never_exceeds_input_for_any_size(self, compiler: PriorityContextCompiler) -> None:
+        """Property: across mixed source sizes, compacted tokens <= input tokens."""
+        for size in (5, 20, 100, 500):
+            sources = [_source(f"s{i}", "x" * size, priority=10) for i in range(6)]
+            ctx = _compiled(sources)
+            result = await compiler.compact(compiled=ctx, preserve_recent=2)
+            assert result.total_tokens <= ctx.total_tokens, f"grew at size={size}"
