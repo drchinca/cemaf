@@ -338,6 +338,15 @@ class PriorityContextCompiler:
 
         summary_tokens = self._estimator.estimate(text=summary_content)
 
+        # Invariant: compaction must never grow the context. For small sources
+        # the per-source "[type:id] " framing + separators can cost more tokens
+        # than they save (especially with no real summarizer). If the summary is
+        # not strictly smaller than the sources it replaces, compaction is a
+        # no-op — return the original unchanged rather than emit a larger context.
+        original_summarized_tokens = sum((s.token_count or 0) for s in to_summarize)
+        if summary_tokens >= original_summarized_tokens:
+            return compiled
+
         summary_source = ContextSource(
             content=summary_content,
             token_count=TokenCount(summary_tokens),

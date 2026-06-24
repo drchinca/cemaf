@@ -229,6 +229,25 @@ class TestCompactBatchToBudget:
         assert result == ()
 
     @pytest.mark.asyncio
+    async def test_oversized_item_does_not_drop_fittable_items(self) -> None:
+        """Regression: an item too big to fit even at metadata level must not
+        discard the smaller, still-fittable items (head-of-line blocking).
+
+        The bug was a `break` on the first non-fitting item, which silently threw
+        away every remaining item — returning nothing even when smaller items fit.
+        """
+        compactor = _make_compactor()
+        # 'big' has a 200-char key so even its metadata "[session:BBB...]" blows
+        # the tiny budget; 'small' fits comfortably at metadata level.
+        big = _make_item(key="B" * 200, value={"data": "z" * 400})
+        small = _make_item(key="s", value={"data": "hi"})
+
+        result = await compactor.compact_batch_to_budget(items=(big, small), token_budget=8)
+
+        kept = {r.item.key for r in result}
+        assert "s" in kept, "fittable item was dropped after an oversized item (head-of-line block)"
+
+    @pytest.mark.asyncio
     async def test_total_tokens_within_budget(self) -> None:
         compactor = _make_compactor()
         items = tuple(_make_item(key=f"item_{i}", value={"data": f"content_{i}"}) for i in range(5))
