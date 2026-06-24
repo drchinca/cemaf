@@ -10,12 +10,84 @@ and avoid circular imports.
 
 import os
 
+from cemaf.agents.selection import AgentSelector
+from cemaf.blueprint.library import BlueprintLibrary
+from cemaf.context.budget import TokenBudget
+from cemaf.context.compiler import ContextCompiler
+from cemaf.core.domain import DomainContext
+from cemaf.core.recovery import AutoHealManager
+from cemaf.council.protocols import VoteAggregator
+from cemaf.evals.online import OnlineEvalPipeline
+from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
+from cemaf.interceptors.pipeline import InterceptorPipeline
+from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.llm.protocols import LLMClient
+from cemaf.memory.manager import MemoryManager
 from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.observability.budget_guard import BudgetGuard
+from cemaf.observability.health import HealthMonitor
+from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
+from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig, NodeExecutor
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.retrieval.protocols import VectorStore
+
+
+def create_runtime_services(
+    *,
+    run_logger: RunLogger | None = None,
+    event_bus: EventBus | None = None,
+    health_monitor: HealthMonitor | None = None,
+    budget_guard: BudgetGuard | None = None,
+    online_eval_pipeline: OnlineEvalPipeline | None = None,
+    quality_police: QualityPolice | None = None,
+    memory_manager: MemoryManager | None = None,
+    session_manager: SessionManager | None = None,
+    moderation_pipeline: ModerationPipeline | None = None,
+    context_compiler: ContextCompiler | None = None,
+    token_budget: TokenBudget | None = None,
+    domain_context: DomainContext | None = None,
+    llm_client: LLMClient | None = None,
+    vector_store: VectorStore | None = None,
+    knowledge_graph: KnowledgeGraph | None = None,
+    agent_selector: AgentSelector | None = None,
+    council_aggregator: VoteAggregator | None = None,
+    interceptor_pipeline: InterceptorPipeline | None = None,
+    max_recovery_attempts: int = 2,
+    blueprint_library: BlueprintLibrary | None = None,
+    blueprint_selector: BlueprintSelectorHook | None = None,
+    auto_heal_manager: AutoHealManager | None = None,
+    tracer: Tracer | None = None,
+) -> RuntimeServices:
+    """Create a RuntimeServices bundle with explicit per-concern dependencies."""
+    return RuntimeServices(
+        run_logger=run_logger,
+        event_bus=event_bus,
+        health_monitor=health_monitor,
+        budget_guard=budget_guard,
+        online_eval_pipeline=online_eval_pipeline,
+        quality_police=quality_police,
+        memory_manager=memory_manager,
+        session_manager=session_manager,
+        moderation_pipeline=moderation_pipeline,
+        context_compiler=context_compiler,
+        token_budget=token_budget,
+        domain_context=domain_context,
+        llm_client=llm_client,
+        vector_store=vector_store,
+        knowledge_graph=knowledge_graph,
+        agent_selector=agent_selector,
+        council_aggregator=council_aggregator,
+        interceptor_pipeline=interceptor_pipeline,
+        max_recovery_attempts=max_recovery_attempts,
+        blueprint_library=blueprint_library,
+        blueprint_selector=blueprint_selector,
+        auto_heal_manager=auto_heal_manager,
+        tracer=tracer,
+    )
 
 
 def create_executor_config(
@@ -54,7 +126,7 @@ def create_dag_executor(
     the executor a single services parameter — mirrors bootstrap.create_executor.
     """
     cfg = config or create_executor_config()
-    services = RuntimeServices(
+    services = create_runtime_services(
         run_logger=run_logger if cfg.enable_logging else None,
         event_bus=event_bus if cfg.enable_events else None,
         moderation_pipeline=moderation_pipeline if cfg.enable_moderation else None,
