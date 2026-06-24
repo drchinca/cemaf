@@ -51,6 +51,9 @@ framework-facing additions are the feature commits listed below.
   `create_run_logger_from_config(...)` through the `file` backend.
 - This lets applications switch from in-memory run recording to persisted run
   bundles without owning the file logger wiring themselves.
+- Added `export_standard_run_artifacts(...)` in the bundle surface to compose
+  execution artifacts, asset evidence, optional run-record/replay artifacts,
+  and model-usage export through one CEMAF helper.
 
 ### Moderation composition
 
