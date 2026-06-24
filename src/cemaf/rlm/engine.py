@@ -94,9 +94,15 @@ class DivideAndConquerQueryEngine:
             budget=budget,
         )
 
-        if compiled.within_budget():
+        # Single-query mode is only safe when the compiled context fits the budget
+        # AND the compiler kept EVERY chunk. `within_budget()` reports True even
+        # after the compiler silently drops over-budget chunks, so gating on it
+        # alone would answer from a partial subset while reporting full coverage.
+        # Requiring zero exclusions forces recursion whenever any chunk was dropped.
+        excluded_count = int(compiled.metadata.get("excluded_count", 0))
+        if compiled.within_budget() and excluded_count == 0:
             logger.debug(
-                "RLM single query (within budget)",
+                "RLM single query (within budget, full coverage)",
                 depth=depth,
                 num_chunks=len(chunks),
                 compiled_tokens=compiled.total_tokens,
