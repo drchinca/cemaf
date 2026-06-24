@@ -357,6 +357,7 @@ class ContextNodeExecutor:
                 merged_metadata["agent_id"] = agent_name
                 merged_metadata["context_hash"] = context_hash
                 merged_metadata["_context_output"] = context_output
+                merged_metadata["recalled_memory_count"] = len(global_memory)
                 if context_warnings:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
                 if bid_metadata is not None:

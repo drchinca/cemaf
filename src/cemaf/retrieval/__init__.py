@@ -37,6 +37,7 @@ from cemaf.retrieval.protocols import (
     SearchResult,
     VectorStore,
 )
+from cemaf.retrieval.sqlite_vector_store import SqliteVectorStore
 
 __all__ = [
     # Protocols
@@ -49,6 +50,7 @@ __all__ = [
     "HybridRetriever",
     "RetrievalConfig",
     "InMemoryVectorStore",
+    "SqliteVectorStore",
     "HashEmbeddingProvider",
     "HuggingFaceEmbeddingProvider",
     "OpenAIEmbeddingProvider",

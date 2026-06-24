@@ -83,6 +83,7 @@ class ExtractionPipeline:
                 key=item.key,
                 value=item.value,
                 confidence=float(item.confidence),
+                content_for_embedding=mem.content_for_embedding,
             )
             stored_count += 1
 

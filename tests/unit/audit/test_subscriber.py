@@ -60,9 +60,11 @@ class TestSubscribe:
     async def test_all_mapped_event_types(
         self, event_bus: InMemoryEventBus, audit_log: EventBusAuditLog
     ) -> None:
-        """All seven mapped EventTypes produce corresponding AuditEntryTypes."""
+        """All mapped EventTypes produce corresponding AuditEntryTypes."""
         mappings: list[tuple[EventType, AuditEntryType]] = [
             (EventType.AGENT_COMPLETED, AuditEntryType.AGENT_COMPLETED),
+            (EventType.TASK_COMPLETED, AuditEntryType.NODE_EXECUTED),
+            (EventType.TASK_FAILED, AuditEntryType.NODE_EXECUTED),
             (EventType.CONTEXT_PATCH_APPLIED, AuditEntryType.CONTEXT_PATCHED),
             (EventType.EVAL_COMPLETED, AuditEntryType.EVAL_RESULT),
             (EventType.QUALITY_ALERT, AuditEntryType.QUALITY_ALERT),

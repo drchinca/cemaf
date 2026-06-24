@@ -10,6 +10,10 @@ from cemaf.events.protocols import Event, EventBus, EventType
 
 _EVENT_TO_AUDIT: dict[EventType, AuditEntryType] = {
     EventType.AGENT_COMPLETED: AuditEntryType.AGENT_COMPLETED,
+    # DAG nodes emit TASK_* events with node_id/run_id payloads; map them so
+    # the audit trail captures per-step execution, not just DAG-level events.
+    EventType.TASK_COMPLETED: AuditEntryType.NODE_EXECUTED,
+    EventType.TASK_FAILED: AuditEntryType.NODE_EXECUTED,
     EventType.CONTEXT_PATCH_APPLIED: AuditEntryType.CONTEXT_PATCHED,
     EventType.EVAL_COMPLETED: AuditEntryType.EVAL_RESULT,
     EventType.QUALITY_ALERT: AuditEntryType.QUALITY_ALERT,

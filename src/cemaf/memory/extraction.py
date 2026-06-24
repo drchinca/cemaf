@@ -33,6 +33,7 @@ class ExtractedMemory:
     value: JSON
     target_scope: MemoryScope
     confidence: float
+    content_for_embedding: str | None = None
     source_events: tuple[str, ...] = ()
 
 
