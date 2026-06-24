@@ -6,11 +6,25 @@ with sensible defaults while maintaining dependency injection principles.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from cemaf.core.types import JSON
+from cemaf.observability.bundle import inspect_bundle_record_path
 from cemaf.observability.run_logger import RunRecord
-from cemaf.replay.replayer import Replayer
+from cemaf.replay.export import ReplayArtifactsBundle, export_replay_artifact
+from cemaf.replay.replayer import Replayer, ReplayMode, ReplayResult
+
+
+@dataclass(frozen=True)
+class ReplayExecutionBundle:
+    """Replay result plus exported artifact metadata for a persisted run record."""
+
+    bundle_dir: Path
+    artifact_path: Path
+    result: ReplayResult
+    artifact: ReplayArtifactsBundle
 
 
 def create_replayer(
@@ -48,4 +62,40 @@ def create_replayer(
         record=record,
         mock_tools=mock_tools,
         tool_executors=tool_executors,
+    )
+
+
+async def replay_record_to_artifact(
+    *,
+    record_path: str | Path,
+    mode: ReplayMode | str = ReplayMode.PATCH_ONLY,
+    output_path: str | None = None,
+    mock_tools: dict[str, JSON] | None = None,
+    tool_executors: dict[str, Callable[..., Any]] | None = None,
+) -> ReplayExecutionBundle:
+    """Load a persisted run record, replay it, and export the replay artifact."""
+
+    inspection = inspect_bundle_record_path(record_path=record_path)
+    record = inspection.run_record
+    if record is None:
+        raise ValueError(f"Replay record at {Path(record_path).resolve()} was not a loadable run record.")
+
+    resolved_mode = mode if isinstance(mode, ReplayMode) else ReplayMode(mode)
+    result = await create_replayer(
+        record=record,
+        mock_tools=mock_tools,
+        tool_executors=tool_executors,
+    ).replay(mode=resolved_mode)
+
+    artifact_name = output_path or f"replay.{resolved_mode.value}.json"
+    artifact = export_replay_artifact(
+        root=inspection.bundle_dir,
+        result=result,
+        path=artifact_name,
+    )
+    return ReplayExecutionBundle(
+        bundle_dir=inspection.bundle_dir,
+        artifact_path=inspection.bundle_dir / artifact_name,
+        result=result,
+        artifact=artifact,
     )

@@ -1,10 +1,13 @@
 """Tests for replay system."""
 
+import json
+
 import pytest
 
 from cemaf.context.context import Context
 from cemaf.context.patch import ContextPatch
 from cemaf.observability.run_logger import RunRecord, ToolCall
+from cemaf.replay.factories import replay_record_to_artifact
 from cemaf.replay.replayer import Replayer, ReplayMode, ReplayResult
 
 
@@ -195,3 +198,27 @@ class TestReplayer:
         # MOCK_TOOLS mode
         result = await replayer.replay(mode=ReplayMode.MOCK_TOOLS)
         assert result.mode == ReplayMode.MOCK_TOOLS
+
+    @pytest.mark.asyncio
+    async def test_replay_record_to_artifact(self, tmp_path) -> None:
+        """Test replaying a persisted run record and exporting the artifact."""
+        record = RunRecord(
+            run_id="run-123",
+            dag_name="content_static_post_instagram",
+            initial_context=Context(data={"prompt": "x"}),
+            final_context=Context(data={"result": 42}),
+        )
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        record_path = bundle_dir / "run_record.json"
+        record_path.write_text(json.dumps(record.to_dict()), encoding="utf-8")
+
+        bundle = await replay_record_to_artifact(
+            record_path=record_path,
+            mode=ReplayMode.PATCH_ONLY,
+        )
+
+        assert bundle.bundle_dir == bundle_dir.resolve()
+        assert bundle.artifact_path == bundle_dir.resolve() / "replay.patch_only.json"
+        assert bundle.result.mode == ReplayMode.PATCH_ONLY
+        assert bundle.artifact.payload["mode"] == "patch_only"
