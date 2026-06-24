@@ -113,18 +113,26 @@ class DefaultMemoryContextProvider:
         query: MemoryQuery,
         token_budget: int,
     ) -> tuple[ContextSource, ...]:
-        """Progressive retrieval via TieredMemoryStore."""
+        """Progressive retrieval via TieredMemoryStore.
+
+        Uses tier-aware retrieval so lower-ranked items load at cheaper L1/L0
+        abstracts rather than full content — breadth without full-fidelity cost.
+        """
         assert self._tiered_store is not None
-        results = await self._tiered_store.progressive_search(query=query)
-        if not results:
+        compacted = await self._tiered_store.progressive_search_compacted(query=query)
+        if not compacted:
             return ()
 
-        items = tuple(r.item for r in results)
-        compacted = await self._compactor.compact_batch_to_budget(
-            items=items,
-            token_budget=token_budget,
-        )
-        return tuple(cm.to_context_source() for cm in compacted)
+        # Pack the already-tier-compacted items into the budget.
+        sources: list[ContextSource] = []
+        remaining = token_budget
+        for cm in compacted:
+            cost = cm.compacted_token_count or 0
+            if cost > remaining:
+                continue
+            sources.append(cm.to_context_source())
+            remaining -= cost
+        return tuple(sources)
 
     async def _provide_via_flat(
         self,
