@@ -15,6 +15,7 @@ from cemaf.retrieval.huggingface_embeddings import (
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
+from cemaf.retrieval.sqlite_vector_store import SqliteVectorStore
 
 if TYPE_CHECKING:
     from cemaf.retrieval.pgvector_store import PgVectorStore
@@ -48,6 +49,17 @@ def _create_pgvector_store(**kwargs: Any) -> PgVectorStore:
         dimension=kwargs.get("dimension", 3072),
         tenant_id=kwargs.get("tenant_id", "default"),
         embedding_provider=kwargs.get("embedding_provider"),
+    )
+
+
+def _create_sqlite_vector_store(**kwargs: Any) -> SqliteVectorStore:
+    """Registry-compatible factory for a SQLite vector store."""
+    provider = kwargs.get("embedding_provider")
+    if provider is None:
+        provider = MockEmbeddingProvider(dimension=int(kwargs.get("dimension", 384)))
+    return SqliteVectorStore(
+        db_path=str(kwargs.get("db_path") or os.getenv("CEMAF_RETRIEVAL_SQLITE_PATH", "cemaf_memory.db")),
+        embedding_provider=provider,
     )
 
 
@@ -86,6 +98,7 @@ def _create_huggingface_embedding_provider(**kwargs: Any) -> EmbeddingProvider:
 
 # Register built-in backends
 vector_store_registry.register(backend="memory", factory=_create_memory_vector_store)
+vector_store_registry.register(backend="sqlite", factory=_create_sqlite_vector_store)
 vector_store_registry.register(backend="pgvector", factory=_create_pgvector_store)
 embedding_provider_registry.register(backend="hash", factory=_create_hash_embedding_provider)
 embedding_provider_registry.register(backend="mock", factory=_create_hash_embedding_provider)
@@ -110,6 +123,7 @@ def create_vector_store_from_config(
         backend=backend,
         embedding_provider=embedding_provider,
         dimension=cfg.retrieval.embedding_dimension,
+        db_path=os.getenv("CEMAF_RETRIEVAL_SQLITE_PATH", "cemaf_memory.db"),
     )
 
 
