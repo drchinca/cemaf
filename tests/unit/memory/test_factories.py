@@ -6,8 +6,10 @@ import pytest
 
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.memory.base import InMemoryStore
+from cemaf.memory.extraction import RuleBasedExtractor
 from cemaf.memory.factories import (
     create_memory_manager,
+    create_memory_runtime,
     create_memory_store,
     create_memory_store_from_config,
     create_session_manager,
@@ -128,3 +130,130 @@ class TestCreateSessionManager:
             session_manager_cls=ReportingSessionManager,
         )
         assert isinstance(session_mgr, ReportingSessionManager)
+
+
+class TestCreateMemoryRuntime:
+    def test_builds_sqlite_runtime_with_subscription(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        created: dict[str, object] = {}
+        fake_event_bus = object()
+        fake_embedding_provider = object()
+        fake_memory_store = object()
+        fake_vector_store = object()
+        fake_memory_manager = object()
+        fake_extraction_pipeline = object()
+        fake_session_manager = object()
+
+        def _fake_create_embedding_provider(provider="mock", **kwargs):
+            created["embedding_provider_args"] = {"provider": provider, **kwargs}
+            return fake_embedding_provider
+
+        def _fake_create_memory_store(backend="memory", **kwargs):
+            created["memory_store_args"] = {"backend": backend, **kwargs}
+            return fake_memory_store
+
+        def _fake_create_vector_store(backend="memory", **kwargs):
+            created["vector_store_args"] = {"backend": backend, **kwargs}
+            return fake_vector_store
+
+        def _fake_create_memory_manager(**kwargs):
+            created["memory_manager_args"] = kwargs
+            return fake_memory_manager
+
+        def _fake_create_extraction_pipeline(**kwargs):
+            created["extraction_pipeline_args"] = kwargs
+            return fake_extraction_pipeline
+
+        def _fake_create_session_manager(**kwargs):
+            created["session_manager_args"] = kwargs
+            return fake_session_manager
+
+        def _fake_subscribe_session_memory_recording(**kwargs):
+            created["subscribe_args"] = kwargs
+
+        monkeypatch.setattr(
+            "cemaf.memory.factories.create_embedding_provider",
+            _fake_create_embedding_provider,
+        )
+        monkeypatch.setattr("cemaf.memory.factories.create_memory_store", _fake_create_memory_store)
+        monkeypatch.setattr("cemaf.memory.factories.create_vector_store", _fake_create_vector_store)
+        monkeypatch.setattr(
+            "cemaf.memory.factories.create_memory_manager",
+            _fake_create_memory_manager,
+        )
+        monkeypatch.setattr(
+            "cemaf.memory.factories.create_extraction_pipeline",
+            _fake_create_extraction_pipeline,
+        )
+        monkeypatch.setattr(
+            "cemaf.memory.factories.create_session_manager",
+            _fake_create_session_manager,
+        )
+        monkeypatch.setattr(
+            "cemaf.events.memory_subscriber.subscribe_session_memory_recording",
+            _fake_subscribe_session_memory_recording,
+        )
+
+        runtime = create_memory_runtime(
+            event_bus=fake_event_bus,  # type: ignore[arg-type]
+            extractor=RuleBasedExtractor(),
+            memory_backend="sqlite",
+            vector_backend="sqlite",
+            embedding_provider_name="hash",
+            embedding_dimension=256,
+            db_path="runtime.db",
+            session_manager_cls=ReportingSessionManager,
+            subscribe_session_recording=True,
+        )
+
+        assert runtime.embedding_provider is fake_embedding_provider
+        assert runtime.memory_store is fake_memory_store
+        assert runtime.vector_store is fake_vector_store
+        assert runtime.memory_manager is fake_memory_manager
+        assert runtime.extraction_pipeline is fake_extraction_pipeline
+        assert runtime.session_manager is fake_session_manager
+        assert created["embedding_provider_args"] == {
+            "provider": "hash",
+            "model": None,
+            "dimension": 256,
+            "api_key": None,
+            "inference_provider": "hf-inference",
+            "timeout_seconds": 60.0,
+        }
+        assert created["memory_store_args"] == {
+            "backend": "sqlite",
+            "file_path": None,
+            "db_path": "runtime.db",
+        }
+        assert created["vector_store_args"] == {
+            "backend": "sqlite",
+            "embedding_provider": fake_embedding_provider,
+            "dimension": 256,
+            "db_path": "runtime.db",
+            "dsn": None,
+            "tenant_id": "default",
+        }
+        assert created["memory_manager_args"] == {
+            "memory_store": fake_memory_store,
+            "event_bus": fake_event_bus,
+            "deduplicator": None,
+            "embedding_provider": fake_embedding_provider,
+            "vector_store": fake_vector_store,
+        }
+        assert isinstance(created["extraction_pipeline_args"]["extractor"], RuleBasedExtractor)
+        assert created["extraction_pipeline_args"]["memory_manager"] is fake_memory_manager
+        assert created["extraction_pipeline_args"]["event_bus"] is fake_event_bus
+        assert created["session_manager_args"] == {
+            "memory_manager": fake_memory_manager,
+            "extraction_pipeline": fake_extraction_pipeline,
+            "compactor": None,
+            "session_manager_cls": ReportingSessionManager,
+        }
+        assert created["subscribe_args"] == {
+            "event_bus": fake_event_bus,
+            "memory_manager": fake_memory_manager,
+            "session_manager": fake_session_manager,
+        }
+
+    def test_requires_event_bus_when_subscription_enabled(self) -> None:
+        with pytest.raises(ValueError, match="event_bus is required"):
+            create_memory_runtime(subscribe_session_recording=True)

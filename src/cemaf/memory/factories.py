@@ -9,8 +9,10 @@ Extension Point:
     function includes a clear "EXTEND HERE" section where you can add
     your own memory backend implementations (Redis, PostgreSQL, DynamoDB, etc.).
 """
+# mypy: disable-error-code="attr-defined"
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,16 +33,29 @@ from cemaf.memory.protocols import MemoryStore
 from cemaf.memory.scope_hierarchy import PropagatingScorer
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, SemanticMemoryStore
-from cemaf.memory.session import DefaultSessionManager
+from cemaf.memory.session import DefaultSessionManager, SessionManager
 from cemaf.memory.sqlite_store import SqliteMemoryStore
 from cemaf.memory.tiered import TruncationTierGenerator
 from cemaf.memory.tiered_store import TieredMemoryStore
+from cemaf.retrieval.factories import create_embedding_provider, create_vector_store
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
 
 if TYPE_CHECKING:
     from cemaf.memory.postgres_session_manager import DistributedSessionManager
     from cemaf.memory.postgres_store import PostgresMemoryStore
+
+
+@dataclass(frozen=True)
+class MemoryRuntime:
+    """Bundled memory runtime dependencies produced by framework factories."""
+
+    embedding_provider: EmbeddingProvider
+    memory_store: MemoryStore
+    vector_store: VectorStore
+    memory_manager: DefaultMemoryManager
+    extraction_pipeline: ExtractionPipeline
+    session_manager: SessionManager
 
 
 def create_memory_store(
@@ -191,6 +206,90 @@ def create_session_manager(
         memory_manager=manager,
         compactor=resolved_compactor,
         extraction_pipeline=extraction_pipeline,
+    )
+
+
+def create_memory_runtime(
+    *,
+    event_bus: EventBus | None = None,
+    extractor: MemoryExtractor | None = None,
+    deduplicator: MemoryDeduplicator | None = None,
+    memory_backend: MemoryBackend | str = MemoryBackend.MEMORY,
+    vector_backend: str = "memory",
+    embedding_provider_name: str = "mock",
+    embedding_dimension: int = 384,
+    embedding_model: str | None = None,
+    embedding_api_key: str | None = None,
+    embedding_inference_provider: str = "hf-inference",
+    embedding_timeout_seconds: float = 60.0,
+    file_path: str | None = None,
+    db_path: str | None = None,
+    dsn: str | None = None,
+    tenant_id: str = "default",
+    compactor: MemoryCompactor | None = None,
+    session_manager_cls: type[DefaultSessionManager] = DefaultSessionManager,
+    subscribe_session_recording: bool = False,
+) -> MemoryRuntime:
+    """Create a fully wired memory runtime bundle from storage/config choices."""
+    embedding_provider = create_embedding_provider(
+        provider=embedding_provider_name,
+        model=embedding_model,
+        dimension=embedding_dimension,
+        api_key=embedding_api_key,
+        inference_provider=embedding_inference_provider,
+        timeout_seconds=embedding_timeout_seconds,
+    )
+    memory_store = create_memory_store(
+        backend=memory_backend,
+        file_path=file_path,
+        db_path=db_path,
+    )
+    vector_store = create_vector_store(
+        backend=vector_backend,
+        embedding_provider=embedding_provider,
+        dimension=embedding_dimension,
+        db_path=db_path,
+        dsn=dsn,
+        tenant_id=tenant_id,
+    )
+    memory_manager = create_memory_manager(
+        memory_store=memory_store,
+        event_bus=event_bus,
+        deduplicator=deduplicator,
+        embedding_provider=embedding_provider,
+        vector_store=vector_store,
+    )
+    extraction_pipeline = create_extraction_pipeline(
+        memory_manager=memory_manager,
+        extractor=extractor,
+        deduplicator=deduplicator,
+        event_bus=event_bus,
+    )
+    session_manager = create_session_manager(
+        memory_manager=memory_manager,
+        extraction_pipeline=extraction_pipeline,
+        compactor=compactor,
+        session_manager_cls=session_manager_cls,
+    )
+    if subscribe_session_recording:
+        if event_bus is None:
+            raise ValueError("event_bus is required when subscribe_session_recording=True")
+        from cemaf.events.memory_subscriber import (
+            subscribe_session_memory_recording,
+        )
+
+        subscribe_session_memory_recording(
+            event_bus=event_bus,
+            memory_manager=memory_manager,
+            session_manager=session_manager,
+        )
+    return MemoryRuntime(
+        embedding_provider=embedding_provider,
+        memory_store=memory_store,
+        vector_store=vector_store,
+        memory_manager=memory_manager,
+        extraction_pipeline=extraction_pipeline,
+        session_manager=session_manager,
     )
 
 

@@ -57,6 +57,7 @@ CEMAF orchestration systems.
 
 See cemaf.memory.protocols.MemoryStore for the protocol definition.
 """
+# mypy: disable-error-code="attr-defined"
 
 # Built-in implementations
 from cemaf.memory.base import InMemoryStore
@@ -88,13 +89,20 @@ from cemaf.memory.extraction import (
     ExtractedMemory,
     ExtractionCategory,
     MemoryExtractor,
+    PrefixedMemoryEmitter,
     RuleBasedExtractor,
+    normalize_mapping_values,
+    normalize_string_list,
+    parse_structured_session_output,
+    slug_memory_signal,
 )
 from cemaf.memory.extraction_pipeline import ExtractionPipeline, ExtractionReport
 from cemaf.memory.factories import (
+    MemoryRuntime,
     create_extraction_pipeline,
     create_memory_context_provider,
     create_memory_manager,
+    create_memory_runtime,
     create_memory_store,
     create_memory_store_from_config,
     create_scope_scorer,
@@ -124,11 +132,17 @@ from cemaf.memory.semantic import (
 )
 from cemaf.memory.session import (
     DefaultSessionManager,
+    ReportingSessionManager,
+    SessionDisposalReport,
     SessionManager,
     SessionPhase,
     SessionState,
 )
-from cemaf.memory.sqlite_store import SqliteMemoryStore
+from cemaf.memory.sqlite_store import (
+    SqliteMemoryStore,
+    load_items_by_scopes,
+    load_items_by_scopes_sync,
+)
 from cemaf.memory.tiered import (
     LoadingTier,
     TieredMemoryItem,
@@ -143,6 +157,8 @@ __all__ = [
     "MemoryStore",
     "InMemoryStore",
     "SqliteMemoryStore",
+    "load_items_by_scopes",
+    "load_items_by_scopes_sync",
     # Scoring
     "DecayFunction",
     "MemoryScorer",
@@ -160,7 +176,12 @@ __all__ = [
     "ExtractionPipeline",
     "ExtractionReport",
     "MemoryExtractor",
+    "PrefixedMemoryEmitter",
+    "normalize_mapping_values",
+    "normalize_string_list",
+    "parse_structured_session_output",
     "RuleBasedExtractor",
+    "slug_memory_signal",
     # Semantic bridge
     "DefaultSemanticMemoryStore",
     "MemoryQuery",
@@ -169,6 +190,7 @@ __all__ = [
     # Manager
     "DefaultMemoryManager",
     "MemoryManager",
+    "MemoryRuntime",
     # Context bridge
     "DefaultMemoryContextProvider",
     "MemoryContextProvider",
@@ -179,7 +201,9 @@ __all__ = [
     "SimpleMemoryCompactor",
     # Session lifecycle
     "DefaultSessionManager",
+    "ReportingSessionManager",
     "SessionManager",
+    "SessionDisposalReport",
     "SessionPhase",
     "SessionState",
     # Scope hierarchy
@@ -202,6 +226,7 @@ __all__ = [
     "SemanticDeduplicator",
     # Factories
     "create_extraction_pipeline",
+    "create_memory_runtime",
     "create_memory_context_provider",
     "create_memory_manager",
     "create_memory_store",
