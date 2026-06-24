@@ -80,6 +80,35 @@ def create_post_flight_gate(
     )
 
 
+def create_keyword_moderation_pipeline(
+    *,
+    blocked_words: tuple[str, ...] = (),
+    whole_word_only: bool = True,
+    severity: ModerationSeverity = "error",
+    redact_on_violation: bool = False,
+    event_bus: EventBus | None = None,
+    gate_name: str = "post_flight",
+    pipeline_name: str = "moderation_pipeline",
+) -> ModerationPipeline:
+    """Create a moderation pipeline backed by a single keyword-based post-flight gate."""
+    post_flight = create_post_flight_gate(
+        rules=[
+            create_keyword_rule(
+                blocked_words=blocked_words,
+                whole_word_only=whole_word_only,
+                severity=severity,
+            )
+        ],
+        redact_on_violation=redact_on_violation,
+        name=gate_name,
+    )
+    return create_moderation_pipeline(
+        post_flight=post_flight,
+        event_bus=event_bus,
+        name=pipeline_name,
+    )
+
+
 def create_moderation_pipeline_from_config(settings: Settings | None = None) -> ModerationPipeline:
     """
     Create ModerationPipeline from environment configuration.

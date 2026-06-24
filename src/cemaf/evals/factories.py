@@ -81,6 +81,31 @@ def create_online_eval_pipeline(
     return pipeline
 
 
+def create_single_node_eval_pipeline(
+    *,
+    node_pattern: str,
+    evaluators: tuple[Evaluator, ...],
+    event_bus: EventBus,
+    mode: EvalMode = EvalMode.OBSERVE,
+    expected: str | None = None,
+    trigger: EvalTrigger = EvalTrigger.EVERY_NODE,
+    subscribe: bool = False,
+) -> OnlineEvalPipeline:
+    """Create an online eval pipeline with a single node binding."""
+    binding = create_node_eval_binding(
+        node_pattern=node_pattern,
+        evaluators=evaluators,
+        mode=mode,
+        expected=expected,
+        trigger=trigger,
+    )
+    return create_online_eval_pipeline(
+        bindings=(binding,),
+        event_bus=event_bus,
+        subscribe=subscribe,
+    )
+
+
 def create_quality_police(
     *,
     config: QualityPoliceConfig | None = None,

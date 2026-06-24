@@ -4,6 +4,12 @@ Moderation module for content safety and compliance.
 Provides rules, gates, and utilities for content moderation.
 """
 
+from cemaf.moderation.factories import (
+    create_keyword_moderation_pipeline,
+    create_keyword_rule,
+    create_moderation_pipeline,
+    create_post_flight_gate,
+)
 from cemaf.moderation.gates import (
     CompositeGate,
     PostFlightGate,
@@ -42,6 +48,11 @@ __all__ = [
     "ModerationRule",
     "ModerationSeverity",
     "ModerationViolation",
+    # Factories
+    "create_keyword_moderation_pipeline",
+    "create_keyword_rule",
+    "create_moderation_pipeline",
+    "create_post_flight_gate",
     # Gates
     "CompositeGate",
     "PostFlightGate",

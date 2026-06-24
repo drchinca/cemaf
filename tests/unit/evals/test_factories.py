@@ -5,6 +5,7 @@ from cemaf.evals.factories import (
     create_node_eval_binding,
     create_online_eval_pipeline,
     create_quality_police,
+    create_single_node_eval_pipeline,
 )
 from cemaf.evals.online import EvalMode, EvalTrigger, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
@@ -46,3 +47,22 @@ def test_create_quality_police_uses_thresholds() -> None:
 
     assert alert is not None
     assert alert.level.value == "warn"
+
+
+def test_create_single_node_eval_pipeline_builds_single_binding() -> None:
+    bus = InMemoryEventBus()
+    evaluator = ContainsEvaluator()
+
+    pipeline = create_single_node_eval_pipeline(
+        node_pattern="quality",
+        evaluators=(evaluator,),
+        event_bus=bus,
+        trigger=EvalTrigger.CHECKPOINT_ONLY,
+    )
+
+    assert isinstance(pipeline, OnlineEvalPipeline)
+    assert len(pipeline._bindings) == 1
+    binding = pipeline._bindings[0]
+    assert binding.node_pattern == "quality"
+    assert binding.evaluators == (evaluator,)
+    assert binding.trigger == EvalTrigger.CHECKPOINT_ONLY
