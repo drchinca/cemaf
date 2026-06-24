@@ -218,6 +218,46 @@ class TestDivideAndConquerQueryEngine:
         assert llm_client.call_count > 1
 
     @pytest.mark.asyncio
+    async def test_recurses_when_subset_fits_budget(
+        self,
+        engine: DivideAndConquerQueryEngine,
+        llm_client: MockLLMClient,
+        estimator: SimpleTokenEstimator,
+    ) -> None:
+        """Regression: a budget where SOME but not all chunks fit must recurse.
+
+        The compiler silently drops over-budget chunks, so `within_budget()`
+        reports True on the surviving subset. Gating single-query on that alone
+        would answer from a partial subset while claiming full coverage. The
+        engine must instead recurse to preserve every chunk.
+        """
+        # Each chunk ~same size; budget admits roughly half of them.
+        content = "word " * 50
+        chunks = tuple(
+            ContextChunk(
+                chunk_id=f"chunk_{i}",
+                content=content,
+                token_count=TokenCount(estimator.estimate(content)),
+            )
+            for i in range(4)
+        )
+        per_chunk = estimator.estimate(content)
+        # available = max_tokens - reserved_for_output (4000). Size available so
+        # the compiler keeps ~2 of 4 chunks: within_budget() is True on that
+        # subset, but excluded_count > 0 — the exact condition where the old
+        # gate single-queried a partial subset while claiming full coverage.
+        budget = TokenBudget(max_tokens=4000 + per_chunk * 2 + 10)
+
+        result = await engine.query(instruction="Analyze", chunks=chunks, budget=budget, max_depth=3)
+
+        assert result.success is True
+        # Recursion happened: not a single-shot answer over a dropped subset.
+        assert result.metadata.get("strategy") != "single_query"
+        assert result.depth_reached > 0
+        # Every chunk was examined despite only a subset fitting at the top level.
+        assert result.chunks_examined == 4
+
+    @pytest.mark.asyncio
     async def test_max_depth_enforcement(
         self,
         engine: DivideAndConquerQueryEngine,
