@@ -228,6 +228,92 @@ def create_llm_client_from_config(
     return llm_registry.create(backend=provider)
 
 
+def create_resilient_llm_client(
+    *,
+    provider: str = "auto",
+    model: str = "",
+    temperature: float = 0.7,
+    max_tokens: int = 4096,
+    timeout_seconds: float = 120.0,
+    region: str | None = None,
+    profile: str | None = None,
+    fallback_model: str | None = None,
+    enable_caching: bool = False,
+    cache_threshold_tokens: int = 1_000,
+    metrics: Any | None = None,
+) -> LLMClient:
+    """Create a resilient text LLM client with provider auto-selection.
+
+    `provider="auto"` prefers OpenAI, then Gemini, then Anthropic based on
+    available credentials. Explicit providers delegate to `create_llm_client`.
+    """
+    resolved_provider = provider.lower()
+    if resolved_provider == "auto":
+        if os.getenv("OPENAI_API_KEY"):
+            resolved_provider = "openai"
+        elif os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+            resolved_provider = "gemini"
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            resolved_provider = "anthropic"
+        else:
+            raise ValueError(
+                "No text LLM credentials found. Set OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, "
+                "or ANTHROPIC_API_KEY."
+            )
+
+    if resolved_provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+        client = create_llm_client(
+            "openai",
+            api_key=api_key,
+            model=model or "gpt-4o-mini",
+        )
+    elif resolved_provider == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY environment variable is required")
+        client = create_llm_client(
+            "gemini",
+            api_key=api_key,
+            model=model or "gemini-2.5-flash",
+        )
+    elif resolved_provider == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+        client = create_llm_client(
+            "anthropic",
+            api_key=api_key,
+            model=model or "claude-sonnet-4-20250514",
+        )
+    elif resolved_provider == "bedrock":
+        client = create_llm_client(
+            "bedrock",
+            model=model or os.getenv("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6"),
+            region=region or os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+            profile=profile if profile is not None else (os.getenv("AWS_PROFILE") or None),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        client = create_llm_client(
+            resolved_provider,
+            model=model or None,
+            timeout_seconds=timeout_seconds,
+        )
+
+    return create_resilient_client(
+        client=client,
+        metrics=metrics,
+        fallback_model=fallback_model,
+        enable_caching=enable_caching,
+        cache_threshold_tokens=cache_threshold_tokens,
+    )
+
+
 def create_model_router(
     routes: list[Any],
     estimator: Any | None = None,

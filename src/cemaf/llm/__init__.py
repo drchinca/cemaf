@@ -24,6 +24,7 @@ from cemaf.llm.factories import (
     create_llm_client,
     create_llm_client_from_config,
     create_mock_llm_client,
+    create_resilient_llm_client,
 )
 from cemaf.llm.gemini import GeminiClient
 from cemaf.llm.instrumented import InstrumentedLLMClient
@@ -60,6 +61,7 @@ __all__ = [
     "create_llm_client",
     "create_llm_client_from_config",
     "create_mock_llm_client",
+    "create_resilient_llm_client",
     # Adapters
     "OpenAICompatClient",  # OpenAI, Ollama, vLLM, Groq, Together, LMStudio
     "AnthropicLLMClient",  # Anthropic Claude
