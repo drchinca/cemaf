@@ -11,7 +11,11 @@ Extension Point:
 """
 
 import os
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
 
+import cemaf.observability.run_logger as run_logger_module
 from cemaf.config.protocols import Settings
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
@@ -209,6 +213,9 @@ def create_metrics_collector_from_config(settings: Settings | None = None) -> Me
 def create_run_logger(
     backend: str = "memory",
     enable_recording: bool = True,
+    *,
+    root: str | Path | None = None,
+    dir_namer: Callable[[str, str], str] | None = None,
 ) -> RunLogger:
     """
     Factory for RunLogger with sensible defaults.
@@ -216,6 +223,8 @@ def create_run_logger(
     Args:
         backend: Run logger backend (memory, noop, database, etc.)
         enable_recording: Enable recording of runs
+        root: Filesystem root for file-backed run logging
+        dir_namer: Optional directory namer for file-backed run logging
 
     Returns:
         Configured RunLogger instance
@@ -229,6 +238,13 @@ def create_run_logger(
     """
     if backend == "memory":
         return InMemoryRunLogger() if enable_recording else NoOpRunLogger()
+    elif backend == "file":
+        if not enable_recording:
+            return NoOpRunLogger()
+        if root is None:
+            raise ValueError("root is required for file run logger backend")
+        file_run_logger = getattr(run_logger_module, "FileRunLogger")  # noqa: B009
+        return cast(RunLogger, file_run_logger(root=root, dir_namer=dir_namer))
     elif backend == "noop":
         return NoOpRunLogger()
     else:
@@ -242,15 +258,17 @@ def create_run_logger_from_config(settings: Settings | None = None) -> RunLogger
     Reads from environment variables:
     - CEMAF_OBSERVABILITY_RUN_LOGGER_BACKEND: Backend (default: "memory")
     - CEMAF_OBSERVABILITY_ENABLE_RUN_RECORDING: Enable recording (default: True)
+    - CEMAF_OBSERVABILITY_RUN_LOGGER_ROOT: Root directory for file backend
 
     Returns:
         Configured RunLogger instance
     """
     backend = os.getenv("CEMAF_OBSERVABILITY_RUN_LOGGER_BACKEND", "memory")
     enable_recording = os.getenv("CEMAF_OBSERVABILITY_ENABLE_RUN_RECORDING", "true").lower() == "true"
+    root = os.getenv("CEMAF_OBSERVABILITY_RUN_LOGGER_ROOT")
 
-    if backend in ("memory", "noop"):
-        return create_run_logger(backend, enable_recording)
+    if backend in ("memory", "file", "noop"):
+        return create_run_logger(backend, enable_recording, root=root)
 
     # ============================================================================
     # EXTEND HERE: Bring Your Own Run Logger
