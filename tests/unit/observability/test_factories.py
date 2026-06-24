@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from cemaf.observability.factories import create_run_logger, create_run_logger_from_config
+from cemaf.observability.budget_guard import BudgetGuard
+from cemaf.observability.factories import (
+    create_budget_guard,
+    create_run_logger,
+    create_run_logger_from_config,
+)
 from cemaf.observability.run_logger import FileRunLogger, NoOpRunLogger
 
 
@@ -34,3 +39,12 @@ class TestCreateRunLoggerFromConfig:
 
         assert isinstance(logger, FileRunLogger)
         assert logger.get_run_dir("run-456").parent == tmp_path
+
+
+def test_create_budget_guard_uses_explicit_thresholds() -> None:
+    guard = create_budget_guard(max_total_tokens=123, warning_threshold=0.5, critical_threshold=0.8)
+
+    assert isinstance(guard, BudgetGuard)
+    alert = guard.record_usage(tokens=70)
+    assert alert is not None
+    assert alert.level.value == "warning"

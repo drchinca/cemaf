@@ -38,6 +38,7 @@ from cemaf.context.algorithm import (
     KnapsackSelectionAlgorithm,
     OptimalSelectionAlgorithm,
 )
+from cemaf.context.budget import BudgetAllocation, TokenBudget
 from cemaf.context.compiler import (
     AdvancedCompilerConfig,
     ContextCompiler,
@@ -287,3 +288,23 @@ def create_token_estimator(
         except (ImportError, Exception):
             pass
     return SimpleTokenEstimator(chars_per_token=chars_per_token)
+
+
+def create_token_budget(
+    *,
+    max_tokens: int | None = None,
+    reserved_for_output: int | None = None,
+    allocations: tuple[BudgetAllocation, ...] = (),
+    metadata: dict[str, Any] | None = None,
+    model: str | None = None,
+) -> TokenBudget:
+    """Create a TokenBudget, optionally deriving defaults from a model name."""
+    budget = TokenBudget.for_model(model) if model else TokenBudget.default()
+    return TokenBudget(
+        max_tokens=max_tokens if max_tokens is not None else budget.max_tokens,
+        reserved_for_output=(
+            reserved_for_output if reserved_for_output is not None else budget.reserved_for_output
+        ),
+        allocations=allocations,
+        metadata=metadata or {},
+    )

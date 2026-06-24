@@ -18,6 +18,28 @@ from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig, NodeExecut
 from cemaf.orchestration.services import RuntimeServices
 
 
+def create_executor_config(
+    *,
+    max_parallel: int | None = None,
+    enable_logging: bool = True,
+    enable_events: bool = True,
+    enable_moderation: bool = False,
+    merge_strategy: str = "last_write_wins",
+    node_timeout_seconds: float = 300.0,
+) -> ExecutorConfig:
+    """Create an ExecutorConfig with explicit execution settings."""
+    kwargs: dict[str, object] = {
+        "enable_logging": enable_logging,
+        "enable_events": enable_events,
+        "enable_moderation": enable_moderation,
+        "merge_strategy": merge_strategy,
+        "node_timeout_seconds": node_timeout_seconds,
+    }
+    if max_parallel is not None:
+        kwargs["max_parallel"] = max_parallel
+    return ExecutorConfig(**kwargs)
+
+
 def create_dag_executor(
     node_executor: NodeExecutor,
     config: ExecutorConfig | None = None,
@@ -31,7 +53,7 @@ def create_dag_executor(
     Bundles the per-executor services into a RuntimeServices then hands
     the executor a single services parameter — mirrors bootstrap.create_executor.
     """
-    cfg = config or ExecutorConfig()
+    cfg = config or create_executor_config()
     services = RuntimeServices(
         run_logger=run_logger if cfg.enable_logging else None,
         event_bus=event_bus if cfg.enable_events else None,
@@ -79,7 +101,7 @@ def create_dag_executor_from_config(
     enable_events = os.getenv("CEMAF_ORCHESTRATION_ENABLE_EVENTS", "true").lower() == "true"
     enable_moderation = os.getenv("CEMAF_ORCHESTRATION_ENABLE_MODERATION", "false").lower() == "true"
 
-    config = ExecutorConfig(
+    config = create_executor_config(
         max_parallel=max_parallel,
         enable_logging=enable_logging,
         enable_events=enable_events,

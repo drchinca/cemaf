@@ -18,8 +18,11 @@ from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.core.types import LLMProvider
+from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import LLMClient
+from cemaf.observability.run_logger import RunLogger
+from cemaf.resilience.retry import RetryPolicy
 
 # Global LLM provider registry — extend with your own providers
 llm_registry: ProviderRegistry[LLMClient] = ProviderRegistry(name="llm")
@@ -280,4 +283,22 @@ def create_resilient_client(
         ),
         metrics=metrics,
         fallback_model=fallback_model,
+    )
+
+
+def create_instrumented_client(
+    *,
+    client: LLMClient,
+    run_logger: RunLogger,
+    node_id: str | None = None,
+    agent_id: str | None = None,
+    retry_policy: RetryPolicy | None = None,
+) -> InstrumentedLLMClient:
+    """Wrap an LLMClient so all calls are recorded to the run logger."""
+    return InstrumentedLLMClient(
+        client=client,
+        run_logger=run_logger,
+        node_id=node_id,
+        agent_id=agent_id,
+        retry_policy=retry_policy,
     )

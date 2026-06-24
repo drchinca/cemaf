@@ -17,6 +17,7 @@ from typing import cast
 
 import cemaf.observability.run_logger as run_logger_module
 from cemaf.config.protocols import Settings
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
     InMemoryRunLogger,
@@ -208,6 +209,22 @@ def create_metrics_collector_from_config(settings: Settings | None = None) -> Me
     # ============================================================================
 
     raise ValueError(f"Unsupported metrics backend: {backend}")
+
+
+def create_budget_guard(
+    *,
+    max_cost_usd: float = 1.0,
+    max_total_tokens: int = 500_000,
+    warning_threshold: float = 0.7,
+    critical_threshold: float = 0.9,
+) -> BudgetGuard:
+    """Create a BudgetGuard with explicit token/cost thresholds."""
+    return BudgetGuard(
+        max_cost_usd=max_cost_usd,
+        max_total_tokens=max_total_tokens,
+        warning_threshold=warning_threshold,
+        critical_threshold=critical_threshold,
+    )
 
 
 def create_run_logger(
