@@ -18,6 +18,7 @@ from cemaf.state.errors import (
     TransitionNotAllowed,
     VersionConflict,
 )
+from cemaf.state.factories import create_fsm_store
 from cemaf.state.fsm import StateMachine
 from cemaf.state.persistence import FsmStore, InMemoryFsmStore
 from cemaf.state.transitions import FsmState, StateTransition, Transition
@@ -35,4 +36,5 @@ __all__ = [
     "Transition",
     "TransitionNotAllowed",
     "VersionConflict",
+    "create_fsm_store",
 ]
