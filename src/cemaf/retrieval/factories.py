@@ -110,6 +110,47 @@ embedding_provider_registry.register(
 )
 
 
+def create_vector_store(
+    backend: str = "memory",
+    *,
+    embedding_provider: EmbeddingProvider | None = None,
+    dimension: int = 384,
+    db_path: str | None = None,
+    dsn: str | None = None,
+    tenant_id: str = "default",
+) -> VectorStore:
+    """Create a vector store without routing through environment-backed settings."""
+    return vector_store_registry.create(
+        backend=backend,
+        embedding_provider=embedding_provider,
+        dimension=dimension,
+        db_path=db_path,
+        dsn=dsn,
+        tenant_id=tenant_id,
+    )
+
+
+def create_embedding_provider(
+    provider: str = "mock",
+    *,
+    model: str | None = None,
+    dimension: int = 384,
+    api_key: str | None = None,
+    inference_provider: str = "hf-inference",
+    timeout_seconds: float = 60.0,
+) -> EmbeddingProvider:
+    """Create an embedding provider without routing through environment-backed settings."""
+    kwargs: dict[str, Any] = {
+        "dimension": dimension,
+        "api_key": api_key or "",
+        "provider": inference_provider,
+        "timeout_seconds": timeout_seconds,
+    }
+    if model is not None:
+        kwargs["model"] = model
+    return embedding_provider_registry.create(backend=provider, **kwargs)
+
+
 def create_vector_store_from_config(
     backend: str | None = None,
     embedding_provider: EmbeddingProvider | None = None,
@@ -119,7 +160,7 @@ def create_vector_store_from_config(
     cfg = settings or load_settings_from_env_sync()
     backend = backend or cfg.retrieval.vector_store_backend
 
-    return vector_store_registry.create(
+    return create_vector_store(
         backend=backend,
         embedding_provider=embedding_provider,
         dimension=cfg.retrieval.embedding_dimension,
@@ -135,9 +176,10 @@ def create_embedding_provider_from_config(
 
     cfg = settings or load_settings_from_env_sync()
     provider_name = provider or cfg.retrieval.embedding_provider
-    return embedding_provider_registry.create(
-        backend=provider_name,
-        model=cfg.retrieval.embedding_model,
+    model = cfg.retrieval.embedding_model
+    return create_embedding_provider(
+        provider=provider_name,
+        model=model or None,
         dimension=cfg.retrieval.embedding_dimension,
     )
 

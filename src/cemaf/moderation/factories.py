@@ -9,12 +9,19 @@ import os
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
+from cemaf.events.protocols import EventBus
+from cemaf.moderation.gates import PostFlightGate, PreFlightGate
 from cemaf.moderation.pipeline import ModerationPipeline
 
 
 def create_moderation_pipeline(
     enabled: bool = True,
     fail_on_violation: bool = True,
+    *,
+    pre_flight: PreFlightGate | None = None,
+    post_flight: PostFlightGate | None = None,
+    event_bus: EventBus | None = None,
+    name: str = "moderation_pipeline",
 ) -> ModerationPipeline:
     """
     Factory for ModerationPipeline with sensible defaults.
@@ -33,9 +40,14 @@ def create_moderation_pipeline(
         # Warning mode (log but don't fail)
         pipeline = create_moderation_pipeline(fail_on_violation=False)
     """
-    # ModerationPipeline doesn't accept these parameters
-    # They are kept in the factory API for backward compatibility
-    return ModerationPipeline()
+    # `enabled` / `fail_on_violation` are kept for backward compatibility.
+    del enabled, fail_on_violation
+    return ModerationPipeline(
+        pre_flight=pre_flight,
+        post_flight=post_flight,
+        event_bus=event_bus,
+        name=name,
+    )
 
 
 def create_moderation_pipeline_from_config(settings: Settings | None = None) -> ModerationPipeline:

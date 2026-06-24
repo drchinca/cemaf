@@ -1,5 +1,7 @@
 """Tests for memory factory functions."""
 
+from pathlib import Path
+
 import pytest
 
 from cemaf.events.bus import InMemoryEventBus
@@ -11,7 +13,7 @@ from cemaf.memory.factories import (
     create_session_manager,
 )
 from cemaf.memory.manager import DefaultMemoryManager
-from cemaf.memory.session import DefaultSessionManager
+from cemaf.memory.session import DefaultSessionManager, ReportingSessionManager
 
 # ---------------------------------------------------------------------------
 # create_memory_store
@@ -38,6 +40,10 @@ class TestCreateMemoryStore:
             default_ttl_seconds=7200.0,
         )
         assert isinstance(store, InMemoryStore)
+
+    def test_sqlite_backend_accepts_explicit_db_path(self, tmp_path: Path) -> None:
+        store = create_memory_store(backend="sqlite", db_path=str(tmp_path / "memory.db"))
+        assert store.__class__.__name__ == "SqliteMemoryStore"
 
 
 # ---------------------------------------------------------------------------
@@ -114,3 +120,11 @@ class TestCreateSessionManager:
         manager = create_memory_manager()
         session_mgr = create_session_manager(memory_manager=manager)
         assert isinstance(session_mgr, DefaultSessionManager)
+
+    def test_supports_reporting_session_manager(self) -> None:
+        manager = create_memory_manager()
+        session_mgr = create_session_manager(
+            memory_manager=manager,
+            session_manager_cls=ReportingSessionManager,
+        )
+        assert isinstance(session_mgr, ReportingSessionManager)

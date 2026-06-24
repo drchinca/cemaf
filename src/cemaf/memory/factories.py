@@ -48,6 +48,7 @@ def create_memory_store(
     max_items: int = 10000,
     default_ttl_seconds: float = 3600.0,
     file_path: str | None = None,
+    db_path: str | None = None,
 ) -> MemoryStore:
     """Build a `MemoryStore` for the given backend."""
     backend_enum = MemoryBackend(backend) if isinstance(backend, str) else backend
@@ -63,8 +64,8 @@ def create_memory_store(
                 )
             return JsonFileMemoryStore(path=Path(path_str))
         case MemoryBackend.SQLITE:
-            db_path = os.getenv("CEMAF_MEMORY_SQLITE_PATH", "cemaf_memory.db")
-            return SqliteMemoryStore(db_path=db_path)
+            sqlite_path = db_path or os.getenv("CEMAF_MEMORY_SQLITE_PATH") or "cemaf_memory.db"
+            return SqliteMemoryStore(db_path=sqlite_path)
         case MemoryBackend.POSTGRES:
             return create_postgres_memory_store()
 
@@ -179,15 +180,16 @@ def create_session_manager(
     *,
     memory_manager: DefaultMemoryManager | None = None,
     extraction_pipeline: ExtractionPipeline | None = None,
+    compactor: MemoryCompactor | None = None,
+    session_manager_cls: type[DefaultSessionManager] = DefaultSessionManager,
 ) -> DefaultSessionManager:
     """Create a DefaultSessionManager with default compactor and optional extraction."""
     manager = memory_manager or create_memory_manager()
-    scorer = TemporalDecayScorer()
-    compactor = SimpleMemoryCompactor(scorer=scorer)
+    resolved_compactor = compactor or SimpleMemoryCompactor(scorer=TemporalDecayScorer())
 
-    return DefaultSessionManager(
+    return session_manager_cls(
         memory_manager=manager,
-        compactor=compactor,
+        compactor=resolved_compactor,
         extraction_pipeline=extraction_pipeline,
     )
 
