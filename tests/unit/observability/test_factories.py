@@ -7,10 +7,12 @@ import pytest
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.factories import (
     create_budget_guard,
+    create_logger,
     create_run_logger,
     create_run_logger_from_config,
 )
 from cemaf.observability.run_logger import FileRunLogger, NoOpRunLogger
+from cemaf.observability.structured import StructuredLogger
 
 
 class TestCreateRunLogger:
@@ -48,3 +50,9 @@ def test_create_budget_guard_uses_explicit_thresholds() -> None:
     alert = guard.record_usage(tokens=70)
     assert alert is not None
     assert alert.level.value == "warning"
+
+
+def test_create_logger_supports_structured_backend() -> None:
+    logger = create_logger(backend="structured", level="INFO")
+
+    assert isinstance(logger, StructuredLogger)

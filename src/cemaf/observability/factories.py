@@ -25,6 +25,7 @@ from cemaf.observability.run_logger import (
     RunLogger,
 )
 from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleLogger, SimpleMetrics
+from cemaf.observability.structured import StructuredLogger
 
 
 def create_logger(
@@ -54,6 +55,11 @@ def create_logger(
         # Convert string level to int
         level_int = getattr(logging, level.upper(), logging.INFO)
         return SimpleLogger(level=level_int)
+    elif backend == "structured":
+        import logging
+
+        level_int = getattr(logging, level.upper(), logging.INFO)
+        return StructuredLogger(level=level_int)
     else:
         raise ValueError(f"Unsupported logger backend: {backend}")
 
@@ -72,7 +78,7 @@ def create_logger_from_config(settings: Settings | None = None) -> Logger:
     backend = os.getenv("CEMAF_OBSERVABILITY_LOGGER_BACKEND", "simple")
     level = os.getenv("CEMAF_OBSERVABILITY_LOG_LEVEL", "INFO")
 
-    if backend == "simple":
+    if backend in {"simple", "structured"}:
         return create_logger(backend, level)
 
     # ============================================================================

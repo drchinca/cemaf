@@ -12,6 +12,8 @@ from cemaf.config.protocols import Settings
 from cemaf.events.protocols import EventBus
 from cemaf.moderation.gates import PostFlightGate, PreFlightGate
 from cemaf.moderation.pipeline import ModerationPipeline
+from cemaf.moderation.protocols import ModerationRule, ModerationSeverity
+from cemaf.moderation.rules import KeywordRule
 
 
 def create_moderation_pipeline(
@@ -46,6 +48,34 @@ def create_moderation_pipeline(
         pre_flight=pre_flight,
         post_flight=post_flight,
         event_bus=event_bus,
+        name=name,
+    )
+
+
+def create_keyword_rule(
+    *,
+    blocked_words: tuple[str, ...] = (),
+    whole_word_only: bool = True,
+    severity: ModerationSeverity = "error",
+) -> KeywordRule:
+    """Create a KeywordRule with explicit blocked-word settings."""
+    return KeywordRule(
+        blocked_words=blocked_words,
+        whole_word_only=whole_word_only,
+        severity=severity,
+    )
+
+
+def create_post_flight_gate(
+    *,
+    rules: list[ModerationRule] | None = None,
+    redact_on_violation: bool = False,
+    name: str = "post_flight",
+) -> PostFlightGate:
+    """Create a PostFlightGate with explicit rule wiring."""
+    return PostFlightGate(
+        rules=rules or [],
+        redact_on_violation=redact_on_violation,
         name=name,
     )
 
