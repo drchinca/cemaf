@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-06-24
+
+**Dog-fooded meta-scheduler, glassbox traceability, and a context-engineering correctness sweep.**
+
+This release lands the self-hosting scheduler (CEMAF running CEMAF), end-to-end glassbox traceability, and fixes several real correctness bugs in the context/RLM/memory core surfaced by adversarial audits of the new end-to-end demos.
+
+**Added:**
+- **Dog-fooded meta-scheduler (SPEC-11)** — `cemaf/scheduler/` durable job primitives (`ManagedScheduler`, `JobStore`, `JobLease`, `JobRunRecord`), worker heartbeats (`HeartbeatStore`/`HeartbeatMonitor`, ACTIVE/STALE/MISSING), and quiet-hours `NightShiftWindow`. `meta.bootstrap_meta_dogfood()` registers self-audit, knowledge-refresh, and dreaming as managed background jobs so an unattended CEMAF deployment maintains itself. Proven by `tests/integration/test_meta_dogfood.py`, including an autonomous `start()`→trigger→`stop()` loop.
+- **Glassbox traceability** — `examples/glassbox_trace.py` reconstructs a complete per-step trace (audit trail + context-patch provenance + real citations + per-node decisions + timing) for one run; `examples/glassbox_dogfood.py` threads scheduler→context-DAG→auction→gate→council→harvest→audit in one run.
+- **Tier-aware retrieval** — `TieredMemoryStore.progressive_search_compacted()` returns results at L2/L1/L0 fidelity by rank, so lower-ranked items cost a fraction of full tokens; wired into `DefaultMemoryContextProvider`.
+
+**Fixed:**
+- **Audit trail records per-node executions and decisions** — the subscriber mapped `AGENT_COMPLETED` (never emitted) instead of `TASK_COMPLETED`/`TASK_FAILED`; per-node events + council/auction/gate verdicts now land in the trail.
+- **DreamAgent actually consolidates memory** — was `consolidated_count = item_count` (merged nothing); now dedups + merges + shrinks the store.
+- **RLM divide-and-conquer no longer returns partial answers as full coverage** — single-query mode now requires `within_budget()` AND zero dropped chunks, else it recurses.
+- **Context compaction never grows output** — small sources whose framing cost exceeded the savings could make context *larger*; now a no-op when it can't shrink.
+- **Compaction no longer drops fittable items** — head-of-line `break` replaced with `continue`.
+- **Council ballots carry member rationale**; context patches carry the agent's reasoning as provenance.
+- **Citations in the trace demo use the real `CitationTracker`** subsystem, not hand-pasted dicts.
+
+**Changed:**
+- Removed the rarely-used, flake-prone TestPyPI publish job from CI.
+- `examples/extensibility_patterns.py` and `examples/generate_etl_blueprint.py` fixed to the current Blueprint API and guarded by a smoke test that runs every example.
+
+**Tests:** 3541 passing, with extensive new integration coverage for the scheduler, traceability, compaction invariants, lifecycle cleanup, and tiered retrieval.
+
 ## [2.2.0] - 2026-06-12
 
 **README polish: rich-text dual-DAG framing + industry-standards table.**
