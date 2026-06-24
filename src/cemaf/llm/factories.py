@@ -1,6 +1,6 @@
 """Factory functions for LLM client components.
 
-Supports 8 providers out of the box:
+Supports 9 providers out of the box:
     client = create_llm_client("ollama", model="qwen3.5")
     client = create_llm_client("ollama-cloud", model="gpt-oss:120b-cloud")
     client = create_llm_client("openai", api_key="sk-...")
@@ -9,6 +9,7 @@ Supports 8 providers out of the box:
     client = create_llm_client("groq", api_key="gsk-...")
     client = create_llm_client("together", api_key="...")
     client = create_llm_client("huggingface", api_key="hf_...")
+    client = create_llm_client("bedrock", model="global.anthropic.claude-sonnet-4-6")
 """
 
 import os
@@ -156,6 +157,20 @@ def _create_gemini(**kwargs: Any) -> LLMClient:
     )
 
 
+def _create_bedrock(**kwargs: Any) -> LLMClient:
+    from cemaf.llm.bedrock_cli import BedrockCliLLMClient
+
+    return BedrockCliLLMClient(  # type: ignore[return-value]
+        model=kwargs.get("model", os.getenv("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6")),
+        region=kwargs.get("region", os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))),
+        profile=kwargs.get("profile", os.getenv("AWS_PROFILE") or None),
+        temperature=kwargs.get("temperature", 0.7),
+        max_tokens=kwargs.get("max_tokens", 4096),
+        timeout_seconds=kwargs.get("timeout_seconds", 120.0),
+        runner=kwargs.get("runner"),
+    )
+
+
 # Register all providers
 llm_registry.register(backend="mock", factory=_create_mock)
 llm_registry.register(backend="anthropic", factory=_create_anthropic)
@@ -167,6 +182,7 @@ llm_registry.register(backend="groq", factory=_create_groq)
 llm_registry.register(backend="together", factory=_create_together)
 llm_registry.register(backend="huggingface", factory=_create_huggingface)
 llm_registry.register(backend="gemini", factory=_create_gemini)
+llm_registry.register(backend="bedrock", factory=_create_bedrock)
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +197,8 @@ def create_llm_client(
     """Create an LLM client for any supported provider.
 
     Args:
-        provider: One of: openai, anthropic, ollama, ollama-cloud, gemini, groq, together, huggingface, mock
+        provider: One of: openai, anthropic, ollama, ollama-cloud, gemini,
+            groq, together, huggingface, bedrock, mock
         **kwargs: Provider-specific args (api_key, model, base_url, etc.)
 
     Examples:
@@ -189,6 +206,7 @@ def create_llm_client(
         client = create_llm_client("openai", api_key="sk-...", model="gpt-4o")
         client = create_llm_client("gemini", api_key="AIza...", model="gemini-2.5-flash")
         client = create_llm_client("huggingface", api_key="hf_...", model="google/gemma-2-2b-it")
+        client = create_llm_client("bedrock", model="global.anthropic.claude-sonnet-4-6")
     """
     return llm_registry.create(backend=provider, **kwargs)
 
