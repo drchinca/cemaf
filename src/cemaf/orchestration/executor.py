@@ -1036,6 +1036,12 @@ class DAGExecutor:
             _ctx_out = (result.metadata or {}).get("_context_output")
             context_value = _ctx_out if (node.structured_output and _ctx_out is not None) else result.output
 
+            # Prefer the agent's own rationale (if it recorded one) as the patch
+            # reason, so context history explains WHY a value was produced — not
+            # just which node emitted it. Falls back to the generic node label.
+            agent_reason = str((result.metadata or {}).get("reasoning", "")).strip()
+            patch_reason = agent_reason or f"Output from node '{node.id}'"
+
             # Create patch for provenance
             patch = ContextPatch(
                 path=node.output_key,
@@ -1043,7 +1049,7 @@ class DAGExecutor:
                 value=context_value,
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
-                reason=f"Output from node '{node.id}'",
+                reason=patch_reason,
                 correlation_id=_correlation_id_var.get(),
             )
 

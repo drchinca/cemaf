@@ -88,6 +88,12 @@ async def test_trace_captures_decisions_provenance_and_citations() -> None:
     for prov in trace.context_provenance:
         assert prov["reason"], "every context change must carry a reason"
 
+    # The agent's OWN rationale is the provenance reason (not the generic
+    # "Output from node X"): the research agent's patch cites its retrieval.
+    prov_by_path = {p["path"]: p for p in trace.context_provenance}
+    assert "scored" in prov_by_path["facts"]["reason"]
+    assert prov_by_path["facts"]["reason"] != "Output from node 'research'"
+
     # Citation: comes from the REAL CitationTracker registry (has a generated
     # citation_id), not a hand-pasted dict. The tracker also holds a cited fact
     # binding the Researcher's output to that source.
