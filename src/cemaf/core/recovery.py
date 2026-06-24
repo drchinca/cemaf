@@ -99,3 +99,8 @@ class AutoHealManager:
 
         # Step 4: No recovery available
         return Result.fail("No recovery strategy available")
+
+
+def create_auto_heal_manager() -> AutoHealManager:
+    """Create an AutoHealManager with default empty strategy registries."""
+    return AutoHealManager()

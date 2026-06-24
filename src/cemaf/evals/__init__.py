@@ -56,6 +56,9 @@ from cemaf.evals.factories import (
     create_composite_evaluator,
     create_composite_evaluator_from_config,
     create_exact_match_evaluator,
+    create_node_eval_binding,
+    create_online_eval_pipeline,
+    create_quality_police,
 )
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig, TierResult
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
@@ -119,6 +122,9 @@ __all__ = [
     "create_exact_match_evaluator",
     "create_composite_evaluator",
     "create_composite_evaluator_from_config",
+    "create_node_eval_binding",
+    "create_online_eval_pipeline",
+    "create_quality_police",
     # Eval tools (dogfooding)
     "RunEvalTool",
     "CheckQualityTool",
