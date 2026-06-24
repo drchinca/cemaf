@@ -54,6 +54,9 @@ framework-facing additions are the feature commits listed below.
 - Added `export_standard_run_artifacts(...)` in the bundle surface to compose
   execution artifacts, asset evidence, optional run-record/replay artifacts,
   and model-usage export through one CEMAF helper.
+- Added `inspect_bundle(...)` and `inspect_bundle_record_path(...)` so
+  downstream apps can inspect persisted bundle manifests, DAG payloads,
+  checkpoint indexes, and optional run records through one CEMAF surface.
 
 ### Moderation composition
 

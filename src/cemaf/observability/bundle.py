@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
@@ -62,6 +62,53 @@ def load_bundle_dag_json(
     if not isinstance(payload, dict):
         raise ValueError("Bundle DAG artifact is malformed.")
     return payload
+
+
+def inspect_bundle(
+    *,
+    bundle_dir: str | Path,
+    include_dag: bool = True,
+    include_execution_result: bool = True,
+    include_record: bool = True,
+    include_checkpoints: bool = True,
+) -> BundleInspection:
+    """Load the common persisted artifacts present in a run bundle."""
+
+    root = Path(bundle_dir)
+    manifest: dict[str, Any] | None = None
+    if (root / "manifest.json").is_file():
+        loaded_manifest = load_bundle_manifest(bundle_dir=root)
+        manifest = loaded_manifest if isinstance(loaded_manifest, dict) else None
+
+    dag_payload: dict[str, Any] | None = None
+    if include_dag and manifest is not None:
+        try:
+            loaded_dag = load_bundle_dag_json(bundle_dir=root)
+        except FileNotFoundError:
+            loaded_dag = None
+        dag_payload = loaded_dag if isinstance(loaded_dag, dict) else None
+
+    execution_result: dict[str, Any] | None = None
+    if include_execution_result and (root / "execution_result.json").is_file():
+        loaded_execution = load_bundle_json(bundle_dir=root, path="execution_result.json")
+        execution_result = loaded_execution if isinstance(loaded_execution, dict) else None
+
+    run_record = load_bundle_record(bundle_dir=root) if include_record else None
+
+    checkpoint_index: list[dict[str, Any]] = []
+    if include_checkpoints and (root / "checkpoints" / "index.json").is_file():
+        loaded_index = load_bundle_json(bundle_dir=root, path="checkpoints/index.json")
+        if isinstance(loaded_index, list):
+            checkpoint_index = [item for item in loaded_index if isinstance(item, dict)]
+
+    return BundleInspection(
+        bundle_dir=root,
+        manifest=manifest,
+        dag_payload=dag_payload,
+        execution_result=execution_result,
+        run_record=run_record,
+        checkpoint_index=checkpoint_index,
+    )
 
 
 def bundle_has_node(*, bundle_dir: str | Path, node_id: str) -> bool:
@@ -206,6 +253,38 @@ class BundleManifestBundle:
 
 
 @dataclass(frozen=True)
+class BundleInspection:
+    """Loaded run-bundle artifacts used by branching, replay, and offline analysis."""
+
+    bundle_dir: Path
+    manifest: dict[str, Any] | None = None
+    dag_payload: dict[str, Any] | None = None
+    execution_result: dict[str, Any] | None = None
+    run_record: RunRecord | None = None
+    checkpoint_index: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def branchable_outputs(self) -> list[str]:
+        return branchable_outputs(self.checkpoint_index)
+
+    def has_node(self, node_id: str) -> bool:
+        """Return whether the loaded DAG payload contains the given node."""
+        if not isinstance(self.dag_payload, dict):
+            return False
+        nodes = self.dag_payload.get("nodes", [])
+        if not isinstance(nodes, list):
+            return False
+        return any(str(node.get("id", "")) == node_id for node in nodes if isinstance(node, dict))
+
+    def load_checkpoint_context(self, checkpoint_key: str) -> Context:
+        """Load a checkpoint context from this bundle by logical context path."""
+        return load_bundle_checkpoint_context(
+            bundle_dir=self.bundle_dir,
+            checkpoint_key=checkpoint_key,
+        )
+
+
+@dataclass(frozen=True)
 class StandardRunArtifactsBundle:
     """Standard generic run-artifact set exported under a bundle directory."""
 
@@ -250,6 +329,25 @@ def bundle_dir_from_record_path(record_path: str | Path) -> Path:
     return path.parent
 
 
+def inspect_bundle_record_path(
+    *,
+    record_path: str | Path,
+    include_dag: bool = True,
+    include_execution_result: bool = True,
+    include_record: bool = True,
+    include_checkpoints: bool = True,
+) -> BundleInspection:
+    """Resolve a ``run_record.json`` path and inspect its parent bundle."""
+
+    return inspect_bundle(
+        bundle_dir=bundle_dir_from_record_path(record_path),
+        include_dag=include_dag,
+        include_execution_result=include_execution_result,
+        include_record=include_record,
+        include_checkpoints=include_checkpoints,
+    )
+
+
 def load_bundle_record(*, bundle_dir: str | Path, path: str = "run_record.json") -> RunRecord | None:
     """Load a persisted ``RunRecord`` from a bundle if present."""
 
@@ -259,7 +357,10 @@ def load_bundle_record(*, bundle_dir: str | Path, path: str = "run_record.json")
     payload = load_bundle_json(bundle_dir=bundle_dir, path=path)
     if not isinstance(payload, dict):
         return None
-    return RunRecord.from_dict(payload)
+    try:
+        return RunRecord.from_dict(payload)
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def load_bundle_checkpoint_context(*, bundle_dir: str | Path, checkpoint_key: str) -> Context:
