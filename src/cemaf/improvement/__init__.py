@@ -15,6 +15,7 @@ from cemaf.improvement.export import (
 from cemaf.improvement.factories import (
     ImprovementRuntime,
     create_improvement_runtime,
+    create_self_improvement_loop,
     create_strategy_memory,
     create_trust_ledger,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "SelfImprovementLoop",
     "build_improvement_run_report",
     "create_improvement_runtime",
+    "create_self_improvement_loop",
     "create_strategy_memory",
     "create_trust_ledger",
     "compose_improvement_label",

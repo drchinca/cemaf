@@ -19,6 +19,20 @@ class ImprovementRuntime:
     loop: SelfImprovementLoop
 
 
+def create_self_improvement_loop(
+    *,
+    strategy_memory: StrategyMemory,
+    trust_ledger: TrustLedger,
+    quality_threshold: float = 0.6,
+) -> SelfImprovementLoop:
+    """Create the default self-improvement loop from runtime dependencies."""
+    return SelfImprovementLoop(
+        strategy_memory=strategy_memory,
+        trust_ledger=trust_ledger,
+        quality_threshold=quality_threshold,
+    )
+
+
 def create_strategy_memory(*, persist_path: str | Path | None = None) -> StrategyMemory:
     """Create a strategy memory store, optionally persisted to disk."""
     path = Path(persist_path) if persist_path is not None else None
@@ -52,7 +66,7 @@ def create_improvement_runtime(
 
     strategy_memory = create_strategy_memory(persist_path=strategy_path)
     trust_ledger = create_trust_ledger(persist_path=trust_path)
-    loop = SelfImprovementLoop(
+    loop = create_self_improvement_loop(
         strategy_memory=strategy_memory,
         trust_ledger=trust_ledger,
         quality_threshold=quality_threshold,
