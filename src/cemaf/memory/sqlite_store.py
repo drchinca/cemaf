@@ -73,6 +73,18 @@ class SqliteMemoryStore:
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
 
+    async def __aenter__(self) -> SqliteMemoryStore:
+        """Allow `async with` usage for deterministic connection cleanup."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> None:
+        await self.close()
+
     async def _connection(self) -> aiosqlite.Connection:
         """Return the lazy-initialized, pragma-tuned connection."""
         if self._conn is not None:
