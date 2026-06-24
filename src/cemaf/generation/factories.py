@@ -7,6 +7,8 @@ to connect to real generation services (DALL-E, Stable Diffusion, ElevenLabs, et
 """
 
 import os
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
@@ -26,6 +28,47 @@ from cemaf.generation.protocols import (
     UIGenerator,
     VideoGenerator,
 )
+
+
+@dataclass(frozen=True)
+class ProviderResolution:
+    """Resolved provider name plus warnings gathered during fallback attempts."""
+
+    provider: str
+    warnings: tuple[str, ...] = ()
+
+
+def resolve_available_provider[T](
+    *,
+    requested_provider: str,
+    candidate_order: tuple[str, ...],
+    load_provider: Callable[[str], T],
+    unavailable_error: type[Exception] | tuple[type[Exception], ...] = Exception,
+    preflight_check: Callable[[str], str | None] | None = None,
+) -> ProviderResolution:
+    """Resolve the first available provider from a candidate list.
+
+    Explicit provider requests are returned unchanged. For ``auto`` selection,
+    each candidate is preflight-checked and loaded in order; failures are
+    accumulated as warnings and the first viable provider wins.
+    """
+    if requested_provider != "auto":
+        return ProviderResolution(provider=requested_provider)
+
+    warnings: list[str] = []
+    for candidate in candidate_order:
+        if preflight_check is not None:
+            warning = preflight_check(candidate)
+            if warning:
+                warnings.append(warning)
+                continue
+        try:
+            load_provider(candidate)
+            return ProviderResolution(provider=candidate, warnings=tuple(warnings))
+        except unavailable_error as exc:
+            warnings.append(str(exc))
+
+    return ProviderResolution(provider=candidate_order[0], warnings=tuple(warnings))
 
 
 def create_image_generator(

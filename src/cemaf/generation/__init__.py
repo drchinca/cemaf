@@ -15,6 +15,7 @@ Supported modalities:
 - Code generation (Codex, Claude, structured output)
 """
 
+from cemaf.generation.factories import ProviderResolution, resolve_available_provider
 from cemaf.generation.protocols import (
     AudioFormat,
     AudioGenerator,
@@ -55,6 +56,7 @@ __all__ = [
     "DiagramSpec",
     "UISpec",
     "CodeSpec",
+    "ProviderResolution",
     # Generators
     "ImageGenerator",
     "AudioGenerator",
@@ -62,4 +64,5 @@ __all__ = [
     "DiagramGenerator",
     "UIGenerator",
     "CodeGenerator",
+    "resolve_available_provider",
 ]
