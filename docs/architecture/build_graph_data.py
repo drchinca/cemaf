@@ -42,6 +42,7 @@ TIERS: dict[str, int] = {
     "audit": TIER_SELF_HOSTING,
     "knowledge": TIER_SELF_HOSTING,
     "meta": TIER_SELF_HOSTING,
+    "operator": TIER_SELF_HOSTING,
 }
 
 HOW: dict[str, str] = {
@@ -116,6 +117,13 @@ HOW: dict[str, str] = {
         "(majority / weighted / quorum / unanimous). The council's result "
         "becomes a NodeResult.output that steers the DAG; ballots are "
         "preserved for audit."
+    ),
+    "operator": (
+        "snapshot_from_run_record(record) / snapshot_from_execution_result(result) → a "
+        "versioned, read-only SessionSnapshot (cemaf.session.v1). Pure deterministic "
+        "projection — the stable public contract CLI/service/MCP/benchmarks render from, "
+        "so downstream stops coupling to internal dataclasses. Sits above observability + "
+        "orchestration; emits nothing itself."
     ),
     "docs_api": (
         "Mounts CEMAF's own docs + docstrings as a tool surface so meta-"
@@ -288,6 +296,7 @@ DESCRIPTIONS: dict[str, str] = {
     "context": "Immutable Context, compiler, token budgets, provenance patches",
     "core": "Domain types, enums, Result[T], utc_now(), generate_id()",
     "council": "Deliberative multi-agent decisions — vote aggregation, ballots",
+    "operator": "Operator plane — versioned read-only run snapshots (cemaf.session.v1)",
     "docs_api": "Expose CEMAF's own docs and docstrings to LLMs",
     "evals": "Deterministic / semantic / LLM-judge evaluation, online pipeline",
     "events": "EventBus pub/sub with typed EventType enum",

@@ -286,3 +286,4 @@ These modules are **opt-in consumers** of the base framework. No base module imp
 | `audit` | Structured audit trail — EventBus subscriber → AuditEntry, quality trend, z-score anomaly detection | `subscriber.py`, `trail.py`, `protocols.py`, `models.py` |
 | `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07) for bounded-LRU point-read acceleration | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
 | `meta` | Self-hosting agents, tools, DAGs, and bootstrap | `agents.py`, `tools.py`, `dags.py`, `bootstrap.py`, `registry.py` |
+| `operator` | Operator plane (SPEC-14) — versioned read-only run snapshots (`cemaf.session.v1`) projected from RunRecord/ExecutionResult; sits above observability + orchestration | `snapshot.py` |
