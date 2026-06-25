@@ -56,8 +56,7 @@ class TestStreamingContextCompiler:
             budget=budget,
         )
 
-        # Both compilers should select the same high-priority sources
-        priority_ids = {s.source_id for s in priority_result.sources}
+        assert priority_result.total_tokens <= budget.available_tokens
         stream_ids = {s.source_id for s in stream_result.sources}
 
         # The streaming compiler picks from the heap which has all 5 items for
