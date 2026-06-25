@@ -234,6 +234,7 @@ return Result.fail(error="Rate limit exceeded")
 |--------|---------|-----------|
 | `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers, NodeResult/ExecutionResult (results.py), NodeResolver dispatch chain (resolvers/ — council/auction/static, first-match wins; replaces the old bespoke if-branches in execute_node) | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py`, `results.py`, `resolvers/` |
 | `interceptors` | The spine (SPEC-01a) — PRE→execute→POST chain every AGENT node passes through; GateEvalInterceptor makes a quality gate genuinely block downstream | `pipeline.py`, `protocols.py`, `gate_eval.py`, `types.py` |
+| `collision` | TCAS-style coordination (SPEC-12) — detect overlapping concurrent writes to context paths, resolve deterministically (lower-priority steers, higher holds). Pure-math risk + run-scoped coordinator | `risk.py`, `protocols.py`, `coordinator.py`, `factories.py` |
 | `blueprint` | Semantic blueprint definitions for structured generation + the harvest flywheel (learn reusable blueprints from high-scoring runs via `create_blueprint_harvester()`) | `core.py`, `parser.py`, `library.py`, `harvest.py`, `harvest_defaults.py`, `factories.py` |
 | `scheduler` | Task scheduling | `base.py`, `protocols.py` |
 
