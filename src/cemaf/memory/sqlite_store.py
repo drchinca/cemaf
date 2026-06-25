@@ -11,6 +11,7 @@ Production-grade persistence for single-host deployments:
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -216,3 +217,40 @@ class SqliteMemoryStore:
             )
             await conn.commit()
             return int(cursor.rowcount)
+
+
+async def load_items_by_scopes(
+    *,
+    db_path: str | Path,
+    scopes: tuple[MemoryScope, ...],
+) -> tuple[MemoryItem, ...]:
+    """Load all persisted items for the given scopes through ``SqliteMemoryStore``."""
+
+    store = SqliteMemoryStore(db_path=str(db_path))
+    try:
+        items: list[MemoryItem] = []
+        for scope in scopes:
+            items.extend(await store.list_by_scope(scope))
+        return tuple(items)
+    finally:
+        await store.close()
+
+
+def load_items_by_scopes_sync(
+    *,
+    db_path: str | Path,
+    scopes: tuple[MemoryScope, ...],
+) -> tuple[MemoryItem, ...]:
+    """Synchronous wrapper for ``load_items_by_scopes`` that is safe in or out of an event loop."""
+
+    async def _load() -> tuple[MemoryItem, ...]:
+        return await load_items_by_scopes(db_path=db_path, scopes=scopes)
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_load())
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(lambda: asyncio.run(_load()))
+        return future.result()

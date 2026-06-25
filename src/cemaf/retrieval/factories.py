@@ -15,6 +15,7 @@ from cemaf.retrieval.huggingface_embeddings import (
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
+from cemaf.retrieval.sqlite_vector_store import SqliteVectorStore
 
 if TYPE_CHECKING:
     from cemaf.retrieval.pgvector_store import PgVectorStore
@@ -48,6 +49,17 @@ def _create_pgvector_store(**kwargs: Any) -> PgVectorStore:
         dimension=kwargs.get("dimension", 3072),
         tenant_id=kwargs.get("tenant_id", "default"),
         embedding_provider=kwargs.get("embedding_provider"),
+    )
+
+
+def _create_sqlite_vector_store(**kwargs: Any) -> SqliteVectorStore:
+    """Registry-compatible factory for a SQLite vector store."""
+    provider = kwargs.get("embedding_provider")
+    if provider is None:
+        provider = MockEmbeddingProvider(dimension=int(kwargs.get("dimension", 384)))
+    return SqliteVectorStore(
+        db_path=str(kwargs.get("db_path") or os.getenv("CEMAF_RETRIEVAL_SQLITE_PATH", "cemaf_memory.db")),
+        embedding_provider=provider,
     )
 
 
@@ -86,6 +98,7 @@ def _create_huggingface_embedding_provider(**kwargs: Any) -> EmbeddingProvider:
 
 # Register built-in backends
 vector_store_registry.register(backend="memory", factory=_create_memory_vector_store)
+vector_store_registry.register(backend="sqlite", factory=_create_sqlite_vector_store)
 vector_store_registry.register(backend="pgvector", factory=_create_pgvector_store)
 embedding_provider_registry.register(backend="hash", factory=_create_hash_embedding_provider)
 embedding_provider_registry.register(backend="mock", factory=_create_hash_embedding_provider)
@@ -97,6 +110,47 @@ embedding_provider_registry.register(
 )
 
 
+def create_vector_store(
+    backend: str = "memory",
+    *,
+    embedding_provider: EmbeddingProvider | None = None,
+    dimension: int = 384,
+    db_path: str | None = None,
+    dsn: str | None = None,
+    tenant_id: str = "default",
+) -> VectorStore:
+    """Create a vector store without routing through environment-backed settings."""
+    return vector_store_registry.create(
+        backend=backend,
+        embedding_provider=embedding_provider,
+        dimension=dimension,
+        db_path=db_path,
+        dsn=dsn,
+        tenant_id=tenant_id,
+    )
+
+
+def create_embedding_provider(
+    provider: str = "mock",
+    *,
+    model: str | None = None,
+    dimension: int = 384,
+    api_key: str | None = None,
+    inference_provider: str = "hf-inference",
+    timeout_seconds: float = 60.0,
+) -> EmbeddingProvider:
+    """Create an embedding provider without routing through environment-backed settings."""
+    kwargs: dict[str, Any] = {
+        "dimension": dimension,
+        "api_key": api_key or "",
+        "provider": inference_provider,
+        "timeout_seconds": timeout_seconds,
+    }
+    if model is not None:
+        kwargs["model"] = model
+    return embedding_provider_registry.create(backend=provider, **kwargs)
+
+
 def create_vector_store_from_config(
     backend: str | None = None,
     embedding_provider: EmbeddingProvider | None = None,
@@ -106,10 +160,11 @@ def create_vector_store_from_config(
     cfg = settings or load_settings_from_env_sync()
     backend = backend or cfg.retrieval.vector_store_backend
 
-    return vector_store_registry.create(
+    return create_vector_store(
         backend=backend,
         embedding_provider=embedding_provider,
         dimension=cfg.retrieval.embedding_dimension,
+        db_path=os.getenv("CEMAF_RETRIEVAL_SQLITE_PATH", "cemaf_memory.db"),
     )
 
 
@@ -121,9 +176,10 @@ def create_embedding_provider_from_config(
 
     cfg = settings or load_settings_from_env_sync()
     provider_name = provider or cfg.retrieval.embedding_provider
-    return embedding_provider_registry.create(
-        backend=provider_name,
-        model=cfg.retrieval.embedding_model,
+    model = cfg.retrieval.embedding_model
+    return create_embedding_provider(
+        provider=provider_name,
+        model=model or None,
         dimension=cfg.retrieval.embedding_dimension,
     )
 

@@ -201,8 +201,19 @@ class MemoryStore(ABC):
 class InMemoryStore(MemoryStore):
     """In-memory store for testing or session-scoped memory."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        max_items: int | None = None,
+        default_ttl_seconds: float | None = None,
+    ) -> None:
         super().__init__()
+        if max_items is not None and max_items < 1:
+            raise ValueError("max_items must be greater than 0 when provided")
+        if default_ttl_seconds is not None and default_ttl_seconds < 0:
+            raise ValueError("default_ttl_seconds must be non-negative when provided")
+        self._max_items = max_items
+        self._default_ttl_seconds = default_ttl_seconds
         self._data: dict[str, MemoryItem] = {}
 
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
@@ -217,7 +228,14 @@ class InMemoryStore(MemoryStore):
         return self._apply_redaction(item)
 
     async def set(self, item: MemoryItem) -> None:
-        self._data[item.full_key] = item
+        item_to_store = self._with_default_ttl(item)
+        is_new_item = item_to_store.full_key not in self._data
+        if is_new_item:
+            await self.cleanup_expired()
+            self._evict_oldest_until_space()
+        else:
+            del self._data[item_to_store.full_key]
+        self._data[item_to_store.full_key] = item_to_store
 
     async def delete(self, scope: MemoryScope, key: str) -> bool:
         full_key = f"{scope.value}:{key}"
@@ -277,6 +295,20 @@ class InMemoryStore(MemoryStore):
     def clear(self) -> None:
         """Clear all items from the store."""
         self._data.clear()
+
+    def _with_default_ttl(self, item: MemoryItem) -> MemoryItem:
+        """Apply store-level TTL only when an item has no explicit expiration."""
+        if self._default_ttl_seconds is None or item.ttl is not None or item.expires_at is not None:
+            return item
+        return item.with_ttl(timedelta(seconds=self._default_ttl_seconds))
+
+    def _evict_oldest_until_space(self) -> None:
+        """Keep the bounded store under its configured item limit."""
+        if self._max_items is None:
+            return
+        while len(self._data) >= self._max_items:
+            oldest_key = next(iter(self._data))
+            del self._data[oldest_key]
 
 
 class JsonFileMemoryStore(MemoryStore):

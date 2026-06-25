@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,7 @@ class StrategyRecord:
     success_count: int = 0
     failure_count: int = 0
     avg_quality_score: float = 0.0
-    last_used: datetime = field(default_factory=datetime.utcnow)
+    last_used: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: JSON = field(default_factory=dict)
 
     @property
@@ -59,7 +59,7 @@ class StrategyRecord:
             success_count=new_success,
             failure_count=new_failure,
             avg_quality_score=new_quality,
-            last_used=datetime.utcnow(),
+            last_used=datetime.now(UTC),
             metadata=self.metadata,
         )
 
@@ -173,8 +173,6 @@ class StrategyMemory:
 
     def _load(self, path: Path) -> None:
         """Synchronously pre-load persisted strategies at construction time."""
-        import asyncio
-
         data: list[Any] = json.loads(path.read_text())
         for entry in data:
             record = self._deserialize(entry)
@@ -184,15 +182,7 @@ class StrategyMemory:
                 key=key,
                 value=entry,
             )
-            # We are inside __init__ so there is no running event loop yet —
-            # use get_event_loop().run_until_complete as the safe fallback.
-            try:
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(self._store.set(item))
-            except RuntimeError:
-                # If a loop is already running (e.g. in tests with asyncio),
-                # schedule via ensure_future and let the caller await completion.
-                asyncio.ensure_future(self._store.set(item))
+            self._store._data[item.full_key] = item
 
     async def _save(self) -> None:
         """Persist all current strategies to the configured JSON file."""
