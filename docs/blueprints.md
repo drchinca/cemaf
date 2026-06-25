@@ -424,12 +424,31 @@ For `JSONFileBlueprintSource`:
 ## Env configuration
 
 ```bash
+# Registry-backed source selection: json_file, sqlite, memory, or registered custom backend.
+export CEMAF_BLUEPRINT_SOURCE_BACKEND=json_file
+export CEMAF_BLUEPRINT_SOURCE_PATH=/path/to/blueprints.json
+
+# Legacy shortcut, still supported when CEMAF_BLUEPRINT_SOURCE_BACKEND is unset.
 export CEMAF_BLUEPRINT_CATALOG=/path/to/blueprints.json
 ```
 
 ```python
-from cemaf.blueprint.factories import create_blueprint_library_from_env
+from cemaf.blueprint.factories import (
+    blueprint_source_registry,
+    create_blueprint_library_from_env,
+    create_blueprint_source,
+)
+
 library = create_blueprint_library_from_env()
+
+# Direct factory use.
+source = create_blueprint_source("sqlite", db_path="blueprints.db")
+
+# Custom source backends plug into env and factory construction.
+blueprint_source_registry.register(
+    backend="opensearch",
+    factory=lambda **kwargs: OpenSearchBlueprintSource(index=kwargs["index"]),
+)
 ```
 
 ## CLI

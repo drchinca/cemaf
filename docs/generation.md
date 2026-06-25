@@ -69,6 +69,40 @@ spec = ImageSpec(
 result = await generator.generate(spec)
 ```
 
+## Factory Registries
+
+Generation backends are selected through modality-specific registries. The
+built-in `mock` backend is registered by default; applications can register
+provider adapters without editing CEMAF.
+
+```python
+from cemaf.generation import (
+    ImageGenerator,
+    create_image_generator,
+    image_generator_registry,
+)
+
+def create_dalle_generator(**kwargs) -> ImageGenerator:
+    return DalleGenerator(
+        api_key=kwargs["api_key"],
+        model=kwargs.get("model", "dall-e-3"),
+    )
+
+image_generator_registry.register(
+    backend="dall-e",
+    factory=create_dalle_generator,
+)
+
+generator = create_image_generator(
+    provider="dall-e",
+    api_key="sk-...",
+)
+```
+
+The same pattern is available for `audio_generator_registry`,
+`video_generator_registry`, `code_generator_registry`,
+`diagram_generator_registry`, and `ui_generator_registry`.
+
 ## Code Generation
 
 ```python
