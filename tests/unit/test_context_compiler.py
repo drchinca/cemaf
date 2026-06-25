@@ -15,6 +15,7 @@ from cemaf.context.compiler import (
     PriorityContextCompiler,
     SimpleTokenEstimator,
 )
+from cemaf.context.patch import SecurityLevel
 
 
 class TestTokenBudget:
@@ -184,3 +185,154 @@ class TestPriorityContextCompiler:
         ctx = await compiler.compile(artifacts=(), memories=memories, budget=budget)
 
         assert any(s.type == "memory" for s in ctx.sources)
+
+
+class TestSecurityClearanceGate:
+    """SPEC-11 §2.2/§3 — clearance-gated compilation."""
+
+    @pytest.mark.asyncio
+    async def test_compile_accepts_security_kwargs(self, context_compiler: PriorityContextCompiler):
+        """L0 (§10a) — compile accepts source_levels + clearance and returns a CompiledContext."""
+        budget = TokenBudget(max_tokens=1000, reserved_for_output=0)
+        ctx = await context_compiler.compile(
+            artifacts=(("a", "content"),),
+            memories=(),
+            budget=budget,
+            source_levels={"a": SecurityLevel.PUBLIC},
+            clearance=SecurityLevel.CONFIDENTIAL,
+        )
+        assert isinstance(ctx, CompiledContext)
+
+    @pytest.mark.asyncio
+    async def test_confidential_excluded_under_internal_clearance(
+        self, context_compiler: PriorityContextCompiler
+    ):
+        """Inv 4 — a CONFIDENTIAL source is dropped and recorded when clearance=INTERNAL."""
+        budget = TokenBudget(max_tokens=1000, reserved_for_output=0)
+        artifacts = (("notes", "public notes"), ("secrets", "api key inside"))
+        ctx = await context_compiler.compile(
+            artifacts=artifacts,
+            memories=(),
+            budget=budget,
+            source_levels={"secrets": SecurityLevel.CONFIDENTIAL, "notes": SecurityLevel.PUBLIC},
+            clearance=SecurityLevel.INTERNAL,
+        )
+        keys = [s.key for s in ctx.sources]
+        assert "notes" in keys
+        assert "secrets" not in keys
+        assert "secrets" in ctx.metadata.get("security_excluded", [])
+
+    @pytest.mark.asyncio
+    async def test_no_clearance_selects_identical_set(self, context_compiler: PriorityContextCompiler):
+        """Inv 3 / Property 3 — clearance=None yields the IDENTICAL set as the ungated path.
+
+        Strengthened: multi-source mixed-level input compiled (a) with classification but no
+        clearance and (b) with no security kwargs at all → identical ordered keys + content_hash.
+        """
+        budget = TokenBudget(max_tokens=10000, reserved_for_output=0)
+        artifacts = (("pub", "public notes"), ("conf", "api key"), ("int", "internal memo"))
+        memories = (("mem", "a remembered fact"),)
+
+        gated_off = await context_compiler.compile(
+            artifacts=artifacts,
+            memories=memories,
+            budget=budget,
+            source_levels={"conf": SecurityLevel.CONFIDENTIAL, "pub": SecurityLevel.PUBLIC},
+            clearance=None,
+        )
+        pristine = await context_compiler.compile(
+            artifacts=artifacts,
+            memories=memories,
+            budget=budget,
+        )
+        assert [s.key for s in gated_off.sources] == [s.key for s in pristine.sources]
+        assert gated_off.content_hash == pristine.content_hash
+        assert gated_off.metadata.get("security_excluded", []) == []
+
+    @pytest.mark.asyncio
+    async def test_content_hash_independent_of_security_level(
+        self, context_compiler: PriorityContextCompiler
+    ):
+        """Inv 7 — classification SHALL NOT alter content_hash determinism."""
+        budget = TokenBudget(max_tokens=10000, reserved_for_output=0)
+        artifacts = (("a", "same content"),)
+        as_conf = await context_compiler.compile(
+            artifacts=artifacts,
+            memories=(),
+            budget=budget,
+            source_levels={"a": SecurityLevel.CONFIDENTIAL},
+            clearance=None,
+        )
+        as_public = await context_compiler.compile(
+            artifacts=artifacts,
+            memories=(),
+            budget=budget,
+            source_levels={"a": SecurityLevel.PUBLIC},
+            clearance=None,
+        )
+        assert as_conf.content_hash == as_public.content_hash
+
+    @pytest.mark.asyncio
+    async def test_public_clearance_drops_unclassified_internal(
+        self, context_compiler: PriorityContextCompiler
+    ):
+        """Default-level foot-gun — an unclassified source (INTERNAL) is dropped under PUBLIC clearance."""
+        budget = TokenBudget(max_tokens=1000, reserved_for_output=0)
+        ctx = await context_compiler.compile(
+            artifacts=(("plain", "content"),),  # absent from source_levels ⇒ INTERNAL
+            memories=(),
+            budget=budget,
+            clearance=SecurityLevel.PUBLIC,
+        )
+        assert all(s.key != "plain" for s in ctx.sources)
+        assert "plain" in ctx.metadata.get("security_excluded", [])
+
+    @pytest.mark.asyncio
+    async def test_confidential_clearance_includes_all_levels(
+        self, context_compiler: PriorityContextCompiler
+    ):
+        """Upper bound — clearance=CONFIDENTIAL excludes nothing."""
+        budget = TokenBudget(max_tokens=10000, reserved_for_output=0)
+        artifacts = (("p", "x"), ("i", "y"), ("c", "z"))
+        ctx = await context_compiler.compile(
+            artifacts=artifacts,
+            memories=(),
+            budget=budget,
+            source_levels={
+                "p": SecurityLevel.PUBLIC,
+                "i": SecurityLevel.INTERNAL,
+                "c": SecurityLevel.CONFIDENTIAL,
+            },
+            clearance=SecurityLevel.CONFIDENTIAL,
+        )
+        keys = {s.key for s in ctx.sources}
+        assert keys == {"p", "i", "c"}
+        assert ctx.metadata.get("security_excluded", []) == []
+
+    @pytest.mark.asyncio
+    async def test_confidential_memory_excluded_under_internal_clearance(
+        self, context_compiler: PriorityContextCompiler
+    ):
+        """Memories are gated too — a CONFIDENTIAL memory is dropped under INTERNAL clearance."""
+        budget = TokenBudget(max_tokens=1000, reserved_for_output=0)
+        ctx = await context_compiler.compile(
+            artifacts=(),
+            memories=(("secret_mem", "leaked detail"),),
+            budget=budget,
+            source_levels={"secret_mem": SecurityLevel.CONFIDENTIAL},
+            clearance=SecurityLevel.INTERNAL,
+        )
+        assert all(s.key != "secret_mem" for s in ctx.sources)
+        assert "secret_mem" in ctx.metadata.get("security_excluded", [])
+
+    @pytest.mark.asyncio
+    async def test_unclassified_source_defaults_internal(self, context_compiler: PriorityContextCompiler):
+        """A source absent from source_levels is treated as INTERNAL (passes INTERNAL clearance)."""
+        budget = TokenBudget(max_tokens=1000, reserved_for_output=0)
+        ctx = await context_compiler.compile(
+            artifacts=(("plain", "content"),),
+            memories=(),
+            budget=budget,
+            clearance=SecurityLevel.INTERNAL,
+        )
+        assert any(s.key == "plain" for s in ctx.sources)

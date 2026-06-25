@@ -23,6 +23,7 @@ from cemaf.context.algorithm import (
     SelectionResult,
 )
 from cemaf.context.budget import TokenBudget
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.core.types import JSON, TokenCount
 from cemaf.core.utils import utc_now
@@ -230,6 +231,9 @@ class PriorityContextCompiler:
         memories: tuple[tuple[str, str], ...],
         budget: TokenBudget,
         priorities: dict[str, int] | None = None,
+        *,
+        source_levels: dict[str, SecurityLevel] | None = None,
+        clearance: SecurityLevel | None = None,
     ) -> CompiledContext:
         """
         Compile context using priority ordering and selection algorithm.
@@ -239,6 +243,8 @@ class PriorityContextCompiler:
             memories: Memory items as (key, content) pairs
             budget: Token budget constraints
             priorities: Optional priority overrides by key
+            source_levels: Optional security level per key (absent ⇒ INTERNAL)
+            clearance: Caller clearance; None ⇒ no security gating (SPEC-11)
 
         Returns:
             CompiledContext ready for LLM
@@ -273,6 +279,20 @@ class PriorityContextCompiler:
                 )
             )
 
+        # SPEC-11 security gate — drop sources above the caller's clearance BEFORE
+        # the priority sort. clearance=None preserves the pre-SPEC-11 behavior exactly.
+        security_excluded: list[str] = []
+        if clearance is not None:
+            levels = source_levels or {}
+            kept: list[ContextSource] = []
+            for source in sources:
+                level = levels.get(source.key, SecurityLevel.INTERNAL)
+                if level.rank > clearance.rank:
+                    security_excluded.append(source.key)
+                else:
+                    kept.append(source)
+            sources = kept
+
         # Sort by priority (descending) - most algorithms expect this
         sources.sort(key=lambda s: s.priority, reverse=True)
 
@@ -286,6 +306,7 @@ class PriorityContextCompiler:
             metadata={
                 **selection_result.metadata,
                 "algorithm_used": selection_result.selection_method,
+                "security_excluded": security_excluded,
             },
         )
 
