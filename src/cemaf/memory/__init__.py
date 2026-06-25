@@ -19,9 +19,12 @@ Memory scopes:
 Settings for this module are defined in MemorySettings.
 
 Environment Variables:
+    CEMAF_MEMORY_BACKEND: Store backend ("memory", "json_file", "sqlite", "postgres", or registered custom)
     CEMAF_MEMORY_DEFAULT_TTL_SECONDS: Default TTL for memory items (default: 3600)
     CEMAF_MEMORY_MAX_ITEMS: Max items in memory store (default: 10000)
-    CEMAF_MEMORY_CLEANUP_INTERVAL_SECONDS: Cleanup interval (default: 300)
+    CEMAF_MEMORY_FILE_PATH: JSON file path for json_file backend
+    CEMAF_MEMORY_SQLITE_PATH: SQLite database path for sqlite backend
+    CEMAF_POSTGRES_DSN: PostgreSQL DSN for postgres backend
 
 ## Usage
 
@@ -51,9 +54,10 @@ Built-in Implementation:
 
 ## Extension
 
-Memory store implementations are discovered via protocols. No registration needed.
-Simply implement the MemoryStore protocol and your store is compatible with all
-CEMAF orchestration systems.
+Memory store implementations are protocol-first. Inject any object that
+implements MemoryStore directly, or register a factory with
+memory_store_registry.register(...) so create_memory_store() and env-driven
+configuration can instantiate it.
 
 See cemaf.memory.protocols.MemoryStore for the protocol definition.
 """
@@ -100,14 +104,21 @@ from cemaf.memory.extraction_pipeline import ExtractionPipeline, ExtractionRepor
 from cemaf.memory.factories import (
     MemoryRuntime,
     create_extraction_pipeline,
+    create_memory_compactor,
     create_memory_context_provider,
+    create_memory_extractor,
     create_memory_manager,
     create_memory_runtime,
+    create_memory_scorer,
     create_memory_store,
     create_memory_store_from_config,
     create_scope_scorer,
     create_session_manager,
     create_tiered_store,
+    memory_compactor_registry,
+    memory_extractor_registry,
+    memory_scorer_registry,
+    memory_store_registry,
 )
 from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.protocols import MemoryItem, MemoryStore
@@ -225,13 +236,20 @@ __all__ = [
     "MemoryDeduplicator",
     "SemanticDeduplicator",
     # Factories
+    "create_memory_compactor",
     "create_extraction_pipeline",
+    "create_memory_extractor",
     "create_memory_runtime",
     "create_memory_context_provider",
     "create_memory_manager",
+    "create_memory_scorer",
     "create_memory_store",
     "create_memory_store_from_config",
     "create_scope_scorer",
     "create_session_manager",
     "create_tiered_store",
+    "memory_compactor_registry",
+    "memory_extractor_registry",
+    "memory_scorer_registry",
+    "memory_store_registry",
 ]

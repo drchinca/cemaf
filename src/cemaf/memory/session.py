@@ -108,6 +108,19 @@ class SessionManager(Protocol):
     async def get_state(self, session_id: str) -> SessionState | None: ...
 
 
+@dataclass(frozen=True)
+class SessionDisposalReport:
+    """Summary captured while disposing a session."""
+
+    extracted_count: int = 0
+    stored_count: int = 0
+    deduplicated_count: int = 0
+    skipped_count: int = 0
+    promoted_keys: tuple[str, ...] = ()
+    promoted_items: tuple[dict[str, str], ...] = ()
+    warnings: tuple[str, ...] = ()
+
+
 class DefaultSessionManager:
     """Manages session lifecycle with bootstrap/ingest/compact/dispose."""
 
@@ -328,3 +341,107 @@ class DefaultSessionManager:
         ]
         for sid in disposed:
             del self._sessions[sid]
+
+
+class ReportingSessionManager(DefaultSessionManager):
+    """Default session manager with resilient disposal reports."""
+
+    def __init__(
+        self,
+        *,
+        memory_manager: MemoryManager,
+        compactor: MemoryCompactor,
+        extraction_pipeline: ExtractionPipeline | None = None,
+    ) -> None:
+        super().__init__(
+            memory_manager=memory_manager,
+            compactor=compactor,
+            extraction_pipeline=extraction_pipeline,
+        )
+        self._disposal_reports: dict[str, SessionDisposalReport] = {}
+
+    async def dispose(
+        self,
+        session_id: str,
+        *,
+        promote_to: MemoryScope | None = None,
+        promotion_min_confidence: float = 0.7,
+    ) -> int:
+        """Dispose a session while retaining a report and failing open on cleanup side effects."""
+        state = self._sessions.get(session_id)
+        if state is None or state.phase == SessionPhase.DISPOSED:
+            return 0
+
+        warnings: list[str] = []
+        extracted_count = 0
+        stored_count = 0
+        deduplicated_count = 0
+        skipped_count = 0
+        promoted_keys: tuple[str, ...] = ()
+        promoted_items: tuple[dict[str, str], ...] = ()
+
+        if self._extraction_pipeline is not None:
+            session_results = await self._manager.recall(
+                query=MemoryQuery(scope=MemoryScope.SESSION, limit=1000),
+            )
+            session_memories = tuple(result.item for result in session_results)
+            recent_events = await self._manager.get_recent_history(session_id=session_id, limit=100)
+            try:
+                extraction_report = await self._extraction_pipeline.run(
+                    session_memories=session_memories,
+                    episodes=(),
+                    recent_events=recent_events,
+                )
+                extracted_count = extraction_report.extracted_count
+                stored_count = extraction_report.stored_count
+                deduplicated_count = extraction_report.deduplicated_count
+                skipped_count = extraction_report.skipped_count
+                promoted_keys = tuple(item.key for item in extraction_report.items)
+                promoted_items = tuple(
+                    {"scope": item.target_scope.value, "key": item.key} for item in extraction_report.items
+                )
+            except Exception as exc:
+                warnings.append(f"extraction failed: {type(exc).__name__}: {exc}")
+
+        if state.episode_id:
+            try:
+                await self._manager.end_episode(episode_id=state.episode_id)
+            except Exception as exc:
+                warnings.append(f"episode close failed: {type(exc).__name__}: {exc}")
+
+        session_results = await self._manager.recall(
+            query=MemoryQuery(scope=MemoryScope.SESSION, limit=10000),
+        )
+
+        if promote_to is not None:
+            for result in session_results:
+                item = result.item
+                if float(item.confidence) >= promotion_min_confidence:
+                    await self._manager.remember(
+                        scope=promote_to,
+                        key=item.key,
+                        value=item.value,
+                        confidence=float(item.confidence),
+                    )
+
+        removed = 0
+        for result in session_results:
+            if await self._manager.forget(scope=result.item.scope, key=result.item.key):
+                removed += 1
+
+        self._sessions[session_id] = state._transition(SessionPhase.DISPOSED, memory_count=0)
+        self._cleanup_disposed(keep_session_id=session_id)
+        self._disposal_reports[session_id] = SessionDisposalReport(
+            extracted_count=extracted_count,
+            stored_count=stored_count,
+            deduplicated_count=deduplicated_count,
+            skipped_count=skipped_count,
+            promoted_keys=promoted_keys,
+            promoted_items=promoted_items,
+            warnings=tuple(warnings),
+        )
+        return removed
+
+    def get_disposal_report(self, session_id: str) -> SessionDisposalReport | None:
+        """Return the report captured when disposing a session."""
+        return self._disposal_reports.get(session_id)
