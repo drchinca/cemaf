@@ -16,8 +16,7 @@ from typing import Any
 
 from cemaf.core.result import Result
 from cemaf.core.types import JSON
-from cemaf.memory.strategy import StrategyMemory
-from cemaf.trust.ledger import TrustLedger
+from cemaf.improvement.protocols import StrategyMemoryBackend, TrustLedgerBackend
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +63,8 @@ class SelfImprovementLoop:
 
     def __init__(
         self,
-        strategy_memory: StrategyMemory,
-        trust_ledger: TrustLedger,
+        strategy_memory: StrategyMemoryBackend,
+        trust_ledger: TrustLedgerBackend,
         *,
         quality_threshold: float = 0.6,
     ) -> None:

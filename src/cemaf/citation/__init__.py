@@ -8,6 +8,11 @@ Provides:
 - CitationTracker: Tracks citations through the retrieval/generation pipeline
 """
 
+from cemaf.citation.factories import (
+    citation_tracker_registry,
+    create_citation_tracker,
+    create_citation_tracker_from_config,
+)
 from cemaf.citation.mock import (
     MockCitationTracker,
     create_mock_citation,
@@ -24,6 +29,9 @@ __all__ = [
     "CitationRegistry",
     # Tracker
     "CitationTracker",
+    "create_citation_tracker",
+    "create_citation_tracker_from_config",
+    "citation_tracker_registry",
     # Validation rules
     "CitationFormatRule",
     "CitationRequiredRule",

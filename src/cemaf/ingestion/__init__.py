@@ -19,6 +19,8 @@ from cemaf.ingestion.adapters import (
 )
 from cemaf.ingestion.factories import (
     AdapterConfig,
+    AdapterOverrides,
+    adapter_registry,
     create_adapter,
     create_adapter_from_config,
 )
@@ -41,7 +43,9 @@ __all__ = [
     "TableAdapter",
     "ChunkAdapter",
     # Factories
+    "adapter_registry",
     "create_adapter",
     "create_adapter_from_config",
     "AdapterConfig",
+    "AdapterOverrides",
 ]

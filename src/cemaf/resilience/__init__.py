@@ -57,9 +57,10 @@ Decorators (Quick):
 
 ## Extension
 
-Resilience implementations are discovered via protocols. No registration needed.
-Simply implement the resilience protocols and your patterns are compatible with
-all CEMAF orchestration systems.
+Resilience implementations are protocol-first. Pass any object satisfying the
+protocols directly via dependency injection, or register a factory with
+retry_policy_registry, circuit_breaker_registry, or rate_limiter_registry for
+config-driven construction.
 
 See cemaf.resilience.protocols for protocol definitions.
 """
@@ -68,6 +69,17 @@ See cemaf.resilience.protocols for protocol definitions.
 # Built-in implementations
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig, CircuitState
 from cemaf.resilience.decorators import with_circuit_breaker, with_retry, with_timeout
+from cemaf.resilience.factories import (
+    circuit_breaker_registry,
+    create_circuit_breaker,
+    create_circuit_breaker_from_config,
+    create_rate_limiter,
+    create_rate_limiter_from_config,
+    create_retry_policy,
+    create_retry_policy_from_config,
+    rate_limiter_registry,
+    retry_policy_registry,
+)
 from cemaf.resilience.protocols import (
     CircuitBreakerProtocol,
     RateLimiterProtocol,
@@ -94,4 +106,15 @@ __all__ = [
     "with_retry",
     "with_circuit_breaker",
     "with_timeout",
+    # Factories
+    "create_retry_policy",
+    "create_retry_policy_from_config",
+    "create_circuit_breaker",
+    "create_circuit_breaker_from_config",
+    "create_rate_limiter",
+    "create_rate_limiter_from_config",
+    # Registries
+    "retry_policy_registry",
+    "circuit_breaker_registry",
+    "rate_limiter_registry",
 ]

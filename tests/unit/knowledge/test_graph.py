@@ -6,11 +6,12 @@ import pytest
 
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
-from cemaf.knowledge.factories import create_knowledge_graph
+from cemaf.knowledge.factories import create_knowledge_graph, knowledge_graph_registry
 from cemaf.knowledge.graph import MemoryBackedKnowledgeGraph
 from cemaf.knowledge.models import (
     EntityType,
     KGEntity,
+    KGQueryResult,
     KGRelation,
     RelationType,
 )
@@ -482,3 +483,53 @@ class TestFactory:
         kg = create_knowledge_graph(memory_manager=mm)
         assert isinstance(kg, MemoryBackedKnowledgeGraph)
         assert isinstance(kg, KnowledgeGraph)
+
+    def test_create_knowledge_graph_uses_custom_registered_backend(self) -> None:
+        """Custom KnowledgeGraph implementations can be factory-created."""
+        created: dict[str, object] = {}
+
+        class CustomKnowledgeGraph:
+            async def add_entity(self, entity: KGEntity) -> None:
+                return None
+
+            async def add_relation(self, relation: KGRelation) -> None:
+                return None
+
+            async def get_entity(self, entity_id: str) -> KGEntity | None:
+                return None
+
+            async def query_neighbors(
+                self,
+                entity_id: str,
+                relation_type: RelationType | None = None,
+                depth: int = 1,
+            ) -> KGQueryResult:
+                return KGQueryResult()
+
+            async def search(
+                self,
+                query: str,
+                entity_type: EntityType | None = None,
+                limit: int = 10,
+            ) -> tuple[KGEntity, ...]:
+                return ()
+
+            async def remove_entity(self, entity_id: str) -> bool:
+                return False
+
+        def _factory(**kwargs):
+            created["args"] = kwargs
+            return CustomKnowledgeGraph()
+
+        mm = FakeMemoryManager()
+        knowledge_graph_registry.register(backend="custom-test-kg", factory=_factory)
+
+        kg = create_knowledge_graph(memory_manager=mm, backend="custom-test-kg", label="tenant-a")
+
+        assert isinstance(kg, KnowledgeGraph)
+        assert created["args"]["memory_manager"] is mm
+        assert created["args"]["label"] == "tenant-a"
+
+    def test_unknown_knowledge_graph_backend_mentions_registry(self) -> None:
+        with pytest.raises(ValueError, match="knowledge_graph_registry.register"):
+            create_knowledge_graph(memory_manager=FakeMemoryManager(), backend="neo4j")

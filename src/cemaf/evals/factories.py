@@ -6,15 +6,82 @@ while maintaining dependency injection principles.
 """
 
 import os
+from typing import Any
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.evals.composite import CompositeEvaluator
-from cemaf.evals.evaluators import ExactMatchEvaluator
+from cemaf.evals.evaluators import (
+    ContainsEvaluator,
+    ExactMatchEvaluator,
+    JSONSchemaEvaluator,
+    LengthEvaluator,
+    RegexEvaluator,
+)
+from cemaf.evals.grounding import GroundednessEvaluator, ToolUseSuccessEvaluator
 from cemaf.evals.online import EvalMode, EvalTrigger, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice, QualityPoliceConfig
 from cemaf.evals.protocols import EvalConfig, Evaluator
 from cemaf.events.protocols import EventBus
+
+evaluator_registry: ProviderRegistry[Evaluator] = ProviderRegistry(name="evaluator")
+
+
+def _create_exact_match_evaluator(**kwargs: Any) -> Evaluator:
+    return ExactMatchEvaluator(
+        case_sensitive=bool(kwargs.get("case_sensitive", True)),
+        strip_whitespace=bool(kwargs.get("strip_whitespace", True)),
+    )
+
+
+def _create_contains_evaluator(**kwargs: Any) -> Evaluator:
+    return ContainsEvaluator(
+        case_sensitive=bool(kwargs.get("case_sensitive", False)),
+        require_all=bool(kwargs.get("require_all", True)),
+    )
+
+
+def _create_regex_evaluator(**kwargs: Any) -> Evaluator:
+    return RegexEvaluator(
+        flags=int(kwargs.get("flags", 0)),
+        require_all=bool(kwargs.get("require_all", True)),
+    )
+
+
+def _create_length_evaluator(**kwargs: Any) -> Evaluator:
+    return LengthEvaluator(
+        min_length=kwargs.get("min_length"),
+        max_length=kwargs.get("max_length"),
+        unit=str(kwargs.get("unit", "chars")),
+    )
+
+
+def _create_json_schema_evaluator(**kwargs: Any) -> Evaluator:
+    return JSONSchemaEvaluator(schema=kwargs.get("schema"))
+
+
+def _create_groundedness_evaluator(**kwargs: Any) -> Evaluator:
+    return GroundednessEvaluator(n=int(kwargs.get("n", 3)))
+
+
+def _create_tool_use_success_evaluator(**kwargs: Any) -> Evaluator:
+    return ToolUseSuccessEvaluator()
+
+
+evaluator_registry.register(backend="exact_match", factory=_create_exact_match_evaluator)
+evaluator_registry.register(backend="contains", factory=_create_contains_evaluator)
+evaluator_registry.register(backend="regex", factory=_create_regex_evaluator)
+evaluator_registry.register(backend="length", factory=_create_length_evaluator)
+evaluator_registry.register(backend="json_valid", factory=_create_json_schema_evaluator)
+evaluator_registry.register(backend="json_schema", factory=_create_json_schema_evaluator)
+evaluator_registry.register(backend="groundedness", factory=_create_groundedness_evaluator)
+evaluator_registry.register(backend="tool_use_success", factory=_create_tool_use_success_evaluator)
+
+
+def create_evaluator(name: str, **options: Any) -> Evaluator:
+    """Create an evaluator from a registered evaluator backend."""
+    return evaluator_registry.create(backend=name, **options)
 
 
 def create_exact_match_evaluator(

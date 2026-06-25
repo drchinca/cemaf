@@ -17,6 +17,7 @@ from cemaf.agents.context_agents import (
 )
 from cemaf.agents.protocols import Agent
 from cemaf.agents.selection import Capability, read_capabilities
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.core.registry import BaseRegistry
 from cemaf.llm.protocols import LLMClient
 from cemaf.retrieval.protocols import VectorStore
@@ -47,6 +48,61 @@ _BUILTIN_CAPABILITIES: dict[str, frozenset[Capability]] = {
     "Writer": frozenset({Capability.WRITE}),
     "QualityGuard": frozenset({Capability.QUALITY}),
 }
+
+
+agent_factory_registry: ProviderRegistry[Agent[Any, Any]] = ProviderRegistry(name="agent_factory")
+
+
+def _create_librarian_agent(**kwargs: Any) -> Agent[Any, Any]:
+    vector_store = kwargs.get("vector_store")
+    if not vector_store:
+        raise ValueError("Librarian requires vector_store")
+    return LibrarianAgent(
+        vector_store=vector_store,
+        namespace_context=kwargs.get("namespace_context"),
+        top_k=int(kwargs.get("librarian_top_k", 1)),
+    )
+
+
+def _create_researcher_agent(**kwargs: Any) -> Agent[Any, Any]:
+    vector_store = kwargs.get("vector_store")
+    llm_client = kwargs.get("llm_client")
+    if not vector_store or not llm_client:
+        raise ValueError("Researcher requires vector_store and llm_client")
+    return ResearcherAgent(
+        vector_store=vector_store,
+        llm_client=llm_client,
+        namespace_knowledge=kwargs.get("namespace_knowledge"),
+        top_k=int(kwargs.get("researcher_top_k", 15)),
+    )
+
+
+def _create_summarizer_agent(**kwargs: Any) -> Agent[Any, Any]:
+    llm_client = kwargs.get("llm_client")
+    if not llm_client:
+        raise ValueError("Summarizer requires llm_client")
+    return SummarizerAgent(llm_client=llm_client)
+
+
+def _create_writer_agent(**kwargs: Any) -> Agent[Any, Any]:
+    llm_client = kwargs.get("llm_client")
+    if not llm_client:
+        raise ValueError("Writer requires llm_client")
+    return WriterAgent(llm_client=llm_client)
+
+
+def _create_quality_guard_agent(**kwargs: Any) -> Agent[Any, Any]:
+    from cemaf.evals.agents import QualityGuardAgent
+    from cemaf.evals.police import QualityPolice
+
+    return QualityGuardAgent(quality_police=QualityPolice())  # type: ignore[return-value]
+
+
+agent_factory_registry.register(backend="Librarian", factory=_create_librarian_agent)
+agent_factory_registry.register(backend="Researcher", factory=_create_researcher_agent)
+agent_factory_registry.register(backend="Summarizer", factory=_create_summarizer_agent)
+agent_factory_registry.register(backend="Writer", factory=_create_writer_agent)
+agent_factory_registry.register(backend="QualityGuard", factory=_create_quality_guard_agent)
 
 
 class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
@@ -169,6 +225,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         namespace_knowledge: str | None = None,
         librarian_top_k: int = 1,
         researcher_top_k: int = 15,
+        **backend_options: Any,
     ) -> Agent[Any, Any] | None:
         """Create a built-in agent with dependencies."""
         # Check already registered
@@ -176,39 +233,20 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         if existing is not None:
             return existing
 
-        try:
-            if agent_name == "Librarian":
-                if not vector_store:
-                    raise ValueError("Librarian requires vector_store")
-                return LibrarianAgent(
-                    vector_store=vector_store,
-                    namespace_context=namespace_context,
-                    top_k=librarian_top_k,
-                )
-            elif agent_name == "Researcher":
-                if not vector_store or not llm_client:
-                    raise ValueError("Researcher requires vector_store and llm_client")
-                return ResearcherAgent(
-                    vector_store=vector_store,
-                    llm_client=llm_client,
-                    namespace_knowledge=namespace_knowledge,
-                    top_k=researcher_top_k,
-                )
-            elif agent_name == "Summarizer":
-                if not llm_client:
-                    raise ValueError("Summarizer requires llm_client")
-                return SummarizerAgent(llm_client=llm_client)
-            elif agent_name == "Writer":
-                if not llm_client:
-                    raise ValueError("Writer requires llm_client")
-                return WriterAgent(llm_client=llm_client)
-            elif agent_name == "QualityGuard":
-                # QualityGuard requires no external deps - uses internal eval system
-                from cemaf.evals.agents import QualityGuardAgent
-                from cemaf.evals.police import QualityPolice
-
-                return QualityGuardAgent(quality_police=QualityPolice())  # type: ignore[return-value]
+        if not agent_factory_registry.has(backend=agent_name):
             return None
+
+        try:
+            return agent_factory_registry.create(
+                backend=agent_name,
+                vector_store=vector_store,
+                llm_client=llm_client,
+                namespace_context=namespace_context,
+                namespace_knowledge=namespace_knowledge,
+                librarian_top_k=librarian_top_k,
+                researcher_top_k=researcher_top_k,
+                **backend_options,
+            )
         except Exception as e:
             logger.error("Failed to create agent '%s': %s", agent_name, e, exc_info=True)
             return None

@@ -145,3 +145,39 @@ class TestFactories:
             endpoint="https://hf.internal",
             token="hf-config",
         )
+
+    def test_create_model_catalog_from_config_supports_custom_env_backend(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from cemaf.catalog.factories import catalog_registry, create_model_catalog_from_config
+
+        class CustomCatalog:
+            async def list_models(self, query=None):  # noqa: ANN001
+                return ()
+
+            async def get_model(self, model_id: str, *, revision: str | None = None):  # noqa: ANN201
+                return None
+
+        created: dict[str, object] = {}
+
+        def _factory(**kwargs):
+            created["args"] = kwargs
+            return CustomCatalog()
+
+        catalog_registry.register(backend="custom-env-catalog", factory=_factory)
+        monkeypatch.setenv("CEMAF_CATALOG_BACKEND", "custom-env-catalog")
+        monkeypatch.setenv("CEMAF_CATALOG_API_KEY", "catalog-token")
+        monkeypatch.setenv("CEMAF_CATALOG_ENDPOINT", "https://catalog.internal")
+        monkeypatch.setenv("CEMAF_CATALOG_TIMEOUT_SECONDS", "9.5")
+        monkeypatch.setenv("CEMAF_CATALOG_DEFAULT_LIMIT", "17")
+
+        catalog = create_model_catalog_from_config()
+
+        assert isinstance(catalog, CustomCatalog)
+        assert created["args"] == {
+            "token": "catalog-token",
+            "endpoint": "https://catalog.internal",
+            "timeout_seconds": 9.5,
+            "default_limit": 17,
+        }

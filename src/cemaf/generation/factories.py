@@ -2,16 +2,18 @@
 Extension point factories for generation backends.
 
 These factories provide the wiring points for concrete generator implementations.
-Mock generators are included for testing — implement your backend and register it here
-to connect to real generation services (DALL-E, Stable Diffusion, ElevenLabs, etc.).
+Mock generators are included for testing. Register custom backends with the
+modality-specific registries to connect to real generation services.
 """
 
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.generation.mock import (
     MockAudioGenerator,
     MockCodeGenerator,
@@ -28,6 +30,13 @@ from cemaf.generation.protocols import (
     UIGenerator,
     VideoGenerator,
 )
+
+image_generator_registry: ProviderRegistry[ImageGenerator] = ProviderRegistry(name="image_generator")
+audio_generator_registry: ProviderRegistry[AudioGenerator] = ProviderRegistry(name="audio_generator")
+video_generator_registry: ProviderRegistry[VideoGenerator] = ProviderRegistry(name="video_generator")
+code_generator_registry: ProviderRegistry[CodeGenerator] = ProviderRegistry(name="code_generator")
+diagram_generator_registry: ProviderRegistry[DiagramGenerator] = ProviderRegistry(name="diagram_generator")
+ui_generator_registry: ProviderRegistry[UIGenerator] = ProviderRegistry(name="ui_generator")
 
 
 @dataclass(frozen=True)
@@ -71,10 +80,43 @@ def resolve_available_provider[T](
     return ProviderResolution(provider=candidate_order[0], warnings=tuple(warnings))
 
 
+def _create_mock_image_generator(**kwargs: Any) -> ImageGenerator:
+    return MockImageGenerator()
+
+
+def _create_mock_audio_generator(**kwargs: Any) -> AudioGenerator:
+    return MockAudioGenerator()
+
+
+def _create_mock_video_generator(**kwargs: Any) -> VideoGenerator:
+    return MockVideoGenerator()
+
+
+def _create_mock_code_generator(**kwargs: Any) -> CodeGenerator:
+    return MockCodeGenerator()
+
+
+def _create_mock_diagram_generator(**kwargs: Any) -> DiagramGenerator:
+    return MockDiagramGenerator()
+
+
+def _create_mock_ui_generator(**kwargs: Any) -> UIGenerator:
+    return MockUIGenerator()
+
+
+image_generator_registry.register(backend="mock", factory=_create_mock_image_generator)
+audio_generator_registry.register(backend="mock", factory=_create_mock_audio_generator)
+video_generator_registry.register(backend="mock", factory=_create_mock_video_generator)
+code_generator_registry.register(backend="mock", factory=_create_mock_code_generator)
+diagram_generator_registry.register(backend="mock", factory=_create_mock_diagram_generator)
+ui_generator_registry.register(backend="mock", factory=_create_mock_ui_generator)
+
+
 def create_image_generator(
     provider: str = "mock",
     default_width: int = 1024,
     default_height: int = 1024,
+    **provider_options: Any,
 ) -> ImageGenerator:
     """
     Factory for ImageGenerator with sensible defaults.
@@ -94,12 +136,12 @@ def create_image_generator(
         # Custom dimensions
         generator = create_image_generator(default_width=512, default_height=512)
     """
-    if provider == "mock":
-        # MockImageGenerator doesn't accept width/height parameters
-        # These are set per-generation via ImageSpec
-        return MockImageGenerator()
-    else:
-        raise ValueError(f"Unsupported image generator: {provider}")
+    return image_generator_registry.create(
+        backend=provider,
+        default_width=default_width,
+        default_height=default_height,
+        **provider_options,
+    )
 
 
 def create_image_generator_from_config(settings: Settings | None = None) -> ImageGenerator:
@@ -118,38 +160,12 @@ def create_image_generator_from_config(settings: Settings | None = None) -> Imag
     width = int(os.getenv("CEMAF_GENERATION_DEFAULT_IMAGE_WIDTH", "1024"))
     height = int(os.getenv("CEMAF_GENERATION_DEFAULT_IMAGE_HEIGHT", "1024"))
 
-    if provider == "mock":
-        return create_image_generator(provider, width, height)
-
-    # ============================================================================
-    # EXTEND HERE: Image Generation Providers
-    # ============================================================================
-    # Example (DALL-E 3):
-    #   elif provider == "dall-e":
-    #       from your_package import DallEImageGenerator
-    #       api_key = os.getenv("OPENAI_API_KEY")
-    #       model = os.getenv("DALL_E_MODEL", "dall-e-3")
-    #       return DallEImageGenerator(api_key=api_key, model=model)
-    #
-    # Example (Stable Diffusion):
-    #   elif provider == "stable-diffusion":
-    #       from your_package import StableDiffusionGenerator
-    #       model_id = os.getenv("SD_MODEL_ID", "stable-diffusion-xl-base-1.0")
-    #       return StableDiffusionGenerator(model_id=model_id)
-    # ============================================================================
-
-    raise ValueError(
-        f"Unsupported image generator: {provider}. "
-        f"To add your own, extend create_image_generator_from_config()"
-    )
+    return create_image_generator(provider, width, height)
 
 
-def create_audio_generator(provider: str = "mock") -> AudioGenerator:
+def create_audio_generator(provider: str = "mock", **provider_options: Any) -> AudioGenerator:
     """Factory for AudioGenerator."""
-    if provider == "mock":
-        return MockAudioGenerator()
-    else:
-        raise ValueError(f"Unsupported audio generator: {provider}")
+    return audio_generator_registry.create(backend=provider, **provider_options)
 
 
 def create_audio_generator_from_config(settings: Settings | None = None) -> AudioGenerator:
@@ -158,86 +174,36 @@ def create_audio_generator_from_config(settings: Settings | None = None) -> Audi
 
     provider = os.getenv("CEMAF_GENERATION_AUDIO_PROVIDER", "mock")
 
-    if provider == "mock":
-        return create_audio_generator(provider)
-
-    # ============================================================================
-    # EXTEND HERE: Audio Generation Providers
-    # ============================================================================
-    # Example (ElevenLabs):
-    #   elif provider == "elevenlabs":
-    #       from your_package import ElevenLabsGenerator
-    #       api_key = os.getenv("ELEVENLABS_API_KEY")
-    #       voice_id = os.getenv("ELEVENLABS_VOICE_ID")
-    #       return ElevenLabsGenerator(api_key=api_key, voice_id=voice_id)
-    # ============================================================================
-
-    raise ValueError(f"Unsupported audio generator: {provider}")
+    return create_audio_generator(provider)
 
 
-def create_video_generator(provider: str = "mock") -> VideoGenerator:
+def create_video_generator(provider: str = "mock", **provider_options: Any) -> VideoGenerator:
     """Factory for VideoGenerator."""
-    if provider == "mock":
-        return MockVideoGenerator()
-    else:
-        raise ValueError(f"Unsupported video generator: {provider}")
+    return video_generator_registry.create(backend=provider, **provider_options)
 
 
 def create_video_generator_from_config(settings: Settings | None = None) -> VideoGenerator:
     """Create VideoGenerator from environment configuration."""
     provider = os.getenv("CEMAF_GENERATION_VIDEO_PROVIDER", "mock")
 
-    if provider == "mock":
-        return create_video_generator(provider)
-
-    # ============================================================================
-    # EXTEND HERE: Video Generation Providers
-    # ============================================================================
-    # Example (Runway):
-    #   elif provider == "runway":
-    #       from your_package import RunwayGenerator
-    #       api_key = os.getenv("RUNWAY_API_KEY")
-    #       return RunwayGenerator(api_key=api_key)
-    # ============================================================================
-
-    raise ValueError(f"Unsupported video generator: {provider}")
+    return create_video_generator(provider)
 
 
-def create_code_generator(provider: str = "mock") -> CodeGenerator:
+def create_code_generator(provider: str = "mock", **provider_options: Any) -> CodeGenerator:
     """Factory for CodeGenerator."""
-    if provider == "mock":
-        return MockCodeGenerator()
-    else:
-        raise ValueError(f"Unsupported code generator: {provider}")
+    return code_generator_registry.create(backend=provider, **provider_options)
 
 
 def create_code_generator_from_config(settings: Settings | None = None) -> CodeGenerator:
     """Create CodeGenerator from environment configuration."""
     provider = os.getenv("CEMAF_GENERATION_CODE_PROVIDER", "mock")
 
-    if provider == "mock":
-        return create_code_generator(provider)
-
-    # ============================================================================
-    # EXTEND HERE: Code Generation Providers
-    # ============================================================================
-    # Example (Using LLM):
-    #   elif provider == "llm":
-    #       from cemaf.llm.factories import create_llm_client_from_config
-    #       from your_package import LLMCodeGenerator
-    #       llm = create_llm_client_from_config()
-    #       return LLMCodeGenerator(llm=llm)
-    # ============================================================================
-
-    raise ValueError(f"Unsupported code generator: {provider}")
+    return create_code_generator(provider)
 
 
-def create_diagram_generator(provider: str = "mock") -> DiagramGenerator:
+def create_diagram_generator(provider: str = "mock", **provider_options: Any) -> DiagramGenerator:
     """Factory for DiagramGenerator."""
-    if provider == "mock":
-        return MockDiagramGenerator()
-    else:
-        raise ValueError(f"Unsupported diagram generator: {provider}")
+    return diagram_generator_registry.create(backend=provider, **provider_options)
 
 
 def create_diagram_generator_from_config(settings: Settings | None = None) -> DiagramGenerator:
@@ -246,12 +212,9 @@ def create_diagram_generator_from_config(settings: Settings | None = None) -> Di
     return create_diagram_generator(provider)
 
 
-def create_ui_generator(provider: str = "mock") -> UIGenerator:
+def create_ui_generator(provider: str = "mock", **provider_options: Any) -> UIGenerator:
     """Factory for UIGenerator."""
-    if provider == "mock":
-        return MockUIGenerator()
-    else:
-        raise ValueError(f"Unsupported UI generator: {provider}")
+    return ui_generator_registry.create(backend=provider, **provider_options)
 
 
 def create_ui_generator_from_config(settings: Settings | None = None) -> UIGenerator:

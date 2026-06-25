@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cemaf.context.compiler import TokenEstimator
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.ingestion.adapters import (
     ChunkAdapter,
     JSONAdapter,
@@ -17,6 +18,8 @@ from cemaf.ingestion.adapters import (
     TextAdapter,
 )
 from cemaf.ingestion.protocols import CompressionStrategy, ContextAdapter
+
+adapter_registry: ProviderRegistry[ContextAdapter] = ProviderRegistry(name="adapter")
 
 
 @dataclass
@@ -43,6 +46,30 @@ class AdapterOverrides:
     token_estimator: TokenEstimator | None = None
     compression_strategy: CompressionStrategy | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+def _create_text_adapter(**kwargs: Any) -> ContextAdapter:
+    return TextAdapter(**kwargs)
+
+
+def _create_json_adapter(**kwargs: Any) -> ContextAdapter:
+    return JSONAdapter(**kwargs)
+
+
+def _create_table_adapter(**kwargs: Any) -> ContextAdapter:
+    return TableAdapter(**kwargs)
+
+
+def _create_chunk_adapter(**kwargs: Any) -> ContextAdapter:
+    return ChunkAdapter(**kwargs)
+
+
+adapter_registry.register(backend="text", factory=_create_text_adapter)
+adapter_registry.register(backend="json", factory=_create_json_adapter)
+adapter_registry.register(backend="table", factory=_create_table_adapter)
+adapter_registry.register(backend="chunk", factory=_create_chunk_adapter)
+
+_BUILTIN_ADAPTER_BACKENDS = frozenset({"text", "json", "table", "chunk"})
 
 
 def create_adapter(
@@ -101,20 +128,21 @@ def create_adapter(
         elif adapter_type == "chunk":
             kwargs.setdefault("chunk_size", config.chunk_size)
             kwargs.setdefault("overlap", config.chunk_overlap)
+        elif adapter_type not in _BUILTIN_ADAPTER_BACKENDS:
+            kwargs.setdefault("max_tokens", config.max_tokens)
+            kwargs.setdefault("truncation_strategy", config.truncation_strategy)
+            kwargs.setdefault("chunk_size", config.chunk_size)
+            kwargs.setdefault("chunk_overlap", config.chunk_overlap)
+            kwargs.setdefault("extract_fields", config.extract_fields)
+            kwargs.setdefault("flatten_depth", config.flatten_depth)
+            kwargs.setdefault("array_limit", config.array_limit)
+            kwargs.setdefault("max_rows", config.max_rows)
+            kwargs.setdefault("table_format", config.table_format)
 
-    # Build adapter
-    adapters: dict[str, type[ContextAdapter]] = {
-        "text": TextAdapter,
-        "json": JSONAdapter,
-        "table": TableAdapter,
-        "chunk": ChunkAdapter,
-    }
+    if overrides:
+        kwargs.update(overrides.extra)
 
-    if adapter_type not in adapters:
-        raise ValueError(f"Unknown adapter type: {adapter_type}. Available: {list(adapters.keys())}")
-
-    adapter_class = adapters[adapter_type]
-    return adapter_class(**kwargs)
+    return adapter_registry.create(backend=adapter_type, **kwargs)
 
 
 def create_adapter_from_config() -> ContextAdapter:

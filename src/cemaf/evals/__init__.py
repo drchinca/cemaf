@@ -55,11 +55,13 @@ from cemaf.evals.evaluators import (
 from cemaf.evals.factories import (
     create_composite_evaluator,
     create_composite_evaluator_from_config,
+    create_evaluator,
     create_exact_match_evaluator,
     create_node_eval_binding,
     create_online_eval_pipeline,
     create_quality_police,
     create_single_node_eval_pipeline,
+    evaluator_registry,
 )
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig, TierResult
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
@@ -121,6 +123,8 @@ __all__ = [
     "AlertLevel",
     # Factories
     "create_exact_match_evaluator",
+    "create_evaluator",
+    "evaluator_registry",
     "create_composite_evaluator",
     "create_composite_evaluator_from_config",
     "create_node_eval_binding",

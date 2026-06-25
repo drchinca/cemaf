@@ -20,9 +20,11 @@ from cemaf.blueprint.builder import BlueprintBuilder
 from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
 from cemaf.blueprint.entities import ContextEntity, EntityType
 from cemaf.blueprint.factories import (
+    blueprint_source_registry,
     create_blueprint_harvester,
     create_blueprint_library,
     create_blueprint_library_from_env,
+    create_blueprint_source,
 )
 from cemaf.blueprint.harvest import (
     BlueprintDistiller,
@@ -77,6 +79,7 @@ __all__ = [
     "InMemoryWritableBlueprintSource",
     "JSONFileBlueprintSource",
     "SqliteBlueprintSource",
+    "blueprint_source_registry",
     # Harvest engine
     "BlueprintHarvesterEngine",
     "InMemoryRunCorrelator",
@@ -85,6 +88,7 @@ __all__ = [
     "create_blueprint_harvester",
     "create_blueprint_library",
     "create_blueprint_library_from_env",
+    "create_blueprint_source",
     "BlueprintDistiller",
     "HarvestContext",
     "HarvestOutcome",

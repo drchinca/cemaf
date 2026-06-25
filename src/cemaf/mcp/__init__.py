@@ -25,6 +25,12 @@ Usage (CEMAF as MCP server):
 
 from cemaf.mcp.adapter import MCPAdapter
 from cemaf.mcp.bridges import PromptBridge, ResourceBridge, ToolBridge
+from cemaf.mcp.factories import (
+    create_mcp_adapter,
+    create_mcp_adapter_from_config,
+    create_mcp_transport,
+    mcp_transport_registry,
+)
 from cemaf.mcp.mock import InMemoryTransport, MockTransport
 from cemaf.mcp.protocols import (
     MCPError,
@@ -63,6 +69,10 @@ __all__ = [
     "MCPToolResult",
     # Adapter and bridges
     "MCPAdapter",
+    "create_mcp_adapter",
+    "create_mcp_adapter_from_config",
+    "create_mcp_transport",
+    "mcp_transport_registry",
     "ToolBridge",
     "ResourceBridge",
     "PromptBridge",

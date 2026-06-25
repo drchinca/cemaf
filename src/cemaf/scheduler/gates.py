@@ -10,8 +10,9 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.core.utils import utc_now
 
 logger = logging.getLogger(__name__)
@@ -155,3 +156,66 @@ async def evaluate_gates(*, gates: tuple[ExecutionGate, ...]) -> CompositeGateRe
         results.append(result)
     all_passed = all(r.passed for r in results)
     return CompositeGateResult(all_passed=all_passed, results=tuple(results))
+
+
+execution_gate_registry: ProviderRegistry[ExecutionGate] = ProviderRegistry(name="execution_gate")
+
+
+def _coerce_timedelta(value: timedelta | float | int | str | None, *, default_seconds: float) -> timedelta:
+    if value is None:
+        return timedelta(seconds=default_seconds)
+    if isinstance(value, timedelta):
+        return value
+    return timedelta(seconds=float(value))
+
+
+def _create_time_gate(**kwargs: Any) -> ExecutionGate:
+    interval = _coerce_timedelta(
+        kwargs.get("min_interval") or kwargs.get("min_interval_seconds"),
+        default_seconds=86_400.0,
+    )
+    return TimeGate(
+        min_interval=interval,
+        last_execution=kwargs.get("last_execution"),
+    )
+
+
+def _create_session_count_gate(**kwargs: Any) -> ExecutionGate:
+    return SessionCountGate(
+        min_sessions=int(kwargs.get("min_sessions", 1)),
+        current_count=int(kwargs.get("current_count", 0)),
+    )
+
+
+def _create_lock_gate(**kwargs: Any) -> ExecutionGate:
+    return LockGate()
+
+
+execution_gate_registry.register(backend="time", factory=_create_time_gate)
+execution_gate_registry.register(backend="time_gate", factory=_create_time_gate)
+execution_gate_registry.register(backend="session_count", factory=_create_session_count_gate)
+execution_gate_registry.register(backend="session_count_gate", factory=_create_session_count_gate)
+execution_gate_registry.register(backend="lock", factory=_create_lock_gate)
+execution_gate_registry.register(backend="lock_gate", factory=_create_lock_gate)
+
+
+def create_execution_gate(
+    gate_type: str,
+    **gate_options: Any,
+) -> ExecutionGate:
+    """Create an execution gate through the registry."""
+    return execution_gate_registry.create(backend=gate_type, **gate_options)
+
+
+def create_execution_gates(
+    gate_specs: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+) -> tuple[ExecutionGate, ...]:
+    """Create execution gates from declarative specs."""
+    gates: list[ExecutionGate] = []
+    for spec in gate_specs or ():
+        spec_copy = dict(spec)
+        gate_type = str(spec_copy.pop("type", spec_copy.pop("gate_type", "")))
+        if not gate_type:
+            raise ValueError("Execution gate spec requires 'type' or 'gate_type'.")
+        gates.append(create_execution_gate(gate_type, **spec_copy))
+    return tuple(gates)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cemaf.core.enums import TrustLevel
@@ -28,8 +28,8 @@ class TrustEntry:
     successes: int = 0
     failures: int = 0
     avg_latency_ms: float = 0.0
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     notes: str = ""
 
     def record_execution(
@@ -55,7 +55,7 @@ class TrustEntry:
             failures=new_fail,
             avg_latency_ms=new_latency,
             created_at=self.created_at,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC),
             notes=self.notes,
         )
 

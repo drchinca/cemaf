@@ -19,7 +19,7 @@ Usage:
 """
 
 from cemaf.cache.decorators import cache_key, cached
-from cemaf.cache.factories import create_cache, create_cache_from_config
+from cemaf.cache.factories import cache_registry, create_cache, create_cache_from_config
 from cemaf.cache.mock import MockCache
 from cemaf.cache.protocols import (
     Cache,
@@ -42,6 +42,7 @@ __all__ = [
     "InMemoryCache",
     "TTLCache",
     # Factories
+    "cache_registry",
     "create_cache",
     "create_cache_from_config",
     # Decorators

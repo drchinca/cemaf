@@ -1,15 +1,62 @@
 """Tests for evaluation factory functions."""
 
-from cemaf.evals.evaluators import ContainsEvaluator
+from cemaf.evals.evaluators import ContainsEvaluator, ExactMatchEvaluator
 from cemaf.evals.factories import (
+    create_evaluator,
     create_node_eval_binding,
     create_online_eval_pipeline,
     create_quality_police,
     create_single_node_eval_pipeline,
+    evaluator_registry,
 )
 from cemaf.evals.online import EvalMode, EvalTrigger, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
+from cemaf.evals.protocols import EvalMetric, EvalResult
+from cemaf.evals.tools import resolve_evaluators
 from cemaf.events.bus import InMemoryEventBus
+
+
+class CustomEvaluator:
+    @property
+    def metric(self) -> EvalMetric:
+        return EvalMetric.CUSTOM
+
+    @property
+    def name(self) -> str:
+        return "custom"
+
+    async def evaluate(self, output, expected=None, context=None):  # noqa: ANN001, ANN201
+        return EvalResult.passed_result(metric=EvalMetric.CUSTOM, reason="custom")
+
+
+def test_create_evaluator_uses_builtin_registry() -> None:
+    evaluator = create_evaluator("exact_match")
+
+    assert isinstance(evaluator, ExactMatchEvaluator)
+
+
+def test_create_evaluator_supports_custom_registered_backend() -> None:
+    created: dict[str, object] = {}
+
+    def _factory(**kwargs):
+        created["args"] = kwargs
+        return CustomEvaluator()
+
+    evaluator_registry.register(backend="custom-eval", factory=_factory)
+
+    evaluator = create_evaluator("custom-eval", threshold=0.9)
+
+    assert isinstance(evaluator, CustomEvaluator)
+    assert created["args"]["threshold"] == 0.9
+
+
+def test_resolve_evaluators_uses_custom_registered_backend() -> None:
+    evaluator_registry.register(backend="tool-custom-eval", factory=lambda **_: CustomEvaluator())
+
+    evaluators = resolve_evaluators(["tool-custom-eval"])
+
+    assert len(evaluators) == 1
+    assert isinstance(evaluators[0], CustomEvaluator)
 
 
 def test_create_node_eval_binding_preserves_fields() -> None:
