@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-06-24
+
+**Registry-backed composition for context and memory runtimes.**
+
+This release promotes CEMAF's extension seams from ad hoc factories to named registries and one-call runtime builders. The goal is a cleaner BYO-backend story: applications can register domain-specific estimators, memory stores, vector stores, scorers, extractors, and compactors without editing framework source.
+
+**Added:**
+- Context selection and token-estimator registries, plus environment-backed token estimator construction.
+- Memory runtime composition via `create_memory_runtime()`, including store, vector store, scorer, manager, extraction pipeline, compactor, and session manager wiring.
+- Registry-backed memory stores, scorers, compactors, and extractors.
+- SQLite vector-store support for local semantic retrieval.
+- Session-memory event subscriber helpers for opt-in recording from the event bus.
+
+**Changed:**
+- Memory extraction now carries optional embedding text and source-event provenance through extracted memories.
+- Documentation now describes the registry-backed extension points across context, memory, and module reference pages.
+
 ## [2.4.0] - 2026-06-24
 
 **Dog-fooded meta-scheduler, glassbox traceability, and a context-engineering correctness sweep.**
