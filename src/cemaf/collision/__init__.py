@@ -15,6 +15,7 @@ from cemaf.collision.factories import (
     create_collision_coordinator,
     create_collision_policy,
 )
+from cemaf.collision.kg_distance import build_kg_dep_distance
 from cemaf.collision.protocols import Advisory, CollisionPolicy
 from cemaf.collision.risk import (
     DEFAULT_GAMMA,
@@ -61,4 +62,6 @@ __all__ = [
     # factories
     "create_collision_coordinator",
     "create_collision_policy",
+    # knowledge-graph dependency bridge
+    "build_kg_dep_distance",
 ]
