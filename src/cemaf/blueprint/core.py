@@ -5,6 +5,7 @@ Based on Denis Rothman's Semantic Blueprint concept.
 A blueprint defines HOW to accomplish a task, separate from WHAT data to use.
 """
 
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -12,6 +13,18 @@ from pydantic import BaseModel, Field
 from cemaf.blueprint.entities import ContextEntity
 from cemaf.blueprint.policies import ExecutionPolicy, OutputContract, SecurityPolicy
 from cemaf.core.types import JSON
+
+
+class BlueprintScope(StrEnum):
+    """Reach of a harvested blueprint (SPEC-13).
+
+    PROJECT (default) keeps a learned blueprint scoped to its originating project so
+    domain knowledge can't leak across projects; GLOBAL marks one that earned cross-project
+    reuse via the promotion policy.
+    """
+
+    PROJECT = "project"
+    GLOBAL = "global"
 
 
 class SceneGoal(BaseModel):
@@ -74,6 +87,11 @@ class Blueprint(BaseModel):
     version: str = "1.0"
     tags: tuple[str, ...] = ()
     metadata: JSON = Field(default_factory=dict)
+
+    # Harvest scoping (SPEC-13) — defaulted for backward compatibility
+    project_id: str = ""  # "" ⇒ unscoped / legacy
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    scope: BlueprintScope = BlueprintScope.PROJECT
 
     # Production policies and contracts
     output_contract: OutputContract | None = None

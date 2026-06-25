@@ -26,13 +26,19 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any, Final
 
+from cemaf.blueprint.core import BlueprintScope
 from cemaf.blueprint.harvest import HarvestContext
 from cemaf.blueprint.library import BlueprintEntry
 from cemaf.events.protocols import Event
 
 logger = logging.getLogger(__name__)
+
+PROMOTE_MIN_PROJECTS: Final[int] = 2
+PROMOTE_MIN_CONFIDENCE: Final[float] = 0.8
 
 
 # =============================================================================
@@ -239,8 +245,7 @@ class RecipeBlueprintDistiller:
         if not goal_text:
             return None
 
-        digest = hashlib.sha256(goal_text.encode("utf-8")).hexdigest()[:12]
-        entry_id = f"harvest/{digest}"
+        entry_id = self._entry_id(goal_text=goal_text)
         title = _truncate(text=goal_text, limit=self._title_max_chars)
 
         score = event.payload.get("overall_score")
@@ -266,7 +271,124 @@ class RecipeBlueprintDistiller:
             recipe=recipe,
             tags=self._tags,
             source=self._source_name,
+            project_id=self._project_id,
+            confidence=_score_to_confidence(event=event),
+            scope=BlueprintScope.PROJECT,
         )
+
+    # --- Overridable id/scope hooks (SPEC-13) ----------------------------------
+
+    _project_id: str = ""  # base distiller is unscoped
+
+    def _entry_id(self, *, goal_text: str) -> str:
+        """Legacy content-addressed id (unscoped): harvest/{sha256(goal)[:12]}."""
+        return f"harvest/{goal_digest(goal_text)}"
+
+
+def goal_digest(goal_text: str) -> str:
+    """Stable project-independent digest of a goal — the logical blueprint key."""
+    return hashlib.sha256(goal_text.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def _score_to_confidence(*, event: Event) -> float:
+    """Derive a harvest confidence from the eval score, defaulting to 0.5."""
+    score = event.payload.get("overall_score")
+    if isinstance(score, int | float):
+        return max(0.0, min(1.0, float(score)))
+    return 0.5
+
+
+class ProjectScopedRecipeDistiller(RecipeBlueprintDistiller):
+    """RecipeBlueprintDistiller namespaced by project_id (SPEC-13).
+
+    The entry id becomes ``harvest/{project_id}/{sha256(goal)[:12]}`` so the same goal
+    harvested in two projects yields two distinct entries instead of clobbering. An empty
+    project_id falls back to the legacy unscoped id for backward compatibility.
+    """
+
+    def __init__(self, *, project_id: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._project_id = project_id
+
+    def _entry_id(self, *, goal_text: str) -> str:
+        if not self._project_id:
+            return super()._entry_id(goal_text=goal_text)
+        return f"harvest/{self._project_id}/{goal_digest(goal_text)}"
+
+
+# =============================================================================
+# Promotion — PROJECT → GLOBAL once a blueprint proves itself across projects
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class PromotionDecision:
+    """Whether a logical blueprint (keyed by goal digest) should promote to GLOBAL."""
+
+    blueprint_key: str
+    project_ids: tuple[str, ...]
+    mean_confidence: float
+    promote: bool
+
+
+def _digest_from_entry_id(entry_id: str) -> str:
+    """Extract the goal digest from a (possibly scoped) harvest entry id."""
+    return entry_id.rsplit("/", 1)[-1]
+
+
+def evaluate_promotion(
+    entries: tuple[BlueprintEntry, ...],
+    *,
+    min_projects: int = PROMOTE_MIN_PROJECTS,
+    min_confidence: float = PROMOTE_MIN_CONFIDENCE,
+) -> tuple[PromotionDecision, ...]:
+    """Group PROJECT-scoped entries by goal digest; mark those proven across projects.
+
+    A group promotes iff it spans ``>= min_projects`` DISTINCT non-empty project_ids with
+    mean confidence ``>= min_confidence``. Confidence is averaged PER DISTINCT PROJECT (a
+    project that harvested the same goal twice counts once, at its highest confidence) so
+    duplicate harvests can't skew the mean. Any digest that already has a GLOBAL entry is
+    skipped entirely — it is promoted, never re-promoted. Pure: returns decisions; the caller
+    re-registers a GLOBAL copy.
+    """
+    promoted_digests = {_digest_from_entry_id(e.id) for e in entries if e.scope is BlueprintScope.GLOBAL}
+    grouped: dict[str, list[BlueprintEntry]] = defaultdict(list)
+    for entry in entries:
+        if entry.scope is BlueprintScope.GLOBAL:
+            continue
+        digest = _digest_from_entry_id(entry.id)
+        if digest in promoted_digests:
+            continue  # already promoted to GLOBAL — don't re-promote
+        grouped[digest].append(entry)
+
+    decisions: list[PromotionDecision] = []
+    for key, group in grouped.items():
+        # Highest confidence per distinct project, then mean across projects.
+        per_project: dict[str, float] = {}
+        for entry in group:
+            if not entry.project_id:
+                continue
+            prior = per_project.get(entry.project_id, 0.0)
+            per_project[entry.project_id] = max(prior, entry.confidence)
+        project_ids = tuple(sorted(per_project))
+        mean_conf = sum(per_project.values()) / len(per_project) if per_project else 0.0
+        promote = len(project_ids) >= min_projects and mean_conf >= min_confidence
+        decisions.append(
+            PromotionDecision(
+                blueprint_key=key,
+                project_ids=project_ids,
+                mean_confidence=mean_conf,
+                promote=promote,
+            )
+        )
+        logger.debug(
+            "blueprint.promotion.evaluated key=%s projects=%d mean_conf=%.2f promote=%s",
+            key,
+            len(project_ids),
+            mean_conf,
+            promote,
+        )
+    return tuple(decisions)
 
 
 def _truncate(*, text: str, limit: int) -> str:
@@ -277,6 +399,12 @@ def _truncate(*, text: str, limit: int) -> str:
 
 __all__ = [
     "InMemoryRunCorrelator",
+    "ProjectScopedRecipeDistiller",
+    "PromotionDecision",
     "RecipeBlueprintDistiller",
     "ScoreThresholdHarvestPolicy",
+    "evaluate_promotion",
+    "goal_digest",
+    "PROMOTE_MIN_CONFIDENCE",
+    "PROMOTE_MIN_PROJECTS",
 ]
