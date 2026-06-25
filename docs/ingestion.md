@@ -161,6 +161,41 @@ adapter = ChunkAdapter(
 sources = await adapter.adapt_many(long_document, budget)
 ```
 
+## Adapter Factories
+
+Use `create_adapter()` when adapter selection should be driven by configuration:
+
+```python
+from cemaf.ingestion import AdapterConfig, create_adapter
+
+adapter = create_adapter(config=AdapterConfig(
+    adapter_type="json",
+    extract_fields=["id", "title"],
+))
+```
+
+Register custom adapters without editing framework source:
+
+```python
+from cemaf.ingestion import adapter_registry, create_adapter
+
+
+class MarkdownFrontmatterAdapter:
+    ...
+
+
+adapter_registry.register(
+    backend="markdown_frontmatter",
+    factory=lambda **options: MarkdownFrontmatterAdapter(
+        max_tokens=options["max_tokens"],
+    ),
+)
+
+adapter = create_adapter("markdown_frontmatter", max_tokens=1200)
+```
+
+Built-in adapter backends are `text`, `json`, `table`, and `chunk`.
+
 ## Compression Strategies
 
 ### Task-Specific Distillation

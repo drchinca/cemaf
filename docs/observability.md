@@ -165,6 +165,58 @@ logger.info("Operation started")
 logger.error("Operation failed", exc_info=True)
 ```
 
+## Factory Registries
+
+Use the factory APIs when observability wiring should be config-driven:
+
+```python
+from cemaf.observability import (
+    create_logger,
+    create_metrics_collector,
+    create_run_logger,
+    create_tracer,
+)
+
+logger = create_logger(backend="structured", level="INFO")
+tracer = create_tracer(backend="noop")
+metrics = create_metrics_collector(backend="simple", prefix="cemaf")
+run_logger = create_run_logger(backend="memory")
+```
+
+Applications can register production backends without editing framework source:
+
+```python
+from cemaf.observability import logger_registry, create_logger
+
+
+class DatadogLogger:
+    ...
+
+
+logger_registry.register(
+    backend="datadog",
+    factory=lambda **options: DatadogLogger(
+        level=options["level"],
+        service=options["service"],
+    ),
+)
+
+logger = create_logger(
+    backend="datadog",
+    level="INFO",
+    service="agent-api",
+)
+```
+
+Available registries:
+
+| Registry | Factory | Built-ins |
+| --- | --- | --- |
+| `logger_registry` | `create_logger()` | `simple`, `structured` |
+| `tracer_registry` | `create_tracer()` | `noop` |
+| `metrics_collector_registry` | `create_metrics_collector()` | `noop`, `simple` |
+| `run_logger_registry` | `create_run_logger()` | `memory`, `file`, `noop` |
+
 ## StructuredLogger
 
 Production JSON-lines logger that writes structured records to stdout. Satisfies the `Logger` protocol with context propagation.

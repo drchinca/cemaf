@@ -90,8 +90,40 @@ Server-Sent Events transport:
 ```python
 from cemaf.mcp import SSETransport
 
-transport = SSETransport(endpoint="/mcp/events")
+transport = SSETransport(base_url="http://localhost:8080/mcp")
 await adapter.serve(transport)
+```
+
+### Factory Functions
+
+MCP transports are selected through a registry-backed factory:
+
+| Factory | Creates | Key Parameters |
+|---------|---------|----------------|
+| `mcp_transport_registry.register(...)` | Custom `Transport` backend | `backend`, `factory` |
+| `create_mcp_transport(transport_type=)` | `Transport` | `"stdio"`, `"sse"`, `"websocket"`, or registered custom backend |
+| `create_mcp_adapter(transport_type=)` | `MCPAdapter` | Transport backend and transport-specific options |
+| `create_mcp_adapter_from_config()` | `MCPAdapter` | Reads `CEMAF_MCP_TRANSPORT_TYPE` and URL env vars |
+
+```python
+from cemaf.mcp import Transport, create_mcp_adapter, mcp_transport_registry
+
+def create_named_pipe_transport(**kwargs) -> Transport:
+    return NamedPipeTransport(path=kwargs["path"])
+
+mcp_transport_registry.register(
+    backend="named_pipe",
+    factory=create_named_pipe_transport,
+)
+
+adapter = create_mcp_adapter(transport_type="named_pipe", path="/tmp/cemaf-mcp")
+```
+
+URL-backed bundled transports can also be selected from environment:
+
+```bash
+export CEMAF_MCP_TRANSPORT_TYPE=websocket
+export CEMAF_MCP_TRANSPORT_URL=ws://localhost:8765/mcp
 ```
 
 ## Bridges

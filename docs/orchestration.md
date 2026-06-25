@@ -519,6 +519,28 @@ handler_ctx = NodeHandlerContext(
 - Merge conflict recording as context patches when `RunLogger` is available
 - Exception handling: failed branches produce error `NodeResult` without crashing others
 
+Merge strategies are protocol-first and registry-backed:
+
+```python
+from cemaf.context import create_merge_strategy, merge_strategy_registry
+from cemaf.orchestration.node_handlers import NodeHandlerContext
+
+merge_strategy_registry.register(
+    backend="crdt",
+    factory=lambda **kwargs: CRDTMergeStrategy(clock=kwargs["clock"]),
+)
+
+handler_ctx = NodeHandlerContext(
+    route_choices=route_choices,
+    apply_output=apply_output,
+    execute_with_retry=execute_with_retry,
+    merge_strategy=create_merge_strategy("crdt", clock=clock),
+    max_parallel=4,
+    run_logger=run_logger,
+    correlation_id="run-abc-123",
+)
+```
+
 ## RuntimeServices
 
 A frozen dataclass that bundles all optional runtime dependencies for orchestration. Avoids 16+ constructor parameters on `DAGExecutor`.

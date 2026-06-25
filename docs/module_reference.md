@@ -126,7 +126,9 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 - **Key Classes**:
   - `AgentRegistry(BaseRegistry[Agent])`: Dynamic agent registration and discovery
 - **Features**:
-  - `register_agent(agent_class, domain_id)` for domain-scoped registration
+  - `register_agent(agent_instance, goal_type, domain_id)` for domain-scoped registration
+  - `agent_factory_registry.register(backend, factory)` for named dependency-driven construction
+  - `create_agent(agent_name, **deps)` creates built-ins or registered custom factories
   - `get_for_domain(domain_id)` for domain-scoped lookup
   - `get_capabilities_description()` auto-generated from registered agents
   - Factory `create_default_registry()` replaces singleton pattern
@@ -401,9 +403,11 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - `create_greedy_compiler()` - Explicit greedy algorithm selection
   - `create_knapsack_compiler()` - Explicit knapsack algorithm selection
   - `create_optimal_compiler()` - Explicit optimal algorithm selection
-  - `create_token_estimator(model)` - Smart factory preferring tiktoken when available
+  - `create_context_selection_algorithm()` - Registry-backed context selection algorithm factory
+  - `create_token_estimator(model)` - Registry-backed token estimator factory preferring tiktoken when available
+  - `create_token_estimator_from_config()` - Environment-based token estimator creation
   - `create_context_compiler_from_config()` - Environment-based compiler creation via `ProviderRegistry`
-- **Registry**: `context_compiler_registry` -- extensible `ProviderRegistry[ContextCompiler]` with greedy/knapsack/optimal built-in
+- **Registries**: `context_compiler_registry`, `context_selection_algorithm_registry`, and `token_estimator_registry`
 - **Benefits**: Provides sensible defaults while maintaining dependency injection principles
 
 ---
@@ -523,6 +527,14 @@ print(f"Metadata: {result.metadata}")
   - Full trace of execution with provenance
   - Correlation IDs for tracing
   - Cost tracking per LLM call
+
+### `factories.py`
+
+- **Purpose**: Registry-backed construction for observability components
+- **Key Functions**: `create_logger`, `create_tracer`, `create_metrics_collector`, `create_run_logger`
+- **Config Helpers**: `create_logger_from_config`, `create_tracer_from_config`, `create_metrics_collector_from_config`, `create_run_logger_from_config`
+- **Registries**: `logger_registry`, `tracer_registry`, `metrics_collector_registry`, `run_logger_registry`
+- **Extension Point**: Register custom observability backends externally; no framework source edits required
 
 ### `budget_guard.py`
 
@@ -727,10 +739,17 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Factory functions for memory components
 - **Key Functions**:
-  - `create_memory_store(backend)` - Factory with `"memory"` and `"sqlite"` backends
-  - `create_semantic_memory_store()` - Wires VectorStore + EmbeddingProvider
-  - `create_memory_manager(embedding_provider)` - Full manager with optional embedding provider
-  - `create_tiered_memory_store()` - TieredMemoryStore with tier generator
+  - `memory_store_registry.register(backend, factory)` - Register custom `MemoryStore` backends without source edits
+  - `memory_scorer_registry.register(backend, factory)` - Register custom `MemoryScorer` backends without source edits
+  - `memory_compactor_registry.register(backend, factory)` - Register custom `MemoryCompactor` backends without source edits
+  - `memory_extractor_registry.register(backend, factory)` - Register custom `MemoryExtractor` backends without source edits
+  - `create_memory_store(backend)` - Factory with `"memory"`, `"json_file"`, `"sqlite"`, and `"postgres"` backends; the built-in memory backend honors `max_items` and `default_ttl_seconds`
+  - `create_memory_scorer()` - Registry-backed scorer factory
+  - `create_memory_compactor()` - Registry-backed compactor factory
+  - `create_memory_extractor()` - Registry-backed extractor factory
+  - `create_memory_manager(embedding_provider)` - Full manager with optional embedding provider, scorer, episodic store, and vector store
+  - `create_memory_runtime()` - Composes embedding provider, memory store, vector store, scorer, manager, extraction pipeline, compactor, and session manager
+  - `create_tiered_store()` - TieredMemoryStore with tier generator
   - `create_extraction_pipeline()` - ExtractionPipeline with extractor + deduplicator
   - `create_scope_scorer()` - PropagatingScorer with configurable decay
   - `create_session_manager(extraction_pipeline)` - SessionManager with optional extraction
@@ -912,7 +931,7 @@ print(f"Metadata: {result.metadata}")
   - `RunEvalTool`: Run evaluators against output text
   - `CheckQualityTool`: Check current quality police status
   - `RecordScoreTool`: Record a score to quality police
-- **Features**: Built-in evaluator registry (`BUILTIN_EVALUATORS`), `resolve_evaluators(names)` helper
+- **Features**: `resolve_evaluators(names)` helper resolves names through `evaluator_registry`; `BUILTIN_EVALUATORS` remains as the static built-in compatibility list
 
 ### `agents.py`
 
@@ -925,9 +944,12 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Factory functions for evaluation components
 - **Key Functions**:
+  - `evaluator_registry.register(backend, factory)` - Register custom `Evaluator` backends without source edits
+  - `create_evaluator(name)` - Factory with deterministic built-ins and registered custom evaluators
   - `create_exact_match_evaluator()` - ExactMatchEvaluator with defaults
   - `create_composite_evaluator()` - CompositeEvaluator from evaluator list
   - `create_composite_evaluator_from_config()` - Environment-based creation
+- **Registry**: `evaluator_registry` -- extensible `ProviderRegistry[Evaluator]` used by `resolve_evaluators()`
 
 ---
 
@@ -946,6 +968,30 @@ print(f"Metadata: {result.metadata}")
 ### `protocols.py`
 
 - **Purpose**: Persistence layer protocols
+
+### `factories.py`
+
+- **Purpose**: Registry-backed persistence store factories
+- **Key Exports**: `create_project_store`, `create_artifact_store`, `create_content_store`, `create_run_store`
+- **Config Helpers**: `create_project_store_from_config`, `create_artifact_store_from_config`, `create_content_store_from_config`, `create_run_store_from_config`
+- **Registries**: `project_store_registry`, `artifact_store_registry`, `content_store_registry`, `run_store_registry`
+- **Extension Point**: Register application stores externally; no concrete persistence backend is bundled by default
+
+---
+
+## State (`cemaf/state/`)
+
+### `fsm.py`
+
+- **Purpose**: Typed, persisted, observable finite state machines
+- **Key Classes**: `StateMachine`, `Transition`, `FsmState`, `StateTransition`
+- **Features**: Explicit transitions, append-only history, HITL gates, optimistic locking
+
+### `persistence.py` & `factories.py`
+
+- **Purpose**: FSM persistence protocol and registry-backed store construction
+- **Key Exports**: `FsmStore`, `InMemoryFsmStore`, `create_fsm_store`, `fsm_store_registry`
+- **Extension Point**: Register custom stores with `fsm_store_registry.register(backend=..., factory=...)`
 
 ---
 
@@ -980,6 +1026,14 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Decorators for applying resilience patterns
 
+### `factories.py`
+
+- **Purpose**: Registry-backed construction for retry, circuit breaker, and rate limiter components
+- **Key Functions**: `create_retry_policy`, `create_circuit_breaker`, `create_rate_limiter`
+- **Config Helpers**: `create_retry_policy_from_config`, `create_circuit_breaker_from_config`, `create_rate_limiter_from_config`
+- **Registries**: `retry_policy_registry`, `circuit_breaker_registry`, `rate_limiter_registry`
+- **Extension Point**: Register custom resilience implementations externally; no framework source edits required
+
 ---
 
 ## Scheduler (`cemaf/scheduler/`)
@@ -999,6 +1053,23 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Job executor and trigger implementations
 
+### `gates.py`
+
+- **Purpose**: Protocol-first execution gates for autonomous/background runs
+- **Key Functions**:
+  - `execution_gate_registry.register(backend, factory)` - Register custom `ExecutionGate` backends without source edits
+  - `create_execution_gate(gate_type)` - Factory with `"time"`, `"session_count"`, `"lock"`, and aliases
+  - `create_execution_gates(specs)` - Declarative gate-set composition
+  - `evaluate_gates(gates)` - AND-composes gate decisions into `CompositeGateResult`
+
+### `factories.py`
+
+- **Purpose**: Registry-backed scheduler construction
+- **Key Functions**:
+  - `scheduler_registry.register(backend, factory)` - Register custom `Scheduler` backends without source edits
+  - `create_scheduler_executor(backend)` - Factory with `"async"`, `"mock"`, and registered custom backends
+  - `create_scheduler_executor_from_config()` - Reads `CEMAF_SCHEDULER_BACKEND` and scheduler env vars
+
 ### `mock.py`
 
 - **Purpose**: Mock scheduler for testing
@@ -1017,6 +1088,15 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Validation rules and protocols
 
+### `validation/factories.py`
+
+- **Purpose**: Registry-backed validation rule and pipeline construction
+- **Key Functions**:
+  - `validation_rule_registry.register(backend, factory)` - Register custom `Rule` backends without source edits
+  - `create_validation_rule(rule_type)` - Factory with `"schema"`, `"length"`, `"regex"`, `"range"`, `"required_fields"`, and registered custom backends
+  - `create_validation_pipeline(rule_specs=...)` - Compose instantiated rules and registry-backed rule specs
+  - `create_validation_pipeline_from_config()` - Reads validation env/settings flags
+
 ### `moderation/pipeline.py`
 
 - **Purpose**: Pre-flight and post-flight content moderation
@@ -1031,6 +1111,15 @@ print(f"Metadata: {result.metadata}")
 ### `moderation/gates.py` & `moderation/rules.py`
 
 - **Purpose**: Moderation gates and rules
+
+### `moderation/factories.py`
+
+- **Purpose**: Registry-backed moderation rule and gate construction
+- **Key Functions**:
+  - `moderation_rule_registry.register(backend, factory)` - Register custom `ModerationRule` backends without source edits
+  - `moderation_gate_registry.register(backend, factory)` - Register custom `ModerationGate` backends without source edits
+  - `create_moderation_rule(rule_type)` - Factory with `"keyword"`, `"pii"`, `"length"`, `"pattern"`, and registered custom backends
+  - `create_moderation_gate(gate_type)` - Factory with `"pre_flight"`, `"post_flight"`, `"composite"`, and registered custom backends
 
 ### `moderation/protocols.py`
 
@@ -1076,6 +1165,14 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Mock cache for testing
 
+### `factories.py`
+
+- **Purpose**: Registry-backed cache factory functions
+- **Key Functions**:
+  - `create_cache()` - Select a cache backend by name
+  - `create_cache_from_config()` - Select a cache backend from `Settings`
+- **Registry**: `cache_registry` -- extensible `ProviderRegistry[Cache]` with `memory` and `ttl` built in
+
 ---
 
 ## Blueprint/Config
@@ -1094,6 +1191,15 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Blueprint builders and validation rules
 
+### `blueprint/factories.py`
+
+- **Purpose**: Composition-root factories for blueprint libraries, sources, and harvesters
+- **Key Functions**:
+  - `blueprint_source_registry.register(backend, factory)` - Register custom `BlueprintSource` backends without source edits
+  - `create_blueprint_source(source_type)` - Factory with `"memory"`, `"json_file"`, `"json"`, and `"sqlite"` source backends
+  - `create_blueprint_library_from_env()` - Builds from `CEMAF_BLUEPRINT_SOURCE_BACKEND` or legacy `CEMAF_BLUEPRINT_CATALOG`
+  - `create_blueprint_harvester()` - Composes the harvest flywheel around an injected `WritableBlueprintSource`
+
 ### `config/protocols.py`
 
 - **Purpose**: Configuration source abstraction
@@ -1105,6 +1211,15 @@ print(f"Metadata: {result.metadata}")
 ### `config/loader.py`
 
 - **Purpose**: Configuration loader implementations
+
+### `config/factories.py`
+
+- **Purpose**: Registry-backed composition for configuration sources and settings providers
+- **Key Functions**:
+  - `config_source_registry.register(backend, factory)` - Register custom `ConfigSource` backends without source edits
+  - `create_config_source(source_type)` - Factory with `"env"` and `"dict"` built-ins
+  - `create_settings_provider(...)` - Compose direct sources and declarative source specs into a `SettingsProviderImpl`
+  - `load_settings_from_env()` - Backward-compatible env settings loader built on the registry
 
 ---
 
@@ -1123,6 +1238,17 @@ print(f"Metadata: {result.metadata}")
 ### `bus.py` & `notifiers.py`
 
 - **Purpose**: Event bus implementation and notifiers
+
+### `factories.py`
+
+- **Purpose**: Registry-backed event bus and notifier construction
+- **Key Functions**:
+  - `event_bus_registry.register(backend, factory)` - Register custom `EventBus` backends without source edits
+  - `create_event_bus(backend)` - Factory with `"async"`, `"memory"`, `"redis"`, and registered custom backends
+  - `create_event_bus_from_config()` - Reads `CEMAF_EVENTS_BACKEND` and backend-specific env vars
+  - `notifier_registry.register(backend, factory)` - Register custom `Notifier` backends without source edits
+  - `create_notifier(backend)` - Factory with `"logging"`, `"webhook"`, `"composite"`, and registered custom backends
+  - `create_notifiers(specs)` - Declarative composition for notifier fan-out
 
 ### `mock.py`
 
@@ -1149,8 +1275,25 @@ print(f"Metadata: {result.metadata}")
 - **Purpose**: Factory functions for replayer creation
 - **Key Functions**:
   - `create_replayer()` - Create Replayer with mode configuration
-  - Tool executor setup for different replay modes
+  - `replay_record_to_artifact()` - Inspect a persisted bundle, load `run_record.json`, replay it, and export a replay artifact in one call
 - **Benefits**: Simplified replay setup with sensible defaults
+
+---
+
+## Ingestion (`cemaf/ingestion/`)
+
+### `protocols.py`
+
+- **Purpose**: Context ingestion contracts for adapting raw data into token-budgeted context sources
+- **Key Classes**: `ContextAdapter`, `CompressionStrategy`, `FormatOptimizer`, `PriorityAssigner`
+- **Features**: Protocol-first data adaptation; callers fetch data, adapters make it fit the context window
+
+### `adapters.py` & `factories.py`
+
+- **Purpose**: Built-in adapters and registry-backed adapter construction
+- **Key Exports**: `TextAdapter`, `JSONAdapter`, `TableAdapter`, `ChunkAdapter`, `create_adapter`, `adapter_registry`
+- **Built-ins**: `text`, `json`, `table`, `chunk`
+- **Extension Point**: Register custom adapters with `adapter_registry.register(backend=..., factory=...)`
 
 ---
 
@@ -1169,6 +1312,17 @@ print(f"Metadata: {result.metadata}")
 
 - **Purpose**: Mock generator implementations for testing
 
+### `factories.py`
+
+- **Purpose**: Registry-backed factory functions for generation providers
+- **Key Functions**:
+  - `create_image_generator()` / `create_image_generator_from_config()` - Image generator selection
+  - `create_audio_generator()` / `create_audio_generator_from_config()` - Audio generator selection
+  - `create_video_generator()` / `create_video_generator_from_config()` - Video generator selection
+  - `create_code_generator()` / `create_code_generator_from_config()` - Code generator selection
+  - `create_diagram_generator()` / `create_ui_generator()` - Diagram/UI generator selection
+- **Registries**: `image_generator_registry`, `audio_generator_registry`, `video_generator_registry`, `code_generator_registry`, `diagram_generator_registry`, `ui_generator_registry`
+
 ---
 
 ## Citation (`cemaf/citation/`)
@@ -1180,6 +1334,12 @@ print(f"Metadata: {result.metadata}")
   - `CitationTracker`: Tracks citations from SearchResults
   - `Citation`, `CitedFact`, `CitationRegistry`: Citation models
 - **Features**: Automatic citation creation from retrieval results, citation reports
+
+### `factories.py`
+
+- **Purpose**: Creates citation trackers from direct arguments or environment/config
+- **Key Exports**: `create_citation_tracker`, `create_citation_tracker_from_config`, `citation_tracker_registry`
+- **Extension Point**: Register custom tracker backends with `citation_tracker_registry.register(backend=..., factory=...)`
 
 ### `models.py` & `rules.py`
 
@@ -1201,6 +1361,15 @@ print(f"Metadata: {result.metadata}")
 ### `adapter.py`
 
 - **Purpose**: MCP adapter implementation
+
+### `factories.py`
+
+- **Purpose**: Registry-backed MCP adapter and transport factories
+- **Key Functions**:
+  - `mcp_transport_registry.register(backend, factory)` - Register custom `Transport` backends without source edits
+  - `create_mcp_transport(transport_type)` - Factory with `"stdio"`, `"sse"`, `"websocket"`, and registered custom backends
+  - `create_mcp_adapter(transport_type)` - Builds an `MCPAdapter` with a registered transport backend
+  - `create_mcp_adapter_from_config()` - Reads `CEMAF_MCP_TRANSPORT_TYPE` and URL env vars
 
 ### `bridges/`
 

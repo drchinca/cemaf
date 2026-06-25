@@ -70,11 +70,33 @@ await fsm.fire(
 | `StateTransition` | Append-only audit row |
 | `FsmStore` | Storage protocol — bring your own |
 | `InMemoryFsmStore` | Reference impl, async-safe within a single process |
+| `fsm_store_registry` | Register custom `FsmStore` backends |
+| `create_fsm_store()` | Create an FSM store by backend name |
 | `TransitionNotAllowed` | No matching transition, or current state is terminal |
 | `GuardRejected` | Guard returned False (or raised) |
 | `HitlRequired` | Transition needs a human actor and got an agent |
 | `HandlerFailed` | Handler raised; new state was not persisted |
 | `VersionConflict` | Optimistic-locking collision on concurrent fires |
+
+## Store factories
+
+The built-in `memory` backend is intentionally small. Register durable stores at the composition root:
+
+```python
+from cemaf.state import FsmStore, create_fsm_store, fsm_store_registry
+
+
+def create_postgres_fsm_store(**options) -> FsmStore:
+    return PostgresFsmStore(dsn=options["dsn"])
+
+
+fsm_store_registry.register(
+    backend="postgres",
+    factory=create_postgres_fsm_store,
+)
+
+store = create_fsm_store(backend="postgres", dsn="postgresql://...")
+```
 
 ## Invariants
 

@@ -147,6 +147,54 @@ fact = tracker.create_cited_fact(
 report = tracker.get_citation_report()
 ```
 
+### Citation Tracker Factories
+
+Use the factory API when construction should be config-driven or externally pluggable:
+
+```python
+from cemaf.citation import create_citation_tracker
+
+tracker = create_citation_tracker()
+mock_tracker = create_citation_tracker(backend="mock")
+```
+
+Custom backends are registered without editing framework source:
+
+```python
+from cemaf.citation import citation_tracker_registry, create_citation_tracker
+
+
+class DatabaseCitationTracker:
+    ...
+
+
+def create_database_tracker(**options):
+    return DatabaseCitationTracker(
+        dsn=options["dsn"],
+        require_citations=options["require_citations"],
+    )
+
+
+citation_tracker_registry.register(
+    backend="database",
+    factory=create_database_tracker,
+)
+
+tracker = create_citation_tracker(
+    backend="database",
+    dsn="postgresql://...",
+    require_citations=True,
+)
+```
+
+`create_citation_tracker_from_config()` reads:
+
+- `CEMAF_CITATION_BACKEND`
+- `CEMAF_CITATION_ENABLE_TRACKING`
+- `CEMAF_CITATION_REQUIRE_CITATIONS`
+- `CEMAF_CITATION_CITATION_FORMAT`
+- `CEMAF_CITATION_ENABLE_VALIDATION`
+
 ### Integration with Retrieval
 
 `CitationTracker` automatically extracts metadata from `SearchResult` objects:
