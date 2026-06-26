@@ -29,7 +29,7 @@ SPEC-00 umbrella — and ships backward-compatible.
 |---|---|---|
 | [SPEC-11](SPEC-11-context-security-classification.md) | Context Security Classification | `SecurityLevel` on `ContextPatch`; clearance-gated compilation |
 | [SPEC-12](SPEC-12-agent-collision-avoidance.md) | Agent Collision Avoidance | TCAS-style coordination over concurrent `ContextPatch` writes |
-
+| [SPEC-13](SPEC-13-scoped-blueprint-harvest.md) | Scoped Blueprint Harvest | per-project blueprint scoping + PROJECT→GLOBAL promotion |
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see

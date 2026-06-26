@@ -59,6 +59,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | "How do I observe this in production?" | OTel GenAI-shape events on the `EventBus` (`gen_ai.request.model`, `usage.input_tokens`, `cost_usd`, `span`), `correlation_id` propagation, structured logs, Prometheus metrics. | [observability.md](docs/observability.md) |
 | "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. | [patterns.md](docs/patterns.md) |
 | "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. | [SPEC-03](docs/specs/SPEC-03-blueprint-as-llm-input.md) |
+| "How do I stop one project's learned blueprints from polluting another's?" | Harvested blueprints carry `project_id` + `scope`; `ProjectScopedRecipeDistiller` namespaces entries per project (no cross-project clobber), and `evaluate_promotion` only lifts a blueprint to `GLOBAL` once it's proven in ≥2 distinct projects at mean confidence ≥0.8. | [SPEC-13](docs/specs/SPEC-13-scoped-blueprint-harvest.md) |
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
@@ -72,7 +73,7 @@ from cemaf.council                 import VoteAggregator, DefaultVoteAggregator
 from cemaf.collision               import CollisionCoordinator, create_collision_coordinator
 from cemaf.core.recovery           import AutoHealManager
 from cemaf.iteration               import FailureSignal
-from cemaf.blueprint               import Blueprint, BlueprintLibrary, BlueprintHarvesterEngine, create_blueprint_harvester
+from cemaf.blueprint               import Blueprint, BlueprintLibrary, BlueprintHarvesterEngine, create_blueprint_harvester, ProjectScopedRecipeDistiller, evaluate_promotion
 from cemaf.orchestration           import DAG, Node, Edge, DAGExecutor
 from cemaf.orchestration.services  import RuntimeServices
 from cemaf.bootstrap               import create_executor
@@ -341,6 +342,8 @@ wiring `SqliteMemoryStore`, `BudgetGuard`, `ContextCompiler`, and `EventBus`.
 CONFIDENTIAL sources dropped below the caller's clearance (SPEC-11).
 `examples/collision_avoidance.py` shows two concurrent agents resolving a
 write-path conflict deterministically (SPEC-12).
+`examples/scoped_blueprint_harvest.py` shows per-project blueprint harvesting
+and PROJECT→GLOBAL promotion (SPEC-13).
 
 ### The whole engine, end-to-end
 

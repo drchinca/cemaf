@@ -54,7 +54,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
-from cemaf.blueprint.core import Blueprint
+from cemaf.blueprint.core import Blueprint, BlueprintScope
 from cemaf.blueprint.recipe import parse_recipe
 
 
@@ -116,6 +116,11 @@ class BlueprintEntry:
     path: str = ""  # Filesystem path (when applicable)
     version: str = "1.0"
 
+    # Harvest scoping (SPEC-13) — defaulted for backward compatibility
+    project_id: str = ""  # "" ⇒ unscoped / legacy
+    confidence: float = 0.5  # [0,1]; accrues on repeat harvest
+    scope: BlueprintScope = BlueprintScope.PROJECT
+
     # Exactly one of these is populated based on `kind`:
     snapshot: dict[str, Any] | None = None
     factory_ref: str | None = None
@@ -145,6 +150,10 @@ class BlueprintEntry:
             raise BlueprintLibraryError("Entry id must be non-empty.")
         if not self.title:
             raise BlueprintLibraryError("Entry title must be non-empty.")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise BlueprintLibraryError(
+                f"Entry {self.id!r} confidence must be in [0,1]; got {self.confidence}."
+            )
 
     @classmethod
     def snapshot_entry(
@@ -215,6 +224,9 @@ class BlueprintEntry:
         source: str = "",
         path: str = "",
         version: str = "1.0",
+        project_id: str = "",
+        confidence: float = 0.5,
+        scope: BlueprintScope = BlueprintScope.PROJECT,
     ) -> BlueprintEntry:
         """Store a declarative dict spec parsed into a Blueprint at resolve time."""
         return cls(
@@ -226,6 +238,9 @@ class BlueprintEntry:
             source=source,
             path=path,
             version=version,
+            project_id=project_id,
+            confidence=confidence,
+            scope=scope,
             recipe=dict(recipe),
         )
 
