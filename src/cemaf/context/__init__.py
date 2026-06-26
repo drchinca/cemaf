@@ -66,6 +66,7 @@ from cemaf.context.patch import (
     PatchLog,
     PatchOperation,
     PatchSource,
+    SecurityLevel,
 )
 from cemaf.context.paths import ContextPath, TypedContext, create_path_builder
 from cemaf.context.source import ContextSource, ContextType
@@ -89,6 +90,7 @@ __all__ = [
     "PatchOperation",
     "PatchSource",
     "PatchLog",
+    "SecurityLevel",
     # Merge strategies (new - parallel context merge)
     "MergeStrategy",
     "MergeResult",

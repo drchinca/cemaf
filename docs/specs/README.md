@@ -27,6 +27,7 @@ SPEC-00 umbrella — and ships backward-compatible.
 
 | ID | Title | Owns |
 |---|---|---|
+| [SPEC-11](SPEC-11-context-security-classification.md) | Context Security Classification | `SecurityLevel` on `ContextPatch`; clearance-gated compilation |
 | [SPEC-12](SPEC-12-agent-collision-avoidance.md) | Agent Collision Avoidance | TCAS-style coordination over concurrent `ContextPatch` writes |
 
 ## Implementation order

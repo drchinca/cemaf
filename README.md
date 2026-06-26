@@ -50,6 +50,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | Hard problem the field keeps re-solving | CEMAF's standard | Spec |
 |---|---|---|
 | "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) |
+| "How do I keep confidential context out of a low-clearance prompt?" | Every `ContextPatch` carries a `SecurityLevel` (PUBLIC/INTERNAL/CONFIDENTIAL); `PriorityContextCompiler` gates sources above the caller's clearance *before* selection, recording each drop in `metadata["security_excluded"]`. Default INTERNAL → backward-compatible. | [SPEC-11](docs/specs/SPEC-11-context-security-classification.md) |
 | "How do I prove an LLM output is grounded?" | `CitationTracker` + `GateEvalInterceptor` enforce citation-membership: every claim must trace to a retrieved source, or the gate halts downstream. | [SPEC-05](docs/specs/SPEC-05-guardian-mesh.md) · [SPEC-01a](docs/specs/SPEC-01a-interceptor-spine.md) |
 | "How do I pick between 3 agents that could all do the job?" | Auction selection: agents bid by `fitness × (1 - load)`; ballot is preserved in `NodeResult.metadata` for audit. | [SPEC-09](docs/specs/SPEC-09-auction-agent-selection.md) |
 | "How do I get N agents to agree?" | Council node-kind: deliberative vote with pluggable `VoteAggregator` (majority / weighted / quorum / unanimous) and a persisted ballot trail. | [SPEC-10](docs/specs/SPEC-10-agent-council.md) |
@@ -63,7 +64,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 
 ```python
-from cemaf.context                 import Context, ContextPatch, TokenBudget, PriorityContextCompiler
+from cemaf.context                 import Context, ContextPatch, TokenBudget, PriorityContextCompiler, SecurityLevel
 from cemaf.citation                import CitationTracker
 from cemaf.interceptors            import GateEvalInterceptor
 from cemaf.agents.selection        import AgentSelector         # auction selection
@@ -336,6 +337,8 @@ print(result.final_context.get("findings"))
 See `examples/hello_world.py` for a complete runnable example and
 `tests/integration/test_full_stack.py` for a realistic 3-agent pipeline
 wiring `SqliteMemoryStore`, `BudgetGuard`, `ContextCompiler`, and `EventBus`.
+`examples/security_clearance.py` shows clearance-gated context compilation —
+CONFIDENTIAL sources dropped below the caller's clearance (SPEC-11).
 `examples/collision_avoidance.py` shows two concurrent agents resolving a
 write-path conflict deterministically (SPEC-12).
 
