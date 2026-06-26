@@ -61,6 +61,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. | [SPEC-03](docs/specs/SPEC-03-blueprint-as-llm-input.md) |
 | "How do I stop one project's learned blueprints from polluting another's?" | Harvested blueprints carry `project_id` + `scope`; `ProjectScopedRecipeDistiller` namespaces entries per project (no cross-project clobber), and `evaluate_promotion` only lifts a blueprint to `GLOBAL` once it's proven in ≥2 distinct projects at mean confidence ≥0.8. | [SPEC-13](docs/specs/SPEC-13-scoped-blueprint-harvest.md) |
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
+| "How do I expose run state to a dashboard / CLI / MCP without coupling to internals?" | `cemaf.session.v1` — a versioned, read-only `SessionSnapshot` projected deterministically from a `RunRecord` or `ExecutionResult` via `snapshot_from_run_record` / `snapshot_from_execution_result`. The stable operator-plane contract every surface renders from; absent services show as `"absent"`, never errors. | [SPEC-14](docs/specs/SPEC-14-session-snapshot-contract.md) |
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 
@@ -76,6 +77,7 @@ from cemaf.iteration               import FailureSignal
 from cemaf.blueprint               import Blueprint, BlueprintLibrary, BlueprintHarvesterEngine, create_blueprint_harvester, ProjectScopedRecipeDistiller, evaluate_promotion
 from cemaf.orchestration           import DAG, Node, Edge, DAGExecutor
 from cemaf.orchestration.services  import RuntimeServices
+from cemaf.operator                import SessionSnapshot, snapshot_from_run_record  # cemaf.session.v1
 from cemaf.bootstrap               import create_executor
 ```
 
@@ -344,6 +346,8 @@ CONFIDENTIAL sources dropped below the caller's clearance (SPEC-11).
 write-path conflict deterministically (SPEC-12).
 `examples/scoped_blueprint_harvest.py` shows per-project blueprint harvesting
 and PROJECT→GLOBAL promotion (SPEC-13).
+`examples/session_snapshot.py` projects a real run into the read-only
+`cemaf.session.v1` operator snapshot (SPEC-14).
 
 ### The whole engine, end-to-end
 
