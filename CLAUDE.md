@@ -241,7 +241,7 @@ return Result.fail(error="Rate limit exceeded")
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `context` | Immutable Context, ContextCompiler, token budgets, patches (provenance) | `context.py`, `compiler.py`, `budget.py`, `patch.py`, `source.py` |
+| `context` | Immutable Context, ContextCompiler, token budgets, patches (provenance), `SecurityLevel` classification + clearance-gated compilation (SPEC-11) | `context.py`, `compiler.py`, `budget.py`, `patch.py`, `source.py` |
 | `memory` | Semantic + episodic memory, tiered storage, dedup, extraction, session | `base.py`, `manager.py`, `semantic.py`, `session.py`, `sqlite_store.py` |
 | `retrieval` | VectorStore, EmbeddingProvider protocols | `protocols.py`, `memory_store.py` |
 | `rlm` | Recursive Language Model — divide-and-conquer large context queries | `base.py`, `protocols.py` |
