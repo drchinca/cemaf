@@ -198,7 +198,15 @@ properties are the enforcement.
   path sets asserting bounds + symmetry.
 - **Integration** (`tests/integration/`): `CollisionCoordinator` driving two registered
   write-sets through `advise_against_cohort` end-to-end, asserting deterministic steer/hold and
-  a `CONTEXT_CONFLICT` event when wired to a real `InMemoryEventBus`.
+  a `CONTEXT_CONFLICT` event when wired to a real `InMemoryEventBus`. The dependency channel is
+  driven through a real `MemoryBackedKnowledgeGraph` via `build_kg_dep_distance`
+  (`test_collision_kg_and_concurrency.py`), and an N-agent cohort races through `asyncio.gather`.
+- **End-to-end** (`test_collision_executor_e2e.py`): the production path — a
+  `CollisionGuardInterceptor` (PreInterceptor) consulting a `CollisionCoordinator`, wired via
+  `RuntimeServices.interceptor_pipeline` into a real `DAGExecutor` running a PARALLEL node whose
+  two agents intend to write the same `output_key`. Asserts the steered agent is PRE-rejected
+  (never runs), the holder runs, resolution follows priority deterministically (swap test), and
+  a no-guard control proves the guard is the cause.
 
 ### Self-verification
 `cd cemaf && uv run pytest tests/unit tests/integration -q && uv run mypy src/cemaf/collision && uv run ruff check`. Confirm each §2/§3/§4 entry has a new test before opening the PR.
