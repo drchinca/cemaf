@@ -36,8 +36,10 @@ repos:
         additional_dependencies:
           - types-requests
           - types-aiofiles
-          - pydantic>=2.0
-          - pydantic-core>=2.0
+          # Pin pydantic only; it declares its own compatible pydantic-core.
+          # Pinning pydantic-core separately lets the resolver pick a mismatched
+          # pair and breaks the pydantic.mypy plugin import.
+          - pydantic==2.12.5
         args: [--config-file=pyproject.toml]
         files: ^src/.*\.py$  # Only check src/, exclude tests/
 
