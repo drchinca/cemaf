@@ -98,6 +98,37 @@ sequenceDiagram
     Replayer-->>User: ReplayResult
 ```
 
+## Persisted Bundle Replay
+
+When a run has already been exported as a standard bundle, replay can be driven
+from `run_record.json` directly instead of manually stitching together bundle
+inspection, record loading, replay, and artifact export.
+
+```python
+from cemaf.replay import ReplayMode, replay_record_to_artifact
+
+bundle = await replay_record_to_artifact(
+    record_path="runs/my_bundle/run_record.json",
+    mode=ReplayMode.PATCH_ONLY,
+)
+
+print(bundle.bundle_dir)
+print(bundle.artifact_path)
+print(bundle.result.success)
+print(bundle.artifact.payload["mode"])
+```
+
+`replay_record_to_artifact(...)` returns a `ReplayExecutionBundle` with:
+
+- `bundle_dir`: resolved parent bundle directory
+- `artifact_path`: exported replay artifact path
+- `result`: `ReplayResult` from the replay run
+- `artifact`: serialized replay payload metadata
+
+If you provide `output_path`, it must stay relative to the bundle directory.
+Nested paths such as `replays/patch-only.json` are valid; absolute paths and
+`../` escapes are rejected.
+
 ## Why Replay?
 
 | Use Case | Benefit |

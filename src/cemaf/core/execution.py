@@ -391,7 +391,11 @@ async def with_execution_context[T](
         TimeoutException: If timeout exceeded
     """
     # Check pre-conditions
-    ctx.raise_if_inactive()
+    try:
+        ctx.raise_if_inactive()
+    except Exception:
+        coro.close()
+        raise
 
     # Wrap with cancellation
     coro_with_cancel = with_cancellation(coro, ctx.cancellation_token)

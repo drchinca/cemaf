@@ -424,18 +424,19 @@ class DAGExecutor:
                 initial_context=context,
             )
 
-        # Emit DAG started event
-        await self._emit_event(
-            event_type=EventType.DAG_STARTED,
-            payload={"dag_name": dag.name, "run_id": str(run_id)},
-        )
-
         # Bootstrap memory session
         if self._session_manager:
             try:
                 await self._session_manager.bootstrap(session_id=str(run_id))
             except Exception as e:
                 logger.warning("Memory session bootstrap failed: %s", e)
+
+        # Emit DAG started event after session bootstrap so event subscribers
+        # can record it into the active episode.
+        await self._emit_event(
+            event_type=EventType.DAG_STARTED,
+            payload={"dag_name": dag.name, "run_id": str(run_id)},
+        )
 
         try:
             # Validate DAG

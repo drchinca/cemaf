@@ -1,8 +1,37 @@
 """Tests for Agent Registry v2."""
 
-from cemaf.agents.registry import AgentRegistry, create_default_registry
+from pydantic import BaseModel
+
+from cemaf.agents import AgentContext, AgentResult, AgentState
+from cemaf.agents.registry import AgentRegistry, agent_factory_registry, create_default_registry
+from cemaf.core.types import AgentID
 from cemaf.llm.mock import MockLLMClient
 from cemaf.retrieval.factories import create_in_memory_vector_store
+
+
+class CustomFactoryGoal(BaseModel):
+    task: str = "test"
+
+
+class CustomFactoryAgent:
+    def __init__(self, *, agent_id: str = "CustomFactory", marker: str = "") -> None:
+        self._agent_id = AgentID(agent_id)
+        self.marker = marker
+
+    @property
+    def id(self) -> AgentID:
+        return self._agent_id
+
+    @property
+    def description(self) -> str:
+        return "Custom factory agent"
+
+    @property
+    def skills(self) -> tuple[()]:
+        return ()
+
+    async def run(self, goal: CustomFactoryGoal, context: AgentContext) -> AgentResult[str]:
+        return AgentResult.ok(output=self.marker or goal.task, state=AgentState())
 
 
 class TestAgentRegistry:
@@ -79,6 +108,46 @@ class TestAgentRegistry:
         llm_client = MockLLMClient()
         agent = registry.create_agent("Researcher", llm_client=llm_client)
         assert agent is None
+
+    def test_create_unknown_agent_returns_none(self) -> None:
+        registry = AgentRegistry()
+
+        assert registry.create_agent("UnknownAgent") is None
+
+    def test_register_custom_agent_factory(self) -> None:
+        captured: dict[str, object] = {}
+
+        def factory(**kwargs: object) -> CustomFactoryAgent:
+            captured.update(kwargs)
+            return CustomFactoryAgent(marker=str(kwargs["marker"]))
+
+        agent_factory_registry.register(backend="UnitCustomAgent", factory=factory)
+        registry = AgentRegistry()
+
+        agent = registry.create_agent("UnitCustomAgent", marker="created")
+
+        assert isinstance(agent, CustomFactoryAgent)
+        assert agent.id == "CustomFactory"
+        assert agent.marker == "created"
+        assert captured["marker"] == "created"
+
+    def test_registered_instance_takes_precedence_over_factory(self) -> None:
+        factory_calls = 0
+
+        def factory(**kwargs: object) -> CustomFactoryAgent:
+            nonlocal factory_calls
+            factory_calls += 1
+            return CustomFactoryAgent(agent_id="FactoryAgent")
+
+        agent_factory_registry.register(backend="UnitExistingAgent", factory=factory)
+        registry = AgentRegistry()
+        existing = CustomFactoryAgent(agent_id="UnitExistingAgent", marker="existing")
+        registry.register_agent(agent_instance=existing, goal_type=CustomFactoryGoal)
+
+        agent = registry.create_agent("UnitExistingAgent")
+
+        assert agent is existing
+        assert factory_calls == 0
 
     def test_register_agent_dynamic(self) -> None:
         registry = AgentRegistry()

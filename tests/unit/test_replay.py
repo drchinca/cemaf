@@ -1,11 +1,14 @@
 """Tests for replay system."""
 
+import json
+
 import pytest
 
 from cemaf.context.context import Context
 from cemaf.context.patch import ContextPatch
 from cemaf.observability.run_logger import RunRecord, ToolCall
-from cemaf.replay.replayer import Replayer, ReplayMode, ReplayResult
+from cemaf.replay import ReplayExecutionBundle, ReplayMode, replay_record_to_artifact
+from cemaf.replay.replayer import Replayer, ReplayResult
 
 
 class TestReplayResult:
@@ -195,3 +198,84 @@ class TestReplayer:
         # MOCK_TOOLS mode
         result = await replayer.replay(mode=ReplayMode.MOCK_TOOLS)
         assert result.mode == ReplayMode.MOCK_TOOLS
+
+    @pytest.mark.asyncio
+    async def test_replay_record_to_artifact(self, tmp_path) -> None:
+        """Test replaying a persisted run record and exporting the artifact."""
+        record = RunRecord(
+            run_id="run-123",
+            dag_name="content_static_post_instagram",
+            initial_context=Context(data={"prompt": "x"}),
+            final_context=Context(data={"result": 42}),
+        )
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        record_path = bundle_dir / "run_record.json"
+        record_path.write_text(json.dumps(record.to_dict()), encoding="utf-8")
+
+        bundle = await replay_record_to_artifact(
+            record_path=record_path,
+            mode=ReplayMode.PATCH_ONLY,
+        )
+
+        assert bundle.bundle_dir == bundle_dir.resolve()
+        assert bundle.artifact_path == bundle_dir.resolve() / "replay.patch_only.json"
+        assert bundle.result.mode == ReplayMode.PATCH_ONLY
+        assert bundle.artifact.payload["mode"] == "patch_only"
+        assert isinstance(bundle, ReplayExecutionBundle)
+
+    @pytest.mark.asyncio
+    async def test_replay_record_to_artifact_accepts_string_mode_and_nested_relative_output_path(
+        self, tmp_path
+    ) -> None:
+        """Test helper mode coercion and nested bundle-relative artifact output."""
+        record = RunRecord(
+            run_id="run-456",
+            dag_name="demo",
+            initial_context=Context(data={"prompt": "x"}),
+            final_context=Context(data={"result": 7}),
+        )
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        record_path = bundle_dir / "run_record.json"
+        record_path.write_text(json.dumps(record.to_dict()), encoding="utf-8")
+
+        bundle = await replay_record_to_artifact(
+            record_path=record_path,
+            mode="patch_only",
+            output_path="replays/manual.json",
+        )
+
+        assert bundle.result.mode == ReplayMode.PATCH_ONLY
+        assert bundle.artifact_path == (bundle_dir / "replays" / "manual.json").resolve()
+        assert bundle.artifact_path.is_file()
+
+    @pytest.mark.asyncio
+    async def test_replay_record_to_artifact_rejects_absolute_output_path(self, tmp_path) -> None:
+        """Test helper rejects absolute output paths outside the bundle."""
+        record = RunRecord(run_id="run-789", dag_name="demo")
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        record_path = bundle_dir / "run_record.json"
+        record_path.write_text(json.dumps(record.to_dict()), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="relative to the bundle directory"):
+            await replay_record_to_artifact(
+                record_path=record_path,
+                output_path=str((tmp_path / "outside.json").resolve()),
+            )
+
+    @pytest.mark.asyncio
+    async def test_replay_record_to_artifact_rejects_bundle_escape_output_path(self, tmp_path) -> None:
+        """Test helper rejects relative paths that escape the bundle root."""
+        record = RunRecord(run_id="run-999", dag_name="demo")
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        record_path = bundle_dir / "run_record.json"
+        record_path.write_text(json.dumps(record.to_dict()), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="within the bundle directory"):
+            await replay_record_to_artifact(
+                record_path=record_path,
+                output_path="../outside.json",
+            )

@@ -71,6 +71,32 @@ value = await cache.get("key")
 await cache.delete("key")
 ```
 
+## Factory Registry
+
+Cache backends are selected through `cache_registry`. Built-ins include
+`memory` and `ttl`; applications can register Redis, Memcached, or other
+stores without editing CEMAF.
+
+```python
+from cemaf.cache import Cache, cache_registry, create_cache
+
+def create_redis_cache(**kwargs) -> Cache:
+    return RedisCache(
+        url=kwargs["redis_url"],
+        max_size=kwargs["max_size"],
+    )
+
+cache_registry.register(
+    backend="redis",
+    factory=create_redis_cache,
+)
+
+cache = create_cache(
+    backend="redis",
+    redis_url="redis://localhost:6379",
+)
+```
+
 ## Cached Decorator
 
 ```python

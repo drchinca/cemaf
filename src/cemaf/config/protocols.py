@@ -41,7 +41,7 @@ class ConfigSource(Protocol):
         """
         ...
 
-    async def watch(self) -> AsyncIterator[JSON]:
+    def watch(self) -> AsyncIterator[JSON]:
         """
         Watch for configuration changes (hot-reload).
 

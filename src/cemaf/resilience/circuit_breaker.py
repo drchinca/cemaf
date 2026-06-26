@@ -104,6 +104,11 @@ class CircuitBreaker:
         self._lock = asyncio.Lock()
 
     @property
+    def config(self) -> CircuitConfig:
+        """Read-only circuit breaker configuration."""
+        return self._config
+
+    @property
     def state(self) -> CircuitState:
         """Current circuit state."""
         return self._state
@@ -214,6 +219,15 @@ class CircuitBreaker:
                 async with self._lock:
                     self._record_failure()
             raise
+
+    async def call(
+        self,
+        func: Callable[..., Awaitable[T]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> T:
+        """Protocol-compatible alias for execute."""
+        return await self.execute(func, *args, **kwargs)
 
     def reset(self) -> None:
         """Manually reset the circuit to closed state."""

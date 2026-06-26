@@ -10,8 +10,9 @@ Note:
     not for agent instances themselves.
 
 Extension Point:
-    This module is designed for extension. Add your custom agent
-    implementations and register them here if needed.
+    Agent implementations are protocol-first. Register constructed agents with
+    AgentRegistry.register_agent(...), or register named constructors with
+    agent_factory_registry for config/dependency-driven creation.
 """
 
 import os
@@ -100,41 +101,3 @@ def create_agent_context_from_config(
         parent_agent_id=parent_agent_id,
         depth=depth,
     )
-
-
-# ============================================================================
-# EXTEND HERE: Bring Your Own Agent Implementations
-# ============================================================================
-# This is the extension point for custom agent implementations.
-#
-# To add your own agent type:
-# 1. Implement the Agent protocol (see cemaf.agents.protocols)
-# 2. Add a factory function below
-# 3. Optionally add a config-based factory
-#
-# Example (ReAct Agent):
-#   def create_react_agent(
-#       agent_id: AgentID,
-#       llm: LLMClient,
-#       skills: tuple[Skill, ...],
-#   ) -> Agent:
-#       from your_package import ReActAgent
-#       return ReActAgent(agent_id=agent_id, llm=llm, skills=skills)
-#
-#   def create_react_agent_from_config(
-#       agent_id: AgentID,
-#       skills: tuple[Skill, ...],
-#   , settings: Settings | None = None) -> Agent:
-#       from cemaf.llm.factories import create_llm_client_from_config
-#       llm = create_llm_client_from_config()
-#       return create_react_agent(agent_id, llm, skills)
-#
-# Example (Planning Agent):
-#   def create_planning_agent(
-#       agent_id: AgentID,
-#       llm: LLMClient,
-#       planner: Planner,
-#   ) -> Agent:
-#       from your_package import PlanningAgent
-#       return PlanningAgent(agent_id=agent_id, llm=llm, planner=planner)
-# ============================================================================

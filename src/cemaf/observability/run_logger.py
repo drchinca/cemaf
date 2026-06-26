@@ -6,17 +6,22 @@ This module provides:
 - RunRecord: Complete record of an agent run
 - RunLogger: Protocol for recording runs
 - InMemoryRunLogger: In-memory implementation
+- FileRunLogger: file-backed implementation for durable local traces
 
 Note: Uses PEP 563 () to defer annotation evaluation
 and avoid circular imports with cemaf.context.
 """
 
+import json
+import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
-from cemaf.core.utils import generate_id, utc_now
+from cemaf.core.utils import generate_id, safe_json, utc_now
 
 
 @dataclass(frozen=True)
@@ -451,3 +456,111 @@ class NoOpRunLogger:
     def get_current_record(self) -> RunRecord | None:
         """Always returns None."""
         return None
+
+
+class FileRunLogger(InMemoryRunLogger):
+    """In-memory run logger that also writes live JSON snapshots to disk."""
+
+    def __init__(
+        self,
+        *,
+        root: str | Path,
+        dir_namer: Callable[[str, str], str] | None = None,
+    ) -> None:
+        super().__init__()
+        self._root = Path(root)
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._dir_namer = dir_namer or self._default_dir_name
+        self._run_dirs: dict[str, Path] = {}
+
+    def _default_dir_name(self, run_id: str, dag_name: str) -> str:
+        del dag_name
+        safe = run_id.replace(":", "-").replace("/", "-").strip("-") or "run"
+        return f"live__{safe}"
+
+    def _write_json(self, path: Path, payload: Any) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(safe_json(payload), indent=2), encoding="utf-8")
+
+    def get_run_dir(self, run_id: str) -> Path:
+        return self._run_dirs.get(run_id, self._root / self._default_dir_name(run_id, ""))
+
+    def relocate_run_dir(self, *, run_id: str, target: Path) -> Path:
+        source = self.get_run_dir(run_id)
+        target = target.resolve()
+        if source.resolve() == target:
+            self._run_dirs[run_id] = target
+            return target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        if source.exists():
+            shutil.move(str(source), str(target))
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+        self._run_dirs[run_id] = target
+        return target
+
+    def _persist_current(self) -> None:
+        record = self.get_current_record()
+        if record is None:
+            return
+        run_dir = self.get_run_dir(record.run_id)
+        self._write_json(run_dir / "run_record.live.json", record.to_dict())
+
+    def start_run(
+        self,
+        run_id: str,
+        dag_name: str = "",
+        initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        super().start_run(run_id=run_id, dag_name=dag_name, initial_context=initial_context)
+        self._run_dirs[run_id] = self._root / self._dir_namer(run_id, dag_name)
+        self._persist_current()
+
+    def record_tool_call(self, call: ToolCall) -> None:
+        super().record_tool_call(call)
+        self._persist_current()
+
+    def record_llm_call(self, call: LLMCall) -> None:
+        super().record_llm_call(call)
+        self._persist_current()
+
+    def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
+        super().record_patch(patch)
+        self._persist_current()
+
+    def record_provenance_link(self, link: ProvenanceLink) -> None:  # type: ignore[name-defined]  # noqa: F821
+        super().record_provenance_link(link)
+        self._persist_current()
+
+    def end_run(
+        self,
+        final_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
+        success: bool = True,
+        error: str | None = None,
+    ) -> RunRecord:
+        record = super().end_run(final_context=final_context, success=success, error=error)
+        run_dir = self.get_run_dir(record.run_id)
+        self._write_json(run_dir / "run_record.json", record.to_dict())
+        self._write_json(
+            run_dir / "run_summary.json",
+            {
+                "run_id": record.run_id,
+                "dag_name": record.dag_name,
+                "success": record.success,
+                "error": record.error,
+                "started_at": record.started_at.isoformat(),
+                "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+                "duration_ms": record.duration_ms,
+                "total_tokens": record.total_tokens,
+                "total_cost_usd": record.total_cost_usd,
+                "total_llm_calls": record.total_llm_calls,
+                "total_tool_calls": record.total_tool_calls,
+                "total_patches": record.total_patches,
+            },
+        )
+        return record

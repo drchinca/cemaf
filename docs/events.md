@@ -68,3 +68,25 @@ await bus.subscribe("my_event", handler)
 # Publish
 await bus.publish(Event(type="my_event", data={"key": "value"}))
 ```
+
+## Notifiers
+
+External notifications are protocol-first and registry-backed:
+
+```python
+from cemaf.events import create_notifier, create_notifiers, notifier_registry
+
+notifier = create_notifier("webhook", url="https://example.test/hook")
+
+notifiers = create_notifiers(
+    (
+        {"backend": "logging", "name": "events-log"},
+        {"backend": "webhook", "url": "https://example.test/hook"},
+    )
+)
+
+notifier_registry.register(
+    backend="slack",
+    factory=lambda **kwargs: SlackNotifier(channel=kwargs["channel"]),
+)
+```

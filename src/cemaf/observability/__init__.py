@@ -50,6 +50,10 @@ from cemaf.observability.factories import (
     create_run_logger_from_config,
     create_tracer,
     create_tracer_from_config,
+    logger_registry,
+    metrics_collector_registry,
+    run_logger_registry,
+    tracer_registry,
 )
 from cemaf.observability.glass_box import GlassBoxReport, GlassBoxReporter
 from cemaf.observability.health import (
@@ -63,6 +67,7 @@ from cemaf.observability.metrics_helper import MetricsHelper, record_timing
 from cemaf.observability.prometheus_metrics import PrometheusMetrics
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
+    FileRunLogger,
     InMemoryRunLogger,
     LLMCall,
     NoOpRunLogger,
@@ -110,6 +115,7 @@ __all__ = [
     "LLMCall",
     "RunRecord",
     "RunLogger",
+    "FileRunLogger",
     "InMemoryRunLogger",
     "NoOpRunLogger",
     # Cost tracking
@@ -145,4 +151,8 @@ __all__ = [
     "create_run_logger_from_config",
     "create_tracer",
     "create_tracer_from_config",
+    "logger_registry",
+    "tracer_registry",
+    "metrics_collector_registry",
+    "run_logger_registry",
 ]

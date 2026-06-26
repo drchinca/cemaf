@@ -11,6 +11,7 @@ from cemaf.evals.evaluators import (
     JSONSchemaEvaluator,
     LengthEvaluator,
 )
+from cemaf.evals.factories import create_evaluator, evaluator_registry
 from cemaf.evals.police import QualityPolice
 from cemaf.evals.protocols import Evaluator
 from cemaf.tools.base import Tool, ToolResult, ToolSchema
@@ -24,13 +25,14 @@ BUILTIN_EVALUATORS: dict[str, type[Evaluator]] = {
 
 
 def resolve_evaluators(names: list[str]) -> list[Evaluator]:
-    """Instantiate evaluators by name from the built-in registry."""
+    """Instantiate evaluators by name from the extensible evaluator registry."""
     evaluators: list[Evaluator] = []
     for name in names:
-        cls = BUILTIN_EVALUATORS.get(name)
-        if cls is None:
-            raise ValueError(f"Unknown evaluator: {name!r}. Available: {sorted(BUILTIN_EVALUATORS)}")
-        evaluators.append(cls())
+        if not evaluator_registry.has(backend=name):
+            raise ValueError(
+                f"Unknown evaluator: {name!r}. Available: {sorted(evaluator_registry.list_backends())}"
+            )
+        evaluators.append(create_evaluator(name))
     return evaluators
 
 

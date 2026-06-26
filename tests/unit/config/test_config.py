@@ -4,6 +4,12 @@ import os
 
 import pytest
 
+from cemaf.config.factories import (
+    config_source_registry,
+    create_config_source,
+    create_settings_provider,
+    load_settings_from_env,
+)
 from cemaf.config.loader import (
     DictConfigSource,
     EnvConfigSource,
@@ -219,6 +225,84 @@ class TestSettingsProviderImpl:
         provider.add_source(DictConfigSource({"key": "value"}))
         raw = await provider.get_raw()
         assert raw == {"key": "value"}
+
+
+# =============================================================================
+# Config Factory Tests
+# =============================================================================
+
+
+class TestConfigFactories:
+    """Tests for registry-backed config composition."""
+
+    def test_create_env_config_source(self) -> None:
+        source = create_config_source("env", prefix="APP", separator="__", lowercase_keys=False)
+
+        assert isinstance(source, EnvConfigSource)
+        assert source.name == "env:APP"
+
+    async def test_create_dict_config_source(self) -> None:
+        source = create_config_source("dict", data={"environment": "prod"}, name="defaults")
+
+        assert isinstance(source, DictConfigSource)
+        assert source.name == "defaults"
+        assert await source.load() == {"environment": "prod"}
+
+    def test_invalid_dict_config_source_data_raises(self) -> None:
+        with pytest.raises(ValueError, match="dict config source requires dict data"):
+            create_config_source("dict", data=("not", "a", "dict"))
+
+    def test_unknown_config_source_mentions_registry(self) -> None:
+        with pytest.raises(ValueError, match="config_source_registry.register"):
+            create_config_source("consul")
+
+    async def test_supports_custom_registered_source(self) -> None:
+        created: dict[str, object] = {}
+
+        def _factory(**kwargs):
+            created["args"] = kwargs
+            return DictConfigSource({"environment": "stage"}, name="custom")
+
+        config_source_registry.register(backend="custom-test-config-source", factory=_factory)
+
+        source = create_config_source("custom-test-config-source", endpoint="https://config.example")
+
+        assert source.name == "custom"
+        assert await source.load() == {"environment": "stage"}
+        assert created["args"]["endpoint"] == "https://config.example"
+
+    async def test_create_settings_provider_from_direct_sources_and_specs(self) -> None:
+        provider = create_settings_provider(
+            sources=((1, DictConfigSource({"environment": "dev"})),),
+            source_specs=(
+                {
+                    "type": "dict",
+                    "priority": 2,
+                    "data": {"environment": "prod", "debug": True},
+                },
+            ),
+        )
+
+        settings = await provider.get()
+
+        assert settings.environment == "prod"
+        assert settings.debug is True
+
+    def test_source_spec_requires_type(self) -> None:
+        with pytest.raises(ValueError, match="requires 'type' or 'source_type'"):
+            create_settings_provider(source_specs=({"data": {"debug": True}},))
+
+    async def test_load_settings_from_env_uses_env_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for key in list(os.environ.keys()):
+            if key.startswith("CEMAF_"):
+                monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("CEMAF_ENVIRONMENT", "prod")
+        monkeypatch.setenv("CEMAF_DEBUG", "true")
+
+        settings = await load_settings_from_env()
+
+        assert settings.environment == "prod"
+        assert settings.debug is True
 
 
 # =============================================================================

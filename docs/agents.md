@@ -98,6 +98,35 @@ capabilities = registry.get_capabilities_description()
 # "librarian: Retrieves semantic blueprints\nresearcher: High-fidelity retrieval..."
 ```
 
+### Agent Factory Registry
+
+Use `agent_factory_registry` when an agent should be constructed by name from dependencies/configuration:
+
+```python
+from cemaf.agents import AgentRegistry, agent_factory_registry
+
+
+class SqlAgent:
+    ...
+
+
+agent_factory_registry.register(
+    backend="SqlAgent",
+    factory=lambda **options: SqlAgent(
+        db=options["db"],
+        llm_client=options["llm_client"],
+    ),
+)
+
+registry = AgentRegistry()
+agent = registry.create_agent(
+    "SqlAgent",
+    db=my_database,
+    llm_client=my_llm,
+)
+registry.register_agent(agent_instance=agent, goal_type=SqlGoal)
+```
+
 ## Built-in Context Agents
 
 CEMAF ships with four context engineering agents:

@@ -51,8 +51,8 @@ class PingAgent(Agent[PingGoal, PingResult]):
 
 
 class TestProviderRegistry:
-    def test_all_7_backends_registered(self) -> None:
-        expected = {"mock", "anthropic", "openai", "ollama", "groq", "together", "gemini"}
+    def test_all_8_backends_registered(self) -> None:
+        expected = {"mock", "anthropic", "openai", "ollama", "groq", "together", "gemini", "bedrock"}
         registered = set(llm_registry._factories.keys())
         assert expected.issubset(registered)
 
@@ -82,6 +82,10 @@ class TestProviderRegistry:
         client = create_llm_client("together", api_key="tok-test")
         assert isinstance(client, OpenAICompatClient)
         assert "together.xyz" in client._base_url
+
+    def test_bedrock_creates_llm_client(self) -> None:
+        client = create_llm_client("bedrock")
+        assert isinstance(client, LLMClient)
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +146,7 @@ class TestProviderSwitching:
             ("gemini", {"api_key": "AIza-test"}),
             ("groq", {"api_key": "gsk-test"}),
             ("together", {"api_key": "tok-test"}),
+            ("bedrock", {}),
         ]
 
         clients: list[LLMClient] = []
@@ -151,7 +156,7 @@ class TestProviderSwitching:
             assert client.config.model, f"{provider} has no model"
             clients.append(client)
 
-        assert len(clients) == 6
+        assert len(clients) == 7
 
     def test_all_support_token_counting(self) -> None:
         """Every provider can count tokens."""
@@ -160,6 +165,7 @@ class TestProviderSwitching:
             create_llm_client("ollama", model="test"),
             create_llm_client("openai", api_key="k"),
             create_llm_client("gemini", api_key="k"),
+            create_llm_client("bedrock"),
         ]
 
         for client in providers:

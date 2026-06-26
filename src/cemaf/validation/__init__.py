@@ -5,6 +5,13 @@ Provides business rule validation with pipeline support,
 repair suggestions, and multiple built-in rule types.
 """
 
+from cemaf.validation.factories import (
+    create_validation_pipeline,
+    create_validation_pipeline_from_config,
+    create_validation_rule,
+    create_validation_rules,
+    validation_rule_registry,
+)
 from cemaf.validation.mock import AlwaysFailRule, AlwaysPassRule, MockValidator
 from cemaf.validation.pipeline import ValidationPipeline
 from cemaf.validation.protocols import (
@@ -41,6 +48,11 @@ __all__ = [
     "CustomRule",
     # Pipeline
     "ValidationPipeline",
+    "create_validation_pipeline",
+    "create_validation_pipeline_from_config",
+    "create_validation_rule",
+    "create_validation_rules",
+    "validation_rule_registry",
     # Mock
     "MockValidator",
     "AlwaysPassRule",

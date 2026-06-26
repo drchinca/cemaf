@@ -1,6 +1,6 @@
 """Factory functions for LLM client components.
 
-Supports 8 providers out of the box:
+Supports 9 providers out of the box:
     client = create_llm_client("ollama", model="qwen3.5")
     client = create_llm_client("ollama-cloud", model="gpt-oss:120b-cloud")
     client = create_llm_client("openai", api_key="sk-...")
@@ -9,6 +9,7 @@ Supports 8 providers out of the box:
     client = create_llm_client("groq", api_key="gsk-...")
     client = create_llm_client("together", api_key="...")
     client = create_llm_client("huggingface", api_key="hf_...")
+    client = create_llm_client("bedrock", model="global.anthropic.claude-sonnet-4-6")
 """
 
 import os
@@ -18,8 +19,11 @@ from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.core.types import LLMProvider
+from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import LLMClient
+from cemaf.observability.run_logger import RunLogger
+from cemaf.resilience.retry import RetryPolicy
 
 # Global LLM provider registry — extend with your own providers
 llm_registry: ProviderRegistry[LLMClient] = ProviderRegistry(name="llm")
@@ -153,6 +157,20 @@ def _create_gemini(**kwargs: Any) -> LLMClient:
     )
 
 
+def _create_bedrock(**kwargs: Any) -> LLMClient:
+    from cemaf.llm.bedrock_cli import BedrockCliLLMClient
+
+    return BedrockCliLLMClient(  # type: ignore[return-value]
+        model=kwargs.get("model", os.getenv("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6")),
+        region=kwargs.get("region", os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))),
+        profile=kwargs.get("profile", os.getenv("AWS_PROFILE") or None),
+        temperature=kwargs.get("temperature", 0.7),
+        max_tokens=kwargs.get("max_tokens", 4096),
+        timeout_seconds=kwargs.get("timeout_seconds", 120.0),
+        runner=kwargs.get("runner"),
+    )
+
+
 # Register all providers
 llm_registry.register(backend="mock", factory=_create_mock)
 llm_registry.register(backend="anthropic", factory=_create_anthropic)
@@ -164,6 +182,7 @@ llm_registry.register(backend="groq", factory=_create_groq)
 llm_registry.register(backend="together", factory=_create_together)
 llm_registry.register(backend="huggingface", factory=_create_huggingface)
 llm_registry.register(backend="gemini", factory=_create_gemini)
+llm_registry.register(backend="bedrock", factory=_create_bedrock)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +197,8 @@ def create_llm_client(
     """Create an LLM client for any supported provider.
 
     Args:
-        provider: One of: openai, anthropic, ollama, ollama-cloud, gemini, groq, together, huggingface, mock
+        provider: One of: openai, anthropic, ollama, ollama-cloud, gemini,
+            groq, together, huggingface, bedrock, mock
         **kwargs: Provider-specific args (api_key, model, base_url, etc.)
 
     Examples:
@@ -186,6 +206,7 @@ def create_llm_client(
         client = create_llm_client("openai", api_key="sk-...", model="gpt-4o")
         client = create_llm_client("gemini", api_key="AIza...", model="gemini-2.5-flash")
         client = create_llm_client("huggingface", api_key="hf_...", model="google/gemma-2-2b-it")
+        client = create_llm_client("bedrock", model="global.anthropic.claude-sonnet-4-6")
     """
     return llm_registry.create(backend=provider, **kwargs)
 
@@ -205,6 +226,92 @@ def create_llm_client_from_config(
     cfg = settings or load_settings_from_env_sync()
     provider = provider or cfg.llm.provider
     return llm_registry.create(backend=provider)
+
+
+def create_resilient_llm_client(
+    *,
+    provider: str = "auto",
+    model: str = "",
+    temperature: float = 0.7,
+    max_tokens: int = 4096,
+    timeout_seconds: float = 120.0,
+    region: str | None = None,
+    profile: str | None = None,
+    fallback_model: str | None = None,
+    enable_caching: bool = False,
+    cache_threshold_tokens: int = 1_000,
+    metrics: Any | None = None,
+) -> LLMClient:
+    """Create a resilient text LLM client with provider auto-selection.
+
+    `provider="auto"` prefers OpenAI, then Gemini, then Anthropic based on
+    available credentials. Explicit providers delegate to `create_llm_client`.
+    """
+    resolved_provider = provider.lower()
+    if resolved_provider == "auto":
+        if os.getenv("OPENAI_API_KEY"):
+            resolved_provider = "openai"
+        elif os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+            resolved_provider = "gemini"
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            resolved_provider = "anthropic"
+        else:
+            raise ValueError(
+                "No text LLM credentials found. Set OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, "
+                "or ANTHROPIC_API_KEY."
+            )
+
+    if resolved_provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+        client = create_llm_client(
+            "openai",
+            api_key=api_key,
+            model=model or "gpt-4o-mini",
+        )
+    elif resolved_provider == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY environment variable is required")
+        client = create_llm_client(
+            "gemini",
+            api_key=api_key,
+            model=model or "gemini-2.5-flash",
+        )
+    elif resolved_provider == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+        client = create_llm_client(
+            "anthropic",
+            api_key=api_key,
+            model=model or "claude-sonnet-4-20250514",
+        )
+    elif resolved_provider == "bedrock":
+        client = create_llm_client(
+            "bedrock",
+            model=model or os.getenv("BEDROCK_MODEL", "global.anthropic.claude-sonnet-4-6"),
+            region=region or os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+            profile=profile if profile is not None else (os.getenv("AWS_PROFILE") or None),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        client = create_llm_client(
+            resolved_provider,
+            model=model or None,
+            timeout_seconds=timeout_seconds,
+        )
+
+    return create_resilient_client(
+        client=client,
+        metrics=metrics,
+        fallback_model=fallback_model,
+        enable_caching=enable_caching,
+        cache_threshold_tokens=cache_threshold_tokens,
+    )
 
 
 def create_model_router(
@@ -280,4 +387,22 @@ def create_resilient_client(
         ),
         metrics=metrics,
         fallback_model=fallback_model,
+    )
+
+
+def create_instrumented_client(
+    *,
+    client: LLMClient,
+    run_logger: RunLogger,
+    node_id: str | None = None,
+    agent_id: str | None = None,
+    retry_policy: RetryPolicy | None = None,
+) -> InstrumentedLLMClient:
+    """Wrap an LLMClient so all calls are recorded to the run logger."""
+    return InstrumentedLLMClient(
+        client=client,
+        run_logger=run_logger,
+        node_id=node_id,
+        agent_id=agent_id,
+        retry_policy=retry_policy,
     )

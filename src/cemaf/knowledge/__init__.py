@@ -1,6 +1,6 @@
 """Knowledge graph module — entity/relation modeling and graph queries."""
 
-from cemaf.knowledge.factories import create_knowledge_graph
+from cemaf.knowledge.factories import create_knowledge_graph, knowledge_graph_registry
 from cemaf.knowledge.graph import MemoryBackedKnowledgeGraph
 from cemaf.knowledge.hub_spoke import (
     KG_INVALIDATION_EVENT_TYPE,
@@ -44,6 +44,7 @@ __all__ = [
     # Factories
     "create_hub_spoke_kg",
     "create_knowledge_graph",
+    "knowledge_graph_registry",
     # Constants
     "KG_INVALIDATION_EVENT_TYPE",
 ]

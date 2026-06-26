@@ -12,6 +12,20 @@ from cemaf.persistence.entities import (
     ProjectStatus,
     Run,
 )
+from cemaf.persistence.factories import (
+    artifact_store_registry,
+    content_store_registry,
+    create_artifact_store,
+    create_artifact_store_from_config,
+    create_content_store,
+    create_content_store_from_config,
+    create_project_store,
+    create_project_store_from_config,
+    create_run_store,
+    create_run_store_from_config,
+    project_store_registry,
+    run_store_registry,
+)
 from cemaf.persistence.protocols import (
     ArtifactStore,
     ContentStore,
@@ -226,28 +240,134 @@ class TestProtocolCompliance:
 
 class TestFactories:
     def test_project_store_factory_unknown_backend(self):
-        from cemaf.persistence.factories import create_project_store_from_config
-
-        with pytest.raises(ValueError, match="Unsupported project store backend"):
+        with pytest.raises(ValueError, match="project_store_registry.register"):
             create_project_store_from_config()
 
     def test_artifact_store_factory_unknown_backend(self):
-        from cemaf.persistence.factories import create_artifact_store_from_config
-
-        with pytest.raises(ValueError, match="Unsupported artifact store backend"):
+        with pytest.raises(ValueError, match="artifact_store_registry.register"):
             create_artifact_store_from_config()
 
     def test_content_store_factory_unknown_backend(self):
-        from cemaf.persistence.factories import create_content_store_from_config
-
-        with pytest.raises(ValueError, match="Unsupported content store backend"):
+        with pytest.raises(ValueError, match="content_store_registry.register"):
             create_content_store_from_config()
 
     def test_run_store_factory_unknown_backend(self):
-        from cemaf.persistence.factories import create_run_store_from_config
-
-        with pytest.raises(ValueError, match="Unsupported run store backend"):
+        with pytest.raises(ValueError, match="run_store_registry.register"):
             create_run_store_from_config()
+
+    def test_register_custom_project_store_backend(self):
+        class MyProjectStore:
+            pass
+
+        store = MyProjectStore()
+        project_store_registry.register(backend="unit-project", factory=lambda **_: store)
+
+        assert create_project_store(backend="unit-project") is store
+
+    def test_register_custom_artifact_store_backend(self):
+        class MyArtifactStore:
+            pass
+
+        store = MyArtifactStore()
+        artifact_store_registry.register(backend="unit-artifact", factory=lambda **_: store)
+
+        assert create_artifact_store(backend="unit-artifact") is store
+
+    def test_register_custom_content_store_backend(self):
+        class MyContentStore:
+            pass
+
+        store = MyContentStore()
+        content_store_registry.register(backend="unit-content", factory=lambda **_: store)
+
+        assert create_content_store(backend="unit-content") is store
+
+    def test_register_custom_run_store_backend(self):
+        class MyRunStore:
+            pass
+
+        store = MyRunStore()
+        run_store_registry.register(backend="unit-run", factory=lambda **_: store)
+
+        assert create_run_store(backend="unit-run") is store
+
+    def test_create_registered_project_store_from_env(self, monkeypatch):
+        captured = {}
+
+        class MyProjectStore:
+            pass
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return MyProjectStore()
+
+        project_store_registry.register(backend="env-project", factory=factory)
+        monkeypatch.setenv("CEMAF_PERSISTENCE_PROJECT_STORE_BACKEND", "env-project")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://example/project")
+
+        store = create_project_store_from_config()
+
+        assert isinstance(store, MyProjectStore)
+        assert captured["database_url"] == "postgresql://example/project"
+
+    def test_create_registered_artifact_store_from_env(self, monkeypatch):
+        captured = {}
+
+        class MyArtifactStore:
+            pass
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return MyArtifactStore()
+
+        artifact_store_registry.register(backend="env-artifact", factory=factory)
+        monkeypatch.setenv("CEMAF_PERSISTENCE_ARTIFACT_STORE_BACKEND", "env-artifact")
+        monkeypatch.setenv("S3_ARTIFACTS_BUCKET", "cemaf-artifacts")
+        monkeypatch.setenv("AWS_REGION", "us-west-2")
+
+        store = create_artifact_store_from_config()
+
+        assert isinstance(store, MyArtifactStore)
+        assert captured["s3_artifacts_bucket"] == "cemaf-artifacts"
+        assert captured["aws_region"] == "us-west-2"
+
+    def test_create_registered_content_store_from_env(self, monkeypatch):
+        captured = {}
+
+        class MyContentStore:
+            pass
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return MyContentStore()
+
+        content_store_registry.register(backend="env-content", factory=factory)
+        monkeypatch.setenv("CEMAF_PERSISTENCE_CONTENT_STORE_BACKEND", "env-content")
+        monkeypatch.setenv("MONGODB_URI", "mongodb://example/content")
+
+        store = create_content_store_from_config()
+
+        assert isinstance(store, MyContentStore)
+        assert captured["mongodb_uri"] == "mongodb://example/content"
+
+    def test_create_registered_run_store_from_env(self, monkeypatch):
+        captured = {}
+
+        class MyRunStore:
+            pass
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return MyRunStore()
+
+        run_store_registry.register(backend="env-run", factory=factory)
+        monkeypatch.setenv("CEMAF_PERSISTENCE_RUN_STORE_BACKEND", "env-run")
+        monkeypatch.setenv("TIMESCALE_URL", "postgresql://example/runs")
+
+        store = create_run_store_from_config()
+
+        assert isinstance(store, MyRunStore)
+        assert captured["timescale_url"] == "postgresql://example/runs"
 
 
 class TestEnums:

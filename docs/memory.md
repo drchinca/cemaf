@@ -327,22 +327,34 @@ export CEMAF_MEMORY_SQLITE_PATH=cemaf_memory.db
 
 | Factory | Creates | Key Parameters |
 |---------|---------|----------------|
-| `create_memory_store(backend=)` | `MemoryStore` | `"memory"` or `"sqlite"` |
-| `create_memory_store_from_config()` | `MemoryStore` | Reads `CEMAF_MEMORY_BACKEND` env var |
-| `create_memory_manager()` | `DefaultMemoryManager` | `memory_store`, `embedding_provider`, `vector_store`, `deduplicator` |
-| `create_session_manager()` | `DefaultSessionManager` | `memory_manager`, `extraction_pipeline` |
+| `memory_store_registry.register(...)` | Custom `MemoryStore` backend | `backend`, `factory` |
+| `memory_scorer_registry.register(...)` | Custom `MemoryScorer` backend | `backend`, `factory` |
+| `memory_compactor_registry.register(...)` | Custom `MemoryCompactor` backend | `backend`, `factory` |
+| `memory_extractor_registry.register(...)` | Custom `MemoryExtractor` backend | `backend`, `factory` |
+| `create_memory_store(backend=)` | `MemoryStore` | `"memory"`, `"json_file"`, `"sqlite"`, `"postgres"`, or registered custom backend; `max_items` and `default_ttl_seconds` apply to the built-in memory backend |
+| `create_memory_scorer()` | `MemoryScorer` | `"temporal_decay"` or registered custom backend |
+| `create_memory_compactor()` | `MemoryCompactor` | `"simple"`, `scorer`, or registered custom backend |
+| `create_memory_extractor()` | `MemoryExtractor` | `"rule_based"` or registered custom backend |
+| `create_memory_store_from_config()` | `MemoryStore` | Reads `CEMAF_MEMORY_BACKEND`, `CEMAF_MEMORY_MAX_ITEMS`, `CEMAF_MEMORY_DEFAULT_TTL_SECONDS`, and backend path/DSN env vars |
+| `create_memory_manager()` | `DefaultMemoryManager` | `memory_store`, `embedding_provider`, `vector_store`, `scorer`, `episodic_store`, `deduplicator` |
+| `create_memory_runtime()` | `MemoryRuntime` | `memory_backend`, `vector_backend`, `embedding_provider_name`, `scorer_type`, `extractor_type`, `compactor_type`, `event_bus` |
+| `create_session_manager()` | `DefaultSessionManager` | `memory_manager`, `extraction_pipeline`, `compactor`, `compactor_type` |
 | `create_tiered_store()` | `TieredMemoryStore` | `memory_store` |
-| `create_extraction_pipeline()` | `ExtractionPipeline` | `memory_manager`, `extractor`, `deduplicator`, `event_bus` |
+| `create_extraction_pipeline()` | `ExtractionPipeline` | `memory_manager`, `extractor`, `extractor_type`, `deduplicator`, `event_bus` |
 | `create_scope_scorer()` | `PropagatingScorer` | `semantic_store`, `propagation_factor` |
 
 ```python
 from cemaf.memory.factories import (
-    create_memory_store,
+    create_extraction_pipeline,
+    create_memory_compactor,
+    create_memory_extractor,
     create_memory_manager,
+    create_memory_runtime,
+    create_memory_scorer,
+    create_memory_store,
+    create_scope_scorer,
     create_session_manager,
     create_tiered_store,
-    create_extraction_pipeline,
-    create_scope_scorer,
 )
 
 # SQLite-backed memory manager with session extraction
@@ -353,4 +365,50 @@ session_mgr = create_session_manager(
     memory_manager=manager,
     extraction_pipeline=pipeline,
 )
+
+# One-call runtime composition
+runtime = create_memory_runtime(
+    memory_backend="sqlite",
+    vector_backend="sqlite",
+    embedding_provider_name="hash",
+    db_path="cemaf_memory.db",
+)
+manager = runtime.memory_manager
+session_mgr = runtime.session_manager
+
+# Bounded in-process memory for development/tests
+store = create_memory_store(
+    backend="memory",
+    max_items=1000,
+    default_ttl_seconds=3600.0,
+)
+```
+
+Custom stores can be registered without editing CEMAF:
+
+```python
+from cemaf.memory import MemoryStore, memory_store_registry, create_memory_store
+
+def create_redis_memory_store(**kwargs) -> MemoryStore:
+    return RedisMemoryStore(url=kwargs["redis_url"])
+
+memory_store_registry.register(
+    backend="redis",
+    factory=create_redis_memory_store,
+)
+
+store = create_memory_store(backend="redis", redis_url="redis://localhost:6379")
+```
+
+Custom memory internals can be registered the same way:
+
+```python
+from cemaf.memory import memory_compactor_registry, create_memory_runtime
+
+memory_compactor_registry.register(
+    backend="llm_summary",
+    factory=lambda **kwargs: LlmMemoryCompactor(llm=kwargs["llm"]),
+)
+
+runtime = create_memory_runtime(compactor_type="llm_summary")
 ```

@@ -10,7 +10,9 @@ Production-grade persistence for single-host deployments:
 
 import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import aiosqlite
 
@@ -72,6 +74,18 @@ class SqliteMemoryStore:
         self._journal_mode = journal_mode
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
+
+    async def __aenter__(self) -> SqliteMemoryStore:
+        """Allow `async with` usage for deterministic connection cleanup."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> None:
+        await self.close()
 
     async def _connection(self) -> aiosqlite.Connection:
         """Return the lazy-initialized, pragma-tuned connection."""
@@ -180,3 +194,40 @@ class SqliteMemoryStore:
             )
             await conn.commit()
             return int(cursor.rowcount)
+
+
+async def load_items_by_scopes(
+    *,
+    db_path: str | Path,
+    scopes: tuple[MemoryScope, ...],
+) -> tuple[MemoryItem, ...]:
+    """Load all persisted items for the given scopes through ``SqliteMemoryStore``."""
+
+    store = SqliteMemoryStore(db_path=str(db_path))
+    try:
+        items: list[MemoryItem] = []
+        for scope in scopes:
+            items.extend(await store.list_by_scope(scope))
+        return tuple(items)
+    finally:
+        await store.close()
+
+
+def load_items_by_scopes_sync(
+    *,
+    db_path: str | Path,
+    scopes: tuple[MemoryScope, ...],
+) -> tuple[MemoryItem, ...]:
+    """Synchronous wrapper for ``load_items_by_scopes`` that is safe in or out of an event loop."""
+
+    async def _load() -> tuple[MemoryItem, ...]:
+        return await load_items_by_scopes(db_path=db_path, scopes=scopes)
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_load())
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(lambda: asyncio.run(_load()))
+        return future.result()
