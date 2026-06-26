@@ -37,6 +37,7 @@ TIERS: dict[str, int] = {
     "retrieval": TIER_FABRIC,
     "bootstrap": TIER_ORCHESTRATION,
     "cemaf": TIER_ORCHESTRATION,
+    "collision": TIER_ORCHESTRATION,
     "interceptors": TIER_ORCHESTRATION,
     "orchestration": TIER_ORCHESTRATION,
     "audit": TIER_SELF_HOSTING,
@@ -80,6 +81,13 @@ HOW: dict[str, str] = {
         "Adapters expose external model/artifact registries (HuggingFace, "
         "vendor catalogs) through one CatalogProvider protocol. Use to "
         "discover models the framework can route to without hard-coding."
+    ),
+    "collision": (
+        "Coordinate concurrent agents that intend to write overlapping context "
+        "paths. create_collision_coordinator(); each agent register(write_set) then "
+        "advise_against_cohort(agent_id) → an Advisory. At resolution level the "
+        "lower-priority agent steers (defers) while the higher holds — deterministic, "
+        "TCAS-style. Pure-math risk in collision.risk; no execution-security concern."
     ),
     "cemaf": (
         "Read this node's outgoing edges to see which submodules the "
@@ -292,6 +300,7 @@ DESCRIPTIONS: dict[str, str] = {
     "catalog": "Discover external models and artifacts through typed adapters",
     "citation": "Source citation tracking",
     "cli": "Command-line interface",
+    "collision": "TCAS-style coordination — detect & resolve overlapping concurrent writes",
     "config": "Settings, env loading, provider registry",
     "context": "Immutable Context, compiler, token budgets, provenance patches",
     "core": "Domain types, enums, Result[T], utc_now(), generate_id()",

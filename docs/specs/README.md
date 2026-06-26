@@ -27,8 +27,10 @@ SPEC-00 umbrella — and ships backward-compatible.
 
 | ID | Title | Owns |
 |---|---|---|
+| [SPEC-11](SPEC-11-context-security-classification.md) | Context Security Classification | `SecurityLevel` on `ContextPatch`; clearance-gated compilation |
+| [SPEC-12](SPEC-12-agent-collision-avoidance.md) | Agent Collision Avoidance | TCAS-style coordination over concurrent `ContextPatch` writes |
+| [SPEC-13](SPEC-13-scoped-blueprint-harvest.md) | Scoped Blueprint Harvest | per-project blueprint scoping + PROJECT→GLOBAL promotion |
 | [SPEC-14](SPEC-14-session-snapshot-contract.md) | Operator Session Snapshot | `cemaf.session.v1` read-only run snapshot contract |
-
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
