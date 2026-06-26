@@ -16,6 +16,18 @@
 [![Issues](https://img.shields.io/github/issues/drchinca/cemaf?style=flat-square&logo=github)](https://github.com/drchinca/cemaf/issues)
 [![Open Startup](https://img.shields.io/badge/Open-Startup-00ADD8?style=flat-square)](OPEN.md)
 
+## At A Glance
+
+| Field | Value |
+|---|---|
+| Package | `cemaf` |
+| Purpose | Protocol-first context engineering framework for multi-agent systems |
+| Core primitives | Context, ContextPatch, DAGExecutor, RuntimeServices, EventBus, evals, memory, citations |
+| Design stance | Substrate, not application; app/domain code belongs in consuming repos |
+| Integration style | Bring-your-own LLM, vector store, memory backend, tools, agents, and policies through Protocols |
+| Operator promise | Budgeted, auditable, replayable agent execution with provenance |
+| Python | 3.14+ |
+
 **Open source** context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
 
 > **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
