@@ -211,6 +211,20 @@ class TestPromotion:
         assert decision.mean_confidence == pytest.approx(0.8)
         assert decision.promote is True
 
+    def test_duplicate_project_alone_does_not_meet_distinct_threshold(self) -> None:
+        """The promote decision keys on DISTINCT projects, not raw entry count: three high-
+        confidence entries from ONE project (raw count 3 ≥ 2) must NOT promote. Co-locates the
+        distinct-count guard with the duplicate-counting test (caught only by the single-project
+        test otherwise — a raw-len() regression would slip past the test above)."""
+        entries = (
+            _entry(project_id="alpha", confidence=0.95),
+            _entry(project_id="alpha", confidence=0.95),
+            _entry(project_id="alpha", confidence=0.95),
+        )
+        decision = evaluate_promotion(entries)[0]
+        assert decision.project_ids == ("alpha",)  # 1 distinct despite 3 entries
+        assert decision.promote is False
+
     def test_mixed_global_and_project_same_digest_not_repromoted(self) -> None:
         """Inv 7 / Gap A — a digest with an existing GLOBAL entry is skipped entirely,
         even when fresh PROJECT copies exist (no double-promotion)."""
