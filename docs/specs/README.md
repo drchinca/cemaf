@@ -19,6 +19,16 @@ self-resolving DAG. Six child specs decompose under one umbrella.
 | [SPEC-05](SPEC-05-guardian-mesh.md) | Guardian Mesh | SPEC-01..04 | legitimacy, cite-or-fail, eval-halt, goal-completion, audit |
 | [SPEC-06](SPEC-06-self-resolving-dag.md) | Self-Resolving DAG | SPEC-01, SPEC-05 | meta-agents invocable mid-run, bounded recursion |
 
+## ECC-Informed Extensions (SPEC-11..14)
+
+Additive capabilities ported from the ECC harness review (see
+`docs/analysis/ECC_ENHANCEMENT_RESEARCH.md`). Each stands alone — not part of the
+SPEC-00 umbrella — and ships backward-compatible.
+
+| ID | Title | Owns |
+|---|---|---|
+| [SPEC-12](SPEC-12-agent-collision-avoidance.md) | Agent Collision Avoidance | TCAS-style coordination over concurrent `ContextPatch` writes |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
