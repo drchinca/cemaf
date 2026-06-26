@@ -73,7 +73,10 @@ class TestClearanceGateUnderRealBudget:
             clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert {s.key for s in result.sources} == {"a", "b", "c"}
-        assert result.metadata.get("security_excluded", []) == []
+        # Assert the key is PRESENT and empty — not `.get(..., [])`, whose default would
+        # vacuously pass even if the gate never wrote the provenance key at all.
+        assert "security_excluded" in result.metadata
+        assert result.metadata["security_excluded"] == []
 
     @pytest.mark.asyncio
     async def test_ungated_compile_is_byte_identical_to_pre_spec11(self) -> None:

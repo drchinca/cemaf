@@ -247,7 +247,8 @@ class TestSecurityClearanceGate:
         )
         assert [s.key for s in gated_off.sources] == [s.key for s in pristine.sources]
         assert gated_off.content_hash == pristine.content_hash
-        assert gated_off.metadata.get("security_excluded", []) == []
+        assert "security_excluded" in gated_off.metadata
+        assert gated_off.metadata["security_excluded"] == []
 
     @pytest.mark.asyncio
     async def test_content_hash_independent_of_security_level(
@@ -307,7 +308,8 @@ class TestSecurityClearanceGate:
         )
         keys = {s.key for s in ctx.sources}
         assert keys == {"p", "i", "c"}
-        assert ctx.metadata.get("security_excluded", []) == []
+        assert "security_excluded" in ctx.metadata
+        assert ctx.metadata["security_excluded"] == []
 
     @pytest.mark.asyncio
     async def test_confidential_memory_excluded_under_internal_clearance(
