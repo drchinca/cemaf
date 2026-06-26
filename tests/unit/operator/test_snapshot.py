@@ -7,9 +7,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from cemaf.context.patch import ContextPatch
 from cemaf.core.enums import RunStatus
 from cemaf.observability.health import HealthStatus
-from cemaf.observability.run_logger import RunRecord
+from cemaf.observability.run_logger import LLMCall, RunRecord, ToolCall
 from cemaf.operator.snapshot import (
     SCHEMA_VERSION,
     ServicePresence,
@@ -89,6 +90,39 @@ class TestRunRecordAdapter:
         snap = snapshot_from_run_record(record)
         assert snap.aggregates.total_cost_usd == record.total_cost_usd
         assert snap.aggregates.total_tokens == record.total_tokens
+
+    def test_nonzero_totals_are_carried(self) -> None:
+        """Totals must be carried from the source, not zero. A record with real LLM/tool/patch
+        activity → the snapshot reflects the NONZERO counts (guards against a hardcoded-0
+        regression that a 0==0 fixture would mask)."""
+        record = RunRecord(
+            run_id="run_nz",
+            dag_name="busy",
+            started_at=_T0,
+            completed_at=_T1,
+            total_cost_usd=0.42,
+            llm_calls=[
+                LLMCall(model="m", input_messages=[], output="x", input_tokens=120, output_tokens=80),
+                LLMCall(model="m", input_messages=[], output="y", input_tokens=30, output_tokens=20),
+            ],
+            tool_calls=[
+                ToolCall(tool_id="t1", input={}, output={}),
+                ToolCall(tool_id="t2", input={}, output={}),
+            ],
+            patches=[ContextPatch.set("a", 1), ContextPatch.set("b", 2), ContextPatch.set("c", 3)],
+        )
+        # Sanity: the source genuinely has nonzero totals (otherwise the assertions below tautologize).
+        assert record.total_tokens == 250
+        assert record.total_tool_calls == 2
+        assert record.total_llm_calls == 2
+        assert record.total_patches == 3
+
+        snap = snapshot_from_run_record(record)
+        assert snap.aggregates.total_tokens == 250
+        assert snap.aggregates.total_cost_usd == 0.42
+        assert snap.aggregates.tool_calls == 2
+        assert snap.aggregates.llm_calls == 2
+        assert snap.context.patch_count == 3
 
     def test_adapter_does_not_mutate_input(self) -> None:
         """Inv 6 — read-only."""
@@ -224,6 +258,13 @@ class TestStatusMapping:
     )
     def test_map_health_status(self, status: HealthStatus, expected: SnapshotHealth) -> None:
         assert map_health_status(status) is expected
+
+    def test_unmapped_status_falls_back_to_unknown(self) -> None:
+        """The defensive `.get(..., UNKNOWN)` fallback: a status not in the map (e.g. a future
+        enum member, simulated with an off-contract value) maps to UNKNOWN rather than raising.
+        Current enums are exhaustively mapped, so this is the only way to reach the fallback."""
+        assert map_run_status("some_future_status") is SnapshotRunState.UNKNOWN  # type: ignore[arg-type]
+        assert map_health_status("some_future_health") is SnapshotHealth.UNKNOWN  # type: ignore[arg-type]
 
 
 class TestEdgeCases:
