@@ -183,12 +183,17 @@ Not applicable — scoping + promotion are deterministic. §3 invariants are the
 ### a. In-repo layered (cemaf `tests/`)
 - **L0 (surface)**: `Blueprint` and `BlueprintEntry` accept + default the three fields;
   `to_dict`/round-trip preserves them; legacy dict without fields loads with defaults.
+  **Durable round-trip**: `SqliteBlueprintSource` persists + reloads `project_id`/`confidence`/
+  `scope`, and a pre-SPEC-13 table (no scope columns) migrates with defaults — the scope must
+  survive durable storage or promotion silently breaks.
 - **L2 (behavior)**: distinct-project distiller ids differ (Inv 3); empty-project legacy id
   unchanged (Inv 4); `evaluate_promotion` truth table — 2-projects/≥0.8 promotes, 1-project
   never, low-mean-confidence never, already-GLOBAL ignored (Inv 5/6/7).
-- **Integration** (`tests/integration/`): drive two `ProjectScopedRecipeDistiller`s (projects
-  alpha/beta) through the real harvest path with a real library; assert two coexisting entries,
-  then `evaluate_promotion` over the library marks the shared goal for promotion.
+- **Integration** (`tests/integration/`): drive two `ProjectScopedRecipeDistiller`s (alpha/beta)
+  through the **real `BlueprintHarvesterEngine` flywheel** (EventBus → policy → correlator →
+  distiller → `register_async(overwrite=True)`) over a durable `SqliteBlueprintSource`; reload
+  from a fresh handle and assert both entries coexist (no clobber), then `evaluate_promotion`
+  over the durably-loaded set marks the shared goal. Plus: a sub-threshold run is not harvested.
 
 ### Self-verification
 `cd cemaf && uv run pytest tests/unit/blueprint tests/integration -q && uv run mypy src/cemaf/blueprint && uv run ruff check`. Confirm each §2/§3/§4 entry has a new test before the PR.

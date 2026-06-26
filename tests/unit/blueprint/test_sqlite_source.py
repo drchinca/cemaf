@@ -79,6 +79,75 @@ class TestSqliteRoundTrip:
         assert got.recipe == recipe
 
     @pytest.mark.asyncio
+    async def test_scope_fields_round_trip(self, tmp_path: Path) -> None:
+        """SPEC-13 — project_id/confidence/scope survive durable persistence.
+
+        Regression guard: these fields were added to BlueprintEntry but the SQLite schema
+        didn't persist them, so a project-scoped harvested blueprint reloaded as unscoped —
+        silently breaking promotion. This pins the round-trip at the source level.
+        """
+        from cemaf.blueprint.core import BlueprintScope
+
+        source = SqliteBlueprintSource(db_path=_db(tmp_path))
+        entry = BlueprintEntry.recipe_entry(
+            id="harvest/alpha/abc123",
+            title="scoped",
+            recipe={"goal": "g"},
+            project_id="alpha",
+            confidence=0.87,
+            scope=BlueprintScope.PROJECT,
+        )
+        await source.append(entry=entry)
+        await source.close()
+
+        got = next(iter(SqliteBlueprintSource(db_path=_db(tmp_path)).load()))
+        assert got.project_id == "alpha"
+        assert got.confidence == pytest.approx(0.87)
+        assert got.scope is BlueprintScope.PROJECT
+
+    @pytest.mark.asyncio
+    async def test_legacy_table_without_scope_columns_migrates(self, tmp_path: Path) -> None:
+        """A pre-SPEC-13 blueprint_entries table (no scope columns) loads with defaults."""
+        import sqlite3
+
+        db = _db(tmp_path)
+        # Hand-build the OLD schema (11 columns, no project_id/confidence/scope) + one row.
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE blueprint_entries (id TEXT PRIMARY KEY, kind TEXT NOT NULL, "
+            "title TEXT NOT NULL, description TEXT NOT NULL, tags_json TEXT NOT NULL, "
+            "source TEXT NOT NULL, path TEXT NOT NULL, version TEXT NOT NULL, "
+            "payload_json TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO blueprint_entries VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "old1",
+                "recipe",
+                "Old",
+                "",
+                "[]",
+                "legacy",
+                "",
+                "1.0",
+                '{"goal": "g"}',
+                "{}",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # load() runs the additive migration → the legacy row gets the column defaults.
+        from cemaf.blueprint.core import BlueprintScope
+
+        got = next(iter(SqliteBlueprintSource(db_path=db).load()))
+        assert got.id == "old1"
+        assert got.project_id == ""
+        assert got.confidence == 0.5
+        assert got.scope is BlueprintScope.PROJECT
+
+    @pytest.mark.asyncio
     async def test_tags_description_metadata_preserved(
         self, tmp_path: Path, tiny_blueprint: Blueprint
     ) -> None:
