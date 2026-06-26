@@ -158,7 +158,13 @@ enforcement.
 - **L2 (behavior)**: gate excludes CONFIDENTIAL under INTERNAL clearance & records key (Inv 4);
   `clearance=None` identical-selection property test (Inv 3); content_hash unchanged by level (Inv 5);
   boundary cases (PUBLIC clearance drops INTERNAL, CONFIDENTIAL sees all, memory gating).
+- **Integration** (`tests/integration/test_security_clearance_compilation.py`): the behavioral
+  payoff through the real `PriorityContextCompiler` + `GreedySelectionAlgorithm` + `TokenBudget` —
+  gating a high-priority CONFIDENTIAL source under tight budget lets a lower-priority INTERNAL
+  source take the freed slot (selection *changes*, not just the excluded list); plus
+  `security_level` survival across the real `ContextPatch`→`PatchLog` serialize→`from_dict`→replay
+  provenance path and `filter_by_source`.
 
 ### Self-verification
-`cd cemaf && uv run pytest tests/unit/test_context_patch.py tests/unit/test_context_compiler.py && uv run mypy src/cemaf/context && uv run ruff check`.
+`cd cemaf && uv run pytest tests/unit/test_context_patch.py tests/unit/test_context_compiler.py tests/integration/test_security_clearance_compilation.py && uv run mypy src/cemaf/context && uv run ruff check`.
 Confirm each §2/§3/§4 entry has a test case before opening the PR.
