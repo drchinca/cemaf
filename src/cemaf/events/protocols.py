@@ -49,6 +49,7 @@ class EventType(StrEnum):
     CONTEXT_PATCH_APPLIED = "context.patch.applied"
     CONTEXT_COMPILED = "context.compiled"
     CONTEXT_BUDGET_EXCEEDED = "context.budget.exceeded"
+    CONTEXT_CONFLICT = "context.conflict"  # concurrent agents intend overlapping writes (SPEC-12)
 
     # Tool events
     TOOL_CALL_STARTED = "tool.call.started"
