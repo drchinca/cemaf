@@ -58,6 +58,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | "How do I integrate with my existing stack?" | Every integration is a `@runtime_checkable` `Protocol` (LLM client, vector store, embedding provider, memory backend, agent selector, vote aggregator, …). **BYO-X** — structural typing, no inheritance. | [patterns.md](docs/patterns.md) |
 | "How do I scale a successful run into a reusable template?" | `BlueprintHarvesterEngine` subscribes to `EVAL_COMPLETED`, distills high-quality runs into reusable `Blueprint`s, persists them via `create_blueprint_harvester(library, ...)`, and exposes them via `BlueprintLibrary.search(...)`. The flywheel is a Protocol-driven engine, not a script. | [SPEC-03](docs/specs/SPEC-03-blueprint-as-llm-input.md) |
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
+| "How do I expose run state to a dashboard / CLI / MCP without coupling to internals?" | `cemaf.session.v1` — a versioned, read-only `SessionSnapshot` projected deterministically from a `RunRecord` or `ExecutionResult` via `snapshot_from_run_record` / `snapshot_from_execution_result`. The stable operator-plane contract every surface renders from; absent services show as `"absent"`, never errors. | [SPEC-14](docs/specs/SPEC-14-session-snapshot-contract.md) |
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 
@@ -72,6 +73,7 @@ from cemaf.iteration               import FailureSignal
 from cemaf.blueprint               import Blueprint, BlueprintLibrary, BlueprintHarvesterEngine, create_blueprint_harvester
 from cemaf.orchestration           import DAG, Node, Edge, DAGExecutor
 from cemaf.orchestration.services  import RuntimeServices
+from cemaf.operator                import SessionSnapshot, snapshot_from_run_record  # cemaf.session.v1
 from cemaf.bootstrap               import create_executor
 ```
 
@@ -334,6 +336,8 @@ print(result.final_context.get("findings"))
 See `examples/hello_world.py` for a complete runnable example and
 `tests/integration/test_full_stack.py` for a realistic 3-agent pipeline
 wiring `SqliteMemoryStore`, `BudgetGuard`, `ContextCompiler`, and `EventBus`.
+`examples/session_snapshot.py` projects a real run into the read-only
+`cemaf.session.v1` operator snapshot (SPEC-14).
 
 ### The whole engine, end-to-end
 
