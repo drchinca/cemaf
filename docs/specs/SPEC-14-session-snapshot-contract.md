@@ -185,6 +185,10 @@ This spec *is* an operator surface; it emits nothing itself. The committed golde
   absent-service="absent", aggregates sum to worker_count (incl. zero-workers boundary), input
   not mutated (both adapters), totals match source. Golden-fixture test: a known RunRecord → the
   committed `tests/observability/fixtures/session_v1.golden.json` (regenerate-and-diff).
+- **Integration** (`tests/integration/test_snapshot_real_run.py`): drive a real 2-node agent DAG
+  through the real `DAGExecutor` + a real `InMemoryRunLogger`, then snapshot BOTH the returned
+  `ExecutionResult` and the logged `RunRecord` — proving the adapters work on production-shaped
+  objects (per "fixtures mirror reality"), not just hand-built ones.
 
 ### Self-verification
-`cd cemaf && uv run pytest tests/unit/operator -q && uv run mypy src/cemaf/operator && uv run ruff check`. Confirm each §2/§3/§4 entry has a test before the PR.
+`cd cemaf && uv run pytest tests/unit/operator tests/integration/test_snapshot_real_run.py -q && uv run mypy src/cemaf/operator && uv run ruff check`. Confirm each §2/§3/§4 entry has a test before the PR.
