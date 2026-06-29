@@ -64,6 +64,7 @@ from cemaf.observability.health import (
     get_health_monitor,
 )
 from cemaf.observability.metrics_helper import MetricsHelper, record_timing
+from cemaf.observability.otel_patch_bridge import OTelPatchBridge
 from cemaf.observability.otlp_file_exporter import (
     OTLPFileSpanExporter,
     configure_otel_to_file,
@@ -132,6 +133,8 @@ __all__ = [
     # Metrics helpers
     "MetricsHelper",
     "record_timing",
+    # OTel ↔ context patch bridge
+    "OTelPatchBridge",
     # OTLP local file exporter
     "OTLPFileSpanExporter",
     "configure_otel_to_file",
