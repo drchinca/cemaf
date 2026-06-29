@@ -64,6 +64,10 @@ from cemaf.observability.health import (
     get_health_monitor,
 )
 from cemaf.observability.metrics_helper import MetricsHelper, record_timing
+from cemaf.observability.otlp_file_exporter import (
+    OTLPFileSpanExporter,
+    configure_otel_to_file,
+)
 from cemaf.observability.prometheus_metrics import PrometheusMetrics
 from cemaf.observability.protocols import Logger, MetricsCollector, Tracer
 from cemaf.observability.run_logger import (
@@ -128,6 +132,9 @@ __all__ = [
     # Metrics helpers
     "MetricsHelper",
     "record_timing",
+    # OTLP local file exporter
+    "OTLPFileSpanExporter",
+    "configure_otel_to_file",
     # Budget guard
     "BudgetGuard",
     "BudgetAlert",
