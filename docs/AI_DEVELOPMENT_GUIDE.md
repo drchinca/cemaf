@@ -12,7 +12,7 @@
 | **Learning** | Manually saving runs or hardcoding self-correction loops. | **Blueprint Harvester Engine** (`cemaf.blueprint.harvest`). Scoped continuous learning (Accrual & Promotion). |
 | **Context Trim** | Manual message list-slicing or LLM-based summary on every turn. | **Anchored Compaction** (`cemaf.memory`). Zero-cost, deterministic `SimpleMemoryCompactor` with a 25% tail budget. |
 | **Function calls** | Procedural dictionary parsing or custom try-except loops. | **Tool Execution Wrapper** (`cemaf.tools`). Decorator `@tool` + `ToolRegistry` with standardized JSON validation errors. |
-| **Content Safety** | Regex filters or security checks inside agent run loops. | **Guardian Mesh** (`cemaf.guardian`). Pre-flight & post-flight check pipelines executing within interceptor boundaries. |
+| **Content Safety** | Regex filters or security checks inside agent run loops. | **Moderation Pipeline** (`cemaf.moderation`) wired as PRE/POST `cemaf.interceptors`. Safety runs at interceptor boundaries, never inside agent code. |
 | **Context Hydration** | Querying databases or vector search inside Agent code. | **Pull Interceptor** (`cemaf.interceptors`). Automatic data hydration at `PRE` phase. |
 
 ---
