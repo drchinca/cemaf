@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-06-30
+
+**Runnable examples, a self-guarding example harness, and an empirical value eval for the agent-assisted guidance.**
+
+No public `src/cemaf/` API changed; this is additive — new examples, tests, and a benchmark.
+
+**Added:**
+- **BYO-X examples** (`examples/byo/`) — implement `LLMClient`, `VectorStore`, `MemoryStore` against the real protocols and wire each through its factory.
+- **App-shape examples** (`examples/app_shapes/`) — grounded RAG with citations, and a tool-using agent that self-heals a transient failure via `@with_retry` inside a DAG.
+- **Context-layer examples** (`examples/context_layers/`) — the namesake capability surfaced as focused PoCs: memory scope hierarchy (GLOBAL/TENANT/SESSION), typed `ContextSource` layers dropped by priority under a `TokenBudget`, and the full provenance → `Context` → priority-compile → budgeted-prompt pipeline.
+- **Anti-pattern catalog** (`examples/anti_patterns/`) and an indexed `examples/README.md` on-ramp.
+- **Universal example smoke harness** (`tests/integration/test_examples_smoke.py`) — auto-discovers and runs every `examples/**/*.py` offline; opt-out via `smoke_skip_reason()` (the Ollama examples run when a daemon is reachable, skip with a reason otherwise).
+- **Self-healing integration tests** — citation self-healing, model-fidelity escalation, the self-healing+harvest triad, cooperative quality halting, and a council iterative-remediation loop.
+- **Guidance-value eval** (`benchmarks/guidance_eval/`) + a regression gate (`tests/integration/test_guidance_value.py`) — A/B measures whether the agent-assisted docs shift an LLM from reinventing infrastructure to composing CEMAF.
+
+**Changed:**
+- Example source is now git-tracked (`.gitignore` whitelists `examples/**/*.py` and `*.md` while keeping generated artifacts ignored), so examples render on GitHub and are grep-able by coding agents.
+- `CLAUDE.md` and `AGENTS.md` point at the agent-assisted guidance and the new examples.
+
+**Fixed:**
+- `docs/AI_DEVELOPMENT_GUIDE.md` referenced a non-existent `cemaf.guardian` module for content safety; corrected to `cemaf.moderation` wired via `cemaf.interceptors`.
+
 ## [2.2.0] - 2026-06-12
 
 **README polish: rich-text dual-DAG framing + industry-standards table.**
