@@ -539,6 +539,14 @@ covers `docs/**/*.md`, each `cemaf.*` package docstring, each module
 docstring, and individual design-pattern sections — 340+ entries built
 automatically from the repo at startup.
 
+If you are using an AI coding assistant to build on CEMAF, start with
+[`AGENTS.md`](AGENTS.md) and
+[`docs/agent-assisted-development.md`](docs/agent-assisted-development.md).
+Those files are intentionally explicit about composing the whole framework
+through `RuntimeServices`, registries, interceptors, and event subscribers
+before generating app-level replacements for orchestration, context, memory,
+evals, moderation, replay, citations, budget, or blueprint harvesting.
+
 ```bash
 # Humans — CLI search
 uv run cemaf docs search "composition root runtime services" -k 3
@@ -583,6 +591,7 @@ protocols, and search tools.
 - [**Architecture**](docs/architecture.md) - The software architecture we build toward
 - [**Design Patterns**](docs/patterns.md) - Protocol-first, BYO-X, RuntimeServices, HaltSignal, Context-as-Patch
 - [**Module Layout**](docs/modules.md) - Ideal package division, what lives where
+- [Agent-Assisted Development](docs/agent-assisted-development.md) - CEMAF-first checklist for LLM/coding-agent integrations
 - [Quick Start Guide](docs/quickstart.md) - Get running in 5 minutes
 
 ### Getting Started

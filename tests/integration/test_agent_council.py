@@ -272,3 +272,160 @@ async def test_council_verdict_steers_downstream_edge() -> None:
     assert ran == ["Shipper"]
     ship_result = next((r for r in run.node_results if r.node_id == NodeID("ship")), None)
     assert ship_result is not None and ship_result.output == "shipped"
+
+
+@pytest.mark.asyncio
+async def test_council_iterative_remediation_loop() -> None:
+    """End-to-end integration:
+
+    1. A loop runs a Developer agent and an Auditor Council.
+    2. On iteration 1, the developer generates raw 'Draft Code'.
+    3. The Council deliberates, sees 'Draft Code', and rejects it (veto).
+    4. On iteration 2, the developer reads the previous council verdict of 'reject',
+       and refactors the code to 'Polished Code'.
+    5. The Council deliberates again, sees 'Polished Code', and approves it.
+    6. The loop exit condition ('is_approved') is met, and the loop gracefully terminates.
+    """
+    from pydantic import BaseModel
+
+    from cemaf.agents.base import Agent, AgentResult, AgentState
+    from cemaf.agents.registry import AgentRegistry
+    from cemaf.bootstrap import create_executor
+    from cemaf.core.enums import RunStatus
+    from cemaf.core.types import AgentID, NodeID
+    from cemaf.council.protocols import Opinion
+    from cemaf.orchestration.dag import DAG
+
+    class _DeveloperGoal(BaseModel):
+        verdict: str = ""
+
+    class _DeveloperAgent(Agent[_DeveloperGoal, str]):
+        def __init__(self) -> None:
+            self.iterations = 0
+
+        @property
+        def id(self) -> AgentID:
+            return AgentID("Developer")
+
+        @property
+        def description(self) -> str:
+            return "generates and refactors code"
+
+        @property
+        def skills(self) -> tuple[()]:
+            return ()
+
+        async def run(self, goal: _DeveloperGoal, context: AgentContext) -> AgentResult[str]:
+            self.iterations += 1
+            if goal.verdict == "reject":
+                return AgentResult.ok(output="Polished Code", state=AgentState())
+            return AgentResult.ok(output="Draft Code", state=AgentState())
+
+    class _AuditorAgent(Agent[object, str]):
+        def __init__(self, name: str) -> None:
+            self._id = AgentID(name)
+
+        @property
+        def id(self) -> AgentID:
+            return self._id
+
+        @property
+        def description(self) -> str:
+            return f"auditor {self._id}"
+
+        @property
+        def skills(self) -> tuple[()]:
+            return ()
+
+        async def run(self, goal: object, context: AgentContext) -> AgentResult[str]:
+            return AgentResult.ok(output="reject", state=AgentState())
+
+        async def deliberate(self, *, question: object, goal: object, context: AgentContext) -> Opinion:
+            # Look at code inside goal (which contains the node's resolved inputs)
+            code = ""
+            if isinstance(goal, dict):
+                code = goal.get("code")
+            if code == "Polished Code":
+                return Opinion(member_id=self._id, choice="approve")
+            return Opinion(member_id=self._id, choice="reject")
+
+    class _CheckGoal(BaseModel):
+        verdict: str = ""
+
+    class _CheckAgent(Agent[_CheckGoal, str]):
+        @property
+        def id(self) -> AgentID:
+            return AgentID("CheckAgent")
+
+        @property
+        def description(self) -> str:
+            return "converts verdict to boolean"
+
+        @property
+        def skills(self) -> tuple[()]:
+            return ()
+
+        async def run(self, goal: _CheckGoal, context: AgentContext) -> AgentResult[str]:
+            output = "approved" if (goal.verdict == "approve") else ""
+            return AgentResult.ok(output=output, state=AgentState())
+
+    # Setup Agent Registry with candidates
+    dev_agent = _DeveloperAgent()
+    registry = AgentRegistry()
+    registry.register_agent(agent_instance=dev_agent, goal_type=_DeveloperGoal)
+    registry.register_instance(item=_AuditorAgent("v1"))
+    registry.register_instance(item=_AuditorAgent("v2"))
+    registry.register_agent(agent_instance=_CheckAgent(), goal_type=_CheckGoal)
+
+    # Construct the DAG
+    loop_node = Node.loop(
+        id="loop",
+        name="review_loop",
+        body_node_ids=("developer", "gate", "check"),
+        max_iterations=5,
+        exit_condition="is_approved",
+    )
+    developer_node = Node.agent(
+        id="developer",
+        name="developer",
+        agent_id="Developer",
+        input_mapping={"verdict": "$$verdict$$"},
+        output_key="code",
+    )
+    gate_node = Node.council(
+        id="gate",
+        name="gate",
+        members=("v1", "v2"),
+        options=("approve", "reject"),
+        input_mapping={"code": "$$code$$"},
+        output_key="verdict",
+    )
+    check_node = Node.agent(
+        id="check",
+        name="check",
+        agent_id="CheckAgent",
+        input_mapping={"verdict": "$$verdict$$"},
+        output_key="is_approved",
+    )
+
+    dag = DAG(
+        name="iterative-council-remediation",
+        nodes=(loop_node, developer_node, gate_node, check_node),
+        edges=(),
+        entry_node=NodeID("loop"),
+    )
+
+    executor = create_executor(agent_registry=registry)
+    run = await executor.run(dag=dag)
+
+    assert run is not None
+    assert run.success is True
+    assert run.status == RunStatus.COMPLETED
+
+    # The loop should have executed exactly 2 iterations before exiting
+    assert dev_agent.iterations == 2
+
+    # The final context should carry the approved, polished code
+    assert run.final_context.get("code") == "Polished Code"
+    assert run.final_context.get("verdict") == "approve"
+    assert run.final_context.get("is_approved") == "approved"

@@ -81,6 +81,13 @@ Thumbs.db
 
 # Project-specific
 setup/
-examples/
+# Track example source so it renders on GitHub + is grep-able by coding agents;
+# keep generated run artifacts (json/txt outputs) ignored.
+examples/*
+!examples/**/
+!examples/**/*.py
+!examples/**/*.md
+examples/**/*.json
+examples/**/*.txt
 .claude/
 .release_out/

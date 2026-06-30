@@ -47,6 +47,21 @@ class ProtoResponseParser(ResponseParser):
 - ❌ Wait for CEMAF to add every feature you need
 - ❌ Think "CEMAF doesn't do X, so I can't use it"
 
+### CEMAF-First, Then App-Specific
+
+For AI-assisted builds, "use what you need" does **not** mean "pick three
+modules and rewrite orchestration, memory, evals, moderation, replay, budget,
+citations, and blueprint harvesting in the app." It means CEMAF should own the
+generic rails, while the consuming app owns domain agents, tools, adapters,
+policies, workflows, and UI/API surfaces.
+
+Before generating replacement infrastructure, check whether the concern can be
+wired through `create_executor(..., services=RuntimeServices(...))`, a registry,
+an interceptor, an event subscriber, or a CEMAF protocol implementation. See
+[`AGENTS.md`](AGENTS.md) and
+[`docs/agent-assisted-development.md`](docs/agent-assisted-development.md) for
+the checklist intended for LLM/coding-agent integrations.
+
 ### The Principles We Teach
 
 Every module in CEMAF embodies core principles:

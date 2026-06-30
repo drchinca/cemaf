@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import ast
 import os
-import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -29,7 +28,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 TOP_LEVEL = [
-    "README.md", "CONTRIBUTING.md", "HOW_TO_USE.md",
+    "README.md", "CONTRIBUTING.md", "HOW_TO_USE.md", "AGENTS.md",
 ]
 
 PLACEHOLDER_NAMES = {"...", "MyAgent", "MyTool", "MyTask", "YourAgent", "YourTool"}
