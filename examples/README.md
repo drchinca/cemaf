@@ -30,6 +30,16 @@ Minimal product slices, not feature tours.
 | [`app_shapes/rag_with_citations.py`](app_shapes/rag_with_citations.py) | Grounded RAG — every answer traces to a retrieved source (the membership invariant). |
 | [`app_shapes/tool_using_agent.py`](app_shapes/tool_using_agent.py) | An agent calls a flaky tool that self-heals via `@with_retry`, all inside a DAG. |
 
+## Context layers (the namesake capability)
+
+How CEMAF assembles a prompt from layered, prioritized, budgeted context.
+
+| Example | Proves |
+|---|---|
+| [`context_layers/memory_scope_hierarchy.py`](context_layers/memory_scope_hierarchy.py) | Same fact layered at GLOBAL/TENANT/SESSION; recall sees every layer, narrow scope overrides broad. |
+| [`context_layers/context_type_layers.py`](context_layers/context_type_layers.py) | Typed `ContextSource` layers compiled under a `TokenBudget` — low-priority layers dropped, not truncated. |
+| [`context_layers/layered_compile_pipeline.py`](context_layers/layered_compile_pipeline.py) | Full stack: `ContextPatch` (provenance) → `Context` → priority compile → budgeted prompt. |
+
 ## The whole engine
 
 | Example | Proves |
