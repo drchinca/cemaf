@@ -10,8 +10,10 @@ from cemaf.events.protocols import Event, EventBus, EventType
 
 _EVENT_TO_AUDIT: dict[EventType, AuditEntryType] = {
     EventType.AGENT_COMPLETED: AuditEntryType.AGENT_COMPLETED,
-    # DAG nodes emit TASK_* events with node_id/run_id payloads; map them so
-    # the audit trail captures per-step execution, not just DAG-level events.
+    # The DAGExecutor emits TASK_COMPLETED / TASK_FAILED per node (with node_id,
+    # duration_ms, success in the payload) — these are the per-step records that
+    # make the audit trail a true glassbox. Without them only DAG-level events
+    # land, so the trail can't attribute work to individual nodes.
     EventType.TASK_COMPLETED: AuditEntryType.NODE_EXECUTED,
     EventType.TASK_FAILED: AuditEntryType.NODE_EXECUTED,
     EventType.CONTEXT_PATCH_APPLIED: AuditEntryType.CONTEXT_PATCHED,

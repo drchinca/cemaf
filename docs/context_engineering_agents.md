@@ -218,12 +218,13 @@ librarian = registry.create_agent(
 
 ### Global Toolkit
 
-A global `AGENT_TOOLKIT` instance is available:
+A default registry can be created via `create_default_registry()`:
 
 ```python
-from cemaf.agents.registry import AGENT_TOOLKIT
+from cemaf.agents.registry import create_default_registry
 
-agent = AGENT_TOOLKIT.create_agent(
+registry = create_default_registry()
+agent = registry.create_agent(
     "Summarizer",
     llm_client=my_llm,
 )
@@ -358,7 +359,7 @@ total = merge_token_metadata(all_metadata)
 
 ```python
 import json
-from cemaf.agents.registry import AGENT_TOOLKIT
+from cemaf.agents.registry import create_default_registry
 from cemaf.orchestration.planner import Planner
 from cemaf.orchestration.executor import DAGExecutor
 from cemaf.context.context import Context
@@ -369,7 +370,8 @@ llm_client = create_llm_client()
 executor = DAGExecutor()
 
 # Create plan
-planner = Planner(llm_client=llm_client, agent_registry=AGENT_TOOLKIT)
+registry = create_default_registry()
+planner = Planner(llm_client=llm_client, agent_registry=registry)
 dag = await planner.plan("Generate risk assessment for AI deployment")
 
 # Execute with context tracking

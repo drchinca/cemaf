@@ -63,6 +63,7 @@ class Ballot:
     abstained: bool
     error: str | None = None
     raw_choice: str | None = None
+    rationale: str = ""  # member's own reason for the vote (from Opinion.rationale)
 
     def to_dict(self) -> JSON:
         return {
@@ -72,6 +73,7 @@ class Ballot:
             "abstained": self.abstained,
             "error": self.error,
             "raw_choice": self.raw_choice,
+            "rationale": self.rationale,
         }
 
 

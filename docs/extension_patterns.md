@@ -92,7 +92,7 @@ class SafeDatabaseQueryTool(DatabaseQueryTool):
 ### Simple Compiler
 
 ```python
-from cemaf.context.protocols import ContextCompiler
+from cemaf.context import ContextCompiler
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextSource
 from cemaf.core.types import TokenCount
@@ -240,7 +240,7 @@ memory: MemoryStore = RedisMemoryStore(redis_client)
 ## Pattern 4: Custom LLM Client
 
 ```python
-from cemaf.llm.protocols import LLMClient, Message, LLMResponse
+from cemaf.llm.protocols import LLMClient, Message, CompletionResult
 from cemaf.core.result import Result
 
 class CustomLLMClient:
@@ -254,12 +254,12 @@ class CustomLLMClient:
         self,
         messages: list[Message],
         config: dict | None = None,
-    ) -> Result[LLMResponse]:
+    ) -> Result[CompletionResult]:
         try:
             # Call your API
             response = await self._call_api(messages, config)
 
-            return Result.ok(LLMResponse(
+            return Result.ok(CompletionResult(
                 content=response["text"],
                 model=self._model,
                 total_tokens=response.get("tokens", 0),
@@ -284,7 +284,7 @@ llm: LLMClient = CustomLLMClient(api_key="...")
 ### Add Caching to Any Compiler
 
 ```python
-from cemaf.context.protocols import ContextCompiler
+from cemaf.context import ContextCompiler
 from functools import lru_cache
 
 class CachedCompiler:

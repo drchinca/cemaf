@@ -1,6 +1,6 @@
 [project]
 name = "cemaf"
-version = "2.3.0"
+version = "2.5.0"
 description = "Context Engineering Multi-Agent Framework - A pluggable, modular framework for building AI agent systems"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -105,7 +105,7 @@ pinecone = [
 # ]
 
 # SQLite persistent memory store (aiosqlite is already a core dep)
-# Kept as extra for documentation — installs nothing additional
+# Kept as extra for documentation - installs nothing additional
 
 # Performance profiling tools
 profiling = [
@@ -201,8 +201,13 @@ include = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+markers = [
+    "unit: fast unit-level tests",
+    "real_cli: tests that shell out to a real binary (openspec, etc); skipped if missing",
+]
 
 [tool.mypy]
 python_version = "3.14"
@@ -292,9 +297,9 @@ ignore = [
 exclude_dirs = ["tests", ".venv", "venv", "build", "dist", ".pytest_cache"]
 skips = [
     "B101",  # Allow assert in tests
-    "B404",  # subprocess import — used only for fixed system commands (sysctl, vm_stat)
-    "B603",  # subprocess.run with fixed command list — no shell, no user input
-    "B607",  # partial path — system commands (sysctl, vm_stat) with no user-controlled args
+    "B404",  # subprocess import - used only for fixed system commands (sysctl, vm_stat)
+    "B603",  # subprocess.run with fixed command list - no shell, no user input
+    "B607",  # partial path - system commands (sysctl, vm_stat) with no user-controlled args
     "B608",  # SQL f-strings use asyncpg parameterized queries ($1,$2); only schema name is interpolated (controlled constructor arg, not user input)
 ]
 tests = [

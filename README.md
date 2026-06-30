@@ -142,7 +142,11 @@ DAG(nodes=(Node(type=NodeType.TOOL, ref_id="add", input_mapping={"a": 2, "b": 2}
 create_executor(agent_registry=registry)   # no services attached → nothing to pay for
 
 # LLM work with quality telemetry. OBSERVE runs in the background — never blocks the hot path.
-NodeEvalBinding(node_pattern="generate_sql", evaluators=(LLMJudge(),), mode=EvalMode.OBSERVE)
+NodeEvalBinding(
+    node_pattern="generate_sql",
+    evaluators=(LLMJudgeEvaluator(llm_client=my_llm),),
+    mode=EvalMode.OBSERVE,
+)
 ```
 
 The payoff isn't "CEMAF makes 2+2 cheap." It's that a pipeline containing both `2+2` and an LLM-backed SQL generator **pays appropriately for each**. The trivial node doesn't subsidize the expensive node's infra cost. Message-bus frameworks can't easily express that — everything is an LLM turn against a shared rolling state, so the floor cost is the ceiling cost.

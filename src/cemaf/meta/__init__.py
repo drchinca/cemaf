@@ -42,25 +42,41 @@ from cemaf.meta.agents import (
     AgentSynthesizer,
     ArchitectAgent,
     AuditAgent,
+    DreamAgent,
     KnowledgeGraphAgent,
 )
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
 from cemaf.meta.dags import (
+    create_dream_dag,
     create_feature_synthesis_dag,
     create_knowledge_refresh_dag,
     create_self_audit_dag,
 )
+from cemaf.meta.dogfood import (
+    DREAMING_JOB_ID,
+    KNOWLEDGE_REFRESH_JOB_ID,
+    SELF_AUDIT_JOB_ID,
+    DogfoodDefaults,
+    DogfoodJobs,
+    bootstrap_meta_dogfood,
+    register_dreaming_job,
+    register_knowledge_refresh_job,
+    register_self_audit_job,
+)
+from cemaf.meta.dreaming import DreamingMode, DreamingModeHandle
 from cemaf.meta.goals import (
     ArchitectGoal,
     ArchitectResult,
     AuditGoal,
     AuditResult,
+    DreamGoal,
+    DreamResult,
     KnowledgeGraphGoal,
     KnowledgeGraphResult,
     SynthesizerGoal,
     SynthesizerResult,
 )
-from cemaf.meta.registry import register_meta_agents
+from cemaf.meta.registry import register_dream_agent, register_meta_agents
 from cemaf.meta.tools import (
     GenerateDAGTool,
     IntrospectRegistryTool,
@@ -73,24 +89,42 @@ __all__ = [
     "AgentSynthesizer",
     "ArchitectAgent",
     "AuditAgent",
+    "DreamAgent",
     "KnowledgeGraphAgent",
     # Bootstrap
     "MetaServices",
     "create_meta_executor",
     # DAGs
+    "create_dream_dag",
     "create_feature_synthesis_dag",
     "create_knowledge_refresh_dag",
     "create_self_audit_dag",
+    # Dreaming mode
+    "DreamingMode",
+    "DreamingModeHandle",
+    # Dog-fooded meta-scheduler (SPEC-11)
+    "SELF_AUDIT_JOB_ID",
+    "KNOWLEDGE_REFRESH_JOB_ID",
+    "DREAMING_JOB_ID",
+    "DogfoodJobs",
+    "DogfoodDefaults",
+    "bootstrap_meta_dogfood",
+    "register_self_audit_job",
+    "register_knowledge_refresh_job",
+    "register_dreaming_job",
     # Goals
     "ArchitectGoal",
     "ArchitectResult",
     "AuditGoal",
     "AuditResult",
+    "DreamGoal",
+    "DreamResult",
     "KnowledgeGraphGoal",
     "KnowledgeGraphResult",
     "SynthesizerGoal",
     "SynthesizerResult",
     # Registry
+    "register_dream_agent",
     "register_meta_agents",
     # Tools
     "GenerateDAGTool",

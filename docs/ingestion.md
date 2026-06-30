@@ -203,16 +203,11 @@ Built-in adapter backends are `text`, `json`, `table`, and `chunk`.
 Not just "summarize" - compress while preserving task-relevant information:
 
 ```python
-from cemaf.ingestion import TaskDistillationAdapter
+from cemaf.ingestion import TextAdapter
 
-adapter = TaskDistillationAdapter(
-    llm_client=llm,
-    preserve_patterns=[
-        r"\d{3}-\d{4}",           # Phone numbers
-        r"\d{4}-\d{2}-\d{2}",     # Dates
-        r"\$[\d,]+\.?\d*",        # Currency amounts
-    ],
-    task_context="Extract customer complaints and their resolution status",
+adapter = TextAdapter(
+    max_tokens=500,
+    truncation_strategy="middle",
 )
 
 # 10K document compressed to 500 tokens, dates/phones intact
@@ -224,14 +219,11 @@ source = await adapter.adapt(customer_log, budget, priority=8)
 Maintain document structure while reducing tokens:
 
 ```python
-from cemaf.ingestion import HierarchicalAdapter
+from cemaf.ingestion import ChunkAdapter
 
-adapter = HierarchicalAdapter(
-    levels={
-        "full": 1.0,      # Include everything at this priority
-        "summary": 0.5,   # 50% compression
-        "outline": 0.1,   # 10% compression (headers only)
-    },
+adapter = ChunkAdapter(
+    chunk_size=700,
+    overlap=120,
 )
 
 # Returns sources at different compression levels
@@ -318,9 +310,9 @@ print(f"Included: {len(compiled.sources)}/{len(sources)}")
 For resource-constrained environments:
 
 ```python
-from cemaf.ingestion import EdgeAdapter
+from cemaf.ingestion import ChunkAdapter
 
-adapter = EdgeAdapter(
+adapter = ChunkAdapter(
     # Aggressive compression for limited RAM
     max_memory_mb=50,
 
@@ -340,7 +332,8 @@ source = await adapter.adapt(large_document, budget)
 Implement for your specific data types:
 
 ```python
-from cemaf.ingestion import ContextAdapter, ContextSource
+from cemaf.ingestion import ContextAdapter
+from cemaf.context.source import ContextSource
 
 class SlackMessageAdapter(ContextAdapter):
     """Adapt Slack messages for context."""

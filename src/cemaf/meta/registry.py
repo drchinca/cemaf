@@ -10,10 +10,12 @@ from cemaf.llm.protocols import LLMClient
 from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.tools import create_openspec_tools
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
+from cemaf.memory.manager import MemoryManager
 from cemaf.meta.agents import (
     AgentSynthesizer,
     ArchitectAgent,
     AuditAgent,
+    DreamAgent,
     KnowledgeGraphAgent,
     SolutionDesignerAgent,
 )
@@ -22,6 +24,7 @@ from cemaf.meta.blueprint_selector import BlueprintSelectorAgent
 from cemaf.meta.goals import (
     ArchitectGoal,
     AuditGoal,
+    DreamGoal,
     KnowledgeGraphGoal,
     ScaffoldGoal,
     SolutionGoal,
@@ -85,6 +88,20 @@ def register_meta_agents(
     agent_registry.register_agent(
         agent_instance=solution_designer,
         goal_type=SolutionGoal,
+    )
+
+
+def register_dream_agent(
+    agent_registry: AgentRegistry,
+    *,
+    memory_manager: MemoryManager,
+) -> None:
+    """Register the DreamAgent when session memory is available."""
+    if agent_registry.get("MetaDream") is not None:
+        return
+    agent_registry.register_agent(
+        agent_instance=DreamAgent(memory_manager=memory_manager),
+        goal_type=DreamGoal,
     )
 
 

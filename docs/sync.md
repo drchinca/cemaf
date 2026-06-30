@@ -1,5 +1,8 @@
 # State Synchronization
 
+> **Status**: Aspirational in this repo state. Snippets below are explicit
+> future API sketches until corresponding `src/cemaf/sync` modules exist.
+
 When edge agents reconnect, their local context must merge with the cloud. CEMAF makes this deterministic.
 
 ## The Sync Challenge
@@ -34,7 +37,7 @@ When edge agents reconnect, their local context must merge with the cloud. CEMAF
 Simple timestamp-based resolution:
 
 ```python
-from cemaf.sync import LWWSyncStrategy
+# Future API sketch: from cemaf.sync import LWWSyncStrategy
 
 strategy = LWWSyncStrategy(
     timestamp_field="_modified_at",
@@ -55,7 +58,7 @@ merged = await syncer.sync(
 Track deletions across sync boundaries:
 
 ```python
-from cemaf.sync import LWWWithTombstones
+# Future API sketch: from cemaf.sync import LWWWithTombstones
 
 strategy = LWWWithTombstones(
     tombstone_ttl_hours=24,  # Keep deletion markers for 24h
@@ -74,7 +77,7 @@ assert merged.get("user.temp_data") is None  # Deleted wins (if more recent)
 Conflict-free replicated data types for eventual consistency:
 
 ```python
-from cemaf.sync import CRDTSyncStrategy
+# Future API sketch: from cemaf.sync import CRDTSyncStrategy
 
 strategy = CRDTSyncStrategy(
     type_mappings={
@@ -100,7 +103,7 @@ syncer = ContextSyncer(strategy=strategy)
 | OR-Map | Nested structures | Recursive CRDT merge |
 
 ```python
-from cemaf.sync.crdt import GCounter, ORSet, LWWRegister
+# Future API sketch: from cemaf.sync.crdt import GCounter, ORSet, LWWRegister
 
 # Counter: tracks views across devices
 views = GCounter(node_id="edge_001")
@@ -121,7 +124,7 @@ status.set("active")
 Domain-specific merge logic:
 
 ```python
-from cemaf.sync import CustomSyncStrategy, ConflictResolver
+# Future API sketch: from cemaf.sync import CustomSyncStrategy, ConflictResolver
 
 class MyResolver(ConflictResolver):
     def resolve(
@@ -155,7 +158,7 @@ strategy = CustomSyncStrategy(resolver=MyResolver())
 Track causality across distributed contexts:
 
 ```python
-from cemaf.sync import VectorClock
+# Future API sketch: from cemaf.sync import VectorClock
 
 # Each node maintains a clock
 edge_clock = VectorClock(node_id="edge_001")
@@ -180,7 +183,7 @@ else:
 ### Sync Workflow
 
 ```python
-from cemaf.sync import SyncOrchestrator
+# Future API sketch: from cemaf.sync import SyncOrchestrator
 
 orchestrator = SyncOrchestrator(
     strategy=LWWSyncStrategy(),
@@ -215,7 +218,7 @@ async def sync_with_cloud():
 Identify conflicts before resolution:
 
 ```python
-from cemaf.sync import ConflictDetector
+# Future API sketch: from cemaf.sync import ConflictDetector
 
 detector = ConflictDetector()
 
@@ -246,7 +249,7 @@ for conflict in conflicts:
 React to sync lifecycle:
 
 ```python
-from cemaf.sync import SyncEventBus
+# Future API sketch: from cemaf.sync import SyncEventBus
 
 events = SyncEventBus()
 
@@ -272,8 +275,8 @@ async def on_sync_failed(error: SyncError):
 Integrates with offline module:
 
 ```python
-from cemaf.sync import SyncManager
-from cemaf.offline import OfflineQueue
+# Future API sketch: from cemaf.sync import SyncManager
+# Future API sketch: from cemaf.offline import OfflineQueue
 
 sync_manager = SyncManager(
     strategy=LWWSyncStrategy(),
@@ -317,7 +320,7 @@ merged = await syncer.sync(
 Track sync history:
 
 ```python
-from cemaf.sync import SyncMetadata
+# Future API sketch: from cemaf.sync import SyncMetadata
 
 metadata = SyncMetadata(storage_path="/data/sync_meta")
 
@@ -340,7 +343,7 @@ history = await metadata.get_history(limit=10)
 ## Factory Functions
 
 ```python
-from cemaf.sync.factories import (
+# Future API sketch: from cemaf.sync.factories import (
     create_syncer,
     create_sync_strategy,
     create_sync_manager,
@@ -369,7 +372,7 @@ syncer = create_syncer_from_config()
 ## Example: Multi-Device Agent
 
 ```python
-from cemaf.sync import (
+# Future API sketch: from cemaf.sync import (
     ContextSyncer,
     LWWSyncStrategy,
     SyncManager,

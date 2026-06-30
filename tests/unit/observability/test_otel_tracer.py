@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -106,8 +106,8 @@ class TestOTelTracer:
         """Integration: OTelTracer wraps an OTel SDK Tracer and span is recording."""
         try:
             from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
             from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+            from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
         except ImportError:
             pytest.skip("opentelemetry-sdk not installed")
 

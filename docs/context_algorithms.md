@@ -1,5 +1,8 @@
 # Context Algorithms
 
+> **Status**: Mixed. Selection-algorithm examples map to current code;
+> KV-cache/compression/prefix sections are aspirational design sketches.
+
 CEMAF's context management goes beyond simple selection. This module provides:
 
 - **Selection Algorithms**: Which sources fit in the budget
@@ -319,7 +322,8 @@ With CEMAF KV Cache Awareness:
 ### Prefix-Aware Context Construction
 
 ```python
-from cemaf.context.kv_cache import PrefixAwareCompiler
+# Future API sketch (kv-cache module not yet shipped in src/cemaf):
+# from cemaf.context.kv_cache import PrefixAwareCompiler
 
 compiler = PrefixAwareCompiler(
     cache_manager=KVCacheManager(
@@ -349,7 +353,8 @@ print(f"New computation: {compiled2.new_tokens} tokens")
 Context ordering affects cache hit rate:
 
 ```python
-from cemaf.context.kv_cache import StableOrderingStrategy
+# Future API sketch (kv-cache module not yet shipped in src/cemaf):
+# from cemaf.context.kv_cache import StableOrderingStrategy
 
 strategy = StableOrderingStrategy(
     prefix_order=[
@@ -373,7 +378,8 @@ compiler = PrefixAwareCompiler(
 Prefer sources that maximize cache reuse:
 
 ```python
-from cemaf.context.kv_cache import CacheAwareSelectionAlgorithm
+# Future API sketch (kv-cache module not yet shipped in src/cemaf):
+# from cemaf.context.kv_cache import CacheAwareSelectionAlgorithm
 
 algorithm = CacheAwareSelectionAlgorithm(
     base_algorithm=KnapsackSelectionAlgorithm(),
@@ -388,8 +394,9 @@ print(f"Cache hit ratio: {result.metadata['cache_hit_ratio']:.1%}")
 ### Integration with Local LLMs
 
 ```python
-from cemaf.llm.local import LlamaCppClient
-from cemaf.context.kv_cache import KVCacheManager
+# Future API sketch (local llm + kv-cache modules not yet shipped in src/cemaf):
+# from cemaf.llm.local import LlamaCppClient
+# from cemaf.context.kv_cache import KVCacheManager
 
 # Shared cache across requests
 cache = KVCacheManager(max_cache_size_mb=1024)
@@ -418,7 +425,8 @@ Not just "summarize" - compress while preserving task-relevant information.
 ### Task-Specific Distillation
 
 ```python
-from cemaf.context.compression import TaskDistillationCompressor
+# Future API sketch (compression module not yet shipped in src/cemaf):
+# from cemaf.context.compression import TaskDistillationCompressor
 
 compressor = TaskDistillationCompressor(
     llm_client=llm,
@@ -441,7 +449,8 @@ compressed = await compressor.compress(source, budget)
 Generate multiple compression levels:
 
 ```python
-from cemaf.context.compression import HierarchicalCompressor
+# Future API sketch (compression module not yet shipped in src/cemaf):
+# from cemaf.context.compression import HierarchicalCompressor
 
 compressor = HierarchicalCompressor(
     levels={
@@ -467,7 +476,8 @@ result = algorithm.select_sources(
 Maintain named entities while compressing:
 
 ```python
-from cemaf.context.compression import EntityPreservingCompressor
+# Future API sketch (compression module not yet shipped in src/cemaf):
+# from cemaf.context.compression import EntityPreservingCompressor
 
 compressor = EntityPreservingCompressor(
     entity_types=["PERSON", "ORG", "DATE", "MONEY", "PRODUCT"],
@@ -483,7 +493,8 @@ compressed = await compressor.compress(document, budget)
 Preserve document structure:
 
 ```python
-from cemaf.context.compression import StructuralCompressor
+# Future API sketch (compression module not yet shipped in src/cemaf):
+# from cemaf.context.compression import StructuralCompressor
 
 compressor = StructuralCompressor(
     preserve_elements=["headers", "lists", "code_blocks"],
@@ -499,7 +510,8 @@ compressed = await compressor.compress(markdown_doc, budget)
 For very large documents:
 
 ```python
-from cemaf.context.compression import StreamingCompressor
+# Future API sketch (compression module not yet shipped in src/cemaf):
+# from cemaf.context.compression import StreamingCompressor
 
 compressor = StreamingCompressor(
     chunk_size=1000,
@@ -515,7 +527,8 @@ async for chunk in compressor.compress_stream(large_document_path, budget):
 ### Compression Quality Metrics
 
 ```python
-from cemaf.context.compression import CompressionAnalyzer
+# Future API sketch (compression module not yet shipped in src/cemaf):
+# from cemaf.context.compression import CompressionAnalyzer
 
 analyzer = CompressionAnalyzer()
 
@@ -539,7 +552,8 @@ Shared context across multiple requests/agents.
 ### Shared Prefix Pool
 
 ```python
-from cemaf.context.prefix import PrefixPool
+# Future API sketch (prefix module not yet shipped in src/cemaf):
+# from cemaf.context.prefix import PrefixPool
 
 pool = PrefixPool(
     storage_path="/var/cemaf/prefix_cache",
@@ -574,7 +588,8 @@ compiled = await compiler.compile(
 ### Multi-Agent Prefix Sharing
 
 ```python
-from cemaf.context.prefix import SharedPrefixManager
+# Future API sketch (prefix module not yet shipped in src/cemaf):
+# from cemaf.context.prefix import SharedPrefixManager
 
 manager = SharedPrefixManager(
     redis_url="redis://localhost:6379",
@@ -609,11 +624,10 @@ if prefix:
 ## Factory Functions
 
 ```python
-from cemaf.context.factories import (
-    create_kv_cache_compiler,
-    create_compression_pipeline,
-    create_prefix_pool,
-)
+from cemaf.context.factories import create_priority_compiler
+
+# Current factory surface in src/cemaf/context/factories.py
+compiler = create_priority_compiler()
 
 # KV cache-aware compiler
 compiler = create_kv_cache_compiler(

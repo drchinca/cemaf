@@ -18,11 +18,11 @@ The `ModerationPipeline` provides a unified interface for content moderation:
 
 ```python
 from cemaf.moderation import ModerationPipeline, PreFlightGate, PostFlightGate
-from cemaf.moderation.rules import KeywordRule, PIIRule, ToxicityRule
+from cemaf.moderation.rules import KeywordRule, PIIRule, PatternRule
 
 # Create gates
 pre_gate = PreFlightGate([KeywordRule(["spam"]), PIIRule()])
-post_gate = PostFlightGate([ToxicityRule()])
+post_gate = PostFlightGate([PatternRule(patterns=(r"\\bunsafe\\b",))])
 
 # Create pipeline
 pipeline = ModerationPipeline(
@@ -67,10 +67,10 @@ Checks content after processing:
 
 ```python
 from cemaf.moderation import PostFlightGate
-from cemaf.moderation.rules import ToxicityRule, ComplianceRule
+from cemaf.moderation.rules import PatternRule, LengthRule
 
 gate = PostFlightGate(
-    rules=[ToxicityRule(), ComplianceRule()],
+    rules=[PatternRule(patterns=(r"\\bunsafe\\b",)), LengthRule(max_length=4000)],
     fail_fast=False,  # Collect all violations
 )
 
@@ -109,29 +109,28 @@ rule = PIIRule(
 )
 ```
 
-### ToxicityRule
+### PatternRule
 
-Detects toxic or harmful content:
+Detects disallowed content patterns:
 
 ```python
-from cemaf.moderation.rules import ToxicityRule
+from cemaf.moderation.rules import PatternRule
 
-rule = ToxicityRule(
-    threshold=0.7,  # Toxicity score threshold
+rule = PatternRule(
+    patterns=(r"\\bunsafe\\b", r"\\bmalware\\b"),
     severity="error",
 )
 ```
 
-### ComplianceRule
+### LengthRule
 
-Enforces compliance requirements:
+Enforces content length requirements:
 
 ```python
-from cemaf.moderation.rules import ComplianceRule
+from cemaf.moderation.rules import LengthRule
 
-rule = ComplianceRule(
-    required_disclaimers=["This is AI-generated content"],
-    prohibited_content=["medical advice", "legal advice"],
+rule = LengthRule(
+    max_length=4000,
     severity="error",
 )
 ```
@@ -334,7 +333,7 @@ mod_result, output = await pipeline.wrap_execution(
 ```python
 # Different rules for different stages
 pre_gate = PreFlightGate([KeywordRule(), PIIRule()])
-post_gate = PostFlightGate([ToxicityRule(), ComplianceRule()])
+post_gate = PostFlightGate([PatternRule(patterns=(r"\\bunsafe\\b",)), LengthRule(max_length=4000)])
 
 pipeline = ModerationPipeline(
     pre_flight=pre_gate,

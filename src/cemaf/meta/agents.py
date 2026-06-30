@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import textwrap
 from typing import Any
@@ -630,16 +631,18 @@ class DreamAgent(Agent[DreamGoal, DreamResult]):
                     state=state,
                 )
 
-            # Phase 2: Gather — identify recent signal (items returned by recall)
-            # Phase 3: Consolidate — in a full implementation, this would merge/update
-            # For now, we count items as "consolidated" (reviewed and validated)
-            consolidated_count = item_count
+            # Phase 2: Gather — group recalled items by content signature.
+            # Phase 3: Consolidate — for each duplicate-content group keep the
+            # highest-confidence item and forget the redundant twins. A real
+            # merge: the store genuinely shrinks. consolidated_count counts the
+            # items actually removed, not items merely "reviewed".
+            consolidated_count = await self._consolidate_duplicates(results=existing)
 
             # Phase 4: Prune — cleanup expired items
             pruned_count = await self._memory_manager.cleanup()
 
             summary = (
-                f"Dream complete: reviewed {consolidated_count} memories, "
+                f"Dream complete: merged {consolidated_count} redundant memories, "
                 f"pruned {pruned_count} stale entries."
             )
             logger.info("[MetaDream] %s", summary)
@@ -656,6 +659,48 @@ class DreamAgent(Agent[DreamGoal, DreamResult]):
         except Exception as exc:
             logger.error("[MetaDream] Error: %s", exc, exc_info=True)
             return AgentResult.fail(error=f"MetaDream error: {exc}", state=state)
+
+    async def _consolidate_duplicates(self, *, results: tuple[Any, ...]) -> int:
+        """Merge duplicate-content memories; return the count actually removed.
+
+        Items are grouped by a stable signature of their value. Within each
+        group the highest-confidence item is kept and the rest are forgotten,
+        so redundant memories collapse to one durable record.
+        """
+        groups: dict[str, list[Any]] = {}
+        for result in results:
+            item = getattr(result, "item", result)
+            # Only items exposing the MemoryItem shape can be merged; anything
+            # else (e.g. a bare dict from a non-standard store) is left untouched
+            # rather than crashing the dream cycle.
+            value = getattr(item, "value", None)
+            scope = getattr(item, "scope", None)
+            key = getattr(item, "key", None)
+            if value is None or scope is None or key is None:
+                continue
+            signature = self._content_signature(value=value)
+            groups.setdefault(signature, []).append(item)
+
+        removed = 0
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            # Keep the highest-confidence item; forget the redundant twins.
+            members.sort(key=lambda m: float(getattr(m, "confidence", 1.0)), reverse=True)
+            for redundant in members[1:]:
+                if await self._memory_manager.forget(scope=redundant.scope, key=redundant.key):
+                    removed += 1
+        return removed
+
+    @staticmethod
+    def _content_signature(*, value: Any) -> str:
+        """Stable content signature for duplicate detection."""
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            return str(value)
 
 
 # ---------------------------------------------------------------------------

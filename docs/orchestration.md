@@ -324,19 +324,30 @@ Register health checks to validate prerequisites before executing DAG nodes:
 
 ```python
 from cemaf.orchestration.executor import DAGExecutor
-from cemaf.orchestration.health import HealthCheckService, HealthStatus
+from cemaf.observability.health import HealthMonitor, HealthStatus, HealthCheckResult
 
-class APIAvailabilityCheck(HealthCheckService):
+def check_api_availability() -> HealthCheckResult:
+    """Check if external API is available."""
+    try:
+        response = check_api_endpoint()
+        return HealthCheckResult(
+            name="api",
+            status=HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY,
+        )
+    except Exception:
+        return HealthCheckResult(name="api", status=HealthStatus.UNHEALTHY)
+
+health = HealthMonitor()
+health.register_check("api", check_api_availability)
+
+class APIAvailabilityGate:
     async def check_health(self) -> HealthStatus:
         """Check if external API is available."""
-        try:
-            response = await check_api_endpoint()
-            return HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY
-        except Exception as e:
-            return HealthStatus.UNHEALTHY
+        result = await health.check_all()
+        return result.status
 
 # Register health check
-health_check = APIAvailabilityCheck()
+health_check = APIAvailabilityGate()
 executor = DAGExecutor(
     node_executor=my_executor,
     health_check_service=health_check

@@ -34,6 +34,9 @@ class DefaultVoteAggregator:
                 # Surface the abstention reason (exception repr / decline note) for provenance.
                 error=o.rationale if o.abstained and o.rationale else None,
                 raw_choice=o.raw_choice,
+                # Carry the member's own reason for the vote into the provenance
+                # record, so the audit trail shows WHY each member voted.
+                rationale=o.rationale,
             )
             for o in opinions
         )

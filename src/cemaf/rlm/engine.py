@@ -94,9 +94,15 @@ class DivideAndConquerQueryEngine:
             budget=budget,
         )
 
-        if compiled.within_budget():
+        # Single-query mode is only safe when the compiled context fits the budget
+        # AND the compiler kept EVERY chunk. `within_budget()` reports True even
+        # after the compiler silently drops over-budget chunks, so gating on it
+        # alone would answer from a partial subset while reporting full coverage.
+        # Requiring zero exclusions forces recursion whenever any chunk was dropped.
+        excluded_count = int(compiled.metadata.get("excluded_count", 0))
+        if compiled.within_budget() and excluded_count == 0:
             logger.debug(
-                "RLM single query (within budget)",
+                "RLM single query (within budget, full coverage)",
                 depth=depth,
                 num_chunks=len(chunks),
                 compiled_tokens=compiled.total_tokens,
@@ -256,6 +262,12 @@ class DivideAndConquerQueryEngine:
                 "left_chunks": len(left_chunks),
                 "right_chunks": len(right_chunks),
                 "coverage_ratio": coverage,
+                "aggregation_success": aggregated["success"],
+                **(
+                    {"aggregation_error": aggregated["error"]}
+                    if not aggregated["success"] and aggregated.get("error")
+                    else {}
+                ),
             },
         )
 
@@ -305,6 +317,7 @@ context, explicitly state that."""
         batch: list[ContextChunk] = []
         batch_tokens = 0
         answers: list[str] = []
+        errors: list[str] = []
         total_tokens_used = 0
         llm_calls = 0
         examined = 0
@@ -319,6 +332,8 @@ context, explicitly state that."""
                 total_tokens_used += result["tokens_used"]
                 if result["found"]:
                     answers.append(result["answer"])
+                else:
+                    errors.append(result["answer"])
                 batch = []
                 batch_tokens = 0
             batch.append(chunk)
@@ -332,16 +347,25 @@ context, explicitly state that."""
             total_tokens_used += result["tokens_used"]
             if result["found"]:
                 answers.append(result["answer"])
+            else:
+                errors.append(result["answer"])
 
         coverage = examined / len(chunks) if chunks else 0.0
 
         if not answers:
+            error = "Partial coverage query produced no results"
+            if errors:
+                error = f"{error}: {'; '.join(errors)}"
             return RecursiveQueryResult.fail(
-                error="Partial coverage query produced no results",
+                error=error,
                 depth_reached=depth,
                 chunks_examined=examined,
                 llm_calls_made=llm_calls,
-                metadata={"strategy": "partial_coverage", "reason": reason},
+                metadata={
+                    "strategy": "partial_coverage",
+                    "reason": reason,
+                    **({"errors": tuple(errors)} if errors else {}),
+                },
             )
 
         # Aggregate if multiple batches
@@ -460,10 +484,14 @@ Please synthesize these answers into a single, coherent response that addresses 
             partial_info = f"{left_answer}; {right_answer}"
             return {
                 "answer": f"Aggregation failed: {result.error}. Partial results: {partial_info}",
+                "success": False,
+                "error": result.error,
                 "tokens_used": 0,
             }
 
         return {
             "answer": result.content if isinstance(result.content, str) else str(result.content),
+            "success": True,
+            "error": None,
             "tokens_used": int(result.total_tokens),
         }

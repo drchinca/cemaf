@@ -292,7 +292,7 @@ When no algorithm is specified, all sources are included and low-priority source
 ```python
 from cemaf.context.advanced_compiler import AdvancedContextCompiler
 from cemaf.context.compiler import SimpleTokenEstimator
-from cemaf.llm.mock_client import MockLLMClient
+from cemaf.llm.mock import MockLLMClient
 
 compiler = AdvancedContextCompiler(
     llm_client=MockLLMClient(),

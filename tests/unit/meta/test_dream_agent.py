@@ -41,7 +41,23 @@ class FakeMemoryManager:
         return {"scope": scope.value, "key": key, "value": value}
 
     async def recall(self, query: Any) -> tuple[Any, ...]:
-        return tuple(self._items.values())
+        # Mirror the real manager: recall returns MemorySearchResult wrapping
+        # a MemoryItem, not a raw dict.
+        from cemaf.core.enums import MemoryScope as _Scope
+        from cemaf.core.types import Confidence
+        from cemaf.memory.base import MemoryItem
+        from cemaf.memory.semantic import MemorySearchResult
+
+        results = []
+        for rank, raw in enumerate(self._items.values()):
+            item = MemoryItem(
+                scope=_Scope.PROJECT,
+                key=str(raw["key"]),
+                value=raw["value"],
+                confidence=Confidence(float(raw.get("confidence", 1.0))),
+            )
+            results.append(MemorySearchResult(item=item, similarity=1.0, combined_score=1.0, rank=rank))
+        return tuple(results)
 
     async def recall_by_key(self, scope: MemoryScope, key: str) -> Any | None:
         return self._items.get(key)
@@ -138,6 +154,56 @@ class TestDreamAgentExecution:
         assert result.success
         assert isinstance(result.output, DreamResult)
         assert result.output.summary != ""
+
+    @pytest.mark.asyncio
+    async def test_consolidation_merges_duplicate_memories(self) -> None:
+        """Real consolidation: duplicate-content items are merged away (store shrinks).
+
+        This is the test the old tautology (consolidated_count = item_count)
+        could never pass: two items with identical content must collapse to one,
+        and consolidated_count must equal the number actually removed.
+        """
+        from cemaf.meta.agents import DreamAgent
+
+        mm = FakeMemoryManager(
+            items={
+                "f1": {"key": "f1", "value": {"summary": "CEMAF self-hosts"}, "confidence": 0.6},
+                "f2": {"key": "f2", "value": {"summary": "CEMAF self-hosts"}, "confidence": 0.9},
+                "f3": {"key": "f3", "value": {"summary": "unique fact"}, "confidence": 1.0},
+            }
+        )
+        agent = DreamAgent(memory_manager=mm)  # type: ignore[arg-type]
+        ctx = AgentContext(run_id="dream-run", agent_id="MetaDream")
+
+        result = await agent.run(goal=DreamGoal(), context=ctx)
+
+        assert result.success
+        # One redundant duplicate ("f1", the lower-confidence twin) was removed.
+        assert result.output.consolidated_count == 1
+        assert "f1" in mm._forgotten
+        # The higher-confidence twin and the unique fact are NOT forgotten.
+        assert "f2" not in mm._forgotten
+        assert "f3" not in mm._forgotten
+
+    @pytest.mark.asyncio
+    async def test_consolidation_is_noop_when_all_unique(self) -> None:
+        """No duplicates → nothing merged, nothing forgotten."""
+        from cemaf.meta.agents import DreamAgent
+
+        mm = FakeMemoryManager(
+            items={
+                "a": {"key": "a", "value": {"summary": "alpha"}, "confidence": 1.0},
+                "b": {"key": "b", "value": {"summary": "beta"}, "confidence": 1.0},
+            }
+        )
+        agent = DreamAgent(memory_manager=mm)  # type: ignore[arg-type]
+        ctx = AgentContext(run_id="dream-run", agent_id="MetaDream")
+
+        result = await agent.run(goal=DreamGoal(), context=ctx)
+
+        assert result.success
+        assert result.output.consolidated_count == 0
+        assert mm._forgotten == []
 
     @pytest.mark.asyncio
     async def test_run_with_empty_memory(self) -> None:

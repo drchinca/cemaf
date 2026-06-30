@@ -126,7 +126,7 @@ cemaf/
 - **Boundary**: Memory is *persistent by nature* (SESSION < PROJECT < BRAND). `context/` is transient per-run state.
 
 ### `retrieval/` — VectorStore + EmbeddingProvider protocols
-- **Role**: the retrieval interface. Protocols + default impls (`InMemoryVectorStore`, `MockEmbeddingProvider`).
+- **Role**: the retrieval interface. Protocols + default impls (`InMemoryVectorStore`, `HashEmbeddingProvider`).
 - **Contains**: `retrieval/protocols.py` (Document, VectorStore, EmbeddingProvider, SearchResult), `retrieval/memory_store.py`.
 
 ### `rlm/` — Recursive LLM

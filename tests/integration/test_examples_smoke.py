@@ -56,8 +56,21 @@ async def test_example_runs_offline(example_path: Path) -> None:
 
     main = getattr(module, "main", None)
     assert callable(main), f"{example_path.name} must define a main()"
-    assert inspect.iscoroutinefunction(main), f"{example_path.name} main() must be async"
 
-    # The example's own in-main() assertions are the behavioral contract; a clean
-    # run (no exception) is the smoke contract.
-    await main()
+    # Some examples parse argv via argparse; under pytest sys.argv is the pytest
+    # command line, so present a clean argv (program name only) while running them.
+    saved_argv = sys.argv
+    sys.argv = [str(example_path)]
+    try:
+        # The example's own in-main() assertions are the behavioral contract; a
+        # clean run (no exception, exit-0 if it returns a code) is the smoke
+        # contract. Examples define either an async or a sync main() — support both.
+        if inspect.iscoroutinefunction(main):
+            result = await main()
+        else:
+            result = main()
+    finally:
+        sys.argv = saved_argv
+
+    if isinstance(result, int):
+        assert result == 0, f"{example_path.name} main() returned non-zero exit {result}"

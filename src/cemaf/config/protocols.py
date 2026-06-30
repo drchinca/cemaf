@@ -236,6 +236,9 @@ class SchedulerSettings(BaseModel):
     default_max_retries: int = 3
     enable_persistence: bool = False
     check_interval_seconds: float = 1.0
+    heartbeat_interval_seconds: float = 10.0
+    heartbeat_ttl_seconds: float = 30.0
+    worker_id: str = ""
 
 
 class MCPSettings(BaseModel):

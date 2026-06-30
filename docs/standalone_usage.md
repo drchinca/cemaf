@@ -161,11 +161,11 @@ if result.success:
 Use memory storage independently:
 
 ```python
-from cemaf.memory.base import InMemoryMemoryStore
+from cemaf.memory.base import InMemoryStore
 from cemaf.core.enums import MemoryScope
 
 # Create memory store
-memory = InMemoryMemoryStore()
+memory = InMemoryStore()
 
 # Store memories
 await memory.store("user_pref", "dark_theme", scope=MemoryScope.USER)
@@ -340,7 +340,7 @@ When modules do integrate, they use protocols:
 ```python
 # RLM accepts any ContextCompiler (protocol)
 from cemaf.rlm import DivideAndConquerQueryEngine
-from cemaf.context.protocols import ContextCompiler
+from cemaf.context import ContextCompiler
 
 class MyCompiler:
     async def compile(self, ...):
