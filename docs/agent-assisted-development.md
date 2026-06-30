@@ -4,6 +4,8 @@ This guide is written for LLMs, coding agents, and humans supervising them. Its
 job is to keep generated CEMAF apps from using three or four modules and then
 rebuilding the rest of the framework in application code.
 
+> 💡 **For AI coding systems (Cursor, Gemini, Claude):** Refer directly to the [AI Integration & Development Guide](AI_DEVELOPMENT_GUIDE.md) for dense, production-ready code recipes, Python 3.12+ standards, and direct Do/Violation matrices.
+
 CEMAF is the substrate. Application repos should bring domain agents, tools,
 policies, stores, and product workflows; CEMAF should own the generic execution,
 context, provenance, quality, safety, and operator machinery.

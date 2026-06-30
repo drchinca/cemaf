@@ -61,6 +61,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 ### Getting Started
 - [Quick Start](quickstart.md) — install, run, first agent
 - [Agent-Assisted Development](agent-assisted-development.md) — CEMAF-first checklist for LLM/coding-agent integrations
+- [AI Integration & Development Guide](AI_DEVELOPMENT_GUIDE.md) — Dense reference of code recipes, standards, and guardrails for AIs
 - [Protocol Guide](protocol_guide.md) — how the protocol layer works
 - [Extension Patterns](extension_patterns.md) — BYO-LLM, BYO-VectorStore, BYO-MemoryBackend
 - [Standalone Usage](standalone_usage.md) — using modules independently

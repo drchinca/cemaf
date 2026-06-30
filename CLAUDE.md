@@ -1,5 +1,28 @@
 # CEMAF Project Instructions
 
+## Prime Directive (read before generating CEMAF-consuming code)
+
+CEMAF is the execution substrate for context-engineered multi-agent systems —
+not a bag of helpers to cherry-pick. Before writing app-level orchestration,
+memory, eval, moderation, budget, replay, citation, blueprint, or routing
+infrastructure, compose CEMAF's existing module through `RuntimeServices`, a
+registry, an interceptor, an event subscriber, or a factory.
+
+Agent-assisted onboarding lives in:
+
+- [`AGENTS.md`](AGENTS.md) — the CEMAF-first checklist (composition rules,
+  pre-rewrite questions, verification commands).
+- [`docs/agent-assisted-development.md`](docs/agent-assisted-development.md) —
+  module-to-requirement matrix and anti-patterns to avoid.
+- [`docs/AI_DEVELOPMENT_GUIDE.md`](docs/AI_DEVELOPMENT_GUIDE.md) — dense
+  Do/Violation table and integration recipes.
+- [`HOW_TO_USE.md`](HOW_TO_USE.md) — Mode A (CEMAF orchestrates) vs Mode B
+  (CEMAF as library) integration shapes.
+
+Whole-engine references before starting from a blank file:
+`examples/release_engine.py`, `examples/composed_engine.py`,
+`tests/integration/test_composed_engine.py`.
+
 ## Architecture Overview
 
 CEMAF is a **protocol-first, multi-agent orchestration framework** for context engineering. It has two layers:

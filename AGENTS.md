@@ -54,9 +54,27 @@ uv run cemaf docs show pattern:4-composition-root
 - Keep domain logic in the consuming app. Keep reusable framework behavior in
   CEMAF modules.
 
-## Whole-Engine Reference
+## Examples As Templates
 
-Use these examples as templates before writing from scratch:
+Start from [examples/README.md](examples/README.md) — the indexed on-ramp. Every
+example runs offline and is guarded by `tests/integration/test_examples_smoke.py`.
+
+Bring-your-own (the protocol is the only integration contract):
+
+- [examples/byo/byo_llm.py](examples/byo/byo_llm.py) - implement `LLMClient`.
+- [examples/byo/byo_vector_store.py](examples/byo/byo_vector_store.py) - implement
+  `VectorStore` over your own store.
+- [examples/byo/byo_memory.py](examples/byo/byo_memory.py) - implement `MemoryStore`,
+  wire via `create_memory_manager`.
+
+App shapes (what you actually build):
+
+- [examples/app_shapes/rag_with_citations.py](examples/app_shapes/rag_with_citations.py) -
+  grounded RAG with provenance.
+- [examples/app_shapes/tool_using_agent.py](examples/app_shapes/tool_using_agent.py) -
+  agent + resilient tool inside a DAG.
+
+Whole engine:
 
 - [examples/release_engine.py](examples/release_engine.py) - flagship
   whole-engine run: council, conditional DAG steering, auction selection,
@@ -66,6 +84,9 @@ Use these examples as templates before writing from scratch:
   compiler, events, and harvest.
 - [tests/integration/test_composed_engine.py](tests/integration/test_composed_engine.py) -
   integration proof that the subsystems work together.
+
+Before reimplementing infrastructure, read
+[examples/anti_patterns/README.md](examples/anti_patterns/README.md).
 
 ## Pre-Rewrite Checklist
 
