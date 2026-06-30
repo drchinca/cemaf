@@ -16,6 +16,7 @@ New to CEMAF? Read these three in order:
 
 Then pick your entry point:
 - Want to build something: [Quick Start](quickstart.md)
+- Using an AI coding assistant: [Agent-Assisted Development](agent-assisted-development.md)
 - Want to extend CEMAF: [Extension Patterns](extension_patterns.md)
 - Want to integrate with your framework: [Integration Guide](integration.md)
 
@@ -59,6 +60,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 
 ### Getting Started
 - [Quick Start](quickstart.md) — install, run, first agent
+- [Agent-Assisted Development](agent-assisted-development.md) — CEMAF-first checklist for LLM/coding-agent integrations
 - [Protocol Guide](protocol_guide.md) — how the protocol layer works
 - [Extension Patterns](extension_patterns.md) — BYO-LLM, BYO-VectorStore, BYO-MemoryBackend
 - [Standalone Usage](standalone_usage.md) — using modules independently
