@@ -324,19 +324,30 @@ Register health checks to validate prerequisites before executing DAG nodes:
 
 ```python
 from cemaf.orchestration.executor import DAGExecutor
-from cemaf.orchestration.health import HealthCheckService, HealthStatus
+from cemaf.observability.health import HealthMonitor, HealthStatus, HealthCheckResult
 
-class APIAvailabilityCheck(HealthCheckService):
+def check_api_availability() -> HealthCheckResult:
+    """Check if external API is available."""
+    try:
+        response = check_api_endpoint()
+        return HealthCheckResult(
+            name="api",
+            status=HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY,
+        )
+    except Exception:
+        return HealthCheckResult(name="api", status=HealthStatus.UNHEALTHY)
+
+health = HealthMonitor()
+health.register_check("api", check_api_availability)
+
+class APIAvailabilityGate:
     async def check_health(self) -> HealthStatus:
         """Check if external API is available."""
-        try:
-            response = await check_api_endpoint()
-            return HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY
-        except Exception as e:
-            return HealthStatus.UNHEALTHY
+        result = await health.check_all()
+        return result.status
 
 # Register health check
-health_check = APIAvailabilityCheck()
+health_check = APIAvailabilityGate()
 executor = DAGExecutor(
     node_executor=my_executor,
     health_check_service=health_check
@@ -518,6 +529,28 @@ handler_ctx = NodeHandlerContext(
 - Context merging after all branches complete (via `MergeStrategy`)
 - Merge conflict recording as context patches when `RunLogger` is available
 - Exception handling: failed branches produce error `NodeResult` without crashing others
+
+Merge strategies are protocol-first and registry-backed:
+
+```python
+from cemaf.context import create_merge_strategy, merge_strategy_registry
+from cemaf.orchestration.node_handlers import NodeHandlerContext
+
+merge_strategy_registry.register(
+    backend="crdt",
+    factory=lambda **kwargs: CRDTMergeStrategy(clock=kwargs["clock"]),
+)
+
+handler_ctx = NodeHandlerContext(
+    route_choices=route_choices,
+    apply_output=apply_output,
+    execute_with_retry=execute_with_retry,
+    merge_strategy=create_merge_strategy("crdt", clock=clock),
+    max_parallel=4,
+    run_logger=run_logger,
+    correlation_id="run-abc-123",
+)
+```
 
 ## RuntimeServices
 

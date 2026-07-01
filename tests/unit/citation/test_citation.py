@@ -4,6 +4,11 @@ from datetime import datetime
 
 import pytest
 
+from cemaf.citation.factories import (
+    citation_tracker_registry,
+    create_citation_tracker,
+    create_citation_tracker_from_config,
+)
 from cemaf.citation.mock import (
     MockCitationTracker,
     create_mock_citation,
@@ -865,3 +870,77 @@ class TestMockUtilities:
 
         # All operations should complete without error
         assert len(tracker.get_all_citations()) == 0
+
+
+class TestCitationFactories:
+    """Tests for citation tracker factories."""
+
+    def test_create_default_citation_tracker(self) -> None:
+        """Test creating the built-in default tracker."""
+        tracker = create_citation_tracker()
+
+        assert isinstance(tracker, CitationTracker)
+
+    def test_create_mock_citation_tracker(self) -> None:
+        """Test creating the built-in mock tracker."""
+        tracker = create_citation_tracker(backend="mock")
+
+        assert isinstance(tracker, MockCitationTracker)
+
+    def test_register_custom_citation_tracker_backend(self) -> None:
+        """Test custom citation tracker registration without editing framework source."""
+        captured: dict[str, object] = {}
+
+        class CustomCitationTracker(MockCitationTracker):
+            pass
+
+        def factory(**kwargs: object) -> CustomCitationTracker:
+            captured.update(kwargs)
+            return CustomCitationTracker()
+
+        citation_tracker_registry.register(backend="unit_custom", factory=factory)
+
+        tracker = create_citation_tracker(
+            backend="unit_custom",
+            enable_tracking=False,
+            require_citations=True,
+            citation_format="ieee",
+            enable_validation=False,
+        )
+
+        assert isinstance(tracker, CustomCitationTracker)
+        assert captured["enable_tracking"] is False
+        assert captured["require_citations"] is True
+        assert captured["citation_format"] == "ieee"
+        assert captured["enable_validation"] is False
+
+    def test_create_registered_citation_tracker_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test environment-selected custom citation tracker backends."""
+        captured: dict[str, object] = {}
+
+        class EnvCitationTracker(MockCitationTracker):
+            pass
+
+        def factory(**kwargs: object) -> EnvCitationTracker:
+            captured.update(kwargs)
+            return EnvCitationTracker()
+
+        citation_tracker_registry.register(backend="env_custom", factory=factory)
+        monkeypatch.setenv("CEMAF_CITATION_BACKEND", "env_custom")
+        monkeypatch.setenv("CEMAF_CITATION_ENABLE_TRACKING", "false")
+        monkeypatch.setenv("CEMAF_CITATION_REQUIRE_CITATIONS", "true")
+        monkeypatch.setenv("CEMAF_CITATION_CITATION_FORMAT", "chicago")
+        monkeypatch.setenv("CEMAF_CITATION_ENABLE_VALIDATION", "false")
+
+        tracker = create_citation_tracker_from_config()
+
+        assert isinstance(tracker, EnvCitationTracker)
+        assert captured["enable_tracking"] is False
+        assert captured["require_citations"] is True
+        assert captured["citation_format"] == "chicago"
+        assert captured["enable_validation"] is False
+
+    def test_unsupported_citation_tracker_backend_names_registry(self) -> None:
+        """Test unknown citation tracker backend error points to registry extension."""
+        with pytest.raises(ValueError, match="citation_tracker_registry.register"):
+            create_citation_tracker(backend="missing_citation_backend")

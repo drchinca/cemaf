@@ -17,12 +17,14 @@ and JSON-file sources live in `cemaf.blueprint.sources`.
 """
 
 from cemaf.blueprint.builder import BlueprintBuilder
-from cemaf.blueprint.core import Blueprint, SceneGoal, StyleGuide
+from cemaf.blueprint.core import Blueprint, BlueprintScope, SceneGoal, StyleGuide
 from cemaf.blueprint.entities import ContextEntity, EntityType
 from cemaf.blueprint.factories import (
+    blueprint_source_registry,
     create_blueprint_harvester,
     create_blueprint_library,
     create_blueprint_library_from_env,
+    create_blueprint_source,
 )
 from cemaf.blueprint.harvest import (
     BlueprintDistiller,
@@ -33,9 +35,15 @@ from cemaf.blueprint.harvest import (
     RunCorrelator,
 )
 from cemaf.blueprint.harvest_defaults import (
+    PROMOTE_MIN_CONFIDENCE,
+    PROMOTE_MIN_PROJECTS,
     InMemoryRunCorrelator,
+    ProjectScopedRecipeDistiller,
+    PromotionDecision,
     RecipeBlueprintDistiller,
     ScoreThresholdHarvestPolicy,
+    evaluate_promotion,
+    goal_digest,
 )
 from cemaf.blueprint.library import (
     BlueprintEntry,
@@ -77,14 +85,23 @@ __all__ = [
     "InMemoryWritableBlueprintSource",
     "JSONFileBlueprintSource",
     "SqliteBlueprintSource",
+    "blueprint_source_registry",
     # Harvest engine
     "BlueprintHarvesterEngine",
+    "BlueprintScope",
     "InMemoryRunCorrelator",
+    "ProjectScopedRecipeDistiller",
+    "PromotionDecision",
     "RecipeBlueprintDistiller",
     "ScoreThresholdHarvestPolicy",
+    "evaluate_promotion",
+    "goal_digest",
+    "PROMOTE_MIN_CONFIDENCE",
+    "PROMOTE_MIN_PROJECTS",
     "create_blueprint_harvester",
     "create_blueprint_library",
     "create_blueprint_library_from_env",
+    "create_blueprint_source",
     "BlueprintDistiller",
     "HarvestContext",
     "HarvestOutcome",

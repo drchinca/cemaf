@@ -113,10 +113,12 @@ cemaf/
 
 ### `scheduler/` — scheduling, gates
 - **Role**: Task scheduling, execution gates (lock, session count, time-based). Used by `meta/` dream cycle.
+- **Extension point**: implement `ExecutionGate` and register it with `execution_gate_registry.register(...)` for declarative gate-set composition.
 
 ### `context/` — immutable context + patches + compilation
 - **Role**: The data model for "what the agent knows." `Context` is immutable, mutated via `ContextPatch`. `ContextCompiler` compiles under a `TokenBudget`.
 - **Contains**: `context.py` (Context), `patch.py` (ContextPatch, PatchOperation, PatchSource), `compiler.py` (ContextCompiler, SimpleTokenEstimator), `advanced_compiler.py` (PriorityContextCompiler with knapsack/optimal), `budget.py` (TokenBudget), `source.py` (ContextSource + ContextType), `classification.py` (ContextTypeBehavior), `merge.py` (parallel branch merging).
+- **Extension point**: implement `MergeStrategy` and register it with `merge_strategy_registry.register(...)` to customize parallel branch merge semantics.
 
 ### `memory/` — scoped memory, sessions
 - **Role**: `MemoryManager` protocol + `DefaultMemoryManager` composing semantic + episodic + dedup. Session lifecycle (`SessionManager`). Tiered storage. Extraction pipeline.
@@ -124,7 +126,7 @@ cemaf/
 - **Boundary**: Memory is *persistent by nature* (SESSION < PROJECT < BRAND). `context/` is transient per-run state.
 
 ### `retrieval/` — VectorStore + EmbeddingProvider protocols
-- **Role**: the retrieval interface. Protocols + default impls (`InMemoryVectorStore`, `MockEmbeddingProvider`).
+- **Role**: the retrieval interface. Protocols + default impls (`InMemoryVectorStore`, `HashEmbeddingProvider`).
 - **Contains**: `retrieval/protocols.py` (Document, VectorStore, EmbeddingProvider, SearchResult), `retrieval/memory_store.py`.
 
 ### `rlm/` — Recursive LLM
@@ -154,7 +156,8 @@ cemaf/
 
 ### `events/` — EventBus pub/sub
 - **Role**: typed `Event` + `EventBus` protocol + `InMemoryEventBus`. `EventType` enum is the vocabulary.
-- **Contains**: `events/protocols.py`, `events/bus.py`.
+- **Contains**: `events/protocols.py`, `events/bus.py`, `events/notifiers.py`, `events/factories.py`.
+- **Extension point**: register custom `EventBus` and `Notifier` backends with `event_bus_registry` / `notifier_registry`.
 - **Role in architecture**: the seam between orchestration and cross-cutting subscribers (evals, audit, knowledge graph). Modules that would otherwise import each other communicate here.
 
 ### `observability/` — logging, metrics, health
@@ -191,10 +194,17 @@ Opt-in modules that consume Layer 1. **Layer 1 never imports from Layer 2.**
 ### `audit/` — structured audit trail
 - **Role**: EventBus subscriber that converts every event into an `AuditEntry`, with quality-trend + z-score anomaly detection.
 - **Contains**: `subscriber.py` (`EventBusAuditLog`), `trail.py` (`AuditTrail`), `models.py`, `protocols.py`, `factories.py`.
+- **Extension point**: implement `AuditLog` / `AuditTrail` and register factories with `audit_log_registry.register(...)` or `audit_trail_registry.register(...)`.
 
 ### `knowledge/` — knowledge graph
 - **Role**: entity + relation graph backed by `MemoryManager`. Entities persist as `MemoryItem` at PROJECT scope; relation indexes are per-entity.
 - **Contains**: `graph.py` (`MemoryBackedKnowledgeGraph`), `models.py`, `protocols.py`, `factories.py`.
+- **Extension point**: implement `KnowledgeGraph` and either inject it directly through `RuntimeServices` / `MetaServices` or register a factory with `knowledge_graph_registry.register(...)`.
+
+### `improvement/` + `trust/` — self-improvement feedback
+- **Role**: converts execution summaries into strategy-memory updates and tool/skill trust changes.
+- **Contains**: `improvement/loop.py` (`SelfImprovementLoop`), `improvement/protocols.py`, `improvement/factories.py`, `trust/ledger.py`, and `memory/strategy.py`.
+- **Extension point**: implement `StrategyMemoryBackend`, `TrustLedgerBackend`, or `SelfImprovementProcessor`, then register factories with `strategy_memory_registry`, `trust_ledger_registry`, or `improvement_loop_registry`.
 
 ### `meta/` — self-hosting agents, DAGs, bootstrap
 - **Role**: agents that introspect + extend CEMAF using CEMAF primitives. `MetaArchitect` (DAG design), `MetaSpecifier` (OpenSpec proposals), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG ops), `MetaScaffolder` (runnable CEMAF-app synthesis).
@@ -215,7 +225,7 @@ These came up in real PRs. If you hit one, here's how we decided.
 
 **"I need to validate OpenSpec proposals."** → `mcp/bridges/openspec/` — it's a bridge to an external MCP-compatible tool. Not `validation/` (that's input/output contract shapes), not `evals/` (that's quality measurement).
 
-**"I want a graph database backend for the knowledge graph."** → Implement `KnowledgeGraph` protocol from `knowledge/protocols.py`, name it `Neo4jKnowledgeGraph`, place in `knowledge/neo4j.py`. Inject via `meta.bootstrap.MetaServices(knowledge_graph=...)`.
+**"I want a graph database backend for the knowledge graph."** → Implement `KnowledgeGraph` protocol from `knowledge/protocols.py`, name it `Neo4jKnowledgeGraph`, place in `knowledge/neo4j.py`. Inject via `RuntimeServices(knowledge_graph=...)` / `meta.bootstrap.MetaServices(knowledge_graph=...)`, or register it with `knowledge_graph_registry.register(...)` for factory construction.
 
 **"I want to add a new HaltReason: LATENCY_SLO_BREACH."** → New enum value in `orchestration/executor.py::HaltReason`. New optional field on `RuntimeServices`: `slo_tracker: SLOTracker | None = None`. Wire the check into `_halt_signal()`. Add a regression test. **Do not** create a new top-level package for "slo".
 

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.core.types import AgentID
+from cemaf.core.utils import parse_jsonish
 from cemaf.llm.protocols import LLMClient, Message
 from cemaf.mcp.bridges.openspec.parser import parse_diagnostics
 from cemaf.mcp.bridges.openspec.protocols import (
@@ -336,42 +337,9 @@ def _extract_text(*, message: Message) -> str:
 
 
 def _extract_json(*, text: str) -> Any:
-    """Find and decode the first balanced JSON object in `text`.
+    """Find and decode the first balanced JSON value in ``text``."""
 
-    Walks the string with explicit brace-depth + string-state tracking so
-    fences (```json), preamble ("Here is the JSON:"), and trailing prose
-    are all tolerated. Rejects fenced markdown by simply ignoring it — the
-    walker only sees the braces.
-    """
-    start = text.find("{")
-    if start == -1:
-        raise RuntimeError("No JSON object found in LLM output")
-    depth = 0
-    in_string = False
-    escape_next = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escape_next:
-                escape_next = False
-            elif char == "\\":
-                escape_next = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                payload = text[start : index + 1]
-                try:
-                    return json.loads(payload)
-                except json.JSONDecodeError as exc:
-                    raise RuntimeError(f"Could not decode JSON from LLM output: {exc}") from exc
-    raise RuntimeError("Unbalanced JSON object in LLM output")
+    return parse_jsonish(text)
 
 
 def _diagnostic_to_dict(*, d: OpenSpecDiagnostic) -> dict[str, str]:

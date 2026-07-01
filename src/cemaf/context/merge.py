@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.context import Context
+from cemaf.core.provider_registry import ProviderRegistry
 
 
 @dataclass(frozen=True)
@@ -518,6 +519,34 @@ class ReducerMergeStrategy:
         return all(v == first for v in values[1:])
 
 
+merge_strategy_registry: ProviderRegistry[MergeStrategy] = ProviderRegistry(name="merge_strategy")
+
+
+def _create_last_write_wins_strategy(**kwargs: Any) -> MergeStrategy:
+    return LastWriteWinsStrategy()
+
+
+def _create_raise_on_conflict_strategy(**kwargs: Any) -> MergeStrategy:
+    return RaiseOnConflictStrategy()
+
+
+def _create_deep_merge_strategy(**kwargs: Any) -> MergeStrategy:
+    return DeepMergeStrategy()
+
+
+def _create_reducer_strategy(**kwargs: Any) -> MergeStrategy:
+    return ReducerMergeStrategy(
+        reducers=kwargs.get("reducers"),
+        include_base=bool(kwargs.get("include_base", False)),
+    )
+
+
+merge_strategy_registry.register(backend="last_write_wins", factory=_create_last_write_wins_strategy)
+merge_strategy_registry.register(backend="raise_on_conflict", factory=_create_raise_on_conflict_strategy)
+merge_strategy_registry.register(backend="deep_merge", factory=_create_deep_merge_strategy)
+merge_strategy_registry.register(backend="reducer", factory=_create_reducer_strategy)
+
+
 # Convenience factory functions
 def create_merge_strategy(
     strategy_type: str = "last_write_wins",
@@ -534,18 +563,7 @@ def create_merge_strategy(
     Returns:
         Configured MergeStrategy instance
     """
-    strategies: dict[str, type[MergeStrategy]] = {
-        "last_write_wins": LastWriteWinsStrategy,
-        "raise_on_conflict": RaiseOnConflictStrategy,
-        "deep_merge": DeepMergeStrategy,
-        "reducer": ReducerMergeStrategy,
-    }
-
-    if strategy_type not in strategies:
-        raise ValueError(f"Unknown strategy: {strategy_type}. Available: {list(strategies.keys())}")
-
-    strategy_class = strategies[strategy_type]
-    return strategy_class(**kwargs)
+    return merge_strategy_registry.create(backend=strategy_type, **kwargs)
 
 
 # Default strategy instance

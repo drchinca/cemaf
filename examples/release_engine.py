@@ -46,6 +46,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+
+def smoke_skip_reason() -> str | None:
+    """Defers to its dedicated guard; this argparse CLI writes artifacts the smoke harness shouldn't."""
+    return "covered by test_release_engine_example.py (writes artifacts; argparse main)"
+
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.agents.selection import Capability, DefaultAgentSelector

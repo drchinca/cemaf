@@ -6,7 +6,6 @@ import os
 from typing import Any
 
 from cemaf.catalog.protocols import ModelCatalog
-from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.provider_registry import ProviderRegistry
 
@@ -50,14 +49,23 @@ def create_model_catalog_from_config(
     settings: Settings | None = None,
 ) -> ModelCatalog:
     """Create a model catalog from `Settings` configuration."""
-
-    cfg = settings or load_settings_from_env_sync()
-    backend_name = backend or cfg.catalog.backend
+    if settings:
+        backend_name = str(backend or settings.catalog.backend)
+        token = settings.catalog.api_key
+        endpoint = settings.catalog.endpoint
+        timeout_seconds = settings.catalog.timeout_seconds
+        default_limit = settings.catalog.default_limit
+    else:
+        backend_name = str(backend or os.getenv("CEMAF_CATALOG_BACKEND", "huggingface"))
+        token = os.getenv("CEMAF_CATALOG_API_KEY", "")
+        endpoint = os.getenv("CEMAF_CATALOG_ENDPOINT", "https://huggingface.co")
+        timeout_seconds = float(os.getenv("CEMAF_CATALOG_TIMEOUT_SECONDS", "30.0"))
+        default_limit = int(os.getenv("CEMAF_CATALOG_DEFAULT_LIMIT", "25"))
 
     return catalog_registry.create(
         backend=backend_name,
-        token=cfg.catalog.api_key,
-        endpoint=cfg.catalog.endpoint,
-        timeout_seconds=cfg.catalog.timeout_seconds,
-        default_limit=cfg.catalog.default_limit,
+        token=token,
+        endpoint=endpoint,
+        timeout_seconds=timeout_seconds,
+        default_limit=default_limit,
     )

@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # Top-level user-facing docs
 TOP_LEVEL = [
     "README.md", "CONTRIBUTING.md", "CHANGELOG.md", "HOW_TO_USE.md",
-    "CLAUDE.md", "OPEN.md", "CODE_OF_CONDUCT.md",
+    "AGENTS.md", "CLAUDE.md", "OPEN.md", "CODE_OF_CONDUCT.md",
 ]
 
 
@@ -87,11 +87,15 @@ def audit() -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
                 continue
             target = (src.parent / path).resolve()
             if not target.exists():
-                broken_file.append((rel_src, link, str(target.relative_to(REPO_ROOT)) if target.is_relative_to(REPO_ROOT) else str(target)))
+                resolved = (
+                    str(target.relative_to(REPO_ROOT))
+                    if target.is_relative_to(REPO_ROOT)
+                    else str(target)
+                )
+                broken_file.append((rel_src, link, resolved))
                 continue
-            if anchor and target.suffix == ".md":
-                if anchor not in headings_of(target):
-                    broken_anchor.append((rel_src, link, str(target.relative_to(REPO_ROOT))))
+            if anchor and target.suffix == ".md" and anchor not in headings_of(target):
+                broken_anchor.append((rel_src, link, str(target.relative_to(REPO_ROOT))))
     return broken_file, broken_anchor
 
 

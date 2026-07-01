@@ -1,9 +1,10 @@
 """Tests for RedisRateLimiter using mocked Redis calls."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimitExceeded, RateLimiterMetrics
+import pytest
+
+from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiterMetrics, RateLimitExceeded
 from cemaf.resilience.redis_rate_limiter import RedisRateLimiter
 
 

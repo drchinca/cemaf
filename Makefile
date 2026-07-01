@@ -6,7 +6,7 @@
 
 .PHONY: help install test test-unit test-integration coverage lint typecheck format \
         benchmark benchmark-report \
-        check audit-links audit-graph audit-traces audit-all \
+        check audit-links audit-imports audit-loop-ops audit-graph audit-traces audit-all \
         demo demo-step traces showcase docs-search clean
 
 # ---- self-documenting menu -------------------------------------------------
@@ -64,13 +64,19 @@ benchmark-report:  ## Generate local JSON + Markdown benchmark evidence
 audit-links:  ## Verify every internal markdown link + anchor (83 .md files)
 	uv run python docs/architecture/scripts/check_doc_links.py
 
+audit-imports:  ## Verify documented cemaf imports in all markdown docs
+	python3 docs/architecture/scripts/check_doc_imports.py
+
+audit-loop-ops:  ## Verify loop-operation policy files stay aligned
+	uv run python docs/architecture/scripts/check_loop_ops.py
+
 audit-graph:  ## Verify the showcase's module-graph matches src/cemaf/ AST
 	uv run python docs/architecture/build_graph_data.py --check
 
 audit-traces:  ## Verify inlined showcase TRACE_DATA matches on-disk JSONs
 	uv run python docs/architecture/scripts/produce_dag_trace.py --check
 
-audit-all: audit-links audit-graph audit-traces  ## Run every audit (CI-equivalent)
+audit-all: audit-links audit-imports audit-loop-ops audit-graph audit-traces  ## Run every audit (CI-equivalent)
 	@echo "✓ all audits clean"
 
 check: lint typecheck audit-all  ## Pre-PR: lint + typecheck + every audit

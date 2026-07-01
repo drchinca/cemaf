@@ -4,17 +4,19 @@ Production-grade persistence for single-host deployments:
 - One long-lived aiosqlite connection per store instance (opened lazily)
 - WAL journal mode for concurrent readers + one writer without blocking
 - busy_timeout so SQLITE_BUSY turns into a bounded wait instead of an error
-- process-local file locks serialize connection setup and writes to each db file
+- asyncio.Lock serializes in-process writes to the connection
+- a process-global writer lane (per db path) serializes writes across separate
+  store instances / event loops / threads pointed at the same database, so
+  SQLITE_BUSY cannot occur even when busy_timeout is 0
 - explicit close() for graceful shutdown
 """
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Lock
 
 import aiosqlite
 
@@ -22,6 +24,26 @@ from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.core.utils import utc_now
 from cemaf.memory.base import MemoryItem
+
+# Process-global writer locks keyed by absolute db path. A per-instance
+# asyncio.Lock only serializes within one event loop; when multiple store
+# instances (possibly on different threads / loops) target the same file, a
+# shared OS-thread lock is needed to keep writes single-file and avoid
+# SQLITE_BUSY. The registry itself is guarded by _WRITER_LANES_GUARD.
+_WRITER_LANES: dict[str, threading.Lock] = {}
+_WRITER_LANES_GUARD = threading.Lock()
+
+
+def _writer_lane(db_path: str) -> threading.Lock:
+    """Return the process-global write lock for a db path (in-memory dbs excepted)."""
+    key = str(Path(db_path).resolve()) if db_path != ":memory:" else db_path
+    with _WRITER_LANES_GUARD:
+        lane = _WRITER_LANES.get(key)
+        if lane is None:
+            lane = threading.Lock()
+            _WRITER_LANES[key] = lane
+        return lane
+
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS memory_items (
@@ -42,32 +64,6 @@ _CREATE_INDEX_EXPIRES = (
     "CREATE INDEX IF NOT EXISTS idx_memory_items_expires_at "
     "ON memory_items(expires_at) WHERE expires_at IS NOT NULL"
 )
-
-_DB_LOCKS_GUARD = Lock()
-_DB_LOCKS: dict[str, Lock] = {}
-
-
-def _db_lock_for(path: str) -> Lock:
-    """Return a process-local lock for a canonical SQLite database path."""
-    key = str(Path(path).expanduser().resolve())
-    with _DB_LOCKS_GUARD:
-        lock = _DB_LOCKS.get(key)
-        if lock is None:
-            lock = Lock()
-            _DB_LOCKS[key] = lock
-        return lock
-
-
-@asynccontextmanager
-async def _locked_db(path: str) -> AsyncIterator[None]:
-    """Acquire the process-local db lock without blocking the event loop."""
-    lock = _db_lock_for(path)
-    if not lock.acquire(blocking=False):
-        await asyncio.to_thread(lock.acquire)
-    try:
-        yield
-    finally:
-        lock.release()
 
 
 def _row_to_item(row: aiosqlite.Row) -> MemoryItem:
@@ -102,36 +98,66 @@ class SqliteMemoryStore:
         self._journal_mode = journal_mode
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
+        # Shared across every store instance pointed at the same db path.
+        self._writer_lane = _writer_lane(db_path)
+
+    async def __aenter__(self) -> SqliteMemoryStore:
+        """Allow `async with` usage for deterministic connection cleanup."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> None:
+        await self.close()
 
     async def _connection(self) -> aiosqlite.Connection:
         """Return the lazy-initialized, pragma-tuned connection."""
         if self._conn is not None:
             return self._conn
-        async with _locked_db(self._db_path):
-            if self._conn is not None:
+        async with self._lock:
+            if self._conn is not None:  # double-check after acquire
                 return self._conn
-            async with self._lock:
-                if self._conn is not None:  # double-check after acquire
-                    return self._conn
-                conn = await aiosqlite.connect(
-                    self._db_path,
-                    timeout=self._busy_timeout_ms / 1000,
-                )
+            conn = await aiosqlite.connect(self._db_path)
+            # Setting WAL mode and creating the schema take a write lock. Hold the
+            # process-global writer lane so concurrent instances opening the same
+            # db (each with its own event loop / thread) can't trip SQLITE_BUSY
+            # during setup even when busy_timeout is 0.
+            await self._acquire_writer_lane()
+            try:
                 # WAL gives us concurrent readers + a single writer without
-                # locking the whole file; essential under any concurrent load.
+                # locking the whole file — essential under any concurrent load.
                 await conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
                 # busy_timeout turns SQLITE_BUSY into a bounded wait instead of
-                # an immediate error. 5s is enough to ride out any in-process
-                # writer contention.
+                # an immediate error.
                 await conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
-                # synchronous=NORMAL is the WAL-recommended level: durable on
+                # synchronous=NORMAL is the WAL-recommended level — durable on
                 # crash but doesn't fsync on every commit.
                 await conn.execute("PRAGMA synchronous=NORMAL")
                 await conn.execute(_CREATE_TABLE)
                 await conn.execute(_CREATE_INDEX_EXPIRES)
                 await conn.commit()
-                self._conn = conn
+            finally:
+                self._release_writer_lane()
+            self._conn = conn
         return self._conn
+
+    async def _acquire_writer_lane(self) -> None:
+        """Acquire the process-global write lock without blocking the event loop.
+
+        Polls non-blockingly and yields to the loop between attempts, so neither
+        the loop nor the default thread pool is starved when many coroutines (or
+        threads with their own loops) contend for the same db path.
+        """
+        backoff = 0.0005
+        while not self._writer_lane.acquire(blocking=False):
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 0.05)
+
+    def _release_writer_lane(self) -> None:
+        self._writer_lane.release()
 
     async def close(self) -> None:
         """Close the underlying connection. Idempotent."""
@@ -161,36 +187,44 @@ class SqliteMemoryStore:
     async def set(self, item: MemoryItem) -> None:
         """Store or replace a memory item."""
         conn = await self._connection()
-        async with _locked_db(self._db_path):
-            await conn.execute(
-                "INSERT OR REPLACE INTO memory_items "
-                "(scope, key, value_json, confidence, created_at, "
-                "updated_at, ttl_seconds, expires_at, scope_path) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    item.scope.value,
-                    item.key,
-                    json.dumps(item.value),
-                    float(item.confidence),
-                    item.created_at.isoformat(),
-                    item.updated_at.isoformat(),
-                    item.ttl.total_seconds() if item.ttl is not None else None,
-                    item.expires_at.isoformat() if item.expires_at is not None else None,
-                    item.scope_path,
-                ),
-            )
-            await conn.commit()
+        await self._acquire_writer_lane()
+        try:
+            async with self._lock:
+                await conn.execute(
+                    "INSERT OR REPLACE INTO memory_items "
+                    "(scope, key, value_json, confidence, created_at, "
+                    "updated_at, ttl_seconds, expires_at, scope_path) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        item.scope.value,
+                        item.key,
+                        json.dumps(item.value),
+                        float(item.confidence),
+                        item.created_at.isoformat(),
+                        item.updated_at.isoformat(),
+                        item.ttl.total_seconds() if item.ttl is not None else None,
+                        item.expires_at.isoformat() if item.expires_at is not None else None,
+                        item.scope_path,
+                    ),
+                )
+                await conn.commit()
+        finally:
+            self._release_writer_lane()
 
     async def delete(self, scope: MemoryScope, key: str) -> bool:
         """Delete a memory item, returning True if it existed."""
         conn = await self._connection()
-        async with _locked_db(self._db_path):
-            cursor = await conn.execute(
-                "DELETE FROM memory_items WHERE scope = ? AND key = ?",
-                (scope.value, key),
-            )
-            await conn.commit()
-            return bool(cursor.rowcount > 0)
+        await self._acquire_writer_lane()
+        try:
+            async with self._lock:
+                cursor = await conn.execute(
+                    "DELETE FROM memory_items WHERE scope = ? AND key = ?",
+                    (scope.value, key),
+                )
+                await conn.commit()
+                return bool(cursor.rowcount > 0)
+        finally:
+            self._release_writer_lane()
 
     async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]:
         """List all non-expired items in a scope."""
@@ -209,10 +243,51 @@ class SqliteMemoryStore:
         """Remove all expired items, returning count removed."""
         conn = await self._connection()
         now_iso = utc_now().isoformat()
-        async with _locked_db(self._db_path):
-            cursor = await conn.execute(
-                "DELETE FROM memory_items WHERE expires_at IS NOT NULL AND expires_at < ?",
-                (now_iso,),
-            )
-            await conn.commit()
-            return int(cursor.rowcount)
+        await self._acquire_writer_lane()
+        try:
+            async with self._lock:
+                cursor = await conn.execute(
+                    "DELETE FROM memory_items WHERE expires_at IS NOT NULL AND expires_at < ?",
+                    (now_iso,),
+                )
+                await conn.commit()
+                return int(cursor.rowcount)
+        finally:
+            self._release_writer_lane()
+
+
+async def load_items_by_scopes(
+    *,
+    db_path: str | Path,
+    scopes: tuple[MemoryScope, ...],
+) -> tuple[MemoryItem, ...]:
+    """Load all persisted items for the given scopes through ``SqliteMemoryStore``."""
+
+    store = SqliteMemoryStore(db_path=str(db_path))
+    try:
+        items: list[MemoryItem] = []
+        for scope in scopes:
+            items.extend(await store.list_by_scope(scope))
+        return tuple(items)
+    finally:
+        await store.close()
+
+
+def load_items_by_scopes_sync(
+    *,
+    db_path: str | Path,
+    scopes: tuple[MemoryScope, ...],
+) -> tuple[MemoryItem, ...]:
+    """Synchronous wrapper for ``load_items_by_scopes`` that is safe in or out of an event loop."""
+
+    async def _load() -> tuple[MemoryItem, ...]:
+        return await load_items_by_scopes(db_path=db_path, scopes=scopes)
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_load())
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(lambda: asyncio.run(_load()))
+        return future.result()

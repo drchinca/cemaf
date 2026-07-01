@@ -15,7 +15,9 @@ from cemaf.ingestion.adapters import (
 )
 from cemaf.ingestion.factories import (
     AdapterConfig,
+    adapter_registry,
     create_adapter,
+    create_adapter_from_config,
     create_chunk_adapter,
     create_json_adapter,
     create_table_adapter,
@@ -322,10 +324,50 @@ class TestFactories:
 
     def test_create_adapter_invalid_type_raises(self) -> None:
         """Unknown adapter type raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="adapter_registry.register") as exc_info:
             create_adapter("invalid_type")
 
-        assert "Unknown adapter type" in str(exc_info.value)
+        assert "Unsupported adapter backend" in str(exc_info.value)
+
+    def test_register_custom_adapter_backend(self) -> None:
+        """Custom adapter backends can be registered without source edits."""
+        captured: dict[str, object] = {}
+
+        class CustomAdapter(TextAdapter):
+            pass
+
+        def factory(**kwargs: object) -> CustomAdapter:
+            captured.update(kwargs)
+            return CustomAdapter(max_tokens=int(kwargs["max_tokens"]))
+
+        adapter_registry.register(backend="unit-custom-adapter", factory=factory)
+
+        adapter = create_adapter("unit-custom-adapter", max_tokens=123)
+
+        assert isinstance(adapter, CustomAdapter)
+        assert adapter.max_tokens == 123
+        assert captured["max_tokens"] == 123
+
+    def test_create_registered_adapter_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Environment-selected adapter backends use the registry."""
+        captured: dict[str, object] = {}
+
+        class EnvAdapter(TextAdapter):
+            pass
+
+        def factory(**kwargs: object) -> EnvAdapter:
+            captured.update(kwargs)
+            return EnvAdapter(max_tokens=int(kwargs["max_tokens"]))
+
+        adapter_registry.register(backend="env-custom-adapter", factory=factory)
+        monkeypatch.setenv("CEMAF_ADAPTER_TYPE", "env-custom-adapter")
+        monkeypatch.setenv("CEMAF_ADAPTER_MAX_TOKENS", "321")
+
+        adapter = create_adapter_from_config()
+
+        assert isinstance(adapter, EnvAdapter)
+        assert adapter.max_tokens == 321
+        assert captured["max_tokens"] == 321
 
     def test_convenience_factories(self) -> None:
         """Convenience factories create correct types."""

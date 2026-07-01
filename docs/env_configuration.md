@@ -90,22 +90,29 @@ While not in core CEMAF, you can extend it with graph databases:
 
 ### 6. Context Selection Algorithms
 
-CEMAF provides a `ContextSelectionAlgorithm` protocol for custom selection strategies:
+CEMAF provides `ContextSelectionAlgorithm` and `TokenEstimator` protocols for custom context assembly:
 
 - **Greedy** (Default, fast, prioritizes high-priority sources)
 - **Knapsack** (Optimizes value/priority ratio)
 - **Optimal** (Exhaustive search, slower)
-- **Custom** (Implement `ContextSelectionAlgorithm` protocol)
+- **Custom selection algorithms** (Implement `ContextSelectionAlgorithm`, register with `context_selection_algorithm_registry`, select with `CEMAF_CONTEXT_SELECTION_ALGORITHM`)
+- **Custom token estimators** (Implement `TokenEstimator`, register with `token_estimator_registry`, select with `CEMAF_CONTEXT_TOKEN_ESTIMATOR_BACKEND`)
 
 Example custom algorithm:
 ```python
-from cemaf.context.algorithm import ContextSelectionAlgorithm, SelectionResult
+from cemaf.context import context_selection_algorithm_registry
+from cemaf.context.algorithm import SelectionResult
 from cemaf.context.budget import TokenBudget
 
 class MyCustomAlgorithm:
     def select_sources(self, sources, budget: TokenBudget) -> SelectionResult:
         # Your custom logic here
         ...
+
+context_selection_algorithm_registry.register(
+    backend="my_algorithm",
+    factory=lambda **kwargs: MyCustomAlgorithm(),
+)
 ```
 
 ### 7. Visualization Tools (Extensible)
@@ -119,12 +126,63 @@ CEMAF supports different visualization backends for DAGs:
 
 ### 8. Persistence Backends
 
-CEMAF supports different persistence backends for projects, runs, and artifacts:
+CEMAF defines persistence protocols for projects, runs, content, and artifacts. Concrete persistence stores are application-provided: register a backend with the relevant persistence registry, then select it with the `CEMAF_PERSISTENCE_*_STORE_BACKEND` environment variables.
 
-- **None** (In-memory, default for development)
-- **PostgreSQL** (Production, full-featured)
-- **SQLite** (Development, file-based)
-- **Custom** (Implement persistence protocols)
+### 9. MCP Transports
+
+CEMAF selects MCP transports through `mcp_transport_registry`:
+
+- **stdio** (Default CLI/server process integration)
+- **sse** (HTTP Server-Sent Events; configure with `CEMAF_MCP_SSE_BASE_URL` or `CEMAF_MCP_TRANSPORT_URL`)
+- **websocket** (Configure with `CEMAF_MCP_WEBSOCKET_URL` or `CEMAF_MCP_TRANSPORT_URL`)
+- **Custom transports** (implement `Transport`, register with `mcp_transport_registry`, select with `CEMAF_MCP_TRANSPORT_TYPE`)
+
+### 10. Model Catalogs
+
+CEMAF selects model catalogs through `catalog_registry`:
+
+- **huggingface** (Default external model catalog)
+- **Custom catalogs** (implement `ModelCatalog`, register with `catalog_registry`, select with `CEMAF_CATALOG_BACKEND`)
+
+### 11. Event Buses
+
+CEMAF selects event buses through `event_bus_registry`:
+
+- **async** (Default concurrent in-process event bus)
+- **memory** (Sequential in-process event bus)
+- **redis** (Durable Redis Streams event bus; configure with `CEMAF_EVENTS_REDIS_URL`)
+- **Custom buses** (implement `EventBus`, register with `event_bus_registry`, select with `CEMAF_EVENTS_BACKEND`)
+
+### 12. Evaluators
+
+CEMAF resolves evaluator names through `evaluator_registry`:
+
+- **exact_match**, **contains**, **regex**, **length**, **json_valid** (Deterministic built-ins)
+- **groundedness**, **tool_use_success** (Grounding/tool-use built-ins)
+- **Custom evaluators** (implement `Evaluator`, register with `evaluator_registry`, resolve by name through eval tools and agents)
+
+### 13. Schedulers
+
+CEMAF selects schedulers through `scheduler_registry`:
+
+- **async** (Default in-process async scheduler)
+- **mock** (Testing scheduler)
+- **Custom schedulers** (implement `Scheduler`, register with `scheduler_registry`, select with `CEMAF_SCHEDULER_BACKEND`)
+
+### 14. Moderation Rules and Gates
+
+CEMAF composes moderation through `moderation_rule_registry` and `moderation_gate_registry`:
+
+- **keyword**, **pii**, **length**, **pattern** (Built-in moderation rules)
+- **pre_flight**, **post_flight**, **composite** (Built-in moderation gates)
+- **Custom rules/gates** (implement `ModerationRule` or `ModerationGate`, register with the relevant registry, compose with `create_moderation_rule()` / `create_moderation_gate()`)
+
+### 15. Validation Rules
+
+CEMAF composes validation through `validation_rule_registry`:
+
+- **schema**, **length**, **regex**, **range**, **required_fields** (Built-in validation rules)
+- **Custom validation rules** (implement `Rule`, register with `validation_rule_registry`, compose with `create_validation_rule()` or `create_validation_pipeline(rule_specs=...)`)
 
 ## Configuration Priority
 
@@ -180,7 +238,9 @@ PINECONE_API_KEY=${PINECONE_API_KEY}
 
 # Memory
 CEMAF_MEMORY_BACKEND=postgres
-MEMORY_POSTGRES_CONNECTION_STRING=${DATABASE_URL}
+CEMAF_POSTGRES_DSN=${DATABASE_URL}
+CEMAF_MEMORY_MAX_ITEMS=10000
+CEMAF_MEMORY_DEFAULT_TTL_SECONDS=3600
 
 # Observability
 CEMAF_OBSERVABILITY_ENABLE_TRACING=true

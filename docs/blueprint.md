@@ -182,7 +182,8 @@ compiled = compiler.compile(
 Defines expected output structure:
 
 ```python
-from cemaf.blueprint import OutputContract, DataContract
+from cemaf.blueprint.policies import OutputContract
+from cemaf.blueprint.contracts import DataContract
 
 contract = OutputContract(
     schema=DataContract(
@@ -201,7 +202,7 @@ contract = OutputContract(
 Defines execution constraints:
 
 ```python
-from cemaf.blueprint import ExecutionPolicy
+from cemaf.blueprint.policies import ExecutionPolicy
 
 policy = ExecutionPolicy(
     max_iterations=3,
@@ -215,7 +216,7 @@ policy = ExecutionPolicy(
 Defines security requirements:
 
 ```python
-from cemaf.blueprint import SecurityPolicy
+from cemaf.blueprint.policies import SecurityPolicy
 
 security = SecurityPolicy(
     require_moderation=True,
@@ -244,20 +245,22 @@ prompt = blueprint.to_prompt()
 Use factory methods for common patterns:
 
 ```python
-from cemaf.blueprint import create_content_blueprint, create_analysis_blueprint
+from cemaf.blueprint import BlueprintBuilder
 
 # Content generation blueprint
-content_bp = create_content_blueprint(
-    id="blog",
-    objective="Generate blog post",
-    tone="professional",
+content_bp = (
+    BlueprintBuilder("blog")
+    .goal("Generate blog post")
+    .style(tone="professional")
+    .build()
 )
 
 # Analysis blueprint
-analysis_bp = create_analysis_blueprint(
-    id="sales_analysis",
-    objective="Analyze sales data",
-    methodology="quantitative",
+analysis_bp = (
+    BlueprintBuilder("sales_analysis")
+    .goal("Analyze sales data")
+    .entity("methodology", "quantitative")
+    .build()
 )
 ```
 

@@ -10,12 +10,12 @@ import asyncio
 from pydantic import BaseModel, Field
 
 from cemaf import (
+    DAG,
     Agent,
     AgentContext,
+    AgentRegistry,
     AgentResult,
     AgentState,
-    AgentRegistry,
-    DAG,
     Node,
     create_executor,
 )

@@ -16,6 +16,8 @@ from cemaf.context.merge import (
     MergeStrategy,
     RaiseOnConflictStrategy,
     ReducerMergeStrategy,
+    create_merge_strategy,
+    merge_strategy_registry,
 )
 
 
@@ -516,3 +518,40 @@ class TestMergeConflictError:
 
         assert "conflict" in str(error).lower()
         assert "config" in str(error)
+
+
+class TestCreateMergeStrategy:
+    """Tests for registry-backed merge strategy construction."""
+
+    def test_create_builtin_strategies(self) -> None:
+        assert isinstance(create_merge_strategy("last_write_wins"), LastWriteWinsStrategy)
+        assert isinstance(create_merge_strategy("raise_on_conflict"), RaiseOnConflictStrategy)
+        assert isinstance(create_merge_strategy("deep_merge"), DeepMergeStrategy)
+        assert isinstance(create_merge_strategy("reducer"), ReducerMergeStrategy)
+
+    def test_unknown_strategy_mentions_registry(self) -> None:
+        with pytest.raises(ValueError, match="merge_strategy_registry.register"):
+            create_merge_strategy("crdt")
+
+    def test_supports_custom_registered_strategy(self) -> None:
+        created: dict[str, object] = {}
+
+        class PreferBaseStrategy:
+            def merge(self, base: Context, branches: list[Context]) -> MergeResult:
+                return MergeResult(success=True, context=base)
+
+        def _factory(**kwargs):
+            created["args"] = kwargs
+            return PreferBaseStrategy()
+
+        merge_strategy_registry.register(backend="prefer-base-test", factory=_factory)
+
+        strategy = create_merge_strategy("prefer-base-test", priority="base")
+        result = strategy.merge(
+            Context(data={"source": "base"}),
+            [Context(data={"source": "branch"})],
+        )
+
+        assert isinstance(strategy, MergeStrategy)
+        assert result.context.get("source") == "base"
+        assert created["args"]["priority"] == "base"

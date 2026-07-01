@@ -204,7 +204,7 @@ class DocumentAnalysisSkill:
 Skills using RLM work seamlessly with Agents:
 
 ```python
-from cemaf.agents.base import Agent, AgentContext, AgentGoal, AgentResult
+from cemaf.agents.base import Agent, AgentContext, AgentResult
 
 class AnalystAgent:
     """Agent that analyzes large datasets using RLM."""
@@ -222,7 +222,7 @@ class AnalystAgent:
 
     async def run(
         self,
-        goal: AgentGoal,
+        goal: Any,
         context: AgentContext,
     ) -> AgentResult:
         # Execute analysis skill with RLM

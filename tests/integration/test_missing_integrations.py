@@ -279,8 +279,7 @@ def sqlite_db_path(tmp_path: Path) -> str:
 @pytest.mark.asyncio
 async def test_sqlite_store_set_get_round_trip(sqlite_db_path: str) -> None:
     """Store an item and retrieve it by scope+key."""
-    store = SqliteMemoryStore(db_path=sqlite_db_path)
-    try:
+    async with SqliteMemoryStore(db_path=sqlite_db_path) as store:
         item = MemoryItem(
             scope=MemoryScope.PROJECT,
             key="architecture-decision",
@@ -295,15 +294,12 @@ async def test_sqlite_store_set_get_round_trip(sqlite_db_path: str) -> None:
         assert retrieved.key == "architecture-decision"
         assert retrieved.value == {"decision": "use protocols over ABCs"}
         assert float(retrieved.confidence) == pytest.approx(0.95)
-    finally:
-        await store.close()
 
 
 @pytest.mark.asyncio
 async def test_sqlite_store_list_by_scope(sqlite_db_path: str) -> None:
     """list_by_scope returns all non-expired items in the given scope."""
-    store = SqliteMemoryStore(db_path=sqlite_db_path)
-    try:
+    async with SqliteMemoryStore(db_path=sqlite_db_path) as store:
         items = [
             MemoryItem(scope=MemoryScope.PROJECT, key="fact-1", value={"data": "a"}),
             MemoryItem(scope=MemoryScope.PROJECT, key="fact-2", value={"data": "b"}),
@@ -320,15 +316,12 @@ async def test_sqlite_store_list_by_scope(sqlite_db_path: str) -> None:
         session_items = await store.list_by_scope(scope=MemoryScope.SESSION)
         assert len(session_items) == 1
         assert session_items[0].key == "temp-1"
-    finally:
-        await store.close()
 
 
 @pytest.mark.asyncio
 async def test_sqlite_store_cleanup_expired(sqlite_db_path: str) -> None:
     """cleanup_expired removes items past their expiration time."""
-    store = SqliteMemoryStore(db_path=sqlite_db_path)
-    try:
+    async with SqliteMemoryStore(db_path=sqlite_db_path) as store:
         # Store an already-expired item (TTL in the past)
         expired_item = MemoryItem(
             scope=MemoryScope.SESSION,
@@ -354,15 +347,12 @@ async def test_sqlite_store_cleanup_expired(sqlite_db_path: str) -> None:
 
         # Permanent item survives
         assert await store.get(scope=MemoryScope.PROJECT, key="permanent") is not None
-    finally:
-        await store.close()
 
 
 @pytest.mark.asyncio
 async def test_sqlite_store_delete(sqlite_db_path: str) -> None:
     """Delete removes an item and returns True; missing key returns False."""
-    store = SqliteMemoryStore(db_path=sqlite_db_path)
-    try:
+    async with SqliteMemoryStore(db_path=sqlite_db_path) as store:
         item = MemoryItem(
             scope=MemoryScope.PROJECT,
             key="to-delete",
@@ -373,5 +363,3 @@ async def test_sqlite_store_delete(sqlite_db_path: str) -> None:
         assert await store.delete(scope=MemoryScope.PROJECT, key="to-delete") is True
         assert await store.get(scope=MemoryScope.PROJECT, key="to-delete") is None
         assert await store.delete(scope=MemoryScope.PROJECT, key="to-delete") is False
-    finally:
-        await store.close()

@@ -5,23 +5,51 @@ Provides convenient ways to create citation trackers with sensible defaults
 while maintaining dependency injection principles.
 
 Extension Point:
-    This module is designed for extension. The create_citation_tracker_from_config()
-    function includes a clear "EXTEND HERE" section where you can add
-    your own tracker implementations.
+    Register custom citation tracker backends with citation_tracker_registry.register(...).
 """
 
 import os
+from typing import Any
 
 from cemaf.citation.mock import MockCitationTracker
 from cemaf.citation.protocols import CitationTracker as CitationTrackerProtocol
 from cemaf.citation.tracker import CitationTracker
 from cemaf.config.protocols import Settings
+from cemaf.core.provider_registry import ProviderRegistry
+from cemaf.events.protocols import EventBus
+
+citation_tracker_registry: ProviderRegistry[CitationTrackerProtocol] = ProviderRegistry(
+    name="citation_tracker"
+)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() == "true"
+
+
+def _create_default_citation_tracker(**kwargs: Any) -> CitationTrackerProtocol:
+    return CitationTracker(event_bus=kwargs.get("event_bus"))  # type: ignore[return-value]
+
+
+def _create_mock_citation_tracker(**kwargs: Any) -> CitationTrackerProtocol:
+    return MockCitationTracker()  # type: ignore[return-value]
+
+
+citation_tracker_registry.register(backend="default", factory=_create_default_citation_tracker)
+citation_tracker_registry.register(backend="mock", factory=_create_mock_citation_tracker)
 
 
 def create_citation_tracker(
     backend: str = "default",
     enable_tracking: bool = True,
     require_citations: bool = False,
+    citation_format: str = "apa",
+    enable_validation: bool = True,
+    event_bus: EventBus | None = None,
+    **backend_options: Any,
 ) -> CitationTrackerProtocol:
     """
     Factory for CitationTracker with sensible defaults.
@@ -30,6 +58,9 @@ def create_citation_tracker(
         backend: Tracker backend (default, mock)
         enable_tracking: Enable citation tracking
         require_citations: Require citations for all claims
+        citation_format: Citation style requested by configuration
+        enable_validation: Enable citation validation
+        event_bus: Optional event bus for citation events
 
     Returns:
         Configured CitationTracker instance
@@ -44,17 +75,22 @@ def create_citation_tracker(
         # Mock for testing
         tracker = create_citation_tracker(backend="mock")
     """
-    if backend == "default":
-        # CitationTracker doesn't accept these parameters
-        # They are kept in factory API for future extension
-        return CitationTracker()  # type: ignore[return-value]
-    elif backend == "mock":
-        return MockCitationTracker()  # type: ignore[return-value]
-    else:
-        raise ValueError(f"Unsupported citation tracker backend: {backend}")
+    return citation_tracker_registry.create(
+        backend=backend,
+        enable_tracking=enable_tracking,
+        require_citations=require_citations,
+        citation_format=citation_format,
+        enable_validation=enable_validation,
+        event_bus=event_bus,
+        **backend_options,
+    )
 
 
-def create_citation_tracker_from_config(settings: Settings | None = None) -> CitationTrackerProtocol:
+def create_citation_tracker_from_config(
+    settings: Settings | None = None,
+    *,
+    event_bus: EventBus | None = None,
+) -> CitationTrackerProtocol:
     """
     Create CitationTracker from environment configuration.
 
@@ -72,49 +108,28 @@ def create_citation_tracker_from_config(settings: Settings | None = None) -> Cit
         tracker = create_citation_tracker_from_config()
     """
     backend = os.getenv("CEMAF_CITATION_BACKEND", "default")
-    enable_tracking = os.getenv("CEMAF_CITATION_ENABLE_TRACKING", "true").lower() == "true"
-    require_citations = os.getenv("CEMAF_CITATION_REQUIRE_CITATIONS", "false").lower() == "true"
+    enable_tracking = _env_bool(
+        "CEMAF_CITATION_ENABLE_TRACKING",
+        settings.citation.enable_tracking if settings else True,
+    )
+    require_citations = _env_bool(
+        "CEMAF_CITATION_REQUIRE_CITATIONS",
+        settings.citation.require_citations if settings else False,
+    )
+    citation_format = os.getenv(
+        "CEMAF_CITATION_CITATION_FORMAT",
+        settings.citation.citation_format if settings else "apa",
+    )
+    enable_validation = _env_bool(
+        "CEMAF_CITATION_ENABLE_VALIDATION",
+        settings.citation.enable_validation if settings else True,
+    )
 
-    # BUILT-IN IMPLEMENTATIONS
-    if backend in ("default", "mock"):
-        return create_citation_tracker(
-            backend=backend,
-            enable_tracking=enable_tracking,
-            require_citations=require_citations,
-        )
-
-    # ============================================================================
-    # EXTEND HERE: Bring Your Own Citation Tracker
-    # ============================================================================
-    # This is the extension point for custom citation tracker backends.
-    #
-    # To add your own implementation:
-    # 1. Implement the CitationTracker protocol (see cemaf.citation.protocols)
-    # 2. Add your backend case below
-    # 3. Read configuration from environment variables
-    #
-    # Example (Database-backed):
-    #   elif backend == "database":
-    #       from your_package import DatabaseCitationTracker
-    #
-    #       db_url = os.getenv("DATABASE_URL")
-    #       return DatabaseCitationTracker(
-    #           connection_string=db_url,
-    #           enable_tracking=enable_tracking,
-    #       )
-    #
-    # Example (External service):
-    #   elif backend == "service":
-    #       from your_package import ServiceCitationTracker
-    #
-    #       api_url = os.getenv("CITATION_SERVICE_URL")
-    #       api_key = os.getenv("CITATION_SERVICE_API_KEY")
-    #       return ServiceCitationTracker(url=api_url, api_key=api_key)
-    # ============================================================================
-
-    raise ValueError(
-        f"Unsupported citation tracker backend: {backend}. "
-        f"Supported: default, mock. "
-        f"To add your own, extend create_citation_tracker_from_config() "
-        f"in cemaf/citation/factories.py"
+    return create_citation_tracker(
+        backend=backend,
+        enable_tracking=enable_tracking,
+        require_citations=require_citations,
+        citation_format=citation_format,
+        enable_validation=enable_validation,
+        event_bus=event_bus,
     )

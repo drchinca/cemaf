@@ -11,7 +11,10 @@ from cemaf.scheduler.gates import (
     LockGate,
     SessionCountGate,
     TimeGate,
+    create_execution_gate,
+    create_execution_gates,
     evaluate_gates,
+    execution_gate_registry,
 )
 
 # ---------------------------------------------------------------------------
@@ -247,3 +250,69 @@ class TestEvaluateGates:
         result = await evaluate_gates(gates=gates)
         assert result.all_passed is True
         assert len(result.results) == 3
+
+
+# ---------------------------------------------------------------------------
+# Registry-backed factories
+# ---------------------------------------------------------------------------
+
+
+class TestExecutionGateFactories:
+    def test_create_builtin_gates(self) -> None:
+        time_gate = create_execution_gate("time", min_interval_seconds=60)
+        session_gate = create_execution_gate("session_count", min_sessions=3, current_count=1)
+        lock_gate = create_execution_gate("lock")
+
+        assert isinstance(time_gate, TimeGate)
+        assert isinstance(session_gate, SessionCountGate)
+        assert isinstance(lock_gate, LockGate)
+
+    def test_create_gate_aliases(self) -> None:
+        assert isinstance(create_execution_gate("time_gate"), TimeGate)
+        assert isinstance(create_execution_gate("session_count_gate"), SessionCountGate)
+        assert isinstance(create_execution_gate("lock_gate"), LockGate)
+
+    def test_unknown_gate_mentions_registry(self) -> None:
+        with pytest.raises(ValueError, match="execution_gate_registry.register"):
+            create_execution_gate("calendar")
+
+    def test_gate_spec_requires_type(self) -> None:
+        with pytest.raises(ValueError, match="requires 'type' or 'gate_type'"):
+            create_execution_gates(({"min_sessions": 5},))
+
+    def test_create_execution_gates_from_specs(self) -> None:
+        gates = create_execution_gates(
+            (
+                {"type": "time", "min_interval_seconds": 60},
+                {"type": "session_count", "min_sessions": 2, "current_count": 2},
+                {"gate_type": "lock"},
+            )
+        )
+
+        assert len(gates) == 3
+        assert all(isinstance(gate, ExecutionGate) for gate in gates)
+
+    @pytest.mark.asyncio
+    async def test_supports_custom_registered_gate(self) -> None:
+        created: dict[str, object] = {}
+
+        class CustomGate:
+            @property
+            def name(self) -> str:
+                return "custom_gate"
+
+            async def evaluate(self) -> GateResult:
+                return GateResult.allow(gate_name=self.name)
+
+        def _factory(**kwargs):
+            created["args"] = kwargs
+            return CustomGate()
+
+        execution_gate_registry.register(backend="custom-test-gate", factory=_factory)
+
+        gate = create_execution_gate("custom-test-gate", tenant="tenant-a")
+        result = await gate.evaluate()
+
+        assert isinstance(gate, ExecutionGate)
+        assert result.passed is True
+        assert created["args"]["tenant"] == "tenant-a"

@@ -1,5 +1,8 @@
 # Resource Guards & Throttling
 
+> **Status**: Aspirational in this repo state. Snippets below are explicit
+> future API sketches until corresponding `src/cemaf/throttling` modules exist.
+
 Edge devices overheat. Memory fills up. CEMAF keeps running.
 
 This module provides **resource-aware execution** for agents on constrained hardware.
@@ -18,7 +21,7 @@ When any resource exceeds safe limits, the agent must **pause, not crash**.
 ## Circuit Breaker for Resources
 
 ```python
-from cemaf.throttling import ResourceCircuitBreaker
+# Future API sketch: from cemaf.throttling import ResourceCircuitBreaker
 
 breaker = ResourceCircuitBreaker(
     thresholds={
@@ -68,7 +71,7 @@ async with breaker.guarded():
 When RAM is full, spill context to disk:
 
 ```python
-from cemaf.throttling import ContextPager
+# Future API sketch: from cemaf.throttling import ContextPager
 
 pager = ContextPager(
     memory_limit_mb=256,        # Max context in RAM
@@ -127,7 +130,7 @@ paged_context = pager.wrap(
 Limit LLM inference speed to prevent thermal throttling:
 
 ```python
-from cemaf.throttling import CPUThrottler
+# Future API sketch: from cemaf.throttling import CPUThrottler
 
 throttler = CPUThrottler(
     target_cpu_percent=70,      # Stay under 70% CPU
@@ -145,7 +148,7 @@ response = await throttled_llm.complete(messages)
 ### Thermal Management
 
 ```python
-from cemaf.throttling import ThermalManager
+# Future API sketch: from cemaf.throttling import ThermalManager
 
 thermal = ThermalManager(
     sensor_path="/sys/class/thermal/thermal_zone0/temp",  # Linux
@@ -167,7 +170,7 @@ await thermal.start_monitoring()
 Prevent OOM (Out of Memory) crashes:
 
 ```python
-from cemaf.throttling import MemoryGuard
+# Future API sketch: from cemaf.throttling import MemoryGuard
 
 guard = MemoryGuard(
     soft_limit_mb=3072,    # Start evicting at 3GB
@@ -194,7 +197,7 @@ async for chunk in guard.stream_safe(large_iterator):
 ### Eviction Strategies
 
 ```python
-from cemaf.throttling import EvictionStrategy
+# Future API sketch: from cemaf.throttling import EvictionStrategy
 
 guard = MemoryGuard(
     eviction_strategy=EvictionStrategy.LRU,  # Least Recently Used
@@ -210,7 +213,7 @@ guard = MemoryGuard(
 Prevent SD card wear and I/O starvation:
 
 ```python
-from cemaf.throttling import DiskThrottler
+# Future API sketch: from cemaf.throttling import DiskThrottler
 
 disk = DiskThrottler(
     max_write_mbps=10,       # Limit write speed
@@ -228,7 +231,7 @@ async with disk.throttled_write("/path/to/file") as f:
 Combine multiple guards:
 
 ```python
-from cemaf.throttling import CompositeGuard
+# Future API sketch: from cemaf.throttling import CompositeGuard
 
 guard = CompositeGuard(
     guards=[
@@ -251,7 +254,7 @@ async with guard.protected():
 Adjust behavior based on resource availability:
 
 ```python
-from cemaf.throttling import AdaptiveExecutor
+# Future API sketch: from cemaf.throttling import AdaptiveExecutor
 
 executor = AdaptiveExecutor(
     base_executor=DAGExecutor(node_executor=my_executor),
@@ -275,7 +278,7 @@ print(f"Mode: {executor.current_mode}")  # "normal", "low_memory", etc.
 ## Metrics & Monitoring
 
 ```python
-from cemaf.throttling import ResourceMonitor
+# Future API sketch: from cemaf.throttling import ResourceMonitor
 
 monitor = ResourceMonitor(
     metrics_path="/var/cemaf/metrics",
@@ -301,7 +304,7 @@ for point in history:
 ## Factory Functions
 
 ```python
-from cemaf.throttling.factories import (
+# Future API sketch: from cemaf.throttling.factories import (
     create_resource_guard,
     create_context_pager,
     create_adaptive_executor,
@@ -336,7 +339,7 @@ guard = create_resource_guard_from_config()
 ## Example: Raspberry Pi Agent
 
 ```python
-from cemaf.throttling import (
+# Future API sketch: from cemaf.throttling import (
     ResourceCircuitBreaker,
     ContextPager,
     ThermalManager,

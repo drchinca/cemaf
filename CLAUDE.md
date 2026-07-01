@@ -1,5 +1,28 @@
 # CEMAF Project Instructions
 
+## Prime Directive (read before generating CEMAF-consuming code)
+
+CEMAF is the execution substrate for context-engineered multi-agent systems —
+not a bag of helpers to cherry-pick. Before writing app-level orchestration,
+memory, eval, moderation, budget, replay, citation, blueprint, or routing
+infrastructure, compose CEMAF's existing module through `RuntimeServices`, a
+registry, an interceptor, an event subscriber, or a factory.
+
+Agent-assisted onboarding lives in:
+
+- [`AGENTS.md`](AGENTS.md) — the CEMAF-first checklist (composition rules,
+  pre-rewrite questions, verification commands).
+- [`docs/agent-assisted-development.md`](docs/agent-assisted-development.md) —
+  module-to-requirement matrix and anti-patterns to avoid.
+- [`docs/AI_DEVELOPMENT_GUIDE.md`](docs/AI_DEVELOPMENT_GUIDE.md) — dense
+  Do/Violation table and integration recipes.
+- [`HOW_TO_USE.md`](HOW_TO_USE.md) — Mode A (CEMAF orchestrates) vs Mode B
+  (CEMAF as library) integration shapes.
+
+Whole-engine references before starting from a blank file:
+`examples/release_engine.py`, `examples/composed_engine.py`,
+`tests/integration/test_composed_engine.py`.
+
 ## Architecture Overview
 
 CEMAF is a **protocol-first, multi-agent orchestration framework** for context engineering. It has two layers:
@@ -234,14 +257,15 @@ return Result.fail(error="Rate limit exceeded")
 |--------|---------|-----------|
 | `orchestration` | DAGExecutor, ContextNodeExecutor, RuntimeServices, node handlers, NodeResult/ExecutionResult (results.py), NodeResolver dispatch chain (resolvers/ — council/auction/static, first-match wins; replaces the old bespoke if-branches in execute_node) | `executor.py`, `context_node_executor.py`, `services.py`, `dag.py`, `results.py`, `resolvers/` |
 | `interceptors` | The spine (SPEC-01a) — PRE→execute→POST chain every AGENT node passes through; GateEvalInterceptor makes a quality gate genuinely block downstream | `pipeline.py`, `protocols.py`, `gate_eval.py`, `types.py` |
-| `blueprint` | Semantic blueprint definitions for structured generation + the harvest flywheel (learn reusable blueprints from high-scoring runs via `create_blueprint_harvester()`) | `core.py`, `parser.py`, `library.py`, `harvest.py`, `harvest_defaults.py`, `factories.py` |
+| `collision` | TCAS-style coordination (SPEC-12) — detect overlapping concurrent writes to context paths, resolve deterministically (lower-priority steers, higher holds). Pure-math risk + run-scoped coordinator | `risk.py`, `protocols.py`, `coordinator.py`, `factories.py` |
+| `blueprint` | Semantic blueprint definitions for structured generation + the harvest flywheel (learn reusable blueprints from high-scoring runs via `create_blueprint_harvester()`); project-scoped harvest + PROJECT→GLOBAL promotion (SPEC-13) prevents cross-project contamination | `core.py`, `parser.py`, `library.py`, `harvest.py`, `harvest_defaults.py`, `factories.py` |
 | `scheduler` | Task scheduling | `base.py`, `protocols.py` |
 
 ### Context Engineering (what agents know)
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
-| `context` | Immutable Context, ContextCompiler, token budgets, patches (provenance) | `context.py`, `compiler.py`, `budget.py`, `patch.py`, `source.py` |
+| `context` | Immutable Context, ContextCompiler, token budgets, patches (provenance), `SecurityLevel` classification + clearance-gated compilation (SPEC-11) | `context.py`, `compiler.py`, `budget.py`, `patch.py`, `source.py` |
 | `memory` | Semantic + episodic memory, tiered storage, dedup, extraction, session | `base.py`, `manager.py`, `semantic.py`, `session.py`, `sqlite_store.py` |
 | `retrieval` | VectorStore, EmbeddingProvider protocols | `protocols.py`, `memory_store.py` |
 | `rlm` | Recursive Language Model — divide-and-conquer large context queries | `base.py`, `protocols.py` |
@@ -286,3 +310,4 @@ These modules are **opt-in consumers** of the base framework. No base module imp
 | `audit` | Structured audit trail — EventBus subscriber → AuditEntry, quality trend, z-score anomaly detection | `subscriber.py`, `trail.py`, `protocols.py`, `models.py` |
 | `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07) for bounded-LRU point-read acceleration | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
 | `meta` | Self-hosting agents, tools, DAGs, and bootstrap | `agents.py`, `tools.py`, `dags.py`, `bootstrap.py`, `registry.py` |
+| `operator` | Operator plane (SPEC-14) — versioned read-only run snapshots (`cemaf.session.v1`) projected from RunRecord/ExecutionResult; sits above observability + orchestration | `snapshot.py` |

@@ -6,6 +6,7 @@ from cemaf.context.patch import (
     PatchLog,
     PatchOperation,
     PatchSource,
+    SecurityLevel,
 )
 
 
@@ -118,6 +119,57 @@ class TestContextPatch:
         assert restored.source == patch.source
         assert restored.source_id == patch.source_id
         assert restored.correlation_id == patch.correlation_id
+
+
+class TestSecurityLevel:
+    """SPEC-11 §3 — security classification on ContextPatch (additive, backward-compatible)."""
+
+    def test_rank_ordering(self) -> None:
+        """PUBLIC < INTERNAL < CONFIDENTIAL by rank."""
+        assert SecurityLevel.PUBLIC.rank < SecurityLevel.INTERNAL.rank
+        assert SecurityLevel.INTERNAL.rank < SecurityLevel.CONFIDENTIAL.rank
+
+    def test_default_is_internal(self) -> None:
+        """Inv 1 — a patch created without security_level defaults to INTERNAL."""
+        patch = ContextPatch.set(path="a.b", value=1)
+        assert patch.security_level is SecurityLevel.INTERNAL
+
+    def test_explicit_level_preserved(self) -> None:
+        """Factory classmethods accept and preserve an explicit level."""
+        patch = ContextPatch.set(path="secret.key", value="x", security_level=SecurityLevel.CONFIDENTIAL)
+        assert patch.security_level is SecurityLevel.CONFIDENTIAL
+
+    def test_serialization_round_trip(self) -> None:
+        """to_dict/from_dict preserves an explicit level."""
+        patch = ContextPatch.set(path="s", value=1, security_level=SecurityLevel.CONFIDENTIAL)
+        restored = ContextPatch.from_dict(patch.to_dict())
+        assert restored.security_level is SecurityLevel.CONFIDENTIAL
+
+    def test_legacy_record_without_field_defaults_internal(self) -> None:
+        """Inv 2 — a serialized record lacking 'security_level' loads as INTERNAL, no error.
+
+        Capture-don't-invent: build the real to_dict() shape then drop the field, so this
+        fixture mirrors exactly what a pre-SPEC-11 checkpoint serialized.
+        """
+        legacy = ContextPatch.set(
+            path="a.b", value=7, source=PatchSource.TOOL, source_id="old_tool"
+        ).to_dict()
+        del legacy["security_level"]  # simulate an old record written before the field existed
+
+        restored = ContextPatch.from_dict(legacy)
+        assert restored.security_level is SecurityLevel.INTERNAL
+        # re-serialize cleanly
+        assert restored.to_dict()["security_level"] == "internal"
+
+    def test_from_agent_accepts_level(self) -> None:
+        """from_agent threads the level through."""
+        patch = ContextPatch.from_agent(
+            agent_id="researcher",
+            path="draft.body",
+            value="...",
+            security_level=SecurityLevel.PUBLIC,
+        )
+        assert patch.security_level is SecurityLevel.PUBLIC
 
 
 class TestPatchLog:

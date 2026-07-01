@@ -40,6 +40,33 @@ class PatchSource(StrEnum):
     USER = "user"  # Change from user input
 
 
+class SecurityLevel(StrEnum):
+    """Data-governance classification of a context change (SPEC-11).
+
+    INTERNAL is the default so existing patches and checkpoints keep their
+    current (ungated) behavior. Ordered by ``rank``: PUBLIC < INTERNAL < CONFIDENTIAL.
+    """
+
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+
+    @property
+    def rank(self) -> int:
+        """Monotonic sensitivity rank — higher means more restricted."""
+        return _SECURITY_RANK[self]
+
+
+_SECURITY_RANK: dict[SecurityLevel, int] = {
+    SecurityLevel.PUBLIC: 0,
+    SecurityLevel.INTERNAL: 1,
+    SecurityLevel.CONFIDENTIAL: 2,
+}
+
+# Fail loudly at import if the rank map ever drifts from the enum members.
+assert set(_SECURITY_RANK) == set(SecurityLevel), "_SECURITY_RANK must cover every SecurityLevel"
+
+
 @dataclass(frozen=True)
 class ContextPatch:
     """
@@ -74,6 +101,9 @@ class ContextPatch:
     reason: str = ""  # Human-readable explanation
     correlation_id: str | None = None  # For tracing related changes
 
+    # Data governance (SPEC-11) — defaults to INTERNAL to preserve prior behavior
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
+
     # Auto-generated
     id: str = field(default_factory=lambda: generate_id("patch"))
 
@@ -87,6 +117,7 @@ class ContextPatch:
         source_id: str = "",
         reason: str = "",
         correlation_id: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextPatch:
         """Create a SET patch."""
         return cls(
@@ -97,6 +128,7 @@ class ContextPatch:
             source_id=source_id,
             reason=reason,
             correlation_id=correlation_id,
+            security_level=security_level,
         )
 
     @classmethod
@@ -108,6 +140,7 @@ class ContextPatch:
         source_id: str = "",
         reason: str = "",
         correlation_id: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextPatch:
         """Create a DELETE patch."""
         return cls(
@@ -118,6 +151,7 @@ class ContextPatch:
             source_id=source_id,
             reason=reason,
             correlation_id=correlation_id,
+            security_level=security_level,
         )
 
     @classmethod
@@ -130,6 +164,7 @@ class ContextPatch:
         source_id: str = "",
         reason: str = "",
         correlation_id: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextPatch:
         """Create a MERGE patch."""
         return cls(
@@ -140,6 +175,7 @@ class ContextPatch:
             source_id=source_id,
             reason=reason,
             correlation_id=correlation_id,
+            security_level=security_level,
         )
 
     @classmethod
@@ -152,6 +188,7 @@ class ContextPatch:
         source_id: str = "",
         reason: str = "",
         correlation_id: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextPatch:
         """Create an APPEND patch."""
         return cls(
@@ -162,6 +199,7 @@ class ContextPatch:
             source_id=source_id,
             reason=reason,
             correlation_id=correlation_id,
+            security_level=security_level,
         )
 
     @classmethod
@@ -174,6 +212,7 @@ class ContextPatch:
         operation: PatchOperation = PatchOperation.SET,
         reason: str = "",
         correlation_id: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextPatch:
         """Create a patch from a tool execution."""
         return cls(
@@ -184,6 +223,7 @@ class ContextPatch:
             source_id=tool_id,
             reason=reason or f"Set by tool '{tool_id}'",
             correlation_id=correlation_id,
+            security_level=security_level,
         )
 
     @classmethod
@@ -196,6 +236,7 @@ class ContextPatch:
         operation: PatchOperation = PatchOperation.SET,
         reason: str = "",
         correlation_id: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextPatch:
         """Create a patch from an agent."""
         return cls(
@@ -206,6 +247,7 @@ class ContextPatch:
             source_id=agent_id,
             reason=reason or f"Set by agent '{agent_id}'",
             correlation_id=correlation_id,
+            security_level=security_level,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -220,6 +262,7 @@ class ContextPatch:
             "timestamp": self.timestamp.isoformat(),
             "reason": self.reason,
             "correlation_id": self.correlation_id,
+            "security_level": self.security_level.value,
         }
 
     @classmethod
@@ -235,6 +278,7 @@ class ContextPatch:
             timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else utc_now(),
             reason=data.get("reason", ""),
             correlation_id=data.get("correlation_id"),
+            security_level=SecurityLevel(data.get("security_level", "internal")),
         )
 
 

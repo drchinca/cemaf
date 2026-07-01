@@ -37,11 +37,13 @@ TIERS: dict[str, int] = {
     "retrieval": TIER_FABRIC,
     "bootstrap": TIER_ORCHESTRATION,
     "cemaf": TIER_ORCHESTRATION,
+    "collision": TIER_ORCHESTRATION,
     "interceptors": TIER_ORCHESTRATION,
     "orchestration": TIER_ORCHESTRATION,
     "audit": TIER_SELF_HOSTING,
     "knowledge": TIER_SELF_HOSTING,
     "meta": TIER_SELF_HOSTING,
+    "operator": TIER_SELF_HOSTING,
 }
 
 HOW: dict[str, str] = {
@@ -80,6 +82,13 @@ HOW: dict[str, str] = {
         "vendor catalogs) through one CatalogProvider protocol. Use to "
         "discover models the framework can route to without hard-coding."
     ),
+    "collision": (
+        "Coordinate concurrent agents that intend to write overlapping context "
+        "paths. create_collision_coordinator(); each agent register(write_set) then "
+        "advise_against_cohort(agent_id) → an Advisory. At resolution level the "
+        "lower-priority agent steers (defers) while the higher holds — deterministic, "
+        "TCAS-style. Pure-math risk in collision.risk; no execution-security concern."
+    ),
     "cemaf": (
         "Read this node's outgoing edges to see which submodules the "
         "public surface re-exports — tracks what's *officially* part of "
@@ -116,6 +125,13 @@ HOW: dict[str, str] = {
         "(majority / weighted / quorum / unanimous). The council's result "
         "becomes a NodeResult.output that steers the DAG; ballots are "
         "preserved for audit."
+    ),
+    "operator": (
+        "snapshot_from_run_record(record) / snapshot_from_execution_result(result) → a "
+        "versioned, read-only SessionSnapshot (cemaf.session.v1). Pure deterministic "
+        "projection — the stable public contract CLI/service/MCP/benchmarks render from, "
+        "so downstream stops coupling to internal dataclasses. Sits above observability + "
+        "orchestration; emits nothing itself."
     ),
     "docs_api": (
         "Mounts CEMAF's own docs + docstrings as a tool surface so meta-"
@@ -284,10 +300,12 @@ DESCRIPTIONS: dict[str, str] = {
     "catalog": "Discover external models and artifacts through typed adapters",
     "citation": "Source citation tracking",
     "cli": "Command-line interface",
+    "collision": "TCAS-style coordination — detect & resolve overlapping concurrent writes",
     "config": "Settings, env loading, provider registry",
     "context": "Immutable Context, compiler, token budgets, provenance patches",
     "core": "Domain types, enums, Result[T], utc_now(), generate_id()",
     "council": "Deliberative multi-agent decisions — vote aggregation, ballots",
+    "operator": "Operator plane — versioned read-only run snapshots (cemaf.session.v1)",
     "docs_api": "Expose CEMAF's own docs and docstrings to LLMs",
     "evals": "Deterministic / semantic / LLM-judge evaluation, online pipeline",
     "events": "EventBus pub/sub with typed EventType enum",

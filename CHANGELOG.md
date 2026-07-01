@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-06-30
+
+**Reconciliation release: unites the `development` line (examples, evals, context-layer PoCs, collision/operator/security modules) with the `main` line (meta-scheduler, glassbox traceability) — neither feature set is lost.**
+
+The `development` and `main` branches had diverged on 2026-06-11 and evolved in parallel. This release merges both as a union: `main`'s 2.4.0 meta-scheduler/audit/memory work plus `development`'s 2.2.0→2.3.0 examples/eval/context-engineering work now ship together.
+
+**Added (from the `development` line):**
+- **BYO-X examples** (`examples/byo/`) — implement `LLMClient`, `VectorStore`, `MemoryStore` against the real protocols and wire each through its factory.
+- **App-shape examples** (`examples/app_shapes/`) — grounded RAG with citations, and a tool-using agent that self-heals a transient failure via `@with_retry` inside a DAG.
+- **Context-layer examples** (`examples/context_layers/`) — the namesake capability surfaced as focused PoCs: memory scope hierarchy (GLOBAL/TENANT/SESSION), typed `ContextSource` layers dropped by priority under a `TokenBudget`, and the full provenance → `Context` → priority-compile → budgeted-prompt pipeline.
+- **Anti-pattern catalog** (`examples/anti_patterns/`) and an indexed `examples/README.md` on-ramp.
+- **Universal example smoke harness** (`tests/integration/test_examples_smoke.py`) — auto-discovers and runs every `examples/**/*.py` offline; opt-out via `smoke_skip_reason()` (the Ollama examples run when a daemon is reachable, skip with a reason otherwise).
+- **Self-healing integration tests** — citation self-healing, model-fidelity escalation, the self-healing+harvest triad, cooperative quality halting, and a council iterative-remediation loop.
+- **Guidance-value eval** (`benchmarks/guidance_eval/`) + a regression gate (`tests/integration/test_guidance_value.py`) — A/B measures whether the agent-assisted docs shift an LLM from reinventing infrastructure to composing CEMAF.
+- **Collision avoidance** (`cemaf/collision/`, SPEC-12), **operator session snapshots** (`cemaf/operator/`, SPEC-14), **SecurityLevel clearance-gated compilation** (SPEC-11), **project-scoped blueprint harvest + promotion** (SPEC-13), and **OTel observability bridges**.
+
+**Changed:**
+- Example source is now git-tracked (`.gitignore` whitelists `examples/**/*.py` and `*.md` while keeping generated artifacts ignored), so examples render on GitHub and are grep-able by coding agents.
+- `CLAUDE.md` and `AGENTS.md` point at the agent-assisted guidance and the new examples.
+- `pytest.ini` removed; pytest config consolidated into `pyproject.toml [tool.pytest.ini_options]` (from the `main` line).
+
+**Fixed:**
+- `docs/AI_DEVELOPMENT_GUIDE.md` referenced a non-existent `cemaf.guardian` module for content safety; corrected to `cemaf.moderation` wired via `cemaf.interceptors`.
+
 ## [2.4.0] - 2026-06-24
 
 **Dog-fooded meta-scheduler, glassbox traceability, and a context-engineering correctness sweep.**

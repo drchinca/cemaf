@@ -292,7 +292,7 @@ When no algorithm is specified, all sources are included and low-priority source
 ```python
 from cemaf.context.advanced_compiler import AdvancedContextCompiler
 from cemaf.context.compiler import SimpleTokenEstimator
-from cemaf.llm.mock_client import MockLLMClient
+from cemaf.llm.mock import MockLLMClient
 
 compiler = AdvancedContextCompiler(
     llm_client=MockLLMClient(),
@@ -463,6 +463,30 @@ compiler = create_context_compiler_from_config(algorithm_name="knapsack")
 context_compiler_registry.register(backend="custom", factory=my_compiler_factory)
 compiler = create_context_compiler_from_config(algorithm_name="custom")
 ```
+
+## Token Estimator Registry
+
+Token estimation is also registry-backed:
+
+```python
+from cemaf.context import TokenEstimator, create_token_estimator, token_estimator_registry
+
+def create_domain_token_estimator(**kwargs) -> TokenEstimator:
+    return DomainTokenEstimator(calibration=kwargs["calibration"])
+
+token_estimator_registry.register(
+    backend="domain",
+    factory=create_domain_token_estimator,
+)
+
+estimator = create_token_estimator(
+    estimator_type="domain",
+    calibration="legal-briefs",
+)
+```
+
+Environment-based compiler creation reads `CEMAF_CONTEXT_TOKEN_ESTIMATOR_BACKEND`,
+`CEMAF_CONTEXT_TOKEN_ESTIMATOR_MODEL`, and `CEMAF_CONTEXT_CHARS_PER_TOKEN`.
 
 ## Context Type Classification
 

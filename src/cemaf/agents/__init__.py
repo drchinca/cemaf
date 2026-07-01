@@ -46,9 +46,10 @@ Protocol-based (Recommended):
 
 ## Extension
 
-Agent implementations are discovered via protocols. No registration needed.
-Simply implement the Agent protocol and your agent is compatible with all
-CEMAF orchestration systems.
+Agent implementations are protocol-first. Pass any object satisfying the Agent
+protocol directly via AgentRegistry.register_agent(...), or register a named
+constructor with agent_factory_registry when agents should be created from
+dependencies/configuration.
 
 See cemaf.agents.protocols.Agent for the protocol definition.
 """
@@ -70,7 +71,7 @@ from cemaf.agents.context_agents import (
 )
 from cemaf.agents.factories import create_agent_context, create_agent_context_from_config
 from cemaf.agents.protocols import Agent, AgentContext, AgentResult, AgentState
-from cemaf.agents.registry import AgentRegistry, create_default_registry
+from cemaf.agents.registry import AgentRegistry, agent_factory_registry, create_default_registry
 from cemaf.core.domain import DomainContext
 
 __all__ = [
@@ -95,6 +96,7 @@ __all__ = [
     "WriterResult",
     # Registry
     "AgentRegistry",
+    "agent_factory_registry",
     "create_default_registry",
     # Factories
     "create_agent_context",

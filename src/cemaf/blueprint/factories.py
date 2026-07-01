@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 from cemaf.blueprint.harvest import (
     BlueprintDistiller,
@@ -15,8 +16,64 @@ from cemaf.blueprint.harvest_defaults import (
     ScoreThresholdHarvestPolicy,
 )
 from cemaf.blueprint.library import BlueprintLibrary, BlueprintSource, WritableBlueprintSource
-from cemaf.blueprint.sources import JSONFileBlueprintSource
+from cemaf.blueprint.sources import InMemoryBlueprintSource, JSONFileBlueprintSource
+from cemaf.blueprint.sqlite_source import SqliteBlueprintSource
+from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.events.protocols import EventBus
+
+blueprint_source_registry: ProviderRegistry[BlueprintSource] = ProviderRegistry(name="blueprint_source")
+
+
+def _create_in_memory_blueprint_source(**kwargs: Any) -> BlueprintSource:
+    return InMemoryBlueprintSource(
+        entries=kwargs.get("entries", ()),
+        name=str(kwargs.get("name") or "in-memory"),
+    )
+
+
+def _create_json_file_blueprint_source(**kwargs: Any) -> BlueprintSource:
+    path = (
+        kwargs.get("path")
+        or kwargs.get("file_path")
+        or kwargs.get("catalog_path")
+        or os.getenv("CEMAF_BLUEPRINT_CATALOG")
+    )
+    if not path:
+        raise ValueError("json_file blueprint source requires path (or CEMAF_BLUEPRINT_CATALOG env).")
+    return JSONFileBlueprintSource(
+        path=Path(str(path)),
+        name=str(kwargs["name"]) if kwargs.get("name") else None,
+    )
+
+
+def _create_sqlite_blueprint_source(**kwargs: Any) -> BlueprintSource:
+    db_path = (
+        kwargs.get("db_path")
+        or kwargs.get("path")
+        or os.getenv("CEMAF_BLUEPRINT_SQLITE_PATH")
+        or os.getenv("CEMAF_BLUEPRINT_SOURCE_PATH")
+        or "cemaf_blueprints.db"
+    )
+    return SqliteBlueprintSource(
+        db_path=str(db_path),
+        name=str(kwargs["name"]) if kwargs.get("name") else None,
+        busy_timeout_ms=int(kwargs.get("busy_timeout_ms", 5000)),
+        journal_mode=str(kwargs.get("journal_mode", "WAL")),
+    )
+
+
+blueprint_source_registry.register(backend="memory", factory=_create_in_memory_blueprint_source)
+blueprint_source_registry.register(backend="json", factory=_create_json_file_blueprint_source)
+blueprint_source_registry.register(backend="json_file", factory=_create_json_file_blueprint_source)
+blueprint_source_registry.register(backend="sqlite", factory=_create_sqlite_blueprint_source)
+
+
+def create_blueprint_source(
+    source_type: str,
+    **source_options: Any,
+) -> BlueprintSource:
+    """Build a `BlueprintSource` from the registry."""
+    return blueprint_source_registry.create(backend=source_type, **source_options)
 
 
 def create_blueprint_library(
@@ -31,11 +88,26 @@ def create_blueprint_library(
 
 
 def create_blueprint_library_from_env() -> BlueprintLibrary:
-    """Build a `BlueprintLibrary` from `CEMAF_BLUEPRINT_CATALOG` (JSON path); empty if unset."""
+    """Build a `BlueprintLibrary` from blueprint source environment config.
+
+    `CEMAF_BLUEPRINT_SOURCE_BACKEND` selects a registered source backend. The
+    legacy `CEMAF_BLUEPRINT_CATALOG` JSON path still works as a shortcut.
+    """
+    source_backend = os.getenv("CEMAF_BLUEPRINT_SOURCE_BACKEND")
     catalog_env = os.getenv("CEMAF_BLUEPRINT_CATALOG")
     sources: tuple[BlueprintSource, ...] = ()
-    if catalog_env:
-        sources = (JSONFileBlueprintSource(path=Path(catalog_env)),)
+    if source_backend:
+        source = create_blueprint_source(
+            source_backend,
+            path=os.getenv("CEMAF_BLUEPRINT_SOURCE_PATH") or catalog_env,
+            db_path=os.getenv("CEMAF_BLUEPRINT_SQLITE_PATH"),
+            name=os.getenv("CEMAF_BLUEPRINT_SOURCE_NAME"),
+            busy_timeout_ms=os.getenv("CEMAF_BLUEPRINT_SQLITE_BUSY_TIMEOUT_MS", "5000"),
+            journal_mode=os.getenv("CEMAF_BLUEPRINT_SQLITE_JOURNAL_MODE", "WAL"),
+        )
+        sources = (source,)
+    elif catalog_env:
+        sources = (create_blueprint_source("json_file", path=catalog_env),)
     return create_blueprint_library(sources=sources)
 
 

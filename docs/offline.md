@@ -1,5 +1,8 @@
 # Offline & Store-and-Forward
 
+> **Status**: Aspirational in this repo state. Snippets below are explicit
+> future API sketches until corresponding `src/cemaf/offline` modules exist.
+
 Edge devices lose connectivity. CEMAF keeps working.
 
 This module provides **offline-first** capabilities for agents running on resource-constrained, intermittently-connected devices.
@@ -36,7 +39,7 @@ This module provides **offline-first** capabilities for agents running on resour
 The `OfflineQueue` buffers RunRecords when the network is unavailable:
 
 ```python
-from cemaf.offline import OfflineQueue, OfflineRunLogger
+# Future API sketch: from cemaf.offline import OfflineQueue, OfflineRunLogger
 from cemaf.observability import InMemoryRunLogger
 
 # Wrap any RunLogger with offline capability
@@ -79,7 +82,7 @@ logger.end_run(final_context=ctx, success=True)
 ### Sync Behavior
 
 ```python
-from cemaf.offline import SyncManager
+# Future API sketch: from cemaf.offline import SyncManager
 
 sync_manager = SyncManager(
     queue=offline_queue,
@@ -107,7 +110,7 @@ print(f"Online: {status.is_online}")
 When cloud LLM is unreachable, fall back to local model:
 
 ```python
-from cemaf.offline import OfflineLLMClient
+# Future API sketch: from cemaf.offline import OfflineLLMClient
 from cemaf.llm import LLMClient
 
 # Primary: Cloud LLM (GPT-4, Claude)
@@ -132,7 +135,7 @@ print(f"Used: {'primary' if response.metadata.get('source') == 'primary' else 'f
 ### Capability Degradation
 
 ```python
-from cemaf.offline import CapabilityManager
+# Future API sketch: from cemaf.offline import CapabilityManager
 
 capabilities = CapabilityManager(
     online_capabilities={
@@ -160,7 +163,7 @@ Tools can specify offline behavior:
 
 ```python
 from cemaf.tools import Tool
-from cemaf.offline import OfflinePolicy
+# Future API sketch: from cemaf.offline import OfflinePolicy
 
 @tool(
     offline_policy=OfflinePolicy.QUEUE,  # Queue for later
@@ -185,7 +188,7 @@ async def get_weather(location: str) -> dict:
 ### Tool Queue
 
 ```python
-from cemaf.offline import ToolQueue
+# Future API sketch: from cemaf.offline import ToolQueue
 
 tool_queue = ToolQueue(
     storage_path="/var/cemaf/tool_queue",
@@ -204,7 +207,7 @@ await tool_queue.start_processor(
 Save context to disk for crash recovery:
 
 ```python
-from cemaf.offline import ContextPersistence
+# Future API sketch: from cemaf.offline import ContextPersistence
 
 persistence = ContextPersistence(
     storage_path="/var/cemaf/context",
@@ -226,7 +229,7 @@ if recovered_context:
 ## Connectivity Detection
 
 ```python
-from cemaf.offline import ConnectivityMonitor
+# Future API sketch: from cemaf.offline import ConnectivityMonitor
 
 monitor = ConnectivityMonitor(
     check_urls=["https://api.example.com/health"],
@@ -250,7 +253,7 @@ else:
 When bandwidth is limited, prioritize what syncs first:
 
 ```python
-from cemaf.offline import SyncPrioritizer
+# Future API sketch: from cemaf.offline import SyncPrioritizer
 
 prioritizer = SyncPrioritizer(
     rules=[
@@ -274,7 +277,7 @@ sync_manager = SyncManager(
 ## Bandwidth Management
 
 ```python
-from cemaf.offline import BandwidthManager
+# Future API sketch: from cemaf.offline import BandwidthManager
 
 bandwidth = BandwidthManager(
     daily_limit_mb=100,       # Data cap
@@ -298,7 +301,7 @@ else:
 ## Factory Functions
 
 ```python
-from cemaf.offline.factories import (
+# Future API sketch: from cemaf.offline.factories import (
     create_offline_logger,
     create_offline_llm_client,
     create_sync_manager,
@@ -330,7 +333,7 @@ logger = create_offline_logger_from_config()
 ## Example: IoT Sensor Agent
 
 ```python
-from cemaf.offline import (
+# Future API sketch: from cemaf.offline import (
     OfflineRunLogger,
     OfflineLLMClient,
     SyncManager,

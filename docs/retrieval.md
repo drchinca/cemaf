@@ -350,9 +350,9 @@ class SentenceTransformerProvider(EmbeddingProvider):
 Use in-memory stores for testing:
 
 ```python
-from cemaf.retrieval import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval import InMemoryVectorStore, HashEmbeddingProvider
 
-embedding_provider = MockEmbeddingProvider()
+embedding_provider = HashEmbeddingProvider()
 store = InMemoryVectorStore(embedding_provider=embedding_provider)
 
 # Test operations

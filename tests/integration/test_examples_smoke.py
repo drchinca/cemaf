@@ -1,53 +1,76 @@
-"""Every self-contained example must actually run — not just import.
+"""Every example runs — examples/ can't silently rot.
 
-Two examples (extensibility_patterns, generate_etl_blueprint) silently rotted
-when the BlueprintBuilder/entity API moved underneath them; nothing in CI ran
-the examples, so import-only checks missed it. This smoke test executes each
-no-external-dependency example as a subprocess and asserts a clean exit, so a
-shipped example can never again be broken on main.
+Auto-discovers examples/**/*.py, imports each, and runs its async `main()`. An
+example that depends on something not always present (a live Ollama daemon) or
+has a dedicated guard (release_engine) defines `smoke_skip_reason() -> str | None`:
+it returns None when the example can run here, or a human reason when it can't —
+so the ollama examples actually run when Ollama IS up, and skip with a clear
+message when it isn't.
 
-Examples needing live services (ollama_*) are excluded by name.
+This is the contract that makes examples trustworthy: if it's in examples/, it
+works by running `uv run python examples/<it>.py`.
 """
 
 from __future__ import annotations
 
-import subprocess
+import importlib.util
+import inspect
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 _EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "examples"
 
-# Examples that require a live external service / network and cannot run in CI.
-_NEEDS_EXTERNAL = frozenset({"ollama_gemma.py", "ollama_gemma_tiered.py"})
+
+def _discover() -> list[Path]:
+    return sorted(p for p in _EXAMPLES_DIR.rglob("*.py") if p.name != "__init__.py")
 
 
-def _self_contained_examples() -> list[str]:
-    return sorted(
-        path.name
-        for path in _EXAMPLES_DIR.glob("*.py")
-        if path.name != "__init__.py" and path.name not in _NEEDS_EXTERNAL
-    )
+def _load(path: Path) -> ModuleType:
+    name = f"example_{path.stem}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Register before exec so module-level @dataclass can resolve its own module.
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return module
 
 
-@pytest.mark.parametrize("example_name", _self_contained_examples())
-def test_example_runs_clean(example_name: str) -> None:
-    """Each self-contained example exits 0 when run as a script."""
-    result = subprocess.run(
-        [sys.executable, str(_EXAMPLES_DIR / example_name)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert result.returncode == 0, (
-        f"examples/{example_name} failed (exit {result.returncode}).\n"
-        f"--- stdout tail ---\n{result.stdout[-1500:]}\n"
-        f"--- stderr tail ---\n{result.stderr[-1500:]}"
-    )
+@pytest.mark.asyncio
+@pytest.mark.parametrize("example_path", _discover(), ids=lambda p: str(p.relative_to(_EXAMPLES_DIR)))
+async def test_example_runs_offline(example_path: Path) -> None:
+    module = _load(example_path)
 
+    skip_check = getattr(module, "smoke_skip_reason", None)
+    if callable(skip_check):
+        reason = skip_check()
+        if reason is not None:
+            pytest.skip(reason)
 
-def test_smoke_covers_expected_example_count() -> None:
-    """Guard: if someone adds an example, this list grows — keeps coverage honest."""
-    found = _self_contained_examples()
-    assert len(found) >= 7, f"expected >=7 self-contained examples, found {found}"
+    main = getattr(module, "main", None)
+    assert callable(main), f"{example_path.name} must define a main()"
+
+    # Some examples parse argv via argparse; under pytest sys.argv is the pytest
+    # command line, so present a clean argv (program name only) while running them.
+    saved_argv = sys.argv
+    sys.argv = [str(example_path)]
+    try:
+        # The example's own in-main() assertions are the behavioral contract; a
+        # clean run (no exception, exit-0 if it returns a code) is the smoke
+        # contract. Examples define either an async or a sync main() — support both.
+        if inspect.iscoroutinefunction(main):
+            result = await main()
+        else:
+            result = main()
+    finally:
+        sys.argv = saved_argv
+
+    if isinstance(result, int):
+        assert result == 0, f"{example_path.name} main() returned non-zero exit {result}"

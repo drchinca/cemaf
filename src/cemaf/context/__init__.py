@@ -39,9 +39,14 @@ from cemaf.context.compiler import (
 from cemaf.context.context import Context
 from cemaf.context.factories import (
     CompilerConfig,
+    context_compiler_registry,
+    context_selection_algorithm_registry,
     create_context_compiler_from_config,
+    create_context_selection_algorithm,
     create_priority_compiler,
     create_token_estimator,
+    create_token_estimator_from_config,
+    token_estimator_registry,
 )
 from cemaf.context.merge import (
     DEFAULT_MERGE_STRATEGY,
@@ -54,12 +59,14 @@ from cemaf.context.merge import (
     RaiseOnConflictStrategy,
     ReducerMergeStrategy,
     create_merge_strategy,
+    merge_strategy_registry,
 )
 from cemaf.context.patch import (
     ContextPatch,
     PatchLog,
     PatchOperation,
     PatchSource,
+    SecurityLevel,
 )
 from cemaf.context.paths import ContextPath, TypedContext, create_path_builder
 from cemaf.context.source import ContextSource, ContextType
@@ -83,6 +90,7 @@ __all__ = [
     "PatchOperation",
     "PatchSource",
     "PatchLog",
+    "SecurityLevel",
     # Merge strategies (new - parallel context merge)
     "MergeStrategy",
     "MergeResult",
@@ -94,6 +102,7 @@ __all__ = [
     "ReducerMergeStrategy",
     "DEFAULT_MERGE_STRATEGY",
     "create_merge_strategy",
+    "merge_strategy_registry",
     # Type-safe paths (new in Phase 1)
     "ContextPath",
     "TypedContext",
@@ -116,7 +125,12 @@ __all__ = [
     "AdvancedCompilerConfig",
     # Factories
     "CompilerConfig",
+    "context_selection_algorithm_registry",
+    "context_compiler_registry",
+    "create_context_selection_algorithm",
     "create_priority_compiler",
     "create_context_compiler_from_config",
     "create_token_estimator",
+    "create_token_estimator_from_config",
+    "token_estimator_registry",
 ]

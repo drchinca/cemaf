@@ -41,6 +41,7 @@ from typing import Any
 
 import aiosqlite
 
+from cemaf.blueprint.core import BlueprintScope
 from cemaf.blueprint.library import BlueprintEntry, BlueprintEntryKind
 from cemaf.core.utils import utc_now
 
@@ -56,9 +57,21 @@ CREATE TABLE IF NOT EXISTS blueprint_entries (
     version       TEXT NOT NULL,
     payload_json  TEXT NOT NULL,
     metadata_json TEXT NOT NULL,
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    project_id    TEXT NOT NULL DEFAULT '',
+    confidence    REAL NOT NULL DEFAULT 0.5,
+    scope         TEXT NOT NULL DEFAULT 'project'
 )
 """
+
+# SPEC-13 scope columns added after the original schema shipped. ALTER TABLE ADD COLUMN with a
+# default backfills existing rows and is a no-op once present (the try/except swallows the
+# "duplicate column" error), so old blueprint DBs upgrade transparently.
+_MIGRATIONS: tuple[str, ...] = (
+    "ALTER TABLE blueprint_entries ADD COLUMN project_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE blueprint_entries ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5",
+    "ALTER TABLE blueprint_entries ADD COLUMN scope TEXT NOT NULL DEFAULT 'project'",
+)
 
 _CREATE_INDEX_KIND = "CREATE INDEX IF NOT EXISTS idx_blueprint_entries_kind ON blueprint_entries(kind)"
 
@@ -104,11 +117,25 @@ def _row_to_entry(row: aiosqlite.Row) -> BlueprintEntry:
         source=row[5],
         path=row[6],
         version=row[7],
+        project_id=row[11],
+        confidence=row[12],
+        scope=BlueprintScope(row[13]),
         snapshot=snapshot,
         factory_ref=factory_ref,
         recipe=recipe,
         metadata=metadata,
     )
+
+
+def _run_migrations_sync(conn: Any) -> None:
+    """Apply additive ALTER TABLE migrations; ignore 'duplicate column' on re-run."""
+    import sqlite3
+
+    for statement in _MIGRATIONS:
+        try:
+            conn.execute(statement)
+        except sqlite3.OperationalError:
+            pass  # column already exists — migration is idempotent
 
 
 class SqliteBlueprintSource:
@@ -146,6 +173,11 @@ class SqliteBlueprintSource:
             await conn.execute("PRAGMA synchronous=NORMAL")
             await conn.execute(_CREATE_TABLE)
             await conn.execute(_CREATE_INDEX_KIND)
+            for statement in _MIGRATIONS:
+                try:
+                    await conn.execute(statement)
+                except Exception:  # noqa: BLE001 — duplicate-column on an up-to-date table
+                    pass
             await conn.commit()
             self._conn = conn
         return self._conn
@@ -167,8 +199,8 @@ class SqliteBlueprintSource:
                 """
                 INSERT OR REPLACE INTO blueprint_entries
                 (id, kind, title, description, tags_json, source, path, version,
-                 payload_json, metadata_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 payload_json, metadata_json, created_at, project_id, confidence, scope)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry.id,
@@ -182,6 +214,9 @@ class SqliteBlueprintSource:
                     payload_json,
                     json.dumps(entry.metadata),
                     utc_now().isoformat(),
+                    entry.project_id,
+                    entry.confidence,
+                    entry.scope.value,
                 ),
             )
             await conn.commit()
@@ -205,9 +240,10 @@ class SqliteBlueprintSource:
             conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
             conn.execute(_CREATE_TABLE)
             conn.execute(_CREATE_INDEX_KIND)
+            _run_migrations_sync(conn)
             cursor = conn.execute(
                 "SELECT id, kind, title, description, tags_json, source, path, version, "
-                "payload_json, metadata_json, created_at "
+                "payload_json, metadata_json, created_at, project_id, confidence, scope "
                 "FROM blueprint_entries ORDER BY created_at ASC"
             )
             for row in cursor.fetchall():

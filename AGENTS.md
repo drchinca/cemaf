@@ -1,77 +1,130 @@
-# Agent Instructions
+# CEMAF Agent Instructions
 
-## Project Shape
+This file is for AI coding agents and agent-assisted development tools working
+in or with CEMAF.
 
-CEMAF is a protocol-first, multi-agent orchestration framework for context engineering. Keep the base framework domain-neutral and framework-agnostic. Every integration point should prefer a `@runtime_checkable` `Protocol`, structural typing, and injected dependencies over inheritance, globals, or hidden singletons.
+## Prime Directive
 
-The project has two layers:
+CEMAF is not a bag of helpers. Treat it as the execution substrate for
+context-engineered multi-agent systems. Before writing app-level orchestration,
+memory, budget, eval, moderation, replay, citation, or routing code, check
+whether CEMAF already provides the module and compose it through the framework's
+public protocols.
 
-- Layer 1: base framework primitives under `src/cemaf/`, including orchestration, agents, tools, context, memory, evals, moderation, events, resilience, observability, retrieval, and LLM integration.
-- Layer 2: opt-in self-hosting consumers under `src/cemaf/audit/`, `src/cemaf/knowledge/`, and `src/cemaf/meta/`. These may consume the base framework, but base modules must not import self-hosting modules.
+Default posture: **compose CEMAF first, extend at the edges, rewrite only after
+you can name the missing protocol or behavior.**
 
-Primary composition entry points:
+## First Reads
 
-- `cemaf.bootstrap.create_executor(agent_registry=..., services=..., config=...)`
-- `cemaf.meta.bootstrap.create_meta_executor(...)`
+Read these before generating an app that depends on CEMAF:
 
-## Development Rules
+1. [docs/agent-assisted-development.md](docs/agent-assisted-development.md) -
+   the CEMAF-first checklist for AI-assisted builders.
+2. [README.md](README.md) - public positioning, quick start, whole-engine demo.
+3. [docs/README.md](docs/README.md) - documentation index.
+4. [docs/patterns.md](docs/patterns.md) - patterns reviewers expect.
+5. [docs/modules.md](docs/modules.md) - where each concern belongs.
 
-- Follow existing module boundaries and local patterns before adding abstractions.
-- Keep CEMAF as substrate, not an application control plane. Generic file, shell, sandbox, skill, tool, and FSM primitives belong here; task-specific orchestration belongs outside the framework.
-- Use `RuntimeServices` for cross-cutting dependencies. Do not introduce module-level service singletons.
-- Prefer immutable value objects: frozen dataclasses, frozen Pydantic models, tuple collections, and context patches with provenance.
-- Use `utc_now()` from `cemaf.core.utils` for timestamps.
-- Use `NewType` IDs from `cemaf.core.types` for framework identifiers.
-- Use `Result[T]` for expected success/failure paths in tools and evaluators.
-- Keep docs and README examples live against current imports.
-
-## Testing Discipline
-
-Every meaningful feature needs three levels of evidence:
-
-- Contract tests for protocols and interfaces.
-- Unit tests for isolated module behavior.
-- Integration tests for real cross-module wiring.
-
-Unit tests alone are not enough when one module produces data another module consumes. Bridges, adapters, factories, resolver changes, and event subscribers need integration tests that run the real flow end to end.
-
-Important integration patterns to preserve:
-
-- `DAGExecutor.run(...)` with real `ContextNodeExecutor` wiring.
-- Memory store to context compiler flow.
-- EventBus subscribers receiving real events.
-- Eval pipeline and QualityPolice reacting to executor events.
-- Interceptor gates blocking downstream DAG nodes.
-- Auction and council nodes resolved through the resolver chain.
-- Blueprint harvest through EventBus into a searchable library.
-- SQLite memory store round-trips and concurrent write behavior.
-
-## Commands
-
-Use the project's `uv` workflow:
+If you can run repo commands, use the docs index directly:
 
 ```bash
-uv sync --extra dev
-make check
-uv run pytest -q
-uv run pytest --cov=src/cemaf --cov-report=term-missing:skip-covered --cov-fail-under=80 -q
-uv run python examples/hello_world.py
-uv run python examples/release_engine.py --dry-run
-uv run python examples/release_engine.py --produce
-uv run python benchmarks/run_benchmarks.py
+uv run cemaf docs search "composition root runtime services" -k 5
+uv run cemaf docs search "budget eval moderation replay memory blueprint" -k 8
+uv run cemaf docs show pattern:4-composition-root
 ```
 
-`make check` is the pre-PR gate: Ruff, format check, strict MyPy, internal doc links, architecture graph drift, and trace-data drift.
+## Composition Rules
 
-## Documentation
+- Start with `create_executor(agent_registry=..., services=RuntimeServices(...))`.
+- Put cross-cutting behavior in `RuntimeServices`, not scattered constructor
+  kwargs or app-level globals.
+- Implement `@runtime_checkable` protocols structurally for your LLM, vector
+  store, memory backend, embedding provider, policies, agents, tools, and
+  selectors.
+- Use `DAG`, `Node`, and `Edge` for flow control. Do not build a separate
+  orchestration loop unless CEMAF's DAG model is demonstrably the wrong shape.
+- Use `Context`, `ContextPatch`, `ContextSource`, `ContextCompiler`, and
+  `TokenBudget` for prompt/context assembly. Do not concatenate rolling prompt
+  strings as the state layer.
+- Use `EventBus`, `RunLogger`, replay, operator snapshots, and observability
+  services for run visibility instead of inventing a parallel trace format.
+- Use eval, moderation, validation, citation, collision, blueprint harvesting,
+  budget, resilience, and recovery services when those concerns appear in the
+  product requirements.
+- Keep domain logic in the consuming app. Keep reusable framework behavior in
+  CEMAF modules.
 
-When behavior changes, update the docs that claim it. Useful starting points:
+## Examples As Templates
 
-- `README.md`
-- `docs/README.md`
-- `docs/architecture.md`
-- `docs/patterns.md`
-- `docs/modules.md`
-- module-specific docs under `docs/`
+Start from [examples/README.md](examples/README.md) — the indexed on-ramp. Every
+example runs offline and is guarded by `tests/integration/test_examples_smoke.py`.
 
-Keep public claims tied to runnable examples, tests, or deterministic audit scripts.
+Bring-your-own (the protocol is the only integration contract):
+
+- [examples/byo/byo_llm.py](examples/byo/byo_llm.py) - implement `LLMClient`.
+- [examples/byo/byo_vector_store.py](examples/byo/byo_vector_store.py) - implement
+  `VectorStore` over your own store.
+- [examples/byo/byo_memory.py](examples/byo/byo_memory.py) - implement `MemoryStore`,
+  wire via `create_memory_manager`.
+
+App shapes (what you actually build):
+
+- [examples/app_shapes/rag_with_citations.py](examples/app_shapes/rag_with_citations.py) -
+  grounded RAG with provenance.
+- [examples/app_shapes/tool_using_agent.py](examples/app_shapes/tool_using_agent.py) -
+  agent + resilient tool inside a DAG.
+
+Whole engine:
+
+- [examples/release_engine.py](examples/release_engine.py) - flagship
+  whole-engine run: council, conditional DAG steering, auction selection,
+  gate/recovery, eval, blueprint harvest, reports.
+- [examples/composed_engine.py](examples/composed_engine.py) - compact
+  composition-root example with council, auction, eval, budget, context
+  compiler, events, and harvest.
+- [tests/integration/test_composed_engine.py](tests/integration/test_composed_engine.py) -
+  integration proof that the subsystems work together.
+
+Before reimplementing infrastructure, read
+[examples/anti_patterns/README.md](examples/anti_patterns/README.md).
+
+## Pre-Rewrite Checklist
+
+Before implementing a feature outside CEMAF, answer these in the PR or task
+notes:
+
+1. Which CEMAF module already owns this concern?
+2. Which protocol/factory/example did you check?
+3. Can it be wired through `RuntimeServices`, a registry, an interceptor, or an
+   event subscriber?
+4. Is the missing part domain-specific app code, an adapter, or a reusable
+   CEMAF capability?
+5. What integration test proves the CEMAF path and the app path work together?
+
+If the answer is "I only used three modules and rewrote the rest," stop and
+search the docs/API again.
+
+## Branch Hygiene
+
+- After a merge completes, move the active checkout back to `develop` before
+  starting new work.
+- Do not continue new work on a merge branch, release branch, or `main` after a
+  merge is done.
+- If `develop` is not available or the worktree is not clean, stop and report
+  the blocker instead of switching branches or continuing silently.
+
+## Verification
+
+For docs changes:
+
+```bash
+uv run python docs/architecture/scripts/check_doc_links.py
+python3 docs/architecture/scripts/check_doc_imports.py
+uv run python docs/architecture/scripts/check_loop_ops.py
+```
+
+For code changes:
+
+```bash
+make check
+```

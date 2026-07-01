@@ -101,6 +101,61 @@ limiter = RateLimiter(max_calls=10, time_window=60)
 result = await limiter.execute(async_function)
 ```
 
+## Factory Registries
+
+Use the factory APIs when resilience wiring should be config-driven:
+
+```python
+from cemaf.resilience import (
+    create_circuit_breaker,
+    create_rate_limiter,
+    create_retry_policy,
+)
+
+retry = create_retry_policy(max_attempts=3)
+circuit = create_circuit_breaker(failure_threshold=5)
+limiter = create_rate_limiter(requests_per_second=10.0, burst=20)
+```
+
+Applications can register custom resilience implementations without editing framework source:
+
+```python
+from cemaf.resilience import create_retry_policy, retry_policy_registry
+
+
+class AdaptiveRetryPolicy:
+    ...
+
+
+retry_policy_registry.register(
+    backend="adaptive",
+    factory=lambda **options: AdaptiveRetryPolicy(
+        max_attempts=options["max_attempts"],
+        service=options["service"],
+    ),
+)
+
+retry = create_retry_policy(
+    backend="adaptive",
+    max_attempts=5,
+    service="search",
+)
+```
+
+Available registries:
+
+| Registry | Factory | Built-ins |
+| --- | --- | --- |
+| `retry_policy_registry` | `create_retry_policy()` | `default` |
+| `circuit_breaker_registry` | `create_circuit_breaker()` | `default` |
+| `rate_limiter_registry` | `create_rate_limiter()` | `token_bucket` |
+
+Config helpers read backend selectors plus tuning variables:
+
+- `CEMAF_RESILIENCE_RETRY_BACKEND`
+- `CEMAF_RESILIENCE_CIRCUIT_BREAKER_BACKEND`
+- `CEMAF_RESILIENCE_RATE_LIMITER_BACKEND`
+
 ## ResilientLLMClient
 
 Composes retry, circuit breaker, and rate limiter into a single LLM client wrapper. Implements the `LLMClient` protocol so it can be used as a drop-in replacement.

@@ -11,6 +11,19 @@ from cemaf.scheduler.factories import (
     create_managed_scheduler_from_config,
     create_scheduler_executor,
     create_scheduler_executor_from_config,
+    scheduler_registry,
+)
+from cemaf.scheduler.gates import (
+    CompositeGateResult,
+    ExecutionGate,
+    GateResult,
+    LockGate,
+    SessionCountGate,
+    TimeGate,
+    create_execution_gate,
+    create_execution_gates,
+    evaluate_gates,
+    execution_gate_registry,
 )
 from cemaf.scheduler.heartbeats import (
     HeartbeatMonitor,
@@ -52,6 +65,9 @@ __all__ = [
     "JobResult",
     "JobStatus",
     "Scheduler",
+    "ExecutionGate",
+    "GateResult",
+    "CompositeGateResult",
     # Triggers
     "CronTrigger",
     "IntervalTrigger",
@@ -61,6 +77,16 @@ __all__ = [
     "AsyncJobExecutor",
     "create_scheduler_executor",
     "create_scheduler_executor_from_config",
+    "scheduler_registry",
+    # Gates
+    "TimeGate",
+    "SessionCountGate",
+    "LockGate",
+    "create_execution_gate",
+    "create_execution_gates",
+    "evaluate_gates",
+    "execution_gate_registry",
+    # Managed scheduler
     "create_managed_scheduler",
     "create_managed_scheduler_from_config",
     "ManagedScheduler",
