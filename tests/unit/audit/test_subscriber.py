@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 
-from cemaf.audit.models import AuditEntry, AuditEntryType
+from cemaf.audit.models import Actor, ActorKind, AuditEntry, AuditEntryType
 from cemaf.audit.protocols import AuditLog
 from cemaf.audit.subscriber import EventBusAuditLog
 from cemaf.core.utils import utc_now
@@ -115,6 +115,77 @@ class TestSubscribe:
 
         entries = await audit_log.query()
         assert entries[0].run_id == "corr_fallback"
+
+
+class TestActorResolution:
+    """Actor is resolved server-side from payload — never from Event.source."""
+
+    @pytest.mark.asyncio()
+    async def test_agent_id_in_payload_wins_over_spoofed_source(
+        self, event_bus: InMemoryEventBus, audit_log: EventBusAuditLog
+    ) -> None:
+        """Even when a caller sets Event.source to a lie, actor comes from payload.agent_id."""
+        event = Event.create(
+            type=EventType.AGENT_COMPLETED,
+            payload={"run_id": "run_spoof", "agent_id": "real_agent"},
+            source="i_am_a_different_agent",  # caller lie
+        )
+        await event_bus.publish(event=event)
+
+        entries = await audit_log.query(run_id="run_spoof")
+        assert entries[0].actor == Actor(
+            kind=ActorKind.AGENT, id="real_agent", resolved_from="payload.agent_id"
+        )
+        assert entries[0].source == "i_am_a_different_agent"  # hint preserved, not identity
+
+    @pytest.mark.asyncio()
+    async def test_tool_id_in_payload_resolves_to_tool_actor(
+        self, event_bus: InMemoryEventBus, audit_log: EventBusAuditLog
+    ) -> None:
+        """A tool call event resolves to a TOOL actor from payload.tool_id."""
+        event = Event.create(
+            type=EventType.TOOL_CALL_COMPLETED,
+            payload={"run_id": "run_tool", "tool_id": "sql_runner"},
+            source="",
+        )
+        await event_bus.publish(event=event)
+
+        entries = await audit_log.query(run_id="run_tool")
+        assert entries[0].actor == Actor(
+            kind=ActorKind.TOOL, id="sql_runner", resolved_from="payload.tool_id"
+        )
+
+    @pytest.mark.asyncio()
+    async def test_no_identity_in_payload_resolves_to_system(
+        self, event_bus: InMemoryEventBus, audit_log: EventBusAuditLog
+    ) -> None:
+        """Absent agent_id/tool_id in payload, actor is SYSTEM regardless of source."""
+        event = Event.create(
+            type=EventType.DAG_COMPLETED,
+            payload={"run_id": "run_sys"},
+            source="claims_to_be_an_agent",
+        )
+        await event_bus.publish(event=event)
+
+        entries = await audit_log.query(run_id="run_sys")
+        assert entries[0].actor == Actor.system()
+
+    @pytest.mark.asyncio()
+    async def test_agent_id_wins_over_tool_id_when_both_present(
+        self, event_bus: InMemoryEventBus, audit_log: EventBusAuditLog
+    ) -> None:
+        """When both keys land in the same payload, AGENT takes precedence."""
+        event = Event.create(
+            type=EventType.AGENT_COMPLETED,
+            payload={"run_id": "run_both", "agent_id": "agent_a", "tool_id": "tool_x"},
+            source="",
+        )
+        await event_bus.publish(event=event)
+
+        entries = await audit_log.query(run_id="run_both")
+        assert entries[0].actor is not None
+        assert entries[0].actor.kind == ActorKind.AGENT
+        assert entries[0].actor.id == "agent_a"
 
 
 class TestUnsubscribe:

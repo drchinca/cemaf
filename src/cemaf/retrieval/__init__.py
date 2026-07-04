@@ -28,7 +28,12 @@ from cemaf.retrieval.factories import (
     create_vector_store_from_config,
 )
 from cemaf.retrieval.huggingface_embeddings import HuggingFaceEmbeddingProvider
-from cemaf.retrieval.hybrid import HybridRetriever, RetrievalConfig
+from cemaf.retrieval.hybrid import (
+    GraphRankerFn,
+    HybridRetriever,
+    KeywordSearchFn,
+    RetrievalConfig,
+)
 from cemaf.retrieval.memory_store import InMemoryVectorStore
 from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import (
@@ -49,6 +54,8 @@ __all__ = [
     # Implementations
     "HybridRetriever",
     "RetrievalConfig",
+    "KeywordSearchFn",
+    "GraphRankerFn",
     "InMemoryVectorStore",
     "SqliteVectorStore",
     "HashEmbeddingProvider",
