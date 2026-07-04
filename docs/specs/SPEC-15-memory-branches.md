@@ -16,12 +16,11 @@ write and gives right-of-way. It does not model the case where two agents
 have both written their own version of the same fact and a human or
 policy has to reconcile them.
 
-Studying durable graph substrates ([ModernRelay/omnigraph](https://github.com/ModernRelay/omnigraph)
-and similar) surfaces a second, complementary checkpoint: **branch-per-agent
-with merge-on-review.** Each agent writes on an isolated branch of the
-memory space, and promotion of those writes to shared scope requires a
-merge step that can detect conflicts, apply a strategy, or defer to a
-reviewer.
+Studying durable graph substrates surfaces a second, complementary checkpoint:
+**branch-per-agent with merge-on-review.** Each agent writes on an isolated
+branch of the memory space, and promotion of those writes to shared scope
+requires a merge step that can detect conflicts, apply a strategy, or defer to
+a reviewer.
 
 CEMAF is not a graph database and will not implement branch storage. This
 spec proposes the two protocols an external substrate would satisfy so
