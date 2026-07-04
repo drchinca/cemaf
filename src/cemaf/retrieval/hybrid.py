@@ -1,7 +1,11 @@
 """
-Hybrid retrieval - Combines vector and keyword search.
+Hybrid retrieval - Combines vector, keyword, and graph search.
 
-Uses Reciprocal Rank Fusion (RRF) to merge results.
+Uses Reciprocal Rank Fusion (RRF) to merge results across up to three
+sources. Graph and keyword sources are pluggable callables that return
+``SearchResult`` lists, keeping the fusion vendor-neutral: a knowledge
+graph adapter, a full-text index, or any external backend that can rank
+documents by an opaque score satisfies the shape.
 """
 
 from collections.abc import Callable
@@ -15,6 +19,10 @@ from cemaf.retrieval.protocols import (
     VectorStore,
 )
 
+# Named callable types so signatures read intention, not shape.
+KeywordSearchFn = Callable[[str, int], list[SearchResult]]
+GraphRankerFn = Callable[[str, int], list[SearchResult]]
+
 
 class RetrievalConfig(BaseModel):
     """Configuration for hybrid retrieval."""
@@ -24,6 +32,7 @@ class RetrievalConfig(BaseModel):
     # Number of results from each source
     vector_k: int = 20
     keyword_k: int = 20
+    graph_k: int = 20
 
     # Final number of results
     final_k: int = 10
@@ -31,8 +40,11 @@ class RetrievalConfig(BaseModel):
     # RRF constant (higher = more weight to rank)
     rrf_k: int = 60
 
-    # Weight for vector vs keyword (0.0 = keyword only, 1.0 = vector only)
+    # Weight for vector vs keyword (0.0 = keyword only, 1.0 = vector only).
+    # Kept as-is for 2-way fusion; graph_weight below is a separate scalar
+    # that only participates when a graph ranker is present.
     vector_weight: float = 0.5
+    graph_weight: float = 0.5
 
 
 def reciprocal_rank_fusion(
@@ -71,14 +83,19 @@ def reciprocal_rank_fusion(
 
 class HybridRetriever:
     """
-    Hybrid retriever combining vector and keyword search.
+    Hybrid retriever combining vector, keyword, and graph search.
 
-    Uses RRF to merge results from both sources.
+    Uses RRF to merge results across the sources that are wired. Any
+    combination is valid — vector-only, vector+keyword, vector+graph, or
+    all three. The graph slot is a callable, not a KG SDK: adapters over
+    knowledge graphs, full-text engines, or backend-native hybrid runtimes
+    all satisfy the shape.
 
     Usage:
         retriever = HybridRetriever(
             vector_store=my_vector_store,
             keyword_search=my_keyword_fn,
+            graph_ranker=my_kg_adapter.rank,
         )
         results = await retriever.search("query text", k=10)
     """
@@ -86,11 +103,13 @@ class HybridRetriever:
     def __init__(
         self,
         vector_store: VectorStore,
-        keyword_search: Callable[[str, int], list[SearchResult]] | None = None,
+        keyword_search: KeywordSearchFn | None = None,
+        graph_ranker: GraphRankerFn | None = None,
         config: RetrievalConfig | None = None,
     ) -> None:
         self._vector_store = vector_store
         self._keyword_search = keyword_search
+        self._graph_ranker = graph_ranker
         self._config = config or RetrievalConfig()
         self._documents: dict[str, Document] = {}  # Cache for RRF merge
 
@@ -106,7 +125,7 @@ class HybridRetriever:
         Args:
             query: Search query
             k: Number of results (defaults to config.final_k)
-            filter: Optional metadata filter
+            filter: Optional metadata filter (vector source only)
 
         Returns:
             List of SearchResults ordered by relevance
@@ -114,37 +133,15 @@ class HybridRetriever:
         k = k or self._config.final_k
         self._documents.clear()
 
-        # Vector search
-        vector_results = await self._vector_store.search_by_text(
-            query,
-            k=self._config.vector_k,
-            filter=filter,
+        vector_ranking = await self._run_vector(query=query, filter=filter)
+        keyword_ranking = self._run_source(fn=self._keyword_search, query=query, k=self._config.keyword_k)
+        graph_ranking = self._run_source(fn=self._graph_ranker, query=query, k=self._config.graph_k)
+
+        merged = self._fuse(
+            vector_ranking=vector_ranking,
+            keyword_ranking=keyword_ranking,
+            graph_ranking=graph_ranking,
         )
-
-        # Cache documents and get ranking
-        vector_ranking: list[str] = []
-        for result in vector_results:
-            self._documents[result.id] = result.document
-            vector_ranking.append(result.id)
-
-        # Keyword search (if available)
-        keyword_ranking: list[str] = []
-        if self._keyword_search:
-            keyword_results = self._keyword_search(query, self._config.keyword_k)
-            for result in keyword_results:
-                self._documents[result.id] = result.document
-                keyword_ranking.append(result.id)
-
-        # Merge with RRF
-        if keyword_ranking:
-            merged = reciprocal_rank_fusion(
-                [vector_ranking, keyword_ranking],
-                k=self._config.rrf_k,
-                weights=[self._config.vector_weight, 1 - self._config.vector_weight],
-            )
-        else:
-            # Vector only
-            merged = [(doc_id, 1.0 / (i + 1)) for i, doc_id in enumerate(vector_ranking)]
 
         # Build final results
         results: list[SearchResult] = []
@@ -170,3 +167,57 @@ class HybridRetriever:
         """Search using only vector similarity."""
         k = k or self._config.final_k
         return await self._vector_store.search_by_text(query, k=k, filter=filter)
+
+    async def _run_vector(self, *, query: str, filter: JSON | None) -> list[str]:
+        results = await self._vector_store.search_by_text(
+            query,
+            k=self._config.vector_k,
+            filter=filter,
+        )
+        ranking: list[str] = []
+        for result in results:
+            self._documents[result.id] = result.document
+            ranking.append(result.id)
+        return ranking
+
+    def _run_source(self, *, fn: KeywordSearchFn | GraphRankerFn | None, query: str, k: int) -> list[str]:
+        if fn is None:
+            return []
+        ranking: list[str] = []
+        for result in fn(query, k):
+            self._documents[result.id] = result.document
+            ranking.append(result.id)
+        return ranking
+
+    def _fuse(
+        self,
+        *,
+        vector_ranking: list[str],
+        keyword_ranking: list[str],
+        graph_ranking: list[str],
+    ) -> list[tuple[str, float]]:
+        """Fuse whichever sources produced results with RRF.
+
+        Only one source (vector) → return its ranking with 1/(rank+1) scores
+        so behaviour matches the pre-3-way version. Two or three sources →
+        RRF with the per-source weights currently configured (vector vs
+        keyword split, plus graph_weight when the graph slot is present).
+        """
+        rankings: list[list[str]] = [vector_ranking]
+        weights: list[float] = [self._config.vector_weight]
+
+        if keyword_ranking:
+            rankings.append(keyword_ranking)
+            weights.append(1 - self._config.vector_weight)
+        if graph_ranking:
+            rankings.append(graph_ranking)
+            weights.append(self._config.graph_weight)
+
+        if len(rankings) == 1:
+            return [(doc_id, 1.0 / (i + 1)) for i, doc_id in enumerate(vector_ranking)]
+
+        return reciprocal_rank_fusion(
+            rankings=rankings,
+            k=self._config.rrf_k,
+            weights=weights,
+        )
