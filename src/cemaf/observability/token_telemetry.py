@@ -7,6 +7,7 @@ agent executions, enabling cost analysis and context density management.
 
 import logging
 
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
 from cemaf.core.types import JSON
 from cemaf.llm.protocols import CompletionResult
 from cemaf.llm.tiktoken_estimator import get_estimator
@@ -18,7 +19,7 @@ def extract_token_metadata(
     llm_result: CompletionResult | None = None,
     input_text: str | None = None,
     output_text: str | None = None,
-    model: str = "gpt-4",
+    model: str = DEFAULT_FREE_LLM_MODEL,
     agent_name: str | None = None,
 ) -> JSON:
     """
@@ -83,7 +84,7 @@ def extract_token_metadata(
     return metadata
 
 
-def count_tokens(text: str, model: str = "gpt-4") -> int:
+def count_tokens(text: str, model: str = DEFAULT_FREE_LLM_MODEL) -> int:
     """
     Count tokens in text using tiktoken estimator.
 

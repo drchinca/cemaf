@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
@@ -52,7 +51,6 @@ class MetaServices:
     knowledge_graph: KnowledgeGraph | None = None
     openspec_runtime: OpenSpecRuntime | None = None
     openspec_workspace: OpenSpecWorkspace | None = None
-    scaffold_output_dir: Path | None = None
 
     # Hub-and-spoke KG caching (SPEC-07) — opt-in. When True and an EventBus is
     # present, the resolved KG is wrapped in a HubKnowledgeGraph and meta-agents

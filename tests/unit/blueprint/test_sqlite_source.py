@@ -148,6 +148,33 @@ class TestSqliteRoundTrip:
         assert got.scope is BlueprintScope.PROJECT
 
     @pytest.mark.asyncio
+    async def test_migration_errors_other_than_duplicate_columns_fail_loudly(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tiny_blueprint: Blueprint,
+    ) -> None:
+        import sqlite3
+
+        from cemaf.blueprint import sqlite_source
+
+        monkeypatch.setattr(
+            sqlite_source,
+            "_MIGRATIONS",
+            ("ALTER TABLE blueprint_entries ADD COLUMN",),
+        )
+        source = SqliteBlueprintSource(db_path=_db(tmp_path))
+
+        with pytest.raises(sqlite3.OperationalError):
+            await source.append(
+                entry=BlueprintEntry.snapshot_entry(
+                    id="s1",
+                    title="S1",
+                    blueprint=tiny_blueprint,
+                )
+            )
+
+    @pytest.mark.asyncio
     async def test_tags_description_metadata_preserved(
         self, tmp_path: Path, tiny_blueprint: Blueprint
     ) -> None:

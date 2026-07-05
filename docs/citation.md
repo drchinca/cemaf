@@ -133,7 +133,7 @@ from cemaf.retrieval import SearchResult
 tracker = CitationTracker()
 
 # Track citations from retrieval results
-results = await vector_store.search("query", k=5)
+results = await vector_store.search_by_text("query", k=5)
 citations = tracker.track_search_results(results)
 
 # Create cited facts
@@ -283,8 +283,7 @@ tracker = CitationTracker(event_bus=event_bus)
 
 # Events emitted:
 # - citation.added: When a citation is registered
-# - fact.created: When a cited fact is created
-# - fact.verified: When a fact is verified
+# - citation.fact_created: When a cited fact is created
 ```
 
 ## Usage Patterns
@@ -293,7 +292,7 @@ tracker = CitationTracker(event_bus=event_bus)
 
 ```python
 # 1. Retrieve relevant documents
-results = await vector_store.search(query, k=5)
+results = await vector_store.search_by_text(query, k=5)
 
 # 2. Track as citations
 citations = tracker.track_search_results(results)

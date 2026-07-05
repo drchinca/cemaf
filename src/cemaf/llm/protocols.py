@@ -8,6 +8,7 @@ Supports:
 - Token counting
 """
 
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -15,6 +16,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
 from cemaf.core.types import JSON, FinishReason, LLMProvider, TokenCount
 
 # Native provider stop strings → FinishReason. Provider-agnostic best-effort
@@ -163,6 +165,10 @@ class ToolCall:
     name: str
     arguments: JSON = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Keep direct construction aligned with provider deserialization."""
+        object.__setattr__(self, "arguments", _coerce_tool_arguments(self.arguments))
+
     def to_dict(self) -> JSON:
         """Convert to API-compatible dict."""
         return {
@@ -178,11 +184,29 @@ class ToolCall:
     def from_dict(cls, data: dict[str, Any]) -> ToolCall:
         """Create a ToolCall from a serialized dict."""
         function = data.get("function", {}) if isinstance(data.get("function"), dict) else {}
+        raw_arguments = function.get("arguments", data.get("arguments", {}))
         return cls(
             id=data.get("id", ""),
             name=function.get("name") or data.get("name", ""),
-            arguments=function.get("arguments", data.get("arguments", {})),
+            arguments=_coerce_tool_arguments(raw_arguments),
         )
+
+
+def _coerce_tool_arguments(value: Any) -> JSON:
+    """Normalize provider/tool-call arguments to the framework's dict shape."""
+    if isinstance(value, dict):
+        return dict(value)
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {"_raw": value}
+        if isinstance(parsed, dict):
+            return parsed
+        return {"_value": parsed}
+    return {"_value": value}
 
 
 @dataclass(frozen=True)
@@ -229,7 +253,7 @@ class LLMConfig(BaseModel):
 
     model_config = {"frozen": True}
 
-    model: str = "gpt-4"
+    model: str = DEFAULT_FREE_LLM_MODEL
     temperature: float = 0.7
     max_tokens: int = 4096
     top_p: float = 1.0
@@ -330,10 +354,9 @@ class LLMClient(Protocol):
     Protocol for LLM clients.
 
     Implement this for different LLM providers:
-    - OpenAI
-    - Anthropic
-    - Local models (Ollama, vLLM)
-    - Azure OpenAI
+    - Local/free models (Ollama, vLLM, LM Studio)
+    - OpenAI-compatible gateways
+    - Explicit cloud provider adapters
     - etc.
     """
 
@@ -355,7 +378,7 @@ class LLMClient(Protocol):
         """Generate a completion — `fidelity`/`token_budget` opaque to cemaf, used by adapters."""
         ...
 
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,

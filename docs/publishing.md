@@ -16,7 +16,7 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 
 1. **Update version in `pyproject.toml`**
    ```toml
-   version = "0.2.0"  # Update this
+   version = "3.0.0"  # Match the release tag
    ```
 
 2. **Update CHANGELOG.md**
@@ -26,14 +26,14 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 3. **Commit and push changes**
    ```bash
    git add pyproject.toml CHANGELOG.md
-   git commit -m "chore: bump version to 0.2.0"
+   git commit -m "chore: release v3.0.0"
    git push origin main
    ```
 
 4. **Create a GitHub Release**
    - Go to: https://github.com/drchinca/cemaf/releases/new
-   - Tag: `v0.2.0` (must start with `v`)
-   - Title: `v0.2.0`
+   - Tag: `v3.0.0` (must start with `v`)
+   - Title: `v3.0.0`
    - Description: Copy from CHANGELOG.md for this version
    - Click "Publish release"
 
@@ -118,28 +118,31 @@ CEMAF uses PyPI's trusted publishing (OIDC) for secure, token-free publishing.
 CEMAF follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR** version (1.0.0): Incompatible API changes
-- **MINOR** version (0.1.0): New functionality, backwards compatible
-- **PATCH** version (0.0.1): Bug fixes, backwards compatible
+- **MINOR** version (3.1.0): New functionality, backwards compatible
+- **PATCH** version (3.0.1): Bug fixes, backwards compatible
 
 **Current Status:**
-- Version: `0.1.0`
-- Status: Alpha
+- Version: `3.0.0`
+- Status: Public v3 release
 
 **Version Progression:**
-- Alpha: `0.1.x` → `0.2.x` (breaking changes allowed)
-- Beta: `0.9.x` → `0.10.x` (API stabilizing)
-- Stable: `1.0.0` (API stability guaranteed)
+- Public v3: `3.0.0`
+- Patch releases: `3.0.x`
 
 ## Release Checklist
 
 Before creating a release:
 
-- [ ] All tests passing (`pytest tests/`)
-- [ ] All pre-commit hooks passing
+- [ ] `make check` passes
+- [ ] `uv run python docs/architecture/scripts/check_doc_imports.py` passes
+- [ ] `uv run --frozen pytest -q -rs` passes and reports no skips
+- [ ] `uv build` succeeds
+- [ ] `uv run python docs/architecture/scripts/check_release_package.py` passes
 - [ ] Version bumped in `pyproject.toml`
 - [ ] CHANGELOG.md updated with changes
 - [ ] Documentation updated (if needed)
 - [ ] README.md updated (if needed)
+- [ ] `.env.example` and quickstart keep local/free defaults first
 - [ ] No sensitive information in git history
 - [ ] Branch is up-to-date with main
 

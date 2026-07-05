@@ -6,7 +6,9 @@ import tomllib
 
 import pytest
 
-from cemaf.meta.goals import GeneratedAgent, ProjectSkeleton
+from cemaf.agents.base import AgentContext
+from cemaf.meta.agents import AgentSynthesizer
+from cemaf.meta.goals import GeneratedAgent, ProjectSkeleton, SynthesizerGoal
 from cemaf.meta.scaffolder import render_project
 
 
@@ -64,13 +66,15 @@ def test_pyproject_uses_injected_cemaf_source() -> None:
         "cemaf @ git+https://example.invalid/cemaf.git@abc123",
         "pydantic>=2.0",
     ]
-    # No placeholder when explicitly set
+    # No default-source note when explicitly set
     assert "FIXME" not in files["pyproject.toml"]
+    assert "CEMAF dependency defaults" not in files["pyproject.toml"]
 
 
-def test_pyproject_warns_loudly_without_cemaf_source() -> None:
+def test_pyproject_notes_default_dependency_without_cemaf_source() -> None:
     files = render_project(skeleton=_skeleton())
-    assert "FIXME" in files["pyproject.toml"]
+    assert "FIXME" not in files["pyproject.toml"]
+    assert "CEMAF dependency defaults to the package name" in files["pyproject.toml"]
 
 
 @pytest.mark.parametrize(
@@ -137,6 +141,19 @@ def test_agents_file_contains_generated_sources() -> None:
         )
     )
     assert src.strip() in files["src/my_app/agents.py"]
+
+
+@pytest.mark.asyncio
+async def test_generated_synthesizer_source_has_no_unused_skill_import() -> None:
+    """Generated app agent source should not carry unused framework imports."""
+    result = await AgentSynthesizer().run(
+        goal=SynthesizerGoal(agent_name="Echo", description="Echo input"),
+        context=AgentContext(run_id="test", agent_id="MetaSynthesizer"),
+    )
+    assert result.success
+    source = result.output.agent_code  # type: ignore[union-attr]
+    assert "from cemaf.skills.base import Skill" not in source
+    assert "from __future__ import annotations" not in source
 
 
 def test_dags_py_drops_unused_imports() -> None:

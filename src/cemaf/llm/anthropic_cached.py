@@ -7,8 +7,8 @@ Emits cemaf.llm.cache.hit and cemaf.llm.tokens_saved metrics.
 """
 
 import json
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable
+from typing import Any, cast
 
 from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.protocols import (
@@ -64,7 +64,6 @@ class CachedAnthropicLLMClient:
         correlation_id: str | None = None,
     ) -> CompletionResult:
         """Complete with prompt-caching applied when the inner client supports it."""
-        del fidelity, token_budget, correlation_id  # forward-compat; opaque to cemaf
         from cemaf.llm.anthropic import AnthropicLLMClient, _convert_messages
 
         if not isinstance(self._client, AnthropicLLMClient):
@@ -72,6 +71,9 @@ class CachedAnthropicLLMClient:
                 messages=messages,
                 tools=tools,
                 config_override=config_override,
+                fidelity=fidelity,
+                token_budget=token_budget,
+                correlation_id=correlation_id,
             )
 
         import time
@@ -114,7 +116,8 @@ class CachedAnthropicLLMClient:
 
         start = time.monotonic()
         try:
-            response = await self._client._client.messages.create(**kwargs)
+            create_message = cast(Any, self._client._client.messages.create)
+            response = await create_message(**kwargs)
         except Exception as exc:
             return CompletionResult.fail(error=f"Anthropic API error: {exc}")
 
@@ -183,7 +186,18 @@ class CachedAnthropicLLMClient:
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        return await self._client.stream(messages=messages, tools=tools, config_override=config_override)
+        stream_result: Any = self._client.stream(
+            messages=messages,
+            tools=tools,
+            config_override=config_override,
+        )
+        stream = (
+            cast(AsyncIterator[StreamChunk], stream_result)
+            if hasattr(stream_result, "__aiter__")
+            else await cast(Awaitable[AsyncIterator[StreamChunk]], stream_result)
+        )
+        async for chunk in stream:
+            yield chunk
 
     def count_tokens(self, text: str) -> TokenCount:
         return self._client.count_tokens(text)

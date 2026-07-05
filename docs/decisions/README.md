@@ -154,7 +154,7 @@ Not yet solicited (pre-launch). Will gather feedback after soft launch.
 **Status:** Adopted
 
 **Context:**
-Need to choose minimum Python version. Options: 3.10 (widest compatibility), 3.11 (stable + new), 3.12 (performance), 3.14 (cutting edge).
+Need to choose minimum Python version. Options: 3.10 (widest compatibility), 3.11 (stable + new), 3.12 (performance), 3.14 (current language target).
 
 **Decision:**
 Require Python 3.14+ with no backport to older versions.

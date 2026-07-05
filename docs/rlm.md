@@ -201,12 +201,19 @@ class DocumentAnalysisSkill:
 
 ## Integration with Agents
 
-Skills using RLM work seamlessly with Agents:
+Skills using RLM compose with Agents:
 
 ```python
-from cemaf.agents.base import Agent, AgentContext, AgentResult
+from pydantic import BaseModel
 
-class AnalystAgent:
+from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
+from cemaf.core.enums import AgentStatus
+from cemaf.core.types import AgentID
+
+class AnalysisGoal(BaseModel):
+    instruction: str
+
+class AnalystAgent(Agent[AnalysisGoal, object]):
     """Agent that analyzes large datasets using RLM."""
 
     def __init__(self, analysis_skill):
@@ -217,14 +224,20 @@ class AnalystAgent:
         return AgentID("analyst")
 
     @property
+    def description(self) -> str:
+        return "Analyzes large datasets with RLM-backed skills"
+
+    @property
     def skills(self) -> tuple:
         return (self._skill,)
 
     async def run(
         self,
-        goal: Any,
+        goal: AnalysisGoal,
         context: AgentContext,
-    ) -> AgentResult:
+    ) -> AgentResult[object]:
+        state = AgentState(status=AgentStatus.RUNNING)
+
         # Execute analysis skill with RLM
         result = await self._skill.execute(
             goal.instruction,
@@ -232,14 +245,14 @@ class AnalystAgent:
         )
 
         if not result.success:
-            return AgentResult.fail(result.error)
+            return AgentResult.fail(result.error or "Analysis failed", state)
 
         # Return with state trace
         return AgentResult.ok(
-            result.data,
-            state=AgentState(
+            result.data.data,
+            state=state.next(
                 status=AgentStatus.COMPLETED,
-                skill_calls=[result],
+                skill_calls=1,
             ),
         )
 ```
@@ -386,9 +399,9 @@ from cemaf.context.compiler import TokenEstimator
 class CustomTokenEstimator:
     """Custom token estimator using tiktoken."""
 
-    def __init__(self, model: str = "gpt-4"):
+    def __init__(self, encoding_name: str = "cl100k_base"):
         import tiktoken
-        self.encoding = tiktoken.encoding_for_model(model)
+        self.encoding = tiktoken.get_encoding(encoding_name)
 
     def estimate(self, text: str) -> int:
         return len(self.encoding.encode(text))
@@ -403,26 +416,35 @@ rlm_tool = create_rlm_tool(
 ### Custom Chunking Strategy
 
 ```python
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator, TokenEstimator
+from cemaf.core.types import TokenCount
+from cemaf.rlm import DivideAndConquerQueryEngine, RLMQueryTool
 from cemaf.rlm.protocols import ContextChunk, ChunkingStrategy
 
-class SemanticChunkingStrategy:
-    """Chunk by semantic boundaries (paragraphs, sections, etc.)."""
+class SectionChunkingStrategy:
+    """Chunk by markdown-style section boundaries."""
+
+    def __init__(self, estimator: TokenEstimator):
+        self._estimator = estimator
 
     def chunk(
         self,
         content: str,
         max_chunk_tokens: int,
     ) -> tuple[ContextChunk, ...]:
-        # Custom chunking logic
-        sections = split_by_sections(content)
+        sections = [section.strip() for section in content.split("\n## ") if section.strip()]
         chunks = []
 
         for i, section in enumerate(sections):
+            token_count = self._estimator.estimate(section)
+            if token_count > max_chunk_tokens:
+                section = section[: max_chunk_tokens * 4]
+                token_count = self._estimator.estimate(section)
             chunks.append(
                 ContextChunk(
                     chunk_id=f"section_{i}",
                     content=section,
-                    token_count=TokenCount(estimate_tokens(section)),
+                    token_count=TokenCount(token_count),
                     metadata={"type": "section"},
                 )
             )
@@ -437,7 +459,9 @@ class SemanticChunkingStrategy:
         return chunks
 
 # Use custom strategy
-chunking = SemanticChunkingStrategy()
+estimator = SimpleTokenEstimator()
+compiler = PriorityContextCompiler(estimator)
+chunking = SectionChunkingStrategy(estimator)
 engine = DivideAndConquerQueryEngine(llm, compiler, max_depth=3)
 rlm_tool = RLMQueryTool(engine, chunking)
 ```

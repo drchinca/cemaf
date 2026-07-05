@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from cemaf.llm.factories import create_llm_client, llm_registry
+from cemaf.llm.factories import (
+    DEFAULT_OLLAMA_CLOUD_MODEL,
+    OLLAMA_CLOUD_BASE_URL,
+    create_llm_client,
+    llm_registry,
+)
 from cemaf.llm.openai_compat import OpenAICompatClient
 
 
@@ -15,12 +20,12 @@ class TestOllamaCloudFactory:
     def test_factory_uses_ollama_cloud_base_url(self) -> None:
         client = create_llm_client(provider="ollama-cloud", api_key="test-key")
         assert isinstance(client, OpenAICompatClient)
-        assert client._base_url == "https://ollama.com/v1"  # type: ignore[attr-defined]
+        assert client._base_url == OLLAMA_CLOUD_BASE_URL  # type: ignore[attr-defined]
 
-    def test_factory_default_model_is_free_tier(self) -> None:
+    def test_factory_default_model_is_named_constant(self) -> None:
         client = create_llm_client(provider="ollama-cloud", api_key="test-key")
         assert isinstance(client, OpenAICompatClient)
-        assert client.config.model == "gpt-oss:120b-cloud"
+        assert client.config.model == DEFAULT_OLLAMA_CLOUD_MODEL
 
     def test_factory_accepts_custom_model(self) -> None:
         client = create_llm_client(

@@ -3,11 +3,11 @@
 **Context Engineering Multi-Agent Framework**
 
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=flat-square)](https://opensource.org)
-[![Project Status: Alpha](https://img.shields.io/badge/Status-Alpha-yellow?style=flat-square)](https://github.com/drchinca/cemaf)
+[![Project Status: 3.0](https://img.shields.io/badge/Status-3.0-green?style=flat-square)](https://github.com/drchinca/cemaf)
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/Tests-3400+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
+[![Tests](https://img.shields.io/badge/Tests-4000+_Passing-success?style=flat-square&logo=pytest&logoColor=white)](.)
 [![Coverage](https://img.shields.io/badge/Coverage-80%25-brightgreen?style=flat-square)](.)
 [![CI](https://img.shields.io/github/actions/workflow/status/drchinca/cemaf/ci.yml?branch=main&style=flat-square&logo=github&label=CI)](https://github.com/drchinca/cemaf/actions/workflows/ci.yml)
 [![Ruff](https://img.shields.io/badge/Code_Style-Ruff-FCC21B?style=flat-square&logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
@@ -28,7 +28,7 @@
 | Operator promise | Budgeted, auditable, replayable agent execution with provenance |
 | Python | 3.14+ |
 
-**Open source** context engineering infrastructure that solves the hard problems in AI agent systems. CEMAF can be used standalone or plugged into existing frameworks like LangGraph, AutoGen, and CrewAI.
+**Open source** context engineering infrastructure for multi-agent systems. Use CEMAF as the execution substrate, or compose its modules into an existing stack without inheriting a second application framework.
 
 > **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
 > - **Module graph** — every module in `src/cemaf/` as a node, every `import` as an edge, AST-exact (regenerate with [`docs/architecture/build_graph_data.py`](docs/architecture/build_graph_data.py)).
@@ -55,9 +55,9 @@
 
 CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
 
-### What CEMAF makes the industry standard
+### Patterns CEMAF Standardizes
 
-The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has been re-implementing for two years.
+Most agent stacks grow glue code around the same runtime concerns. CEMAF packages those concerns as protocols, services, and DAG primitives. Less ceremony, fewer private assumptions, and yes, fewer places for future-you to mutter at a constructor.
 
 | Hard problem the field keeps re-solving | CEMAF's standard | Spec |
 |---|---|---|
@@ -252,15 +252,18 @@ See **[docs/self-hosting.md](docs/self-hosting.md)** for the full meta catalog, 
 ## Installation
 
 ```bash
-# Core installation (minimal dependencies)
+# Core installation: offline examples, protocols, DAGs, context, memory
 pip install cemaf
 
-# With optional integrations
-pip install "cemaf[openai]"        # OpenAI + tiktoken
+# Local/free LLM serving through Ollama's OpenAI-compatible HTTP API
+pip install "cemaf[ollama]"
+
+# Hosted providers are explicit opt-in
+pip install "cemaf[openai]"        # OpenAI Responses API + tiktoken
 pip install "cemaf[anthropic]"     # Anthropic
-pip install "cemaf[tiktoken]"      # Accurate token counting only
+pip install "cemaf[gemini]"        # Gemini / Vertex HTTP client support
 pip install "cemaf[prometheus]"    # Prometheus metrics export
-pip install "cemaf[all]"           # All optional dependencies
+pip install "cemaf[all]"           # All optional integration dependencies
 
 # Development installation
 git clone https://github.com/drchinca/cemaf.git
@@ -449,7 +452,7 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **Semantic Deduplication**: Exact key + embedding similarity detection with merge/skip resolution
 - **Post-Session Extraction**: Automatic promotion of session learnings to long-term memory (patterns, corrections, facts)
 - **Hierarchical Scope Propagation**: Parent-to-child score propagation for scope-aware retrieval
-- **SQLite Persistence**: Production-ready persistent memory store via aiosqlite
+- **SQLite Persistence**: SQLite-backed persistent memory store via aiosqlite
 
 ### Online Evaluation
 - **Hierarchical Judge**: Three-tier evaluation -- fast deterministic checks, semantic similarity, LLM judge (escalates only when needed)
@@ -460,7 +463,7 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **ToolUseSuccessEvaluator**: tool-call success rate × result-reference in output — detects silent tool-use failures
 
 ### LLM Integration
-- **Six adapters out-of-the-box**: Anthropic, OpenAI, Gemini, Groq/Together/Fireworks (via OpenAI-compat), Ollama/vLLM/LM Studio (via OpenAI-compat), Mock
+- **Provider adapters**: local Ollama/mock paths first; OpenAI, Anthropic, Gemini, Bedrock CLI, and OpenAI-compatible gateways by explicit configuration
 - **`count_tokens_exact(messages, tools)`** async method for pre-flight sizing: Anthropic API, OpenAI tiktoken, Gemini `:countTokens`, heuristic fallback
 - **`ModeratingLLMClient`** decorator: NFKC unicode normalization + zero-width strip + structured-content flattening, runs pre-flight gate on every tool-result message before forwarding. Defends against prompt injection via retrieved docs / MCP results.
 - **Streaming-aware moderation**: `stream()` buffers by sentence boundary and runs post-flight gate per completed sentence — callers never see more than one sentence of disallowed content
@@ -468,7 +471,7 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 
 ### Production Backends
 - **Resilient LLM Client**: Retry with exponential backoff + circuit breaker + rate limiter composing around any LLMClient
-- **OpenAI Embeddings**: Production embedding provider using text-embedding-3-small with batch support
+- **Embedding Providers**: Offline hash embeddings by default, with explicit OpenAI and Hugging Face adapters when configured
 - **Structured Logging**: JSON-lines logger with context fields for production observability
 - **Prometheus Metrics**: Counter/gauge/histogram/timing export with lazy metric registration
 
@@ -624,16 +627,16 @@ protocols, and search tools.
 
 ## Configuration
 
-CEMAF is designed for zero-config startup with production-ready defaults. Customize via environment variables:
+CEMAF is designed for zero-config startup with local-first defaults. Customize via environment variables:
 
 ```bash
 # Copy example configuration
 cp .env.example .env
 
-# Configure your setup
-CEMAF_LLM_PROVIDER=openai
-CEMAF_LLM_API_KEY=your-key
-CEMAF_CACHE_BACKEND=redis
+# Free/local default setup
+CEMAF_LLM_PROVIDER=ollama
+CEMAF_LLM_DEFAULT_MODEL=gemma3:4b
+CEMAF_CACHE_BACKEND=ttl
 CEMAF_CACHE_MAX_SIZE=10000
 ```
 
@@ -671,13 +674,13 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 2301+ tests | 100% passing | TDD from day one
+**Project Stats**: 4067 passing tests in the current release gate | no skipped tests
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contribution workflow lives in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Development setup:
 
@@ -700,7 +703,7 @@ See [HOW_TO_USE.md](HOW_TO_USE.md) for detailed usage examples.
 
 ## Getting Help
 
-We're here to help! Here are the best ways to get support:
+Use these channels when you need support:
 
 ### Documentation
 
@@ -711,21 +714,23 @@ We're here to help! Here are the best ways to get support:
 
 ### Community
 
-- [Discord Server](https://discord.gg/C8ZXAbD8) - Join our community for real-time help
+- [Discord Server](https://discord.gg/C8ZXAbD8) - Community chat and contributor coordination
 - [GitHub Discussions](https://github.com/drchinca/cemaf/discussions) - Ask questions and share ideas
 - [GitHub Issues](https://github.com/drchinca/cemaf/issues) - Report bugs or request features
 
 ### Contributing
 
-Want to contribute? Check out our [Contributing Guide](CONTRIBUTING.md) to get started!
+Contribute through the [Contributing Guide](CONTRIBUTING.md).
 
-We're in **Alpha** and actively seeking feedback!
+CEMAF 3.0 is the public release line. The protocol shape is stable enough to
+build against; release notes own any breaking changes. That is the grown-up
+version of "we changed it because Tuesday was weird."
 
 ---
 
 ## Philosophy & Open Startup
 
-CEMAF operates as an **open startup** - we believe in radical transparency, community collaboration, and building in public.
+CEMAF operates as an **open startup**: roadmap, decisions, metrics, and tradeoffs are public by default.
 
 ### Our Principles
 

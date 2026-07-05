@@ -14,6 +14,7 @@ from threading import Lock
 import aiosqlite
 
 from cemaf.core.types import JSON
+from cemaf.retrieval.embedding_validation import normalize_embedding_dimension, require_positive_dimension
 from cemaf.retrieval.protocols import Document, EmbeddingProvider, SearchResult
 
 _CREATE_TABLE = """
@@ -58,7 +59,7 @@ def _cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     if len(a) != len(b):
         raise ValueError(f"Vector dimensions don't match: {len(a)} vs {len(b)}")
 
-    dot_product = sum(x * y for x, y in zip(a, b, strict=False))
+    dot_product = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
     if norm_a == 0 or norm_b == 0:
@@ -128,6 +129,7 @@ class SqliteVectorStore:
     ) -> None:
         self._db_path = db_path
         self._embedding_provider = embedding_provider
+        require_positive_dimension(embedding_provider.dimension, label="embedding provider dimension")
         self._busy_timeout_ms = busy_timeout_ms
         self._journal_mode = journal_mode
         self._conn: aiosqlite.Connection | None = None
@@ -177,8 +179,18 @@ class SqliteVectorStore:
 
     async def add(self, document: Document) -> None:
         """Add or replace a document."""
+        embedding: tuple[float, ...] | None
         if not document.has_embedding:
-            document = document.with_embedding(await self._embedding_provider.embed(document.content))
+            embedding = await self._embedding_provider.embed(document.content)
+        else:
+            embedding = document.embedding
+        document = document.with_embedding(
+            normalize_embedding_dimension(
+                embedding,
+                expected_dimension=self._embedding_provider.dimension,
+                label=f"embedding for document {document.id!r}",
+            )
+        )
 
         conn = await self._connection()
         async with _locked_db(self._db_path):
@@ -203,11 +215,18 @@ class SqliteVectorStore:
         hydrated: list[Document] = []
         for document in documents:
             if document.has_embedding:
-                hydrated.append(document)
+                embedding = document.embedding
             else:
-                hydrated.append(
-                    document.with_embedding(await self._embedding_provider.embed(document.content))
+                embedding = await self._embedding_provider.embed(document.content)
+            hydrated.append(
+                document.with_embedding(
+                    normalize_embedding_dimension(
+                        embedding,
+                        expected_dimension=self._embedding_provider.dimension,
+                        label=f"embedding for document {document.id!r}",
+                    )
                 )
+            )
 
         conn = await self._connection()
         async with _locked_db(self._db_path):
@@ -254,6 +273,11 @@ class SqliteVectorStore:
         filter: JSON | None = None,
     ) -> list[SearchResult]:
         """Search for similar documents using brute-force cosine similarity."""
+        query_embedding = normalize_embedding_dimension(
+            query_embedding,
+            expected_dimension=self._embedding_provider.dimension,
+            label="query embedding",
+        )
         conn = await self._connection()
         async with conn.execute(
             "SELECT id, content, embedding_json, metadata_json, created_at FROM vector_documents"

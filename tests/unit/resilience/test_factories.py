@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from cemaf.config.protocols import ResilienceSettings, Settings
 from cemaf.resilience import (
     CircuitBreaker,
     RateLimiter,
@@ -130,6 +131,72 @@ def test_create_registered_retry_policy_from_env(monkeypatch: pytest.MonkeyPatch
     assert captured["backoff_strategy"] == "linear"
     assert captured["backoff_multiplier"] == 1.25
     assert captured["jitter"] is False
+
+
+def test_resilience_from_config_uses_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "CEMAF_RESILIENCE_RETRY_BACKEND",
+        "CEMAF_RESILIENCE_MAX_RETRIES",
+        "CEMAF_RESILIENCE_INITIAL_RETRY_DELAY_SECONDS",
+        "CEMAF_RESILIENCE_MAX_RETRY_DELAY_SECONDS",
+        "CEMAF_RESILIENCE_RETRY_BACKOFF_STRATEGY",
+        "CEMAF_RESILIENCE_RETRY_BACKOFF_MULTIPLIER",
+        "CEMAF_RESILIENCE_RETRY_JITTER",
+        "CEMAF_RESILIENCE_CIRCUIT_BREAKER_BACKEND",
+        "CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+        "CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_WINDOW_SECONDS",
+        "CEMAF_RESILIENCE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
+        "CEMAF_RESILIENCE_CIRCUIT_BREAKER_SUCCESS_THRESHOLD",
+        "CEMAF_RESILIENCE_RATE_LIMITER_BACKEND",
+        "CEMAF_RESILIENCE_RATE_LIMIT_REQUESTS_PER_SECOND",
+        "CEMAF_RESILIENCE_RATE_LIMIT_BURST",
+        "CEMAF_RESILIENCE_RATE_LIMIT_WAIT_ON_LIMIT",
+        "CEMAF_RESILIENCE_RATE_LIMIT_MAX_WAIT_SECONDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(
+        resilience=ResilienceSettings(
+            max_retries=6,
+            initial_retry_delay_seconds=0.15,
+            max_retry_delay_seconds=9.0,
+            retry_backoff_strategy="linear",
+            retry_backoff_multiplier=1.4,
+            retry_jitter=False,
+            circuit_breaker_failure_threshold=4,
+            circuit_breaker_failure_window_seconds=11.0,
+            circuit_breaker_recovery_timeout_seconds=12.0,
+            circuit_breaker_success_threshold=3,
+            rate_limit_requests_per_second=33.0,
+            rate_limit_burst=34,
+            rate_limit_wait_on_limit=False,
+            rate_limit_max_wait_seconds=2.25,
+        )
+    )
+
+    policy = create_retry_policy_from_config(settings=settings)
+    breaker = create_circuit_breaker_from_config(settings=settings)
+    limiter = create_rate_limiter_from_config(settings=settings)
+
+    assert isinstance(policy, RetryPolicy)
+    assert policy.config.max_attempts == 6
+    assert policy.config.initial_delay_seconds == 0.15
+    assert policy.config.max_delay_seconds == 9.0
+    assert policy.config.backoff_strategy == BackoffStrategy.LINEAR
+    assert policy.config.backoff_multiplier == 1.4
+    assert policy.config.jitter is False
+
+    assert isinstance(breaker, CircuitBreaker)
+    assert breaker.config.failure_threshold == 4
+    assert breaker.config.failure_window_seconds == 11.0
+    assert breaker.config.recovery_timeout_seconds == 12.0
+    assert breaker.config.success_threshold == 3
+
+    assert isinstance(limiter, RateLimiter)
+    assert limiter.config.rate == 33.0
+    assert limiter.config.burst == 34
+    assert limiter.config.wait_on_limit is False
+    assert limiter.config.max_wait_seconds == 2.25
 
 
 def test_register_custom_circuit_breaker_backend() -> None:

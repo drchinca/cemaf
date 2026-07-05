@@ -25,16 +25,16 @@ apps" thesis stops being hypothetical.
   pure-function renderer producing a relative-path→content map.
 - **Add `create_app_synthesis_dag()`** — end-to-end pipeline:
   MetaSpecifier → MetaArchitect → MetaSynthesizer → MetaScaffolder.
-- **Extend `create_meta_executor()`** to register MetaScaffolder when a scaffold
-  output directory is present on `MetaServices`.
+- **Extend `create_meta_executor()`** to register MetaScaffolder. The output
+  directory is supplied per run through `ScaffoldGoal.target_dir`, keeping the
+  agent stateless.
 
 ## Impact
 
 - **Affected specs**: `meta-scaffolder` (new)
 - **Affected code**: `src/cemaf/meta/scaffolder.py` (new), `src/cemaf/meta/goals.py`
   (added types), `src/cemaf/meta/dags.py` (added DAG factory),
-  `src/cemaf/meta/bootstrap.py` + `registry.py` (registration), `MetaServices`
-  (added `scaffold_output_dir` field)
+  `src/cemaf/meta/bootstrap.py` + `registry.py` (registration)
 - **Not affected**: base framework. Same one-way dependency as MetaSpecifier —
   scaffolder imports from cemaf, the reverse never happens.
 - **External deps**: none. No cookiecutter, no Jinja. Pure Python f-string

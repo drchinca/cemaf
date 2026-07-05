@@ -29,6 +29,17 @@ class TestCachedAnthropicLLMClient:
         count = cached.count_tokens("some text here")
         assert count > 0
 
+    @pytest.mark.asyncio
+    async def test_stream_delegates_to_inner_async_iterator(self):
+        inner = MockLLMClient(responses=["hello stream"])
+        cached = CachedAnthropicLLMClient(client=inner)
+
+        chunks = [chunk async for chunk in cached.stream(messages=[Message.user("hi")])]
+
+        assert "".join(chunk.content for chunk in chunks) == "hello stream"
+        assert chunks[-1].is_final
+        assert inner.call_count == 1
+
     def test_count_messages_tokens_delegates(self):
         inner = MockLLMClient()
         cached = CachedAnthropicLLMClient(client=inner)

@@ -1,8 +1,7 @@
 """Tests for PrometheusMetrics collector."""
 
+import prometheus_client as pc
 import pytest
-
-pc = pytest.importorskip("prometheus_client")
 
 from cemaf.observability.prometheus_metrics import PrometheusMetrics
 from cemaf.observability.protocols import MetricsCollector

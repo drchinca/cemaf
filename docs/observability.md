@@ -213,9 +213,12 @@ Available registries:
 | Registry | Factory | Built-ins |
 | --- | --- | --- |
 | `logger_registry` | `create_logger()` | `simple`, `structured` |
-| `tracer_registry` | `create_tracer()` | `noop` |
-| `metrics_collector_registry` | `create_metrics_collector()` | `noop`, `simple` |
+| `tracer_registry` | `create_tracer()` | `noop`, `otel`, `opentelemetry` |
+| `metrics_collector_registry` | `create_metrics_collector()` | `noop`, `simple`, `prometheus`, `otel`, `opentelemetry` |
 | `run_logger_registry` | `create_run_logger()` | `memory`, `file`, `noop` |
+
+The `otel`, `opentelemetry`, and `prometheus` backends are optional built-ins:
+they lazy-import their extras only when selected.
 
 ## StructuredLogger
 
@@ -262,8 +265,8 @@ node_logger.info("Executing node")
 Any extra keyword arguments passed to log methods are included as top-level fields in the JSON output:
 
 ```python
-logger.info("LLM call completed", model="gpt-4", tokens=1523, cost_usd=0.045)
-# {"timestamp": "...", "level": "INFO", "message": "LLM call completed", "model": "gpt-4", "tokens": 1523, "cost_usd": 0.045}
+logger.info("LLM call completed", model="gemma3:4b", tokens=1523, cost_usd=0.0)
+# {"timestamp": "...", "level": "INFO", "message": "LLM call completed", "model": "gemma3:4b", "tokens": 1523, "cost_usd": 0.0}
 ```
 
 ## PrometheusMetrics
@@ -285,7 +288,7 @@ metrics.gauge(name="active_connections", value=42.0, tags={"service": "llm"})
 metrics.histogram(name="response_size_bytes", value=1024.0)
 
 # Timing (converts ms to seconds for histogram)
-metrics.timing(name="llm_latency", value_ms=523.0, tags={"model": "gpt-4"})
+metrics.timing(name="llm_latency", value_ms=523.0, tags={"model": "gemma3:4b"})
 
 # Export Prometheus text format (for /metrics endpoint)
 exposition = metrics.generate_metrics()
@@ -297,10 +300,10 @@ Metrics are created on first use and cached. Calling the same metric name with t
 
 ```python
 # First call registers the counter
-metrics.counter(name="llm_calls", tags={"model": "gpt-4"})
+metrics.counter(name="llm_calls", tags={"model": "gemma3:4b"})
 
 # Subsequent calls increment the existing counter
-metrics.counter(name="llm_calls", tags={"model": "gpt-4"})
+metrics.counter(name="llm_calls", tags={"model": "gemma3:4b"})
 ```
 
 ### Integration with ResilientLLMClient

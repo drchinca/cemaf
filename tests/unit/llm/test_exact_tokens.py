@@ -7,8 +7,6 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("anthropic", reason="anthropic package required")
-
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import Message, MessageRole
 

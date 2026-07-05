@@ -54,7 +54,7 @@ CEMAF is a **protocol-first, composable framework for running multi-agent LLM wo
 │                                                                      │
 │   Memory & Retrieval   LLM Integration           Quality & Safety    │
 │   • MemoryManager      • LLMClient protocol      • EvalPipeline      │
-│   • SemanticStore      • 6 adapters              • QualityPolice     │
+│   • SemanticStore      • provider adapters       • QualityPolice     │
 │   • EpisodicStore      • ResilientLLMClient      • Moderation        │
 │   • TieredStore        • ModeratingLLMClient     • Citation          │
 │   • VectorStore        • InstrumentedLLMClient   • Validation        │

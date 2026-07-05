@@ -1,30 +1,30 @@
-# Doc Import Drift — Current Baseline
+# Doc Import Drift
 
-`docs/architecture/scripts/check_doc_imports.py` statically validates
-`from cemaf...` imports in fenced Python snippets against exports under
-`src/cemaf`.
+`docs/architecture/scripts/check_doc_imports.py` runs every `from cemaf...`
+import statement found inside fenced Python blocks across user-facing markdown
+and verifies that it resolves against the local package.
 
-## Current status
+Status as of 2026-07-04:
 
-As of 2026-06-30, the checker passes for all markdown docs:
-
-```bash
-python3 docs/architecture/scripts/check_doc_imports.py
+```text
+Scanned 91 markdown files
+  unique 'from cemaf...' imports: 324
+  total occurrences:              536
+  failures:                       0
+All documented `from cemaf...` imports resolve.
 ```
 
-Expected output shape:
+Re-run any time:
 
-- `failures: 0`
-- `All documented 'from cemaf...' imports resolve.`
+```bash
+uv run python docs/architecture/scripts/check_doc_imports.py
+```
 
-## Aspirational docs policy
+## Maintenance
 
-Some docs include future API sketches for modules that are not shipped yet
-(for example `offline`, `sync`, and `throttling`). Those snippets should use
-commented import lines (for example `# Future API sketch: from cemaf...`) so
-strict import verification can remain enabled repository-wide.
-
-## CI wiring
-
-Pre-commit already enforces this check locally via `check-doc-imports`. If you
-also add it to CI, use the exact same exclusion list to keep behavior aligned.
+- Keep this checker green when changing public docs.
+- If a doc describes a deferred capability, mark it as not shipped and do not
+  include fenced Python imports for packages or names that are absent from
+  `src/cemaf`.
+- Once this checker is wired into CI, keep it as a hard gate for user-facing
+  markdown.

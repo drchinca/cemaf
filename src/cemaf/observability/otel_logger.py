@@ -24,6 +24,12 @@ class OTelLogger:
         self._name = name
         self._otel_logger = otel_logger
         self._context: dict[str, Any] = context or {}
+        self._last_otel_error: Exception | None = None
+
+    @property
+    def last_otel_error(self) -> Exception | None:
+        """Most recent OpenTelemetry emission error, if one occurred."""
+        return self._last_otel_error
 
     def _emit(self, level: str, message: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         formatted = message % args if args else message
@@ -46,7 +52,7 @@ class OTelLogger:
             self._emit_otel(level=level, body=formatted, attributes=record)
 
     def _emit_otel(self, level: str, body: str, attributes: dict[str, Any]) -> None:
-        """Best-effort OTel log record emission; silently skips on API errors."""
+        """Best-effort OTel log record emission; reports API errors to stderr."""
         try:
             from opentelemetry import trace
             from opentelemetry._logs import SeverityNumber
@@ -73,8 +79,22 @@ class OTelLogger:
                     span_id=span_ctx.span_id if span_ctx and span_ctx.is_valid else None,
                 )
             )
-        except Exception:
-            pass
+            self._last_otel_error = None
+        except Exception as exc:
+            self._last_otel_error = exc
+            self._emit_otel_error(exc)
+
+    def _emit_otel_error(self, exc: Exception) -> None:
+        record = {
+            "timestamp": datetime.now(tz=UTC).isoformat(),
+            "level": "WARNING",
+            "logger": self._name,
+            "message": "OpenTelemetry log emit failed",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+        sys.stderr.write(json.dumps(record, default=str) + "\n")
+        sys.stderr.flush()
 
     def debug(self, message: str, *args: Any, **kwargs: Any) -> None:
         self._emit("DEBUG", message, args, kwargs)

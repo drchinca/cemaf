@@ -11,8 +11,12 @@ flowchart TB
     end
 
     subgraph Implementations
-        OPENAI[OpenAIClient]
-        ANTHROPIC[AnthropicClient]
+        OPENAI[OpenAIResponsesLLMClient]
+        COMPAT[OpenAICompatClient]
+        ANTHROPIC[AnthropicLLMClient]
+        GEMINI[GeminiClient]
+        BEDROCK[BedrockCliLLMClient]
+        BATCH[BatchLLMClient]
         MOCK[MockLLMClient]
     end
 
@@ -29,7 +33,11 @@ flowchart TB
     end
 
     CLIENT --> OPENAI
+    CLIENT --> COMPAT
     CLIENT --> ANTHROPIC
+    CLIENT --> GEMINI
+    CLIENT --> BEDROCK
+    CLIENT --> BATCH
     CLIENT --> MOCK
     SYS --> CLIENT
     USER --> CLIENT
@@ -70,10 +78,10 @@ sequenceDiagram
 ## LLM Client Protocol
 
 ```python
-from cemaf.llm.protocols import LLMClient, Message, CompletionResult
+from cemaf.llm import LLMClient, Message, create_llm_client
 
 # Use any LLM implementation
-llm: LLMClient = OpenAIClient()  # or AnthropicClient(), MockLLMClient()
+llm: LLMClient = create_llm_client("mock")
 
 # Complete
 result = await llm.complete([
@@ -135,7 +143,7 @@ The `ContextNodeExecutor` automatically wraps agents' LLM clients with `Instrume
 from cemaf.llm.protocols import LLMConfig
 
 config = LLMConfig(
-    model="claude-sonnet-4-6",
+    model="gemma3:4b",
     temperature=0.7,
     max_tokens=4096,
     top_p=0.9,
@@ -147,12 +155,97 @@ config = LLMConfig(
 result = await llm.complete(messages=messages, config_override=config)
 ```
 
+## OpenAI
+
+Use `openai` for the native OpenAI Responses API:
+
+```python
+from cemaf.llm import Message, create_llm_client
+
+llm = create_llm_client("openai", model="gpt-5.5")
+result = await llm.complete([Message.user("Summarize this run")])
+```
+
+The native adapter uses Responses streaming for `stream()`. For
+`count_tokens_exact()`, it calls the OpenAI input-token counting endpoint when
+available and falls back to the local estimator if the endpoint is unavailable
+or fails.
+
+Use `openai-compatible` for servers that expose the Chat Completions wire
+protocol, such as local inference servers or provider gateways:
+
+```python
+from cemaf.llm import create_llm_client
+
+llm = create_llm_client(
+    "openai-compatible",
+    base_url="http://localhost:8000/v1",
+    api_key="local",
+    model="qwen",
+)
+```
+
+Configuration-driven local/free serving:
+
+```bash
+CEMAF_LLM_PROVIDER=ollama
+CEMAF_LLM_DEFAULT_MODEL=gemma3:4b
+```
+
+## Gemini and Vertex
+
+Use `gemini` for Google AI Studio API-key access:
+
+```python
+from cemaf.llm import Message, create_llm_client
+
+llm = create_llm_client("gemini", api_key="...", model="gemini-2.5-flash")
+result = await llm.complete([Message.user("Summarize this run")])
+```
+
+Use `vertex` or `vertex-ai` when the same Gemini adapter should call Vertex AI:
+
+```python
+from cemaf.llm import create_llm_client
+
+llm = create_llm_client(
+    "vertex",
+    gcp_project="my-project",
+    location="us-central1",
+    model="gemini-2.5-flash",
+)
+```
+
+Vertex authentication resolves in this order: explicit `access_token`,
+`VERTEX_ACCESS_TOKEN`/`GCP_ACCESS_TOKEN`/`GCLOUD_ACCESS_TOKEN`, Application
+Default Credentials, then `gcloud auth print-access-token`. If an API key is
+provided, the adapter can use the Vertex API-key header instead.
+
+Both paths support CEMAF tool definitions for `complete()`, `stream()`, and
+`count_tokens_exact()`.
+
+## Batch Processing
+
+Use `BatchLLMClient` for offline Anthropic Message Batches workloads. It is not
+low-latency streaming: `stream()` submits a single-item batch through
+`complete()` and emits the completed response as a fallback stream for generic
+`LLMClient` callers. `count_tokens_exact()` returns the local estimate because
+the batch API does not provide a preflight count endpoint.
+
+```python
+from cemaf.llm.factories import create_batch_client
+from cemaf.llm.protocols import Message
+
+client = create_batch_client(api_key="...", model="claude-sonnet-4-6")
+result = await client.complete([Message.user("Summarize this dataset")])
+```
+
 ## LLM Factories
 
 ```python
 from cemaf.llm.factories import create_llm_client_from_config
 
-# From environment (reads CEMAF_LLM_BACKEND, CEMAF_LLM_MODEL, etc.)
+# From environment (reads CEMAF_LLM_PROVIDER, CEMAF_LLM_DEFAULT_MODEL, etc.)
 client = create_llm_client_from_config()
 
 # Register custom backends

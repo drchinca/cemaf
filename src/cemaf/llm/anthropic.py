@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.protocols import (
@@ -39,12 +40,17 @@ class AnthropicLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Send messages to Claude and return completion result."""
+        del fidelity, token_budget, correlation_id
         cfg = config_override or self._config
         system_msg, api_messages = _convert_messages(messages=messages)
 
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
@@ -104,7 +110,7 @@ class AnthropicLLMClient:
         cfg = config_override or self._config
         system_msg, api_messages = _convert_messages(messages=messages)
 
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
@@ -133,9 +139,10 @@ class AnthropicLLMClient:
                     elif hasattr(event.delta, "partial_json"):
                         current_tool_json += event.delta.partial_json
                 elif event.type == "content_block_start":
-                    if hasattr(event.content_block, "id"):
-                        current_tool_id = event.content_block.id
-                        current_tool_name = event.content_block.name
+                    block_id = getattr(event.content_block, "id", "")
+                    if block_id:
+                        current_tool_id = block_id
+                        current_tool_name = str(getattr(event.content_block, "name", ""))
                         current_tool_json = ""
                 elif event.type == "content_block_stop" and current_tool_id:
                     try:
@@ -207,7 +214,7 @@ class AnthropicLLMClient:
         and caches server-side.
         """
         system_msg, api_messages = _convert_messages(messages=messages)
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": api_messages,
         }

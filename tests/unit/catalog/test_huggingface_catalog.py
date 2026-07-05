@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cemaf.catalog.models import ModelCatalogQuery
+from cemaf.catalog.models import CatalogModel, ModelCatalogQuery
 from cemaf.config.protocols import CatalogSettings, Settings
 
 
@@ -117,6 +117,35 @@ class TestCatalogAdapter:
 
 
 class TestFactories:
+    @pytest.mark.asyncio()
+    async def test_static_catalog_is_offline_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from cemaf.catalog.factories import StaticModelCatalog, create_model_catalog_from_config
+        from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
+
+        for key in (
+            "CEMAF_CATALOG_BACKEND",
+            "CEMAF_CATALOG_ENDPOINT",
+            "CEMAF_CATALOG_API_KEY",
+            "CEMAF_CATALOG_TIMEOUT_SECONDS",
+            "CEMAF_CATALOG_DEFAULT_LIMIT",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+        catalog = create_model_catalog_from_config()
+
+        assert isinstance(catalog, StaticModelCatalog)
+        models = await catalog.list_models()
+        assert models == (
+            CatalogModel(
+                id=f"ollama:{DEFAULT_FREE_LLM_MODEL}",
+                author="local",
+                task="text-generation",
+                library_name="ollama",
+                tags=("local", "offline", "free-first"),
+                inference_provider="ollama",
+            ),
+        )
+
     def test_create_model_catalog_from_config_uses_catalog_settings(
         self,
         fake_hf_module: ModuleType,

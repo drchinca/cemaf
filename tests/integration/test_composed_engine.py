@@ -43,6 +43,8 @@ from cemaf.council.types import Opinion
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
+from cemaf.knowledge import EntityType, KGEntity, create_knowledge_graph
+from cemaf.memory.factories import create_memory_manager
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.dag import (
     DAG,
@@ -121,10 +123,25 @@ class _Writer:
 
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[str]:
         article = "A thorough launch announcement. " * 5  # > 100 chars → passes LengthEvaluator
+        kg_visible = context.knowledge_graph is not None
+        if context.knowledge_graph is not None:
+            await context.knowledge_graph.add_entity(
+                KGEntity(
+                    id=f"article:{context.agent_id}",
+                    type=EntityType.MODULE,
+                    name="Composed Engine Article",
+                    description=article,
+                )
+            )
         return AgentResult.ok(
             output=article,
             state=AgentState(),
-            metadata={"cost_estimate_usd": 0.07, "tokens_total": 700, "overall_score": 0.95},
+            metadata={
+                "cost_estimate_usd": 0.07,
+                "tokens_total": 700,
+                "overall_score": 0.95,
+                "kg_visible": kg_visible,
+            },
         )
 
 
@@ -171,6 +188,9 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         threshold=0.8,
     )
 
+    memory_manager = create_memory_manager()
+    knowledge_graph = create_knowledge_graph(memory_manager=memory_manager)
+
     services = RuntimeServices(
         event_bus=event_bus,
         budget_guard=BudgetGuard(max_cost_usd=5.0),
@@ -179,12 +199,14 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         agent_selector=DefaultAgentSelector(),
         council_aggregator=DefaultVoteAggregator(),
         online_eval_pipeline=online,
+        knowledge_graph=knowledge_graph,
     )
     artifacts = {
         "online": online,
         "harvest_source": harvest_source,
         "harvest_library": harvest_library,
         "harvester": harvester,
+        "knowledge_graph": knowledge_graph,
     }
     return services, registry, event_bus, artifacts
 
@@ -255,6 +277,12 @@ class TestEngineConnects:
 
         # 5. BudgetGuard accumulated real cost across the run.
         assert services.budget_guard.accumulated_cost_usd > 0  # type: ignore[union-attr]
+
+        # 6. The KG service is part of the same composition-root path, not a side channel.
+        assert executor._knowledge_graph is artifacts["knowledge_graph"]
+        assert results["write"].metadata["kg_visible"] is True
+        assert services.knowledge_graph is not None
+        assert await services.knowledge_graph.get_entity("article:WriterIdle") is not None
 
     @pytest.mark.asyncio
     async def test_event_chain_executor_to_online_eval_to_harvest(self) -> None:

@@ -62,14 +62,17 @@ mapping relative paths to file contents.
 
 The system SHALL provide `create_app_synthesis_dag()` producing a DAG
 that executes the four meta-agents in order, with context propagation. The
-target directory is passed per-invocation via the `ScaffoldGoal.target_dir`
-field, not as a parameter to the DAG factory — DAGs remain stateless and
-reusable across calls.
+initial context supplies `feature_description`, `change_id`, `capabilities`,
+`project_name`, `target_dir`, and `agent_name`; optional fields include
+`constraints`, `goal_fields`, `result_fields`, `cemaf_source`, and
+`overwrite`. The target directory is passed per-invocation via
+`ScaffoldGoal.target_dir`, not as a parameter to the DAG factory — DAGs
+remain stateless and reusable across calls.
 
 #### Scenario: End-to-end app synthesis produces a working project
 
-- **GIVEN** a meta-executor with all four meta-agents registered and a writable target_dir
-- **WHEN** the app_synthesis DAG runs with a SpecGoal (feature description)
+- **GIVEN** a meta-executor with all four meta-agents registered and a writable target_dir in initial context
+- **WHEN** the app_synthesis DAG runs with feature/app synthesis inputs
 - **THEN** the final context contains `scaffold_result` with a non-empty `written_files` tuple
 - **AND** the resulting project at `scaffold_result.project_root` imports successfully
 

@@ -1,12 +1,16 @@
 """Tests for ContextNodeExecutor."""
 
 import pytest
+from pydantic import BaseModel
 
+from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
 from cemaf.core.enums import NodeType
-from cemaf.core.types import NodeID
+from cemaf.core.types import AgentID, NodeID
+from cemaf.knowledge import EntityType, KGEntity, create_knowledge_graph
 from cemaf.llm.mock import MockLLMClient
+from cemaf.memory.factories import create_memory_manager
 from cemaf.observability.run_logger import InMemoryRunLogger
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 from cemaf.orchestration.dag import Node
@@ -32,6 +36,42 @@ def executor_with_logger(registry: AgentRegistry) -> tuple[ContextNodeExecutor, 
     run_logger.start_run(run_id="test-run", dag_name="test-dag", initial_context=Context())
     executor = ContextNodeExecutor(agent_registry=registry, run_logger=run_logger)
     return executor, run_logger
+
+
+class KGProbeGoal(BaseModel):
+    entity_id: str
+
+
+class KGProbeResult(BaseModel):
+    stored_entity_id: str
+
+
+class KGProbeAgent(Agent[KGProbeGoal, KGProbeResult]):
+    @property
+    def id(self) -> AgentID:
+        return AgentID("KGProbe")
+
+    @property
+    def description(self) -> str:
+        return "Uses AgentContext.knowledge_graph"
+
+    @property
+    def skills(self) -> tuple[()]:
+        return ()
+
+    async def run(self, goal: KGProbeGoal, context: AgentContext) -> AgentResult[KGProbeResult]:
+        if context.knowledge_graph is None:
+            return AgentResult.fail("knowledge graph missing", AgentState())
+        entity = KGEntity(
+            id=goal.entity_id,
+            type=EntityType.AGENT,
+            name="KG Probe",
+        )
+        await context.knowledge_graph.add_entity(entity)
+        return AgentResult.ok(
+            output=KGProbeResult(stored_entity_id=entity.id),
+            state=AgentState(),
+        )
 
 
 class TestContextNodeExecutor:
@@ -189,6 +229,28 @@ class TestContextNodeExecutor:
         context = Context(data={"_resolved_inputs": {"intent_query": "formal report"}})
         result = await executor.execute_node(node=node, context=context)
         assert result.success
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_knowledge_graph_to_agent_context(
+        self,
+        registry: AgentRegistry,
+    ) -> None:
+        kg = create_knowledge_graph(memory_manager=create_memory_manager())
+        registry.register_agent(agent_instance=KGProbeAgent(), goal_type=KGProbeGoal)
+        executor = ContextNodeExecutor(agent_registry=registry, knowledge_graph=kg)
+
+        node = Node(
+            id=NodeID("step_kg"),
+            type=NodeType.AGENT,
+            name="KG Probe",
+            ref_id="KGProbe",
+        )
+        context = Context(data={"_resolved_inputs": {"entity_id": "entity:kg-probe"}})
+
+        result = await executor.execute_node(node=node, context=context)
+
+        assert result.success
+        assert await kg.get_entity("entity:kg-probe") is not None
 
     @pytest.mark.asyncio
     async def test_context_hash_deterministic(self, executor: ContextNodeExecutor) -> None:

@@ -44,13 +44,18 @@ from cemaf.meta.agents import (
     AuditAgent,
     DreamAgent,
     KnowledgeGraphAgent,
+    SolutionDesignerAgent,
 )
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
 from cemaf.meta.dags import (
+    create_app_synthesis_dag,
+    create_context_compaction_dag,
     create_dream_dag,
     create_feature_synthesis_dag,
     create_knowledge_refresh_dag,
     create_self_audit_dag,
+    create_self_spec_dag,
+    create_solution_engine_dag,
 )
 from cemaf.meta.dogfood import (
     DREAMING_JOB_ID,
@@ -69,14 +74,33 @@ from cemaf.meta.goals import (
     ArchitectResult,
     AuditGoal,
     AuditResult,
+    CapabilityDelta,
     DreamGoal,
     DreamResult,
+    GeneratedAgent,
     KnowledgeGraphGoal,
     KnowledgeGraphResult,
+    ProjectSkeleton,
+    ProposalDoc,
+    Requirement,
+    ScaffoldGoal,
+    ScaffoldResult,
+    Scenario,
+    SolutionGoal,
+    SolutionResult,
+    SpecGoal,
+    SpecResult,
     SynthesizerGoal,
     SynthesizerResult,
 )
-from cemaf.meta.registry import register_dream_agent, register_meta_agents
+from cemaf.meta.registry import (
+    register_dream_agent,
+    register_meta_agents,
+    register_meta_scaffolder,
+    register_meta_specifier,
+)
+from cemaf.meta.scaffolder import MetaScaffolder
+from cemaf.meta.specifier import MetaSpecifier
 from cemaf.meta.tools import (
     GenerateDAGTool,
     IntrospectRegistryTool,
@@ -91,14 +115,21 @@ __all__ = [
     "AuditAgent",
     "DreamAgent",
     "KnowledgeGraphAgent",
+    "MetaScaffolder",
+    "MetaSpecifier",
+    "SolutionDesignerAgent",
     # Bootstrap
     "MetaServices",
     "create_meta_executor",
     # DAGs
+    "create_app_synthesis_dag",
+    "create_context_compaction_dag",
     "create_dream_dag",
     "create_feature_synthesis_dag",
     "create_knowledge_refresh_dag",
     "create_self_audit_dag",
+    "create_self_spec_dag",
+    "create_solution_engine_dag",
     # Dreaming mode
     "DreamingMode",
     "DreamingModeHandle",
@@ -117,15 +148,29 @@ __all__ = [
     "ArchitectResult",
     "AuditGoal",
     "AuditResult",
+    "CapabilityDelta",
     "DreamGoal",
     "DreamResult",
+    "GeneratedAgent",
     "KnowledgeGraphGoal",
     "KnowledgeGraphResult",
+    "ProjectSkeleton",
+    "ProposalDoc",
+    "Requirement",
+    "ScaffoldGoal",
+    "ScaffoldResult",
+    "Scenario",
     "SynthesizerGoal",
     "SynthesizerResult",
+    "SolutionGoal",
+    "SolutionResult",
+    "SpecGoal",
+    "SpecResult",
     # Registry
     "register_dream_agent",
     "register_meta_agents",
+    "register_meta_scaffolder",
+    "register_meta_specifier",
     # Tools
     "GenerateDAGTool",
     "IntrospectRegistryTool",

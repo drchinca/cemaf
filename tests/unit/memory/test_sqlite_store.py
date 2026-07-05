@@ -1,10 +1,8 @@
 """Tests for SqliteMemoryStore."""
 
-import pytest
-
-aiosqlite = pytest.importorskip("aiosqlite")
-
 from datetime import timedelta
+
+import pytest
 
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence

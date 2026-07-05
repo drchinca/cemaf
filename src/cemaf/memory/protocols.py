@@ -19,8 +19,8 @@ Extension Point:
     and follows CEMAF's dependency injection principles.
 
 Example:
-    >>> from cemaf.memory.protocols import MemoryStore
     >>> from cemaf.core.enums import MemoryScope
+    >>> from cemaf.memory.protocols import MemoryItem, MemoryStore
     >>>
     >>> class MyCustomMemoryStore:
     ...     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
@@ -82,6 +82,41 @@ class MemoryStore(Protocol):
         - SQLite (local persistent)
 
     Example:
+        >>> import json
+        >>> from datetime import datetime
+        >>> from cemaf.core.types import Confidence
+        >>>
+        >>> def _decode_item(data: str) -> MemoryItem:
+        ...     raw = json.loads(data)
+        ...     return MemoryItem(
+        ...         scope=MemoryScope(raw["scope"]),
+        ...         key=raw["key"],
+        ...         value=raw["value"],
+        ...         confidence=Confidence(raw["confidence"]),
+        ...         created_at=datetime.fromisoformat(raw["created_at"]),
+        ...         updated_at=datetime.fromisoformat(raw["updated_at"]),
+        ...         expires_at=(
+        ...             datetime.fromisoformat(raw["expires_at"])
+        ...             if raw.get("expires_at")
+        ...             else None
+        ...         ),
+        ...         scope_path=raw.get("scope_path"),
+        ...     )
+        >>>
+        >>> def _encode_item(item: MemoryItem) -> str:
+        ...     return json.dumps(
+        ...         {
+        ...             "scope": item.scope.value,
+        ...             "key": item.key,
+        ...             "value": item.value,
+        ...             "confidence": float(item.confidence),
+        ...             "created_at": item.created_at.isoformat(),
+        ...             "updated_at": item.updated_at.isoformat(),
+        ...             "expires_at": item.expires_at.isoformat() if item.expires_at else None,
+        ...             "scope_path": item.scope_path,
+        ...         }
+        ...     )
+        >>>
         >>> class RedisMemoryStore:
         ...     def __init__(self, redis_client):
         ...         self._redis = redis_client
@@ -91,13 +126,16 @@ class MemoryStore(Protocol):
         ...         data = await self._redis.get(full_key)
         ...         if not data:
         ...             return None
-        ...         return MemoryItem.from_json(data)
+        ...         if isinstance(data, bytes):
+        ...             data = data.decode()
+        ...         return _decode_item(data)
         ...
         ...     async def set(self, item: MemoryItem) -> None:
         ...         full_key = item.full_key
-        ...         data = item.serialize()
-        ...         if item.ttl:
-        ...             await self._redis.setex(full_key, item.ttl.total_seconds(), data)
+        ...         data = _encode_item(item)
+        ...         ttl = item.remaining_ttl
+        ...         if ttl is not None:
+        ...             await self._redis.set(full_key, data, ex=max(1, int(ttl.total_seconds())))
         ...         else:
         ...             await self._redis.set(full_key, data)
         ...
@@ -113,7 +151,9 @@ class MemoryStore(Protocol):
         ...         for key in keys:
         ...             data = await self._redis.get(key)
         ...             if data:
-        ...                 items.append(MemoryItem.from_json(data))
+        ...                 if isinstance(data, bytes):
+        ...                     data = data.decode()
+        ...                 items.append(_decode_item(data))
         ...         return tuple(items)
         >>>
         >>> # Automatically compatible - no inheritance!
@@ -129,14 +169,13 @@ class MemoryStore(Protocol):
         6. **Error Handling**: Return None for missing items, never raise
 
     Memory Scopes:
-        CEMAF defines several built-in memory scopes for different contexts:
-        - TENANT: tenant-level knowledge (shared across all projects)
-        - PROJECT: Project-specific knowledge
-        - AUDIENCE_SEGMENT: Segment-specific knowledge
-        - PLATFORM: Platform-specific knowledge
-        - PERSONAE: Persona-specific knowledge
-        - CONVERSATION: Conversation-scoped (cleared after each conversation)
-        - TURN: Turn-scoped (cleared after each turn)
+        CEMAF defines domain-neutral scopes for different lifetimes:
+        - GLOBAL: framework-wide/shared memory
+        - TENANT: tenant/org/workspace isolation boundary
+        - PROJECT: project-specific knowledge
+        - USER: end-user scoped preferences and facts
+        - SESSION: short-lived run/session memory
+        - STRATEGY: cross-run learned patterns
 
     See Also:
         - cemaf.memory.base.MemoryStore - ABC base class (recommended for most implementations)
@@ -202,7 +241,7 @@ class MemoryStore(Protocol):
             True if item existed and was deleted, False if not found
 
         Example:
-            >>> deleted = await store.delete(MemoryScope.CONVERSATION, "temp_data")
+            >>> deleted = await store.delete(MemoryScope.SESSION, "temp_data")
             >>> if deleted:
             ...     print("Item removed")
         """

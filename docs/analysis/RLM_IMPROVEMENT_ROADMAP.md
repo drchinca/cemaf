@@ -1,6 +1,6 @@
 # RLM Improvement Roadmap: From 3/10 to 9/10 Safety
 
-This document outlines the concrete steps and architectural changes required to bring the Recursive Language Model (RLM) implementation from its current safety score of **3/10** to an enterprise-grade **9/10**.
+This document outlines the concrete steps and architectural changes required to bring the Recursive Language Model (RLM) implementation from its current safety score of **3/10** to a release target of **9/10**.
 
 ---
 
@@ -40,7 +40,7 @@ This document outlines the concrete steps and architectural changes required to 
 
 ---
 
-## Phase 3: Enterprise Grade (4-6 Weeks) → Target: 9/10
+## Phase 3: Release Hardening (4-6 Weeks) → Target: 9/10
 
 ### 3.1 Formal Coverage Bounds
 - **Solution**: Implement mathematical guarantees on the minimum amount of data examined.

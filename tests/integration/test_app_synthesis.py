@@ -17,12 +17,15 @@ import pytest
 from cemaf.agents.base import AgentContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.context.context import Context
+from cemaf.core.enums import RunStatus
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.mcp.bridges.openspec.protocols import SubprocessResult
 from cemaf.mcp.bridges.openspec.runtime import FakeOpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.bootstrap import MetaServices, create_meta_executor
+from cemaf.meta.dags import create_app_synthesis_dag
 from cemaf.meta.goals import (
     CapabilityDelta,
     ProposalDoc,
@@ -148,6 +151,71 @@ async def test_scaffolder_registered_in_meta_executor(tmp_path: Path) -> None:
 
     assert agent_registry.get("MetaScaffolder") is not None
     assert agent_registry.get("MetaSpecifier") is not None
+
+
+@pytest.mark.asyncio
+async def test_app_synthesis_dag_runs_end_to_end(tmp_path: Path) -> None:
+    """Run Specifier -> Architect -> Synthesizer -> Scaffolder through DAGExecutor."""
+    event_bus = InMemoryEventBus()
+    memory_manager = FakeMemoryManager()
+    audit_log, audit_trail = create_audit_system(event_bus=event_bus)
+    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+
+    workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
+    runtime = FakeOpenSpecRuntime()
+    runtime.register_result(("validate",), SubprocessResult(returncode=0, stdout=b"", stderr=b""))
+
+    agent_registry = AgentRegistry()
+    tool_registry = ToolRegistry()
+    executor = create_meta_executor(
+        agent_registry=agent_registry,
+        tool_registry=tool_registry,
+        config=ExecutorConfig(enable_events=True),
+        services=RuntimeServices(
+            event_bus=event_bus,
+            memory_manager=memory_manager,  # type: ignore[arg-type]
+        ),
+        meta_services=MetaServices(
+            audit_log=audit_log,
+            audit_trail=audit_trail,
+            knowledge_graph=kg,
+            openspec_runtime=runtime,
+            openspec_workspace=workspace,
+        ),
+    )
+
+    result = await executor.run(
+        dag=create_app_synthesis_dag(),
+        initial_context=Context(
+            data={
+                "feature_description": "Build a tiny echo workflow.",
+                "change_id": "build-echo-workflow",
+                "capabilities": ["echo"],
+                "constraints": {},
+                "project_name": "echo_dag_app",
+                "target_dir": str(tmp_path),
+                "agent_name": "Echo",
+                "goal_fields": {},
+                "result_fields": {},
+                "cemaf_source": "cemaf",
+                "overwrite": True,
+            }
+        ),
+    )
+
+    assert result.status == RunStatus.COMPLETED
+    scaffold_result = result.final_context.get("scaffold_result", default=None)
+    assert isinstance(scaffold_result, dict)
+    project_root = Path(scaffold_result["project_root"])
+    assert (project_root / "src" / "echo_dag_app" / "bootstrap.py").exists()
+
+    for stale in [name for name in sys.modules if name == "echo_dag_app" or name.startswith("echo_dag_app.")]:
+        del sys.modules[stale]
+
+    _load_package_from_src(project_root=project_root, module_name="echo_dag_app")
+    bootstrap_mod = importlib.import_module("echo_dag_app.bootstrap")
+    registry = bootstrap_mod.create_app_registry()
+    assert registry.get("Echo") is not None
 
 
 @pytest.mark.asyncio

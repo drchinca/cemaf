@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-from cemaf.audit.models import AuditEntry, AuditEntryType
+from cemaf.audit.models import Actor, ActorKind, AuditEntry, AuditEntryType
 from cemaf.events.protocols import Event, EventBus, EventType
 
 _EVENT_TO_AUDIT: dict[EventType, AuditEntryType] = {
@@ -91,7 +91,26 @@ class EventBusAuditLog:
                 payload=dict(event.payload),
                 correlation_id=event.correlation_id,
                 metadata=dict(event.metadata),
+                actor=_resolve_actor(event=event),
             )
             self._entries.append(entry)
 
         return _handler
+
+
+def _resolve_actor(*, event: Event) -> Actor:
+    """Resolve the actor from framework-stamped payload fields.
+
+    ``Event.source`` is caller-supplied and never trusted as identity. Actor
+    identity comes from ``payload.agent_id`` / ``payload.tool_id``, which the
+    executor stamps server-side (see ``ContextNodeExecutor`` and
+    ``DAGExecutor._emit_event``). Absent both, the entry is attributed to the
+    system.
+    """
+    agent_id = event.payload.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        return Actor(kind=ActorKind.AGENT, id=agent_id, resolved_from="payload.agent_id")
+    tool_id = event.payload.get("tool_id")
+    if isinstance(tool_id, str) and tool_id:
+        return Actor(kind=ActorKind.TOOL, id=tool_id, resolved_from="payload.tool_id")
+    return Actor.system()

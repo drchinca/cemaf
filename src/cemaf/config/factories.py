@@ -98,7 +98,7 @@ async def load_settings_from_env() -> Settings:
     Example:
         >>> settings = await load_settings_from_env()
         >>> print(settings.llm.default_model)
-        'gpt-4'
+        'gemma3:4b'
         >>> print(settings.agents.max_iterations)
         10
         >>> print(settings.resilience.max_retries)

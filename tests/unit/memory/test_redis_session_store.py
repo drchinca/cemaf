@@ -1,9 +1,7 @@
 """Unit tests for RedisSessionStore using fakeredis (no live Redis required)."""
 
+import fakeredis
 import pytest
-
-fakeredis = pytest.importorskip("fakeredis", reason="fakeredis not installed")
-
 
 from cemaf.core.utils import utc_now
 from cemaf.memory.redis_session_store import RedisSessionStore

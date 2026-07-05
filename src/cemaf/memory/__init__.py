@@ -6,13 +6,12 @@ Memory types:
 - PERSISTENT: Stored in DB, survives runs (long-term)
 
 Memory scopes:
-- TENANT: tenant-level knowledge (shared across all projects)
-- PROJECT: Project-specific knowledge
-- AUDIENCE_SEGMENT: Segment-specific knowledge
-- PLATFORM: Platform-specific knowledge
-- PERSONAE: Persona-specific knowledge
-- CONVERSATION: Conversation-scoped (cleared after each conversation)
-- TURN: Turn-scoped (cleared after each turn)
+- GLOBAL: shared framework or deployment facts
+- TENANT: tenant/org/workspace isolation boundary
+- PROJECT: project-specific knowledge
+- USER: end-user preferences and facts
+- SESSION: short-lived run/session memory
+- STRATEGY: cross-run learned patterns
 
 ## Configuration
 

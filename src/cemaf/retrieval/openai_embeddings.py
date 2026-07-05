@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from cemaf.retrieval.embedding_validation import require_positive_dimension
+
 
 class OpenAIEmbeddingProvider:
     """Embedding provider backed by OpenAI text-embedding API."""
@@ -13,6 +17,8 @@ class OpenAIEmbeddingProvider:
         model: str = "text-embedding-3-small",
         dimension: int = 1536,
     ) -> None:
+        self._dimension = require_positive_dimension(dimension)
+
         try:
             from openai import AsyncOpenAI
         except ImportError as exc:
@@ -22,7 +28,6 @@ class OpenAIEmbeddingProvider:
 
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
-        self._dimension = dimension
 
     @property
     def dimension(self) -> int:
@@ -44,7 +49,11 @@ class OpenAIEmbeddingProvider:
             model=self._model,
             dimensions=self._dimension,
         )
-        return tuple(response.data[0].embedding)
+        return _extract_embedding_vectors(
+            response=response,
+            expected_count=1,
+            dimension=self._dimension,
+        )[0]
 
     async def embed_batch(self, texts: list[str]) -> list[tuple[float, ...]]:
         """Generate embeddings for multiple texts in a single API call."""
@@ -68,9 +77,44 @@ class OpenAIEmbeddingProvider:
             model=self._model,
             dimensions=self._dimension,
         )
+        embeddings = _extract_embedding_vectors(
+            response=response,
+            expected_count=len(non_empty_texts),
+            dimension=self._dimension,
+        )
 
         results: list[tuple[float, ...]] = [zero_vector] * len(texts)
-        for idx, embedding_obj in zip(non_empty_indices, response.data, strict=False):
-            results[idx] = tuple(embedding_obj.embedding)
+        for idx, embedding in zip(non_empty_indices, embeddings, strict=True):
+            results[idx] = embedding
 
         return results
+
+
+def _extract_embedding_vectors(
+    *,
+    response: Any,
+    expected_count: int,
+    dimension: int,
+) -> list[tuple[float, ...]]:
+    """Extract and validate OpenAI embedding vectors."""
+    data = list(getattr(response, "data", []) or [])
+    if len(data) != expected_count:
+        raise ValueError(
+            f"OpenAI embedding response returned {len(data)} vectors for {expected_count} inputs"
+        )
+
+    vectors: list[tuple[float, ...]] = []
+    for index, item in enumerate(data):
+        raw_embedding = getattr(item, "embedding", None)
+        if raw_embedding is None:
+            raise ValueError(f"OpenAI embedding response item {index} is missing 'embedding'")
+        try:
+            vector = tuple(float(value) for value in raw_embedding)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"OpenAI embedding response item {index} is not a numeric vector") from exc
+        if len(vector) != dimension:
+            raise ValueError(
+                f"OpenAI embedding response item {index} has dimension {len(vector)}; expected {dimension}"
+            )
+        vectors.append(vector)
+    return vectors

@@ -4,12 +4,14 @@ import hashlib
 import math
 import struct
 
+from cemaf.retrieval.embedding_validation import require_positive_dimension
+
 
 class HashEmbeddingProvider:
     """Deterministic embedding provider using content hashing for testing and development."""
 
     def __init__(self, *, dimension: int = 384) -> None:
-        self._dimension = dimension
+        self._dimension = require_positive_dimension(dimension)
         self._model_name = "hash-embedding"
 
     @property

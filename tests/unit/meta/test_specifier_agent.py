@@ -15,6 +15,7 @@ from cemaf.llm.protocols import (
     LLMConfig,
     Message,
     MessageRole,
+    ToolDefinition,
 )
 from cemaf.mcp.bridges.openspec.protocols import SubprocessResult
 from cemaf.mcp.bridges.openspec.runtime import FakeOpenSpecRuntime
@@ -38,9 +39,14 @@ class ScriptedLLM(LLMClient):
     async def complete(
         self,
         messages: list[Message],
-        tools: object | None = None,
+        tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
+        del tools, config_override, fidelity, token_budget, correlation_id
         self.calls.append(messages)
         try:
             raw = next(self._iter)
@@ -189,7 +195,17 @@ async def test_specifier_reads_anthropic_content_blocks(workspace: OpenSpecWorks
     body = _valid_proposal_json("add-blocks")
 
     class BlockLLM(ScriptedLLM):
-        async def complete(self, messages, tools=None, config_override=None) -> CompletionResult:
+        async def complete(
+            self,
+            messages: list[Message],
+            tools: list[ToolDefinition] | None = None,
+            config_override: LLMConfig | None = None,
+            *,
+            fidelity: object | None = None,
+            token_budget: object | None = None,
+            correlation_id: str | None = None,
+        ) -> CompletionResult:
+            del tools, config_override, fidelity, token_budget, correlation_id
             self.calls.append(messages)
             blocks = [
                 {"type": "text", "text": body},

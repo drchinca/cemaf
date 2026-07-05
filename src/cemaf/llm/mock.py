@@ -63,8 +63,13 @@ class MockLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Generate a mock completion."""
+        del tools, config_override, fidelity, token_budget, correlation_id
         self._calls.append(list(messages))
 
         # Get response based on call count

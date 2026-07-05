@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cemaf.core.types import LLMProvider, TokenCount
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
+from cemaf.core.types import FinishReason, LLMProvider, TokenCount
 from cemaf.llm.openai_compat import OpenAICompatClient, _message_to_dict, _parse_arguments
 from cemaf.llm.protocols import (
     LLMClient,
@@ -16,6 +17,23 @@ from cemaf.llm.protocols import (
     ToolCall,
     ToolDefinition,
 )
+
+
+class _AsyncStreamResponse:
+    def __init__(self, lines: list[str], status_code: int = 200) -> None:
+        self._lines = lines
+        self.status_code = status_code
+
+    async def __aenter__(self) -> _AsyncStreamResponse:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
 
 # ---------------------------------------------------------------------------
 # Protocol compliance
@@ -28,14 +46,16 @@ class TestProtocolCompliance:
         assert isinstance(client, LLMClient)
 
     def test_config_returns_llm_config(self) -> None:
-        client = OpenAICompatClient(model="gpt-4o", temperature=0.5, max_tokens=2000)
-        assert client.config.model == "gpt-4o"
+        client = OpenAICompatClient(model="local-test-model", temperature=0.5, max_tokens=2000)
+        assert client.config.model == "local-test-model"
         assert client.config.temperature == 0.5
         assert client.config.max_tokens == 2000
 
     def test_default_base_url(self) -> None:
         client = OpenAICompatClient()
-        assert "openai.com" in client._base_url
+        assert client._base_url == "http://localhost:11434/v1"
+        assert client.config.model == DEFAULT_FREE_LLM_MODEL
+        assert client._provider is LLMProvider.OLLAMA
 
     def test_custom_base_url(self) -> None:
         client = OpenAICompatClient(base_url="http://localhost:11434/v1")
@@ -108,11 +128,13 @@ class TestMessageConversion:
         assert isinstance(args, str)
         assert json.loads(args) == {"path": "a.txt", "content": "42"}
 
-    def test_tool_call_string_arguments_passed_through(self) -> None:
+    def test_tool_call_string_arguments_serialized_as_json_string(self) -> None:
         tc = ToolCall(id="tc1", name="write_file", arguments='{"path":"a.txt"}')
         msg = Message.assistant(content="", tool_calls=(tc,))
         d = _message_to_dict(msg)
-        assert d["tool_calls"][0]["function"]["arguments"] == '{"path":"a.txt"}'
+        args = d["tool_calls"][0]["function"]["arguments"]
+        assert isinstance(args, str)
+        assert json.loads(args) == {"path": "a.txt"}
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +166,7 @@ class TestParseArguments:
 class TestComplete:
     @pytest.mark.asyncio
     async def test_successful_completion(self) -> None:
-        client = OpenAICompatClient(api_key="test-key", model="gpt-4o")
+        client = OpenAICompatClient(api_key="test-key", model="local-test-model")
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -156,7 +178,7 @@ class TestComplete:
                 }
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            "model": "gpt-4o",
+            "model": "local-test-model",
         }
 
         with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
@@ -170,7 +192,7 @@ class TestComplete:
 
         assert result.success
         assert result.content == "Hello!"
-        assert result.model == "gpt-4o"
+        assert result.model == "local-test-model"
         assert result.prompt_tokens == TokenCount(10)
         assert result.completion_tokens == TokenCount(5)
 
@@ -236,7 +258,7 @@ class TestComplete:
                 }
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            "model": "gpt-4o",
+            "model": "local-test-model",
         }
 
         with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
@@ -299,15 +321,15 @@ class TestComplete:
 
     @pytest.mark.asyncio
     async def test_config_override(self) -> None:
-        client = OpenAICompatClient(api_key="key", model="gpt-4o")
-        override = LLMConfig(model="gpt-3.5-turbo", temperature=0.0, max_tokens=100)
+        client = OpenAICompatClient(api_key="key", model="local-test-model")
+        override = LLMConfig(model="override-test-model", temperature=0.0, max_tokens=100)
 
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 1},
-            "model": "gpt-3.5-turbo",
+            "model": "override-test-model",
         }
 
         with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
@@ -325,8 +347,9 @@ class TestComplete:
         # Verify override model was used in request
         call_kwargs = mock_client.post.call_args
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-        assert payload["model"] == "gpt-3.5-turbo"
+        assert payload["model"] == "override-test-model"
         assert payload["temperature"] == 0.0
+        assert payload["top_p"] == 1.0
 
     @pytest.mark.asyncio
     async def test_httpx_missing_returns_fail(self) -> None:
@@ -341,10 +364,107 @@ class TestComplete:
                 mod.__dict__["httpx"] = None
                 # Can't easily test this without real import manipulation
                 # Just verify the client doesn't crash on creation
-                assert client.config.model == "gpt-4o"
+                assert client.config.model == DEFAULT_FREE_LLM_MODEL
             finally:
                 if original:
                     mod.__dict__["httpx"] = original
+
+
+# ---------------------------------------------------------------------------
+# Stream
+# ---------------------------------------------------------------------------
+
+
+class TestStream:
+    @pytest.mark.asyncio
+    async def test_stream_payload_preserves_tools_stop_sequences_and_top_p(self) -> None:
+        client = OpenAICompatClient(api_key="key", model="local-test-model")
+        cfg = LLMConfig(
+            model="stream-test-model",
+            temperature=0.2,
+            max_tokens=128,
+            top_p=0.4,
+            stop_sequences=("END",),
+        )
+        tool = ToolDefinition(
+            name="search",
+            description="Search docs",
+            parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+            required=("query",),
+        )
+        lines = [
+            "data: " + json.dumps({"choices": [{"delta": {"content": "Hel"}}]}),
+            "data: " + json.dumps({"choices": [{"delta": {"content": "lo"}}]}),
+            "data: [DONE]",
+        ]
+
+        with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = _AsyncStreamResponse(lines)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+
+            chunks = [
+                chunk
+                async for chunk in client.stream(
+                    messages=[Message.user(content="hi")],
+                    tools=[tool],
+                    config_override=cfg,
+                )
+            ]
+
+        payload = mock_client.stream.call_args.kwargs["json"]
+        assert payload["model"] == "stream-test-model"
+        assert payload["temperature"] == 0.2
+        assert payload["max_tokens"] == 128
+        assert payload["top_p"] == 0.4
+        assert payload["stop"] == ["END"]
+        assert payload["tools"] == [tool.to_openai_format()]
+        assert payload["stream"] is True
+        assert "".join(chunk.content for chunk in chunks[:-1]) == "Hello"
+        assert chunks[-1].is_final
+
+    @pytest.mark.asyncio
+    async def test_stream_malformed_json_returns_partial_error(self) -> None:
+        client = OpenAICompatClient(api_key="key", model="local-test-model")
+        lines = [
+            "data: " + json.dumps({"choices": [{"delta": {"content": "Hel"}}]}),
+            "data: {not-json",
+        ]
+
+        with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = _AsyncStreamResponse(lines)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+
+            chunks = [chunk async for chunk in client.stream(messages=[Message.user(content="hi")])]
+
+        assert chunks[0].content == "Hel"
+        assert chunks[-1].is_final
+        assert chunks[-1].finish_reason is FinishReason.PARTIAL_ERROR
+        assert chunks[-1].accumulated_content == "Hel"
+        assert "malformed JSON" in chunks[-1].content
+
+    @pytest.mark.asyncio
+    async def test_stream_http_error_returns_partial_error(self) -> None:
+        client = OpenAICompatClient(api_key="key", model="local-test-model")
+
+        with patch("cemaf.llm.openai_compat.httpx") as mock_httpx:
+            mock_client = MagicMock()
+            mock_client.stream.return_value = _AsyncStreamResponse([], status_code=503)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+
+            chunks = [chunk async for chunk in client.stream(messages=[Message.user(content="hi")])]
+
+        assert len(chunks) == 1
+        assert chunks[0].is_final
+        assert chunks[0].finish_reason is FinishReason.PARTIAL_ERROR
+        assert "503" in chunks[0].content
 
 
 # ---------------------------------------------------------------------------
@@ -360,32 +480,87 @@ class TestProviderFactories:
         assert client.config.model == "qwen3.5"
         assert "11434" in client._base_url
 
-    def test_create_openai(self) -> None:
+    def test_create_ollama_cloud_preserves_runtime_settings(self) -> None:
         from cemaf.llm.factories import create_llm_client
 
-        client = create_llm_client("openai", api_key="sk-test", model="gpt-4o")
+        client = create_llm_client(
+            "ollama-cloud",
+            api_key="ollama-test",
+            temperature=0.2,
+            max_tokens=123,
+            top_p=0.4,
+            timeout_seconds=12.0,
+        )
+
+        assert client.config.temperature == 0.2
+        assert client.config.max_tokens == 123
+        assert client.config.top_p == 0.4
+        assert client.config.timeout_seconds == 12.0
+
+    def test_create_openai(self) -> None:
+        from cemaf.llm.factories import create_llm_client
+        from cemaf.llm.openai_responses import OpenAIResponsesLLMClient
+
+        client = create_llm_client("openai", client=object(), model="gpt-5.5")
+        assert isinstance(client, OpenAIResponsesLLMClient)
+        assert client.config.model == "gpt-5.5"
+
+    def test_create_openai_compatible(self) -> None:
+        from cemaf.llm.factories import create_llm_client
+
+        client = create_llm_client(
+            "openai-compatible",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o",
+            top_p=0.3,
+            provider_family=LLMProvider.OPENAI,
+        )
+        assert isinstance(client, OpenAICompatClient)
         assert client.config.model == "gpt-4o"
+        assert client.config.top_p == 0.3
         assert "openai.com" in client._base_url
+        assert client._provider is LLMProvider.OPENAI
+
+    def test_create_openai_compatible_defaults_to_local_free_provider(self) -> None:
+        from cemaf.llm.factories import create_llm_client
+
+        client = create_llm_client("openai-compatible")
+
+        assert isinstance(client, OpenAICompatClient)
+        assert client.config.model == DEFAULT_FREE_LLM_MODEL
+        assert client._base_url == "http://localhost:11434/v1"
+        assert client._provider is LLMProvider.OLLAMA
 
     def test_create_groq(self) -> None:
         from cemaf.llm.factories import create_llm_client
 
-        client = create_llm_client("groq", api_key="gsk-test")
+        client = create_llm_client("groq", api_key="gsk-test", top_p=0.4)
         assert "groq.com" in client._base_url
+        assert client._provider is LLMProvider.GROQ
+        assert client.config.top_p == 0.4
 
     def test_create_together(self) -> None:
         from cemaf.llm.factories import create_llm_client
 
-        client = create_llm_client("together", api_key="tok-test")
+        client = create_llm_client("together", api_key="tok-test", max_tokens=123)
         assert "together.xyz" in client._base_url
+        assert client._provider is LLMProvider.TOGETHER
+        assert client.config.max_tokens == 123
 
     def test_create_huggingface(self) -> None:
         from cemaf.llm.factories import create_llm_client
 
-        client = create_llm_client("huggingface", api_key="hf-test", model="google/gemma-2-2b-it")
+        client = create_llm_client(
+            "huggingface",
+            api_key="hf-test",
+            model="google/gemma-2-2b-it",
+            timeout_seconds=12.0,
+        )
         assert "huggingface.co" in client._base_url
         assert client._provider is LLMProvider.HUGGINGFACE
         assert client.config.model == "google/gemma-2-2b-it"
+        assert client.config.timeout_seconds == 12.0
 
     def test_create_gemini(self) -> None:
         from cemaf.llm.factories import create_llm_client

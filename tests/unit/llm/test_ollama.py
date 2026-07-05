@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from cemaf.core.types import LLMProvider
 from cemaf.llm.factories import create_llm_client, llm_registry
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.model_router import ModelRoute, ModelRouter
@@ -59,6 +60,7 @@ class TestCreateOllamaClient:
     def test_returns_openai_compat_client(self) -> None:
         client = create_ollama_client(model="gemma3:4b")
         assert isinstance(client, OpenAICompatClient)
+        assert client._provider is LLMProvider.OLLAMA
 
     def test_model_set_on_config(self) -> None:
         client = create_ollama_client(model="gemma3:12b")
@@ -115,6 +117,7 @@ class TestFactoryIntegration:
     def test_create_llm_client_ollama_returns_llm_client(self) -> None:
         client = create_llm_client(provider="ollama", model="gemma3:4b")
         assert isinstance(client, LLMClient)
+        assert client._provider is LLMProvider.OLLAMA  # type: ignore[attr-defined]
 
     def test_create_llm_client_ollama_tiered_returns_router(self) -> None:
         client = create_llm_client(provider="ollama-tiered")
@@ -141,7 +144,7 @@ class TestTieredRouterResilience:
             def config(self) -> LLMConfig:
                 return LLMConfig()
 
-            async def complete(self, messages, tools=None, config_override=None):  # type: ignore[no-untyped-def]
+            async def complete(self, messages, tools=None, config_override=None, **kwargs):  # type: ignore[no-untyped-def]
                 raise CircuitOpenError("large model circuit open")
 
             async def stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
@@ -193,18 +196,14 @@ class TestTieredRouterResilience:
 
 
 class TestTieredRouterStreamingSelection:
-    """Route selection for streaming — exercises the same scorer/selector.
+    """Streaming route selection for the local/free tiered Ollama shape."""
 
-    NOTE: `ModelRouter.stream()` (src/cemaf/llm/model_router.py:153) has a
-    pre-existing bug — it `await`s an async generator. Until that is fixed,
-    we verify selection only.
-    """
-
-    def test_stream_small_for_short_prompt(self) -> None:
+    @pytest.mark.asyncio
+    async def test_stream_small_for_short_prompt(self) -> None:
         from cemaf.llm.model_router import ModelRouter
 
-        small = MockLLMClient(responses=["s"])
-        large = MockLLMClient(responses=["l"])
+        small = MockLLMClient(responses=["small stream"])
+        large = MockLLMClient(responses=["large stream"])
         router = ModelRouter(
             routes=[
                 ModelRoute(threshold=0.5, client=small, model_name="gemma3:4b"),
@@ -212,18 +211,20 @@ class TestTieredRouterStreamingSelection:
             ],
             estimator=CharBasedEstimator(escalation_chars=50),
         )
-        score = router._estimator.estimate(  # type: ignore[attr-defined]
-            messages=[Message.user(content="hi")],
-            tools=None,
-        )
-        candidates = router._select_route(score=score)  # type: ignore[attr-defined]
-        assert candidates[0].model_name == "gemma3:4b"
 
-    def test_stream_large_for_long_prompt(self) -> None:
+        chunks = [chunk async for chunk in router.stream(messages=[Message.user(content="hi")])]
+
+        assert "".join(chunk.content for chunk in chunks) == "small stream"
+        assert chunks[-1].is_final
+        assert small.call_count == 1
+        assert large.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_stream_large_for_long_prompt(self) -> None:
         from cemaf.llm.model_router import ModelRouter
 
-        small = MockLLMClient(responses=["s"])
-        large = MockLLMClient(responses=["l"])
+        small = MockLLMClient(responses=["small stream"])
+        large = MockLLMClient(responses=["large stream"])
         router = ModelRouter(
             routes=[
                 ModelRoute(threshold=0.5, client=small, model_name="gemma3:4b"),
@@ -231,12 +232,13 @@ class TestTieredRouterStreamingSelection:
             ],
             estimator=CharBasedEstimator(escalation_chars=50),
         )
-        score = router._estimator.estimate(  # type: ignore[attr-defined]
-            messages=[Message.user(content="x" * 200)],
-            tools=None,
-        )
-        candidates = router._select_route(score=score)  # type: ignore[attr-defined]
-        assert candidates[0].model_name == "gemma3:12b"
+
+        chunks = [chunk async for chunk in router.stream(messages=[Message.user(content="x" * 200)])]
+
+        assert "".join(chunk.content for chunk in chunks) == "large stream"
+        assert chunks[-1].is_final
+        assert small.call_count == 0
+        assert large.call_count == 1
 
 
 class TestConfigSettingsIntegration:

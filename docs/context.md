@@ -228,7 +228,7 @@ budget = TokenBudget(max_tokens=1000, reserved_for_output=200)
 available = budget.available_tokens  # 800
 
 # Model-specific budgets
-budget = TokenBudget.for_model("gpt-4", reserved_for_output=200)
+budget = TokenBudget.for_model("gemma3:4b", reserved_for_output=200)
 ```
 
 ## Context Compiler
@@ -236,9 +236,9 @@ budget = TokenBudget.for_model("gpt-4", reserved_for_output=200)
 Compile context from artifacts and memories:
 
 ```python
-from cemaf.context.compiler import PriorityContextCompiler
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 
-compiler = PriorityContextCompiler()
+compiler = PriorityContextCompiler(SimpleTokenEstimator())
 
 compiled = await compiler.compile(
     artifacts=(("brief", "important content"),),
@@ -425,8 +425,8 @@ Use `create_token_estimator()` for the best available estimator — prefers tikt
 ```python
 from cemaf.context.factories import create_token_estimator
 
-# Accurate estimation for a known model (uses tiktoken if available)
-estimator = create_token_estimator(model="gpt-4")
+# Estimation for the local/free default model
+estimator = create_token_estimator(model="gemma3:4b")
 
 # Fallback to heuristic for unknown models
 estimator = create_token_estimator(model="custom-model")

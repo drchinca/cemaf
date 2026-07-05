@@ -8,13 +8,6 @@ from typing import Any
 
 import pytest
 
-# Skip entire module if cryptography is not installed
-cryptography = pytest.importorskip(
-    "cryptography",
-    reason="cryptography package not installed; skipping signing tests",
-)
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

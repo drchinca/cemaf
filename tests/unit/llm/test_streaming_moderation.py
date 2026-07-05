@@ -49,7 +49,12 @@ class _ScriptedStreamClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
+        del messages, tools, config_override, fidelity, token_budget, correlation_id
         return CompletionResult.ok(message=Message(role=MessageRole.ASSISTANT, content="ok"))
 
     async def stream(

@@ -14,8 +14,9 @@ flowchart TB
     subgraph Scopes
         SESSION[SESSION<br/>Request lifetime]
         PROJECT[PROJECT<br/>Days]
-        BRAND[BRAND<br/>Permanent]
-        PERSONAE[PERSONAE<br/>Permanent]
+        TENANT[TENANT<br/>Workspace boundary]
+        USER[USER<br/>User facts]
+        STRATEGY[STRATEGY<br/>Learned patterns]
     end
 
     subgraph Features
@@ -27,8 +28,9 @@ flowchart TB
     STORE --> INMEM
     INMEM --> SESSION
     INMEM --> PROJECT
-    INMEM --> BRAND
-    INMEM --> PERSONAE
+    INMEM --> TENANT
+    INMEM --> USER
+    INMEM --> STRATEGY
     TTL --> STORE
     HOOKS --> STORE
     SEARCH --> STORE
@@ -43,14 +45,14 @@ sequenceDiagram
     participant Hooks
     participant Storage
 
-    Client->>Store: set(key, value, scope, ttl)
+    Client->>Store: set(MemoryItem)
     Store->>Hooks: Apply redaction hook
     Hooks-->>Store: Redacted value
     Store->>Hooks: Apply serialization hook
     Hooks-->>Store: Serialized value
     Store->>Storage: Store item
 
-    Client->>Store: get(key, scope)
+    Client->>Store: get(scope, key)
     Store->>Storage: Retrieve item
     Storage-->>Store: MemoryItem
 
@@ -64,30 +66,34 @@ sequenceDiagram
 
 ## Memory Scopes
 
-| Scope      | Persistence | Use Case           |
-| ---------- | ----------- | ------------------ |
-| `SESSION`  | Request     | Conversation state |
-| `PROJECT`  | Days        | Task context       |
-| `BRAND`    | Permanent   | Brand guidelines   |
-| `PERSONAE` | Permanent   | User preferences   |
+| Scope      | Persistence | Use Case |
+| ---------- | ----------- | -------- |
+| `GLOBAL`   | Long-lived  | Shared framework or deployment facts |
+| `TENANT`   | Long-lived  | Tenant/org/workspace isolation boundary |
+| `PROJECT`  | Days        | Project-specific task context |
+| `USER`     | Long-lived  | End-user preferences and facts |
+| `SESSION`  | Request     | Short-lived run state |
+| `STRATEGY` | Long-lived  | Cross-run learned patterns |
 
 ## Memory Store
 
 ```python
-from cemaf.memory.base import MemoryStore, InMemoryStore
 from cemaf.core.enums import MemoryScope
+from cemaf.memory.base import InMemoryStore, MemoryItem
 
 store = InMemoryStore()
 
 # Store memory
 await store.set(
-    key="user_preference",
-    value={"theme": "dark"},
-    scope=MemoryScope.USER
+    MemoryItem(
+        scope=MemoryScope.USER,
+        key="user_preference",
+        value={"theme": "dark"},
+    )
 )
 
 # Retrieve memory
-item = await store.get("user_preference", scope=MemoryScope.USER)
+item = await store.get(MemoryScope.USER, "user_preference")
 
 # List by scope
 items = await store.list_by_scope(MemoryScope.USER)
@@ -99,17 +105,18 @@ results = await store.search("preference", scope=MemoryScope.USER)
 ## Memory Item
 
 ```python
+from cemaf.core.enums import MemoryScope
 from cemaf.memory.base import MemoryItem
 
 item = MemoryItem(
     key="key",
     value={"data": "value"},
     scope=MemoryScope.PROJECT,
-    metadata={"source": "user"}
+    scope_path="project/campaign/assets",
 )
 
 # Full key includes scope
-full_key = item.full_key  # "PROJECT:key"
+full_key = item.full_key  # "project:key"
 ```
 
 ## Deduplication

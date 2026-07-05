@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import timedelta
+from typing import get_args
 
 import pytest
 
@@ -10,6 +11,7 @@ from cemaf.cache.factories import cache_registry, create_cache, create_cache_fro
 from cemaf.cache.mock import MockCache
 from cemaf.cache.protocols import CacheEntry, CacheStats
 from cemaf.cache.stores import InMemoryCache, TTLCache
+from cemaf.config.protocols import CacheSettings, Settings
 from cemaf.core.utils import utc_now
 
 # =============================================================================
@@ -242,6 +244,13 @@ class TestTTLCache:
 class TestCacheFactories:
     """Tests for registry-backed cache factories."""
 
+    def test_configured_cache_backends_are_registered(self) -> None:
+        backend_annotation = CacheSettings.model_fields["backend"].annotation
+        configured = set(get_args(backend_annotation))
+
+        assert configured == {"memory", "ttl"}
+        assert all(cache_registry.has(backend=backend) for backend in configured)
+
     def test_create_cache_defaults_to_in_memory_backend(self) -> None:
         cache = create_cache()
 
@@ -275,9 +284,7 @@ class TestCacheFactories:
             "custom_option": True,
         }
 
-    def test_create_cache_from_config_supports_registered_redis_backend(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_create_cache_supports_registered_redis_backend(self) -> None:
         created: dict[str, object] = {}
 
         def _factory(**kwargs):
@@ -285,17 +292,36 @@ class TestCacheFactories:
             return MockCache(default_return="redis")
 
         cache_registry.register(backend="redis", factory=_factory)
-        monkeypatch.setenv("CEMAF_CACHE_BACKEND", "redis")
-        monkeypatch.setenv("CEMAF_CACHE_MAX_SIZE", "321")
-        monkeypatch.setenv("CEMAF_CACHE_DEFAULT_TTL_SECONDS", "7")
 
-        cache = create_cache_from_config()
+        cache = create_cache(
+            backend="redis",
+            max_size=321,
+            ttl_seconds=7.0,
+        )
 
         assert isinstance(cache, MockCache)
         assert created["args"] == {
             "max_size": 321,
             "ttl_seconds": 7.0,
         }
+
+    def test_create_cache_from_config_uses_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("CEMAF_CACHE_BACKEND", raising=False)
+        monkeypatch.delenv("CEMAF_CACHE_MAX_SIZE", raising=False)
+        monkeypatch.delenv("CEMAF_CACHE_DEFAULT_TTL_SECONDS", raising=False)
+        settings = Settings(
+            cache=CacheSettings(
+                backend="ttl",
+                max_size=17,
+                default_ttl_seconds=23,
+            )
+        )
+
+        cache = create_cache_from_config(settings=settings)
+
+        assert isinstance(cache, TTLCache)
+        assert cache._max_size == 17
+        assert cache._default_ttl == 23
 
     def test_unsupported_cache_backend_mentions_registry(self) -> None:
         with pytest.raises(ValueError, match="cache_registry.register"):
