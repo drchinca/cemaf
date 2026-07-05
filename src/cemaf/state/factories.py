@@ -6,6 +6,7 @@ from typing import Any
 
 from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.state.persistence import FsmStore, InMemoryFsmStore
+from cemaf.state.sqlite_store import SqliteFsmStore
 
 fsm_store_registry: ProviderRegistry[FsmStore] = ProviderRegistry(name="fsm_store")
 
@@ -14,7 +15,12 @@ def _create_memory_fsm_store(**kwargs: Any) -> FsmStore:
     return InMemoryFsmStore()
 
 
+def _create_sqlite_fsm_store(**kwargs: Any) -> FsmStore:
+    return SqliteFsmStore(**kwargs)
+
+
 fsm_store_registry.register(backend="memory", factory=_create_memory_fsm_store)
+fsm_store_registry.register(backend="sqlite", factory=_create_sqlite_fsm_store)
 
 
 def create_fsm_store(*, backend: str = "memory", **backend_options: Any) -> FsmStore:
