@@ -106,12 +106,13 @@ search the docs/API again.
 
 ## Branch Hygiene
 
-- After a merge completes, move the active checkout back to `develop` before
-  starting new work.
+- After a merge completes, move the active checkout back to `develop` or
+  `development` before starting new work. If both exist, prefer `develop`.
 - Do not continue new work on a merge branch, release branch, or `main` after a
   merge is done.
-- If `develop` is not available or the worktree is not clean, stop and report
-  the blocker instead of switching branches or continuing silently.
+- If neither `develop` nor `development` is available, or the worktree is not
+  clean, stop and report the blocker instead of switching branches or continuing
+  silently.
 
 ## Verification
 
