@@ -142,7 +142,8 @@ Budget: 6 scenarios.
   concern; the engine stays substrate-agnostic.
 - Automatic project_id detection (git-remote hashing) — the *caller* supplies project_id;
   CEMAF does not shell out to git (that's a consumer concern).
-- Confidence-decay-on-rejection — accrual on harvest is in scope; decay loops are future work.
+- Confidence-decay-on-rejection — accrual on harvest is in scope; decay policy belongs outside
+  this spec.
 - Persisting promotion side-effects — `evaluate_promotion` is pure; the caller re-registers.
 
 ## 6. Dependencies

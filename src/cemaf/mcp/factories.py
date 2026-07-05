@@ -91,8 +91,8 @@ def create_mcp_adapter(
         **transport_options,
     )
 
-    # MCPAdapter doesn't accept server_timeout_seconds parameter
-    # Parameter is kept in factory API for future extension
+    # Transport construction owns server_timeout_seconds; MCPAdapter receives
+    # the configured transport.
     return MCPAdapter(transport=transport)
 
 

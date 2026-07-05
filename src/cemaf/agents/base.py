@@ -77,7 +77,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -85,6 +85,11 @@ from cemaf.core.domain import DomainContext
 from cemaf.core.enums import AgentStatus
 from cemaf.core.types import JSON, AgentID
 from cemaf.skills.base import Skill, SkillResult
+
+if TYPE_CHECKING:
+    from cemaf.knowledge.protocols import KnowledgeGraph
+else:
+    type KnowledgeGraph = Any
 
 GoalT = TypeVar("GoalT", bound=BaseModel)
 ResultT = TypeVar("ResultT")
@@ -144,6 +149,7 @@ class AgentContext(BaseModel):
     global_memory: JSON = Field(default_factory=dict)
     artifacts: JSON = Field(default_factory=dict)
     domain_context: DomainContext | None = None
+    knowledge_graph: KnowledgeGraph | None = None
 
 
 class Agent[GoalT: BaseModel, ResultT](ABC):

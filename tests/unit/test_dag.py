@@ -57,10 +57,28 @@ class TestNode:
             name="Content Writer",
             agent_id="writer_agent",
             config={"max_tokens": 1000},
+            structured_output=True,
         )
 
         assert node.type == NodeType.AGENT
         assert node.config["max_tokens"] == 1000
+        assert node.structured_output is True
+
+    def test_structured_output_survives_checkpoint_copy_and_serialization(self) -> None:
+        """Structured-output DAG nodes keep their context contract across helpers."""
+        node = Node.agent(
+            id="specifier",
+            name="Specifier",
+            agent_id="MetaSpecifier",
+            output_key="spec_result",
+            structured_output=True,
+        )
+
+        checkpointed = node.with_checkpoint()
+        assert checkpointed.structured_output is True
+
+        dag = DAG(name="structured").add_node(checkpointed)
+        assert dag.to_dict()["nodes"][0]["structured_output"] is True
 
     def test_router_node_creation(self) -> None:
         """Node.router creates a router node."""

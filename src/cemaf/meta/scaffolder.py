@@ -61,10 +61,10 @@ from cemaf.meta.goals import (
 
 logger = logging.getLogger(__name__)
 
-_CEMAF_SOURCE_PLACEHOLDER = (
-    "# FIXME: set cemaf_source on ScaffoldGoal to a resolvable spec "
-    '(e.g. "cemaf @ git+https://...@<sha>" or "cemaf @ file:///path/to/cemaf"). '
-    "The default below is not resolvable by uv."
+_CEMAF_SOURCE_NOTE = (
+    "# CEMAF dependency defaults to the package name. Set cemaf_source on "
+    'ScaffoldGoal to pin a Git or local source, e.g. "cemaf @ git+https://...@<sha>" '
+    'or "cemaf @ file:///path/to/cemaf".'
 )
 
 
@@ -108,7 +108,7 @@ def _render_pyproject(*, skeleton: ProjectSkeleton) -> str:
     cemaf_dep_literal = (
         _toml_string(skeleton.cemaf_source) if skeleton.cemaf_source else _toml_string("cemaf")
     )
-    preamble = "" if skeleton.cemaf_source else f"\n{_CEMAF_SOURCE_PLACEHOLDER}\n"
+    preamble = "" if skeleton.cemaf_source else f"\n{_CEMAF_SOURCE_NOTE}\n"
     packages_literal = _toml_string(f"src/{skeleton.module_name}")
     return f"""{preamble}[project]
 name = {name_literal}

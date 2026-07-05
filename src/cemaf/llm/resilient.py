@@ -1,11 +1,12 @@
 """Resilient LLM client wrapper composing retry, circuit breaker, and rate limiter."""
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from enum import StrEnum
 from time import perf_counter
+from typing import Any, cast
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import FinishReason, TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMClient,
@@ -70,7 +71,6 @@ class ResilientLLMClient:
         correlation_id: str | None = None,
     ) -> CompletionResult:
         """Complete with rate_limit -> circuit_breaker -> retry -> client.complete."""
-        del fidelity, token_budget, correlation_id  # forward-compat; opaque to cemaf
         start = perf_counter()
 
         try:
@@ -87,6 +87,9 @@ class ResilientLLMClient:
                 messages=messages,
                 tools=tools,
                 config_override=effective_config,
+                fidelity=fidelity,
+                token_budget=token_budget,
+                correlation_id=correlation_id,
             )
 
         async def _with_circuit_breaker() -> CompletionResult:
@@ -126,19 +129,63 @@ class ResilientLLMClient:
         config_override: LLMConfig | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Stream with rate_limit -> circuit_breaker -> client.stream (no retry)."""
-        if self._rate_limiter is not None:
-            await self._rate_limiter.acquire()
+        try:
+            if self._rate_limiter is not None:
+                await self._rate_limiter.acquire()
+        except RateLimitExceeded as exc:
+            self._record_error(operation="llm.stream", error=exc)
+            self._track_consecutive_failures(success=False)
+            yield StreamChunk(
+                content=f"Rate limit exceeded: {exc}",
+                finish_reason=FinishReason.PARTIAL_ERROR,
+                is_final=True,
+            )
+            return
 
         async def _inner_stream() -> AsyncIterator[StreamChunk]:
-            return await self._client.stream(
+            stream_result: Any = self._client.stream(
                 messages=messages,
                 tools=tools,
                 config_override=config_override,
             )
+            if hasattr(stream_result, "__aiter__"):
+                return cast(AsyncIterator[StreamChunk], stream_result)
+            return await cast(Awaitable[AsyncIterator[StreamChunk]], stream_result)
 
-        if self._circuit_breaker is not None:
-            return await self._circuit_breaker.execute(_inner_stream)
-        return await _inner_stream()
+        accumulated = ""
+        failed = False
+        try:
+            if self._circuit_breaker is not None:
+                stream = await self._circuit_breaker.execute(_inner_stream)
+            else:
+                stream = await _inner_stream()
+
+            async for chunk in stream:
+                accumulated = chunk.accumulated_content or accumulated + chunk.content
+                failed = failed or chunk.finish_reason is FinishReason.PARTIAL_ERROR
+                yield chunk
+        except CircuitOpenError as exc:
+            self._record_error(operation="llm.stream", error=exc)
+            self._track_consecutive_failures(success=False)
+            yield StreamChunk(
+                content=f"Circuit breaker open: {exc}",
+                finish_reason=FinishReason.PARTIAL_ERROR,
+                is_final=True,
+                accumulated_content=accumulated,
+            )
+            return
+        except Exception as exc:
+            self._record_error(operation="llm.stream", error=exc)
+            self._track_consecutive_failures(success=False)
+            yield StreamChunk(
+                content=f"LLM stream failed: {exc}",
+                finish_reason=FinishReason.PARTIAL_ERROR,
+                is_final=True,
+                accumulated_content=accumulated,
+            )
+            return
+
+        self._track_consecutive_failures(success=not failed)
 
     def count_tokens(self, text: str) -> TokenCount:
         """Delegate token counting to inner client."""

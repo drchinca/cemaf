@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from collections.abc import Iterable
 from typing import Any
 
@@ -65,8 +66,8 @@ CREATE TABLE IF NOT EXISTS blueprint_entries (
 """
 
 # SPEC-13 scope columns added after the original schema shipped. ALTER TABLE ADD COLUMN with a
-# default backfills existing rows and is a no-op once present (the try/except swallows the
-# "duplicate column" error), so old blueprint DBs upgrade transparently.
+# default backfills existing rows. Migration helpers ignore only SQLite duplicate-column errors
+# once a column is present; any other migration failure is raised.
 _MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE blueprint_entries ADD COLUMN project_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE blueprint_entries ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5",
@@ -74,6 +75,10 @@ _MIGRATIONS: tuple[str, ...] = (
 )
 
 _CREATE_INDEX_KIND = "CREATE INDEX IF NOT EXISTS idx_blueprint_entries_kind ON blueprint_entries(kind)"
+
+
+def _is_duplicate_column_error(exc: sqlite3.OperationalError) -> bool:
+    return "duplicate column name" in str(exc).lower()
 
 
 def _payload_for(entry: BlueprintEntry) -> dict[str, Any]:
@@ -129,13 +134,12 @@ def _row_to_entry(row: aiosqlite.Row) -> BlueprintEntry:
 
 def _run_migrations_sync(conn: Any) -> None:
     """Apply additive ALTER TABLE migrations; ignore 'duplicate column' on re-run."""
-    import sqlite3
-
     for statement in _MIGRATIONS:
         try:
             conn.execute(statement)
-        except sqlite3.OperationalError:
-            pass  # column already exists — migration is idempotent
+        except sqlite3.OperationalError as exc:
+            if not _is_duplicate_column_error(exc):
+                raise
 
 
 class SqliteBlueprintSource:
@@ -168,17 +172,22 @@ class SqliteBlueprintSource:
             if self._conn is not None:
                 return self._conn
             conn = await aiosqlite.connect(self._db_path)
-            await conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
-            await conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
-            await conn.execute("PRAGMA synchronous=NORMAL")
-            await conn.execute(_CREATE_TABLE)
-            await conn.execute(_CREATE_INDEX_KIND)
-            for statement in _MIGRATIONS:
-                try:
-                    await conn.execute(statement)
-                except Exception:  # noqa: BLE001 — duplicate-column on an up-to-date table
-                    pass
-            await conn.commit()
+            try:
+                await conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
+                await conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
+                await conn.execute("PRAGMA synchronous=NORMAL")
+                await conn.execute(_CREATE_TABLE)
+                await conn.execute(_CREATE_INDEX_KIND)
+                for statement in _MIGRATIONS:
+                    try:
+                        await conn.execute(statement)
+                    except sqlite3.OperationalError as exc:
+                        if not _is_duplicate_column_error(exc):
+                            raise
+                await conn.commit()
+            except Exception:
+                await conn.close()
+                raise
             self._conn = conn
         return self._conn
 

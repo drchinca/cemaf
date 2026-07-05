@@ -56,13 +56,15 @@ sequenceDiagram
 ## Image Generation
 
 ```python
-from cemaf.generation.protocols import ImageGenerator, ImageSpec
+from cemaf.generation import create_image_generator
+from cemaf.generation.protocols import ImageSpec
 
-generator: ImageGenerator = DalleGenerator()
+generator = create_image_generator(provider="mock")
 
 spec = ImageSpec(
     prompt="A beautiful sunset",
-    size="1024x1024",
+    width=1024,
+    height=1024,
     style="photorealistic"
 )
 
@@ -82,20 +84,20 @@ from cemaf.generation import (
     image_generator_registry,
 )
 
-def create_dalle_generator(**kwargs) -> ImageGenerator:
-    return DalleGenerator(
+def create_external_image_generator(**kwargs) -> ImageGenerator:
+    return ExternalImageGenerator(
         api_key=kwargs["api_key"],
-        model=kwargs.get("model", "dall-e-3"),
+        model=kwargs.get("model", "image-model"),
     )
 
 image_generator_registry.register(
-    backend="dall-e",
-    factory=create_dalle_generator,
+    backend="external-image",
+    factory=create_external_image_generator,
 )
 
 generator = create_image_generator(
-    provider="dall-e",
-    api_key="sk-...",
+    provider="external-image",
+    api_key="provider-key",
 )
 ```
 
@@ -106,13 +108,13 @@ The same pattern is available for `audio_generator_registry`,
 ## Code Generation
 
 ```python
-from cemaf.generation.protocols import CodeGenerator, CodeSpec
+from cemaf.generation import create_code_generator
+from cemaf.generation.protocols import CodeSpec
 
-generator: CodeGenerator = ClaudeCodeGenerator()
+generator = create_code_generator(provider="mock")
 
 spec = CodeSpec(
-    language="python",
-    requirements="Create a function that calculates fibonacci",
+    prompt="Create a function that calculates fibonacci",
     include_tests=True
 )
 

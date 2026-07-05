@@ -47,9 +47,10 @@ from pathlib import Path
 from pydantic import BaseModel
 
 
-def smoke_skip_reason() -> str | None:
-    """Defers to its dedicated guard; this argparse CLI writes artifacts the smoke harness shouldn't."""
-    return "covered by test_release_engine_example.py (writes artifacts; argparse main)"
+async def smoke_main() -> None:
+    """Offline smoke path for the generic examples harness."""
+    dry_run()
+
 
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
@@ -174,9 +175,7 @@ class Writer:
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[str]:
         self.attempts += 1
         hints = context.global_memory.get(RECOVERY_HINTS_KEY, [])
-        saw_length_hint = isinstance(hints, list) and any(
-            h.get("code") == "length" for h in hints
-        )
+        saw_length_hint = isinstance(hints, list) and any(h.get("code") == "length" for h in hints)
 
         if not saw_length_hint:
             # First-pass stub — too short; the length gate will ask for a revision.

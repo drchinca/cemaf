@@ -9,7 +9,7 @@ Retrieval in CEMAF provides:
 - **Vector Stores**: Pluggable backends for vector similarity search
 - **Embedding Providers**: Support for various embedding models
 - **Hybrid Retrieval**: Combines vector and keyword search
-- **Memory Integration**: Vector stores can be used as memory stores
+- **Memory Integration**: Semantic memory composes a `MemoryStore` with a `VectorStore`
 
 ## Core Components
 
@@ -18,7 +18,7 @@ Retrieval in CEMAF provides:
 The `VectorStore` protocol defines the interface for vector storage:
 
 ```python
-from cemaf.retrieval import VectorStore, Document, SearchResult
+from cemaf.retrieval import Document, SearchResult, VectorStore
 
 # Store documents
 doc = Document(
@@ -27,13 +27,13 @@ doc = Document(
     metadata={"title": "AI Overview", "author": "Jane Doe"},
 )
 
-await vector_store.add([doc])
+await vector_store.add(doc)
 
 # Search
-results = await vector_store.search(
-    query="artificial intelligence",
+results = await vector_store.search_by_text(
+    query_text="artificial intelligence",
     k=10,
-    filters={"author": "Jane Doe"},
+    filter={"author": "Jane Doe"},
 )
 ```
 
@@ -56,12 +56,14 @@ embeddings = await provider.embed_batch(["text1", "text2", "text3"])
 A document for vector storage:
 
 ```python
+from datetime import datetime
+
 from cemaf.retrieval import Document
 
 doc = Document(
     id="doc_123",
     content="Document content here",
-    embedding=(0.1, 0.2, 0.3, ...),  # Optional embedding
+    embedding=(0.1, 0.2, 0.3),  # Optional embedding
     metadata={"title": "Title", "url": "https://example.com"},
     created_at=datetime.now(),
 )
@@ -94,10 +96,10 @@ from cemaf.retrieval import InMemoryVectorStore, EmbeddingProvider
 store = InMemoryVectorStore(embedding_provider=my_embedding_provider)
 
 # Add documents
-await store.add([doc1, doc2])
+await store.add_batch([doc1, doc2])
 
 # Search
-results = await store.search("query", k=5)
+results = await store.search_by_text("query", k=5)
 ```
 
 ### HybridRetriever
@@ -136,8 +138,9 @@ Retrieval settings can be configured via environment variables:
 ```bash
 # Vector store settings
 CEMAF_RETRIEVAL_VECTOR_STORE_TYPE=in_memory
-CEMAF_RETRIEVAL_EMBEDDING_MODEL=text-embedding-3-small
-CEMAF_RETRIEVAL_EMBEDDING_DIMENSION=1536
+CEMAF_EMBEDDING_PROVIDER=hash
+CEMAF_EMBEDDING_MODEL=hash-embedding
+CEMAF_EMBEDDING_DIMENSION=384
 
 # Hybrid retrieval settings
 CEMAF_RETRIEVAL_VECTOR_WEIGHT=0.5
@@ -160,44 +163,65 @@ store = create_in_memory_vector_store(embedding_provider)
 
 ## Integration with Memory
 
-Vector stores can be used as memory stores:
+Vector stores do not implement the key-value `MemoryStore` protocol. Use
+`DefaultSemanticMemoryStore` when you want a memory item stored in both a
+durable memory backend and a vector index:
 
 ```python
-from cemaf.retrieval import VectorStore
-from cemaf.memory import MemoryStore
+from cemaf.core.enums import MemoryScope
+from cemaf.memory import (
+    DefaultSemanticMemoryStore,
+    InMemoryStore,
+    MemoryItem,
+    MemoryQuery,
+    create_memory_scorer,
+)
+from cemaf.retrieval import HashEmbeddingProvider, InMemoryVectorStore
 
-# Vector store implements MemoryStore protocol
-memory_store: MemoryStore = my_vector_store
-
-# Store memories
-await memory_store.store(
-    key="conversation_123",
-    value="User asked about AI",
-    ttl=3600,
+embedding_provider = HashEmbeddingProvider()
+semantic_memory = DefaultSemanticMemoryStore(
+    memory_store=InMemoryStore(),
+    vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
+    embedding_provider=embedding_provider,
+    scorer=create_memory_scorer(),
 )
 
-# Retrieve memories
-memory = await memory_store.retrieve("conversation_123")
+await semantic_memory.store(
+    MemoryItem(
+        scope=MemoryScope.SESSION,
+        key="conversation_123",
+        value={"summary": "User asked about AI"},
+    ),
+    content_for_embedding="User asked about AI",
+)
+
+results = await semantic_memory.search(
+    MemoryQuery(text="AI", scope=MemoryScope.SESSION, limit=5)
+)
 ```
 
 ## Integration with RLM
 
-Retrieval can be used for semantic chunking in RLM:
+Retrieval results can be turned into RLM chunks before calling the recursive
+query engine:
 
 ```python
-from cemaf.rlm import RecursiveQueryEngine
-from cemaf.retrieval import VectorStore
+from cemaf.context.budget import TokenBudget
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.rlm import ContextChunk, DivideAndConquerQueryEngine
 
-# Use retrieval for semantic chunk boundaries
-chunking = SemanticChunkingStrategy(
-    retrieval=vector_store,
-    estimator=token_estimator,
+results = await vector_store.search_by_text("release risks", k=5)
+chunks = tuple(
+    ContextChunk(chunk_id=result.id, content=result.content)
+    for result in results
 )
 
-engine = RecursiveQueryEngine(
-    llm=llm_client,
-    compiler=compiler,
-    chunking=chunking,
+compiler = PriorityContextCompiler(SimpleTokenEstimator())
+engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=3)
+answer = await engine.query(
+    instruction="Summarize the release risks",
+    chunks=chunks,
+    budget=TokenBudget(max_tokens=4000),
 )
 ```
 
@@ -212,7 +236,7 @@ from cemaf.retrieval import VectorStore
 tracker = CitationTracker()
 
 # Search and track as citations
-results = await vector_store.search("query", k=5)
+results = await vector_store.search_by_text("query", k=5)
 citations = tracker.track_search_results(results)
 ```
 
@@ -226,10 +250,10 @@ docs = [
     Document(id=f"doc_{i}", content=f"Content {i}")
     for i in range(100)
 ]
-await store.add(docs)
+await store.add_batch(docs)
 
 # Search
-results = await store.search("query", k=10)
+results = await store.search_by_text("query", k=10)
 for result in results:
     print(f"{result.score}: {result.content}")
 ```
@@ -239,9 +263,9 @@ for result in results:
 ```python
 # Search with metadata filters
 results = await store.search(
-    query="AI",
+    query_embedding=await provider.embed("AI"),
     k=10,
-    filters={"category": "technology", "year": 2024},
+    filter={"category": "technology", "year": 2024},
 )
 ```
 
@@ -261,8 +285,8 @@ results = await retriever.search("query", k=10)
 
 ```python
 # Batch add documents
-docs = [doc1, doc2, doc3, ...]
-await store.add(docs)
+docs = [doc1, doc2, doc3]
+await store.add_batch(docs)
 
 # Batch embedding generation
 embeddings = await provider.embed_batch([doc.content for doc in docs])
@@ -272,7 +296,7 @@ embeddings = await provider.embed_batch([doc.content for doc in docs])
 
 ### OpenAIEmbeddingProvider
 
-Production embedding provider backed by the OpenAI text-embedding API. Requires the `cemaf[openai]` extra.
+Opt-in embedding provider backed by the OpenAI text-embedding API. Requires the `cemaf[openai]` extra and explicit provider configuration.
 
 ```bash
 uv add "cemaf[openai]"
@@ -307,7 +331,7 @@ embeddings = await provider.embed_batch(
 
 | Model | Default Dimension | Notes |
 |-------|-------------------|-------|
-| `text-embedding-3-small` | 1536 | Default. Fast, cost-effective |
+| `text-embedding-3-small` | 1536 | Common OpenAI small model |
 | `text-embedding-3-large` | 3072 | Higher accuracy, larger vectors |
 | `text-embedding-ada-002` | 1536 | Legacy model |
 
@@ -339,7 +363,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
 ## Performance Considerations
 
-- **Batch operations**: Use `add()` and `embed_batch()` for multiple documents
+- **Batch operations**: Use `add_batch()` and `embed_batch()` for multiple documents
 - **Pre-compute embeddings**: Generate embeddings before storing
 - **Index optimization**: Use appropriate indexes for large datasets
 - **Caching**: Cache frequent queries
@@ -350,20 +374,20 @@ class SentenceTransformerProvider(EmbeddingProvider):
 Use in-memory stores for testing:
 
 ```python
-from cemaf.retrieval import InMemoryVectorStore, HashEmbeddingProvider
+from cemaf.retrieval import HashEmbeddingProvider, InMemoryVectorStore
 
 embedding_provider = HashEmbeddingProvider()
 store = InMemoryVectorStore(embedding_provider=embedding_provider)
 
 # Test operations
-await store.add([doc1, doc2])
-results = await store.search("query", k=5)
+await store.add_batch([doc1, doc2])
+results = await store.search_by_text("query", k=5)
 assert len(results) > 0
 ```
 
 ## Related Modules
 
-- **Memory**: Vector stores can be used as memory stores
+- **Memory**: Semantic memory composes memory and vector stores
 - **Citation**: Search results converted to citations
 - **RLM**: Retrieval used for semantic chunking
 - **Context**: Retrieval results included in context compilation

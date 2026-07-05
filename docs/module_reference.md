@@ -359,7 +359,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
   - Automatic fallback strategies for large budgets/datasets
   - Rich metadata tracking (selection_method, excluded_keys, max_priority_sum, guaranteed_optimal)
   - Engineers can implement custom algorithms by conforming to protocol
-- **Related**: Full guide with examples in [docs/context_algorithms.md](./context_algorithms.md)
+- **Related**: Selection guide with examples in [docs/context_algorithms.md](./context_algorithms.md)
 
 ### `budget.py`
 
@@ -474,7 +474,7 @@ Complete overview of all modules in the CEMAF (Context Engineering Multi-Agent F
 
 ### Integration with CEMAF
 
-RLM integrates seamlessly with CEMAF's core systems:
+RLM composes with CEMAF's core systems:
 - **Context Compilation**: Uses `TokenBudget` and `ContextCompiler`
 - **Token Estimation**: Uses `TokenEstimator` for accurate chunk sizing
 - **LLM Integration**: Uses `LLMClient` protocol (supports any LLM backend)
@@ -534,6 +534,7 @@ print(f"Metadata: {result.metadata}")
 - **Key Functions**: `create_logger`, `create_tracer`, `create_metrics_collector`, `create_run_logger`
 - **Config Helpers**: `create_logger_from_config`, `create_tracer_from_config`, `create_metrics_collector_from_config`, `create_run_logger_from_config`
 - **Registries**: `logger_registry`, `tracer_registry`, `metrics_collector_registry`, `run_logger_registry`
+- **Built-ins**: loggers (`simple`, `structured`), tracers (`noop`, `otel`, `opentelemetry`), metrics (`noop`, `simple`, `prometheus`, `otel`, `opentelemetry`), run loggers (`memory`, `file`, `noop`)
 - **Extension Point**: Register custom observability backends externally; no framework source edits required
 
 ### `budget_guard.py`
@@ -732,8 +733,7 @@ print(f"Metadata: {result.metadata}")
   - Single table with scope/key primary key
   - JSON-serialized values, TTL/expiry columns
   - Supports `scope_path` for hierarchical scoping
-  - WAL mode, `busy_timeout`, and process-local write coordination per database path
-  - Production-ready alternative to `InMemoryStore`
+  - Durable alternative to `InMemoryStore`
 
 ### `memory/factories.py`
 
@@ -774,14 +774,14 @@ print(f"Metadata: {result.metadata}")
 ### `retrieval/memory_store.py`
 
 - **Purpose**: In-memory vector store implementation
-- **Key Classes**: `InMemoryVectorStore`, `HashEmbeddingProvider`
+- **Key Classes**: `InMemoryVectorStore`, `MockEmbeddingProvider`
 - **Features**: Fast in-memory storage for development and testing
 
 ### `retrieval/openai_embeddings.py`
 
-- **Purpose**: Production embedding provider using OpenAI API
+- **Purpose**: Opt-in embedding provider using OpenAI API
 - **Key Classes**:
-  - `OpenAIEmbeddingProvider`: `EmbeddingProvider` backed by OpenAI `text-embedding-3-small`
+  - `OpenAIEmbeddingProvider`: `EmbeddingProvider` backed by an explicitly configured OpenAI embedding model
 - **Features**:
   - Configurable model and dimension (default: 1536)
   - Handles empty text gracefully (returns zero vectors)
@@ -1322,6 +1322,7 @@ print(f"Metadata: {result.metadata}")
   - `create_code_generator()` / `create_code_generator_from_config()` - Code generator selection
   - `create_diagram_generator()` / `create_ui_generator()` - Diagram/UI generator selection
 - **Registries**: `image_generator_registry`, `audio_generator_registry`, `video_generator_registry`, `code_generator_registry`, `diagram_generator_registry`, `ui_generator_registry`
+- **Built-ins**: `mock` for every generation modality; register external service adapters through the modality-specific registry
 
 ---
 

@@ -15,6 +15,8 @@ from cemaf.events.protocols import EventBus
 from cemaf.moderation.gates import PostFlightGate, PreFlightGate
 from cemaf.moderation.protocols import ModerationContent, ModerationResult
 
+logger = logging.getLogger(__name__)
+
 
 class ModerationPipeline:
     """
@@ -25,8 +27,8 @@ class ModerationPipeline:
     moderation events for observability.
 
     Example:
-        >>> pre_gate = PreFlightGate([KeywordRule(), PIIRule()])
-        >>> post_gate = PostFlightGate([ToxicityRule()])
+        >>> pre_gate = PreFlightGate([KeywordRule(blocked_words=("spam",)), PIIRule()])
+        >>> post_gate = PostFlightGate([LengthRule(max_length=4000)])
         >>> pipeline = ModerationPipeline(
         ...     pre_flight=pre_gate,
         ...     post_flight=post_gate,
@@ -49,6 +51,8 @@ class ModerationPipeline:
         post_flight: PostFlightGate | None = None,
         event_bus: EventBus | None = None,
         name: str = "moderation_pipeline",
+        enabled: bool = True,
+        fail_on_violation: bool = True,
     ) -> None:
         """
         Initialize the moderation pipeline.
@@ -58,11 +62,15 @@ class ModerationPipeline:
             post_flight: Gate for checking outputs after processing.
             event_bus: Optional event bus for emitting moderation events.
             name: Unique identifier for this pipeline.
+            enabled: Whether moderation gates should run.
+            fail_on_violation: Whether blocking gate results should block execution.
         """
         self._pre_flight = pre_flight
         self._post_flight = post_flight
         self._event_bus = event_bus
         self._name = name
+        self._enabled = enabled
+        self._fail_on_violation = fail_on_violation
         self._pending_tasks: set[asyncio.Task[None]] = set()
 
     @property
@@ -84,6 +92,37 @@ class ModerationPipeline:
     def event_bus(self) -> EventBus | None:
         """The event bus for emitting moderation events."""
         return self._event_bus
+
+    @property
+    def enabled(self) -> bool:
+        """Whether this pipeline runs moderation gates."""
+        return self._enabled
+
+    @property
+    def fail_on_violation(self) -> bool:
+        """Whether blocking moderation results should stop execution."""
+        return self._fail_on_violation
+
+    def _apply_violation_policy(
+        self,
+        result: ModerationResult,
+        *,
+        phase: str,
+    ) -> ModerationResult:
+        if result.allowed or self._fail_on_violation:
+            return result
+
+        return ModerationResult.with_warnings(
+            violations=result.violations,
+            redacted_content=result.redacted_content,
+            metadata={
+                **result.metadata,
+                "pipeline": self._name,
+                "phase": phase,
+                "fail_on_violation": False,
+                "original_allowed": False,
+            },
+        )
 
     async def check_input(
         self,
@@ -116,8 +155,22 @@ class ModerationPipeline:
                 "pipeline": self._name,
                 "phase": "pre_flight",
                 "gate": self._pre_flight.name if self._pre_flight else None,
+                "enabled": self._enabled,
             },
         )
+
+        if not self._enabled:
+            result = ModerationResult(allowed=True, metadata={"reason": "disabled"})
+            self._emit_event(
+                "moderation.check.passed",
+                {
+                    "pipeline": self._name,
+                    "phase": "pre_flight",
+                    "gate": self._pre_flight.name if self._pre_flight else None,
+                    "reason": "disabled",
+                },
+            )
+            return result
 
         # If no pre-flight gate, pass through
         if self._pre_flight is None:
@@ -134,7 +187,10 @@ class ModerationPipeline:
             return result
 
         # Run the pre-flight check
-        result = await self._pre_flight.check(content, context)
+        result = self._apply_violation_policy(
+            await self._pre_flight.check(content, context),
+            phase="pre_flight",
+        )
 
         # Emit result event
         if result.allowed:
@@ -194,8 +250,22 @@ class ModerationPipeline:
                 "pipeline": self._name,
                 "phase": "post_flight",
                 "gate": self._post_flight.name if self._post_flight else None,
+                "enabled": self._enabled,
             },
         )
+
+        if not self._enabled:
+            result = ModerationResult(allowed=True, metadata={"reason": "disabled"})
+            self._emit_event(
+                "moderation.check.passed",
+                {
+                    "pipeline": self._name,
+                    "phase": "post_flight",
+                    "gate": self._post_flight.name if self._post_flight else None,
+                    "reason": "disabled",
+                },
+            )
+            return result
 
         # If no post-flight gate, pass through
         if self._post_flight is None:
@@ -212,7 +282,10 @@ class ModerationPipeline:
             return result
 
         # Run the post-flight check
-        result = await self._post_flight.check(content, context)
+        result = self._apply_violation_policy(
+            await self._post_flight.check(content, context),
+            phase="post_flight",
+        )
 
         # Emit result event
         if result.allowed:
@@ -277,6 +350,8 @@ class ModerationPipeline:
                 "pipeline": self._name,
                 "has_pre_flight": self._pre_flight is not None,
                 "has_post_flight": self._post_flight is not None,
+                "enabled": self._enabled,
+                "fail_on_violation": self._fail_on_violation,
             },
         )
 
@@ -366,12 +441,17 @@ class ModerationPipeline:
         )
         return final_result, output
 
+    async def flush_events(self) -> None:
+        """Wait for queued moderation event publish tasks to finish."""
+        if self._pending_tasks:
+            await asyncio.gather(*tuple(self._pending_tasks), return_exceptions=True)
+
     def _emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
         """
         Emit event if event_bus is configured.
 
         Creates and publishes an event to the event bus. This is a fire-and-forget
-        operation - any errors during event publishing are silently ignored.
+        operation. Publish failures are logged by the task completion callback.
 
         Args:
             event_type: The type of event (e.g., "moderation.check.started").
@@ -392,6 +472,16 @@ class ModerationPipeline:
             loop = asyncio.get_running_loop()
             task = loop.create_task(self._event_bus.publish(event))
             self._pending_tasks.add(task)
-            task.add_done_callback(self._pending_tasks.discard)
+            task.add_done_callback(self._handle_publish_done)
         except RuntimeError:
-            logging.getLogger(__name__).warning("Failed to publish moderation event — no running event loop")
+            logger.warning("Failed to publish moderation event — no running event loop")
+
+    def _handle_publish_done(self, task: asyncio.Task[None]) -> None:
+        self._pending_tasks.discard(task)
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            logger.warning("Moderation event publish task was cancelled")
+            return
+        if exc is not None:
+            logger.warning("Failed to publish moderation event: %s", exc, exc_info=exc)

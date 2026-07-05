@@ -9,9 +9,33 @@ from cemaf.retrieval.protocols import Document
 from cemaf.retrieval.sqlite_vector_store import SqliteVectorStore
 
 
+class _ZeroDimensionProvider:
+    @property
+    def dimension(self) -> int:
+        return 0
+
+    @property
+    def model_name(self) -> str:
+        return "zero-dimension"
+
+    async def embed(self, text: str) -> tuple[float, ...]:
+        return ()
+
+    async def embed_batch(self, texts: list[str]) -> list[tuple[float, ...]]:
+        return [() for _ in texts]
+
+
 @pytest.fixture
 def provider() -> HashEmbeddingProvider:
     return HashEmbeddingProvider(dimension=32)
+
+
+def test_sqlite_vector_store_rejects_non_positive_provider_dimension(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="embedding provider dimension must be positive, got 0"):
+        SqliteVectorStore(
+            db_path=str(tmp_path / "zero-dimension.db"),
+            embedding_provider=_ZeroDimensionProvider(),
+        )
 
 
 @pytest.mark.asyncio
@@ -74,4 +98,30 @@ async def test_sqlite_vector_store_delete_removes_document(
     assert deleted is True
     assert missing is None
     assert await store.count() == 0
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_vector_store_rejects_wrong_dimension_embedding(
+    tmp_path: Path, provider: HashEmbeddingProvider
+) -> None:
+    store = SqliteVectorStore(db_path=str(tmp_path / "bad-embedding.db"), embedding_provider=provider)
+
+    with pytest.raises(ValueError, match="embedding for document 'bad' has dimension 2; expected 32"):
+        await store.add(Document(id="bad", content="bad", embedding=(0.1, 0.2)))
+
+    assert await store.count() == 0
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_vector_store_rejects_wrong_dimension_query(
+    tmp_path: Path, provider: HashEmbeddingProvider
+) -> None:
+    store = SqliteVectorStore(db_path=str(tmp_path / "bad-query.db"), embedding_provider=provider)
+    await store.add(Document(id="doc-1", content="query target"))
+
+    with pytest.raises(ValueError, match="query embedding has dimension 2; expected 32"):
+        await store.search((0.1, 0.2))
+
     await store.close()

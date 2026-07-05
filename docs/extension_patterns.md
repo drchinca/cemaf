@@ -92,9 +92,9 @@ class SafeDatabaseQueryTool(DatabaseQueryTool):
 ### Simple Compiler
 
 ```python
-from cemaf.context import ContextCompiler
 from cemaf.context.budget import TokenBudget
-from cemaf.context.compiler import CompiledContext, ContextSource
+from cemaf.context.compiler import CompiledContext, ContextCompiler
+from cemaf.context.source import ContextSource
 from cemaf.core.types import TokenCount
 
 class SimpleConcatenationCompiler:
@@ -187,8 +187,43 @@ class SemanticCompiler:
 ## Pattern 3: Custom Memory Store
 
 ```python
-from cemaf.memory.protocols import MemoryStore
 from cemaf.core.enums import MemoryScope
+from cemaf.core.types import Confidence
+from cemaf.memory.protocols import MemoryItem, MemoryStore
+
+import json
+from datetime import datetime
+
+
+def _encode_item(item: MemoryItem) -> str:
+    return json.dumps(
+        {
+            "scope": item.scope.value,
+            "key": item.key,
+            "value": item.value,
+            "confidence": float(item.confidence),
+            "created_at": item.created_at.isoformat(),
+            "updated_at": item.updated_at.isoformat(),
+            "expires_at": item.expires_at.isoformat() if item.expires_at else None,
+            "scope_path": item.scope_path,
+        }
+    )
+
+
+def _decode_item(data: str | bytes) -> MemoryItem:
+    if isinstance(data, bytes):
+        data = data.decode()
+    raw = json.loads(data)
+    return MemoryItem(
+        scope=MemoryScope(raw["scope"]),
+        key=raw["key"],
+        value=raw["value"],
+        confidence=Confidence(raw["confidence"]),
+        created_at=datetime.fromisoformat(raw["created_at"]),
+        updated_at=datetime.fromisoformat(raw["updated_at"]),
+        expires_at=datetime.fromisoformat(raw["expires_at"]) if raw.get("expires_at") else None,
+        scope_path=raw.get("scope_path"),
+    )
 
 class RedisMemoryStore:
     """Memory store backed by Redis."""
@@ -196,33 +231,33 @@ class RedisMemoryStore:
     def __init__(self, redis_client):
         self._redis = redis_client
 
-    async def store(
-        self,
-        key: str,
-        value: str,
-        scope: MemoryScope = MemoryScope.CONVERSATION,
-        ttl: int | None = None,
-    ) -> None:
-        redis_key = f"{scope.value}:{key}"
-        await self._redis.set(redis_key, value, ex=ttl)
+    async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
+        data = await self._redis.get(f"{scope.value}:{key}")
+        return _decode_item(data) if data else None
 
-    async def retrieve(self, key: str, scope: MemoryScope = MemoryScope.CONVERSATION) -> str | None:
-        redis_key = f"{scope.value}:{key}"
-        return await self._redis.get(redis_key)
+    async def set(self, item: MemoryItem) -> None:
+        ttl = item.remaining_ttl
+        data = _encode_item(item)
+        if ttl is None:
+            await self._redis.set(item.full_key, data)
+        else:
+            await self._redis.set(item.full_key, data, ex=max(1, int(ttl.total_seconds())))
 
-    async def retrieve_all(self, scope: MemoryScope) -> tuple[tuple[str, str], ...]:
+    async def delete(self, scope: MemoryScope, key: str) -> bool:
+        deleted = await self._redis.delete(f"{scope.value}:{key}")
+        return deleted > 0
+
+    async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]:
         pattern = f"{scope.value}:*"
         keys = await self._redis.keys(pattern)
-        results = []
+        items = []
         for key in keys:
-            value = await self._redis.get(key)
-            if value:
-                results.append((key, value))
-        return tuple(results)
-
-    async def delete(self, key: str, scope: MemoryScope = MemoryScope.CONVERSATION) -> None:
-        redis_key = f"{scope.value}:{key}"
-        await self._redis.delete(redis_key)
+            data = await self._redis.get(key)
+            if data:
+                item = _decode_item(data)
+                if not item.is_expired:
+                    items.append(item)
+        return tuple(items)
 
     async def clear(self, scope: MemoryScope | None = None) -> None:
         if scope:
@@ -240,40 +275,73 @@ memory: MemoryStore = RedisMemoryStore(redis_client)
 ## Pattern 4: Custom LLM Client
 
 ```python
-from cemaf.llm.protocols import LLMClient, Message, CompletionResult
-from cemaf.core.result import Result
+from cemaf.llm.protocols import (
+    CompletionResult,
+    LLMClient,
+    LLMConfig,
+    Message,
+    StreamChunk,
+    ToolDefinition,
+)
+from cemaf.core.types import TokenCount
 
 class CustomLLMClient:
     """Custom LLM client wrapping your API."""
 
     def __init__(self, api_key: str, model: str = "custom-model"):
         self._api_key = api_key
-        self._model = model
+        self._config = LLMConfig(model=model)
+
+    @property
+    def config(self) -> LLMConfig:
+        return self._config
 
     async def complete(
         self,
         messages: list[Message],
-        config: dict | None = None,
-    ) -> Result[CompletionResult]:
+        tools: list[ToolDefinition] | None = None,
+        config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
+    ) -> CompletionResult:
+        del fidelity, token_budget, correlation_id
         try:
             # Call your API
-            response = await self._call_api(messages, config)
+            response = await self._call_api(messages, tools, config_override)
 
-            return Result.ok(CompletionResult(
-                content=response["text"],
-                model=self._model,
-                total_tokens=response.get("tokens", 0),
-            ))
+            return CompletionResult.ok(
+                message=Message.assistant(response["text"]),
+                model=self._config.model,
+                completion_tokens=response.get("tokens", 0),
+            )
         except Exception as e:
-            return Result.fail(str(e))
+            return CompletionResult.fail(str(e))
 
     async def stream(
         self,
         messages: list[Message],
-        config: dict | None = None,
+        tools: list[ToolDefinition] | None = None,
+        config_override: LLMConfig | None = None,
     ):
-        # Implement streaming
-        ...
+        result = await self.complete(messages, tools, config_override)
+        if result.success:
+            content = str(result.content)
+            yield StreamChunk(content=content, accumulated_content=content, is_final=True)
+
+    def count_tokens(self, text: str) -> TokenCount:
+        return TokenCount(max(1, len(text) // 4))
+
+    def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
+        return TokenCount(sum(self.count_tokens(str(message.content)) for message in messages))
+
+    async def count_tokens_exact(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+    ) -> TokenCount:
+        return self.count_messages_tokens(messages)
 
 # Usage
 llm: LLMClient = CustomLLMClient(api_key="...")
@@ -284,7 +352,7 @@ llm: LLMClient = CustomLLMClient(api_key="...")
 ### Add Caching to Any Compiler
 
 ```python
-from cemaf.context import ContextCompiler
+from cemaf.context.compiler import ContextCompiler
 from functools import lru_cache
 
 class CachedCompiler:

@@ -39,6 +39,10 @@ class _CapturingClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         self.complete_calls.append(messages)
         return CompletionResult.ok(

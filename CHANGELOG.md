@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-07-04
+
+**V3 public release for local-first, protocol-first context engineering.**
+
+This release aligns the package, docs, defaults, and verification gates
+around CEMAF as an execution substrate for context-engineered multi-agent
+applications.
+
+**Added:**
+- Local/free-first provider defaults: Ollama for LLMs, hash embeddings for
+  retrieval, and static catalog metadata unless the caller explicitly opts into a
+  hosted provider.
+- OpenAI Responses, OpenAI-compatible, Gemini, Ollama, and local/free model paths
+  with provider tests and integration coverage.
+- `cemaf.session.v1` operator snapshots, loop/operator release checks, package
+  metadata checks, docs voice checks, and release naming checks.
+- Documentation voice guide and v3 release readiness checklist.
+
+**Changed:**
+- Package metadata now targets `3.0.0` and marks the project as stable rather
+  than alpha-era packaging.
+- Optional extras make HTTP-backed local and hosted adapters explicit
+  (`cemaf[ollama]`, `cemaf[openai-compatible]`, `cemaf[gemini]`, etc.).
+- Public README and quickstart paths lead with local/offline defaults before
+  hosted provider integrations.
+
+**Verification:**
+- `make check`
+- `uv run python docs/architecture/scripts/check_doc_imports.py`
+- `uv run --frozen pytest -q -rs`
+- No skipped tests, no paid-provider defaults, no direct comparison/vendor lesson
+  labels.
+
 ## [2.5.0] - 2026-06-30
 
 **Reconciliation release: unites the `development` line (examples, evals, context-layer PoCs, collision/operator/security modules) with the `main` line (meta-scheduler, glassbox traceability) — neither feature set is lost.**

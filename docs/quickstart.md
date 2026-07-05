@@ -1,6 +1,7 @@
 # Quick Start Guide
 
-Get up and running with CEMAF in minutes.
+Run the local/offline path first, then add provider integrations when the app
+actually needs them.
 
 ## Quick Overview
 
@@ -31,31 +32,35 @@ flowchart LR
 ## Installation
 
 ```bash
-# Core only (no AI framework dependencies)
+# Core only: offline examples, protocols, DAGs, context, memory
 pip install cemaf
 
-# With specific integrations
-pip install cemaf[openai]      # OpenAI + tiktoken
-pip install cemaf[anthropic]   # Anthropic
-pip install cemaf[tiktoken]    # Accurate token counting only
-pip install cemaf[all]         # All integrations
+# Local/free LLM serving through Ollama
+pip install "cemaf[ollama]"
+
+# Hosted providers are explicit opt-in
+pip install "cemaf[openai]"      # OpenAI Responses API + tiktoken
+pip install "cemaf[anthropic]"   # Anthropic
+pip install "cemaf[gemini]"      # Gemini / Vertex HTTP client support
+pip install "cemaf[tiktoken]"    # Accurate token counting only
+pip install "cemaf[all]"         # All optional integration dependencies
 
 # Development
-pip install cemaf[dev]
+pip install "cemaf[dev]"
 ```
 
 ## Configuration (Optional)
 
-CEMAF works out-of-the-box with zero configuration. To customize:
+CEMAF works with local/free-first defaults. To customize:
 
 ```bash
 # Copy example configuration
 cp .env.example .env
 
-# Edit .env with your settings
-CEMAF_LLM_PROVIDER=openai
-CEMAF_LLM_API_KEY=your-api-key-here
-CEMAF_CACHE_BACKEND=redis
+# Edit .env with your local/free-first settings
+CEMAF_LLM_PROVIDER=ollama
+CEMAF_LLM_DEFAULT_MODEL=gemma3:4b
+CEMAF_CACHE_BACKEND=ttl
 ```
 
 Use configuration-driven factories:

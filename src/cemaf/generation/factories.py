@@ -104,6 +104,13 @@ def _create_mock_ui_generator(**kwargs: Any) -> UIGenerator:
     return MockUIGenerator()
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() == "true"
+
+
 image_generator_registry.register(backend="mock", factory=_create_mock_image_generator)
 audio_generator_registry.register(backend="mock", factory=_create_mock_audio_generator)
 video_generator_registry.register(backend="mock", factory=_create_mock_video_generator)
@@ -122,7 +129,7 @@ def create_image_generator(
     Factory for ImageGenerator with sensible defaults.
 
     Args:
-        provider: Image generation provider (mock, dall-e, stable-diffusion, etc.)
+        provider: Image generation provider (mock or registered custom backend)
         default_width: Default image width
         default_height: Default image height
 
@@ -156,11 +163,23 @@ def create_image_generator_from_config(settings: Settings | None = None) -> Imag
     Returns:
         Configured ImageGenerator instance
     """
-    provider = os.getenv("CEMAF_GENERATION_IMAGE_PROVIDER", "mock")
-    width = int(os.getenv("CEMAF_GENERATION_DEFAULT_IMAGE_WIDTH", "1024"))
-    height = int(os.getenv("CEMAF_GENERATION_DEFAULT_IMAGE_HEIGHT", "1024"))
+    cfg = settings or load_settings_from_env_sync()
+    generation = cfg.generation
 
-    return create_image_generator(provider, width, height)
+    provider = os.getenv("CEMAF_GENERATION_IMAGE_PROVIDER", "mock")
+    width = int(os.getenv("CEMAF_GENERATION_DEFAULT_IMAGE_WIDTH", str(generation.default_image_width)))
+    height = int(os.getenv("CEMAF_GENERATION_DEFAULT_IMAGE_HEIGHT", str(generation.default_image_height)))
+    image_format = os.getenv(
+        "CEMAF_GENERATION_DEFAULT_IMAGE_FORMAT",
+        generation.default_image_format,
+    )
+
+    return create_image_generator(
+        provider,
+        width,
+        height,
+        default_format=image_format,
+    )
 
 
 def create_audio_generator(provider: str = "mock", **provider_options: Any) -> AudioGenerator:
@@ -170,11 +189,26 @@ def create_audio_generator(provider: str = "mock", **provider_options: Any) -> A
 
 def create_audio_generator_from_config(settings: Settings | None = None) -> AudioGenerator:
     """Create AudioGenerator from environment configuration."""
-    cfg = settings or load_settings_from_env_sync()  # noqa: F841
+    cfg = settings or load_settings_from_env_sync()
+    generation = cfg.generation
 
     provider = os.getenv("CEMAF_GENERATION_AUDIO_PROVIDER", "mock")
+    audio_format = os.getenv(
+        "CEMAF_GENERATION_DEFAULT_AUDIO_FORMAT",
+        generation.default_audio_format,
+    )
+    sample_rate = int(
+        os.getenv(
+            "CEMAF_GENERATION_DEFAULT_SAMPLE_RATE",
+            str(generation.default_sample_rate),
+        )
+    )
 
-    return create_audio_generator(provider)
+    return create_audio_generator(
+        provider,
+        default_format=audio_format,
+        default_sample_rate=sample_rate,
+    )
 
 
 def create_video_generator(provider: str = "mock", **provider_options: Any) -> VideoGenerator:
@@ -184,9 +218,25 @@ def create_video_generator(provider: str = "mock", **provider_options: Any) -> V
 
 def create_video_generator_from_config(settings: Settings | None = None) -> VideoGenerator:
     """Create VideoGenerator from environment configuration."""
-    provider = os.getenv("CEMAF_GENERATION_VIDEO_PROVIDER", "mock")
+    cfg = settings or load_settings_from_env_sync()
+    generation = cfg.generation
 
-    return create_video_generator(provider)
+    provider = os.getenv("CEMAF_GENERATION_VIDEO_PROVIDER", "mock")
+    width = int(os.getenv("CEMAF_GENERATION_DEFAULT_VIDEO_WIDTH", str(generation.default_video_width)))
+    height = int(os.getenv("CEMAF_GENERATION_DEFAULT_VIDEO_HEIGHT", str(generation.default_video_height)))
+    fps = int(os.getenv("CEMAF_GENERATION_DEFAULT_VIDEO_FPS", str(generation.default_video_fps)))
+    video_format = os.getenv(
+        "CEMAF_GENERATION_DEFAULT_VIDEO_FORMAT",
+        generation.default_video_format,
+    )
+
+    return create_video_generator(
+        provider,
+        default_width=width,
+        default_height=height,
+        default_fps=fps,
+        default_format=video_format,
+    )
 
 
 def create_code_generator(provider: str = "mock", **provider_options: Any) -> CodeGenerator:
@@ -196,9 +246,23 @@ def create_code_generator(provider: str = "mock", **provider_options: Any) -> Co
 
 def create_code_generator_from_config(settings: Settings | None = None) -> CodeGenerator:
     """Create CodeGenerator from environment configuration."""
-    provider = os.getenv("CEMAF_GENERATION_CODE_PROVIDER", "mock")
+    cfg = settings or load_settings_from_env_sync()
+    generation = cfg.generation
 
-    return create_code_generator(provider)
+    provider = os.getenv("CEMAF_GENERATION_CODE_PROVIDER", "mock")
+    language = os.getenv(
+        "CEMAF_GENERATION_DEFAULT_CODE_LANGUAGE",
+        generation.default_code_language,
+    )
+    include_tests = _env_bool("CEMAF_GENERATION_INCLUDE_TESTS", generation.include_tests)
+    include_docs = _env_bool("CEMAF_GENERATION_INCLUDE_DOCS", generation.include_docs)
+
+    return create_code_generator(
+        provider,
+        default_language=language,
+        include_tests=include_tests,
+        include_docs=include_docs,
+    )
 
 
 def create_diagram_generator(provider: str = "mock", **provider_options: Any) -> DiagramGenerator:

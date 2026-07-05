@@ -11,7 +11,7 @@ import pytest
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.core.types import TokenCount
-from cemaf.llm.protocols import CompletionResult, LLMConfig, Message
+from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, ToolDefinition
 from cemaf.rlm.engine import DivideAndConquerQueryEngine
 from cemaf.rlm.protocols import ContextChunk
 
@@ -33,10 +33,15 @@ class MockLLMClient:
     async def complete(
         self,
         messages: list[Message],
-        tools: list | None = None,
+        tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Mock completion."""
+        del tools, config_override, fidelity, token_budget, correlation_id
         self.calls.append(messages)
         response = self.responses[min(self.call_count, len(self.responses) - 1)]
         self.call_count += 1
@@ -317,8 +322,16 @@ class TestDivideAndConquerQueryEngine:
                 return LLMConfig(model="mock")
 
             async def complete(
-                self, messages: list[Message], tools=None, config_override=None
+                self,
+                messages: list[Message],
+                tools: list[ToolDefinition] | None = None,
+                config_override: LLMConfig | None = None,
+                *,
+                fidelity: object | None = None,
+                token_budget: object | None = None,
+                correlation_id: str | None = None,
             ) -> CompletionResult:
+                del messages, tools, config_override, fidelity, token_budget, correlation_id
                 return CompletionResult.fail("LLM error")
 
             def count_tokens(self, text: str) -> TokenCount:

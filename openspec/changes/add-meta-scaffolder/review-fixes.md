@@ -20,7 +20,7 @@ but breaks on first real use. This document is the fix plan.
 | 1 | Generated `bootstrap.py` references `{cls}Goal` but never imports it → `NameError` on first use | junior-dev | Pass `GeneratedAgent(class_name, goal_class_name, source)` triples; emit `from pkg.agents import <cls>, <cls>Goal` |
 | 2 | `agent_sources` + `agent_class_names` parallel tuples with no alignment guarantee | junior-dev, senior-python | Replace with `GeneratedAgent` typed pair |
 | 3 | TOML/Python injection via `description`/`title` — `"` in a string breaks the generated `pyproject.toml` + `dags.py` | senior-python, qa, junior | Use `json.dumps()` for string literal escaping in TOML + Python contexts |
-| 4 | `cemaf` dep is bare string in generated `pyproject.toml` — `uv sync` fails (cemaf not on PyPI) | senior-python, junior | Add `cemaf_source: str` to `ScaffoldGoal` with a clear placeholder default |
+| 4 | `cemaf` dep is bare string in generated `pyproject.toml` — `uv sync` fails (cemaf not on PyPI) | senior-python, junior | Add `cemaf_source: str` to `ScaffoldGoal` with a clear default-source note |
 | 5 | Generated `dags.py` imports `NodeID`, `Edge`, `Node` but uses none → ruff fails in generated repo's CI | junior-dev | Drop unused imports |
 | 6 | TOCTOU race in `_prepare_root` — two concurrent scaffolds to same target interleave | architect, qa | Per-(target_dir, project_name) `asyncio.Lock` |
 | 7 | Spec drift: `create_app_synthesis_dag(target_dir)` per spec, no-arg in impl | architect | Update spec to match reality (target_dir lives on `ScaffoldGoal`, not the DAG factory) |
@@ -40,7 +40,7 @@ but breaks on first real use. This document is the fix plan.
 
 - **Non-zero-arg agent constructors**: realistic agents take `llm_client` etc. Current generated `bootstrap.py` assumes no-arg `__init__`. Co-design with MetaSynthesizer to emit factories, or document the constraint explicitly. (senior-python, architect)
 - **`target_dir: str` → `Path` in ScaffoldGoal**: Pydantic JSON serialization work, cosmetic. (architect)
-- **DAG end-to-end test** with `executor.run(dag=create_app_synthesis_dag())`: needs a context-builder node to convert prior-node outputs into a `ScaffoldGoal`. Real design work. (qa)
+- **Context-builder node DSL**: app synthesis now runs through explicit node input mappings; a richer transform DSL can be designed separately if needed. (qa)
 - **Generated README metadata** (change_id, CEMAF version, spec ref): useful for traceability; renderer stays pure by taking metadata as explicit `ProjectSkeleton` fields. (junior)
 - **`GeneratedAgent.from_services(services)` factory pattern**: replaces zero-arg instantiation in generated bootstrap. (senior-python)
 
@@ -57,7 +57,7 @@ Three focused commits on `drchinca/meta-openspec-mcp/self-spec-loop`:
 
 **Commit Y — String escaping + cemaf_source**
 - Use `json.dumps()` to escape strings going into TOML basic strings + Python string literals
-- Add `cemaf_source: str = ""` to `ScaffoldGoal`; when set, use it in generated `pyproject.toml`; when empty, emit a loud placeholder comment so users can't accidentally ship a broken project
+- Add `cemaf_source: str = ""` to `ScaffoldGoal`; when set, use it in generated `pyproject.toml`; when empty, emit a clear default-source note so users can pin a Git or local source
 - Add tests for escape correctness
 
 **Commit Z — Concurrent lock + review-gap tests + spec drift**

@@ -9,7 +9,7 @@ round-trip in between.
 
 This wrapper runs the ModerationPipeline's pre-flight gate on every
 MessageRole.TOOL content before forwarding to the underlying client.
-Blocked content is replaced with a stub message that carries the
+Blocked content is replaced with a sanitized message that carries the
 violation codes in metadata; the tool_call_id is preserved so the
 model can correlate the turn, but the poisoned payload is gone.
 """
@@ -111,12 +111,19 @@ class ModeratingLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         sanitized = await self._sanitize_messages(messages=messages)
         return await self._inner.complete(
             messages=sanitized,
             tools=tools,
             config_override=config_override,
+            fidelity=fidelity,
+            token_budget=token_budget,
+            correlation_id=correlation_id,
         )
 
     async def stream(
@@ -215,7 +222,7 @@ class ModeratingLLMClient:
         return self._inner.count_tokens(text=text)
 
     async def _sanitize_messages(self, *, messages: list[Message]) -> list[Message]:
-        """Replace any blocked tool-result messages with a stub."""
+        """Replace blocked tool-result messages with sanitized content."""
         out: list[Message] = []
         for msg in messages:
             if msg.role is not MessageRole.TOOL:

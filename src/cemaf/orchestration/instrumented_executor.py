@@ -8,8 +8,8 @@ Per-node spans: The DAGExecutor dispatches nodes through internal helpers
 and ContextVars that are not exposed as public hooks. Instrumenting at the
 per-node level without forking DAGExecutor would require either monkey-
 patching private methods (fragile) or adding a callback hook to the
-executor contract (future work tracked as cemaf#instrumented-node-spans).
-For now, each DAG run produces one root span covering the full execution.
+executor contract. This wrapper emits one root span covering the full
+execution.
 """
 
 from cemaf.context.context import Context

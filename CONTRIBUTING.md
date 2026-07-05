@@ -1,6 +1,7 @@
 # Contributing to CEMAF
 
-Thank you for considering contributing to CEMAF (Context Engineering Multi-Agent Framework)!
+CEMAF contributions should compose with the framework first, extend at protocol
+edges, and keep release gates green.
 
 ## Development Setup
 
@@ -59,7 +60,8 @@ git checkout -b <gitusername>/your-bug-fix
 
 ### 3. Write Tests
 
-All new features must include tests. CEMAF has comprehensive test coverage with 1557 tests across 70+ test files.
+All new features must include tests. The current release gate has 4067 passing
+tests and no skipped tests.
 
 ```python
 import pytest
@@ -85,13 +87,15 @@ Before committing, run the consolidated check — it's identical to what CI runs
 make check
 ```
 
-That runs lint + format-check + typecheck + every doc/code audit (internal markdown links, module-graph sync, inlined trace-data drift). For finer granularity:
+That runs lint + format-check + typecheck + every doc/code audit (internal
+markdown links, module-graph sync, inlined trace-data drift, docs voice, release
+naming, loop/operator contracts, and package metadata). For finer granularity:
 
 ```bash
 make lint            # ruff check + ruff format --check
 make typecheck       # mypy
 make coverage        # pytest with --cov-fail-under=80
-make audit-all       # links + graph + traces (just the doc audits)
+make audit-all       # links + graph + traces + release/documentation audits
 ```
 
 If you prefer raw commands, the recipes in `Makefile` are thin wrappers — copy any line to a terminal and it runs unchanged.

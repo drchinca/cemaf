@@ -1,11 +1,18 @@
 """Tests for moderation factory functions."""
 
+import logging
+
+import pytest
+
+from cemaf.config.protocols import ModerationSettings, Settings
 from cemaf.events.bus import InMemoryEventBus
+from cemaf.events.protocols import Event
 from cemaf.moderation.factories import (
     create_keyword_moderation_pipeline,
     create_keyword_rule,
     create_moderation_gate,
     create_moderation_pipeline,
+    create_moderation_pipeline_from_config,
     create_moderation_rule,
     create_post_flight_gate,
     moderation_gate_registry,
@@ -34,6 +41,21 @@ class CustomGate:
         return ModerationResult.success()
 
 
+class FailingEventBus:
+    async def publish(self, event: Event) -> None:
+        raise RuntimeError(f"bus down for {event.type}")
+
+    async def publish_batch(self, events: list[Event]) -> None:
+        for event in events:
+            await self.publish(event)
+
+    def subscribe(self, event_type, handler):  # noqa: ANN001, ANN201
+        return lambda: None
+
+    def subscribe_all(self, handler):  # noqa: ANN001, ANN201
+        return lambda: None
+
+
 def test_create_moderation_pipeline_preserves_custom_wiring() -> None:
     event_bus = InMemoryEventBus()
     post_flight = PostFlightGate(
@@ -50,6 +72,69 @@ def test_create_moderation_pipeline_preserves_custom_wiring() -> None:
     assert pipeline.post_flight is post_flight
     assert pipeline.event_bus is event_bus
     assert pipeline.name == "brand_moderation"
+    assert pipeline.enabled is True
+    assert pipeline.fail_on_violation is True
+
+
+@pytest.mark.asyncio
+async def test_moderation_pipeline_disabled_bypasses_gate() -> None:
+    post_flight = PostFlightGate(
+        rules=[KeywordRule(blocked_words=("forbidden",), whole_word_only=False)],
+        name="post",
+    )
+    pipeline = create_moderation_pipeline(enabled=False, post_flight=post_flight)
+
+    result = await pipeline.check_output("forbidden")
+
+    assert result.allowed is True
+    assert result.metadata["reason"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_moderation_pipeline_warn_mode_allows_violations() -> None:
+    post_flight = PostFlightGate(
+        rules=[KeywordRule(blocked_words=("forbidden",), whole_word_only=False)],
+        name="post",
+    )
+    pipeline = create_moderation_pipeline(fail_on_violation=False, post_flight=post_flight)
+
+    result = await pipeline.check_output("forbidden")
+
+    assert result.allowed is True
+    assert len(result.violations) == 1
+    assert result.metadata["fail_on_violation"] is False
+    assert result.metadata["original_allowed"] is False
+
+
+def test_moderation_pipeline_from_config_uses_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CEMAF_MODERATION_ENABLED", raising=False)
+    monkeypatch.delenv("CEMAF_MODERATION_FAIL_ON_VIOLATION", raising=False)
+    settings = Settings(
+        moderation=ModerationSettings(
+            enabled=False,
+            fail_on_violation=False,
+        )
+    )
+
+    pipeline = create_moderation_pipeline_from_config(settings=settings)
+
+    assert pipeline.enabled is False
+    assert pipeline.fail_on_violation is False
+
+
+@pytest.mark.asyncio
+async def test_moderation_pipeline_logs_event_publish_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pipeline = create_moderation_pipeline(event_bus=FailingEventBus())
+
+    with caplog.at_level(logging.WARNING):
+        result = await pipeline.check_input("safe content")
+        await pipeline.flush_events()
+
+    assert result.allowed is True
+    assert "Failed to publish moderation event" in caplog.text
+    assert "bus down for moderation.check.started" in caplog.text
 
 
 def test_create_keyword_rule_preserves_blocked_words() -> None:

@@ -15,7 +15,8 @@ from typing import Any
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
-from cemaf.retrieval.protocols import Document, SearchResult
+from cemaf.retrieval.embedding_validation import normalize_embedding_dimension, require_positive_dimension
+from cemaf.retrieval.protocols import Document, EmbeddingProvider, SearchResult
 
 
 class PgVectorStore:
@@ -35,14 +36,21 @@ class PgVectorStore:
         pool_max: int = 10,
         schema: str = "cemaf",
         tenant_id: str = "default",
+        embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self._dsn = dsn
-        self._dimension = dimension
+        self._dimension = require_positive_dimension(dimension)
         self._pool_min = pool_min
         self._pool_max = pool_max
         self._schema = schema
         self._tenant_id = tenant_id
+        self._embedding_provider = embedding_provider
         self._pool: Any | None = None
+        if embedding_provider is not None and embedding_provider.dimension != self._dimension:
+            raise ValueError(
+                f"PgVectorStore dimension {self._dimension} does not match "
+                f"embedding provider dimension {embedding_provider.dimension}"
+            )
 
     async def _ensure_pool(self) -> Any:
         if self._pool is not None:
@@ -193,12 +201,23 @@ class PgVectorStore:
         """
         if not documents:
             return
-        pool = await self._ensure_pool()
         s = self._schema
 
         records = []
         for doc in documents:
-            embedding_list = list(doc.embedding) if doc.embedding is not None else None
+            if doc.has_embedding:
+                embedding = doc.embedding
+            elif self._embedding_provider is not None:
+                embedding = await self._embedding_provider.embed(doc.content)
+            else:
+                raise ValueError("PgVectorStore.add requires document embeddings or an embedding_provider")
+            embedding_list = list(
+                normalize_embedding_dimension(
+                    embedding,
+                    expected_dimension=self._dimension,
+                    label=f"embedding for document {doc.id!r}",
+                )
+            )
             metadata_str = json.dumps(doc.metadata) if doc.metadata else "{}"
             created_at = doc.created_at if isinstance(doc.created_at, datetime) else utc_now()
             records.append(
@@ -212,6 +231,7 @@ class PgVectorStore:
                 )
             )
 
+        pool = await self._ensure_pool()
         async with pool.acquire() as conn:
             # Upsert: delete existing rows for these ids then bulk copy
             ids = [r[0] for r in records]
@@ -261,6 +281,11 @@ class PgVectorStore:
         filter: JSON | None = None,
     ) -> list[SearchResult]:
         """Approximate nearest-neighbor search using HNSW cosine distance operator."""
+        query_embedding = normalize_embedding_dimension(
+            query_embedding,
+            expected_dimension=self._dimension,
+            label="query embedding",
+        )
         pool = await self._ensure_pool()
         s = self._schema
 
@@ -296,15 +321,14 @@ class PgVectorStore:
         k: int = 10,
         filter: JSON | None = None,
     ) -> list[SearchResult]:
-        """Not implemented at this layer — requires an EmbeddingProvider.
-
-        Callers should embed query_text externally and call search() directly.
-        Wire an EmbeddingProvider at the SemanticMemoryStore layer.
-        """
-        raise NotImplementedError(
-            "PgVectorStore does not embed text internally. "
-            "Embed the query using an EmbeddingProvider and call search() directly."
-        )
+        """Search by text using the configured embedding provider."""
+        if self._embedding_provider is None:
+            raise ValueError(
+                "PgVectorStore.search_by_text requires an embedding_provider. "
+                "Pass one to PgVectorStore or call search() with a precomputed embedding."
+            )
+        query_embedding = await self._embedding_provider.embed(query_text)
+        return await self.search(query_embedding=query_embedding, k=k, filter=filter)
 
     async def count(self) -> int:
         """Count documents for this tenant."""

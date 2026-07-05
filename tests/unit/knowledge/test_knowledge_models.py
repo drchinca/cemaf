@@ -8,12 +8,20 @@ import pytest
 
 from cemaf.knowledge.models import (
     EntityType,
+    KGBranchDiff,
+    KGBranchRef,
     KGEntity,
+    KGMergeResult,
     KGQueryResult,
     KGRelation,
+    KnowledgeGraphCapabilities,
     RelationType,
 )
-from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.knowledge.protocols import (
+    BranchingKnowledgeGraph,
+    KnowledgeGraph,
+    KnowledgeGraphCapabilitiesProvider,
+)
 
 
 class TestKnowledgeGraphProtocol:
@@ -49,6 +57,68 @@ class TestKnowledgeGraphProtocol:
             pass
 
         assert not isinstance(NotAGraph(), KnowledgeGraph)
+
+
+class TestOptionalKnowledgeGraphProtocols:
+    """Verify optional graph-backend protocols remain additive."""
+
+    def test_branching_protocol_runtime_checkable(self) -> None:
+        class BranchingGraph:
+            async def list_branches(self) -> tuple[KGBranchRef, ...]: ...
+
+            async def create_branch(
+                self,
+                name: str,
+                *,
+                from_branch: str = "main",
+            ) -> KGBranchRef: ...
+
+            async def diff_branch(
+                self,
+                name: str,
+                *,
+                against: str = "main",
+            ) -> KGBranchDiff: ...
+
+            async def merge_branch(
+                self,
+                name: str,
+                *,
+                into: str = "main",
+            ) -> KGMergeResult: ...
+
+        assert isinstance(BranchingGraph(), BranchingKnowledgeGraph)
+
+    def test_simple_knowledge_graph_does_not_implicitly_branch(self) -> None:
+        class FakeGraph:
+            async def add_entity(self, entity: KGEntity) -> None: ...
+            async def add_relation(self, relation: KGRelation) -> None: ...
+            async def get_entity(self, entity_id: str) -> KGEntity | None: ...
+            async def query_neighbors(
+                self,
+                entity_id: str,
+                relation_type: RelationType | None = None,
+                depth: int = 1,
+            ) -> KGQueryResult: ...
+            async def search(
+                self,
+                query: str,
+                entity_type: EntityType | None = None,
+                limit: int = 10,
+            ) -> tuple[KGEntity, ...]: ...
+            async def remove_entity(self, entity_id: str) -> bool: ...
+
+        graph = FakeGraph()
+        assert isinstance(graph, KnowledgeGraph)
+        assert not isinstance(graph, BranchingKnowledgeGraph)
+
+    def test_capabilities_provider_runtime_checkable(self) -> None:
+        class CapableGraph:
+            @property
+            def capabilities(self) -> KnowledgeGraphCapabilities:
+                return KnowledgeGraphCapabilities(branching=True)
+
+        assert isinstance(CapableGraph(), KnowledgeGraphCapabilitiesProvider)
 
 
 class TestEntityType:
@@ -213,3 +283,46 @@ class TestKGQueryResult:
         assert result.entities == ()
         assert result.relations == ()
         assert result.metadata == {}
+
+
+class TestKGBranchModels:
+    """Contract tests for optional branch/version adapter models."""
+
+    def test_branch_ref_defaults(self) -> None:
+        ref = KGBranchRef(name="agent/task-1")
+        assert ref.name == "agent/task-1"
+        assert ref.base_branch is None
+        assert ref.metadata == {}
+
+    def test_branch_diff_empty(self) -> None:
+        diff = KGBranchDiff(source_branch="agent/task-1", target_branch="main")
+        assert diff.empty is True
+
+    def test_branch_diff_not_empty_with_entity_change(self) -> None:
+        diff = KGBranchDiff(
+            source_branch="agent/task-1",
+            target_branch="main",
+            added_entities=("entity-1",),
+        )
+        assert diff.empty is False
+
+    def test_merge_result_clean(self) -> None:
+        result = KGMergeResult(source_branch="agent/task-1", target_branch="main", merged=True)
+        assert result.clean is True
+
+    def test_merge_result_with_conflicts_is_not_clean(self) -> None:
+        result = KGMergeResult(
+            source_branch="agent/task-1",
+            target_branch="main",
+            merged=False,
+            conflicts=("entity-1",),
+        )
+        assert result.clean is False
+
+    def test_capabilities_defaults(self) -> None:
+        capabilities = KnowledgeGraphCapabilities()
+        assert capabilities.branching is False
+        assert capabilities.snapshots is False
+        assert capabilities.hybrid_retrieval is False
+        assert capabilities.server_side_policy is False
+        assert capabilities.metadata == {}

@@ -316,6 +316,7 @@ class DAGExecutor:
         self._auto_heal_manager = services.auto_heal_manager
         self._budget_guard = services.budget_guard
         self._session_manager = services.session_manager
+        self._knowledge_graph = services.knowledge_graph
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.

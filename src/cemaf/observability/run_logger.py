@@ -414,10 +414,14 @@ class InMemoryRunLogger:
 
 class NoOpRunLogger:
     """
-    No-op run logger that discards all records.
+    No-op run logger that discards recorded events.
 
-    Useful as a default when recording is not needed.
+    Useful as a default when recording is not needed. The logger keeps only the
+    active run envelope so `end_run()` can return a truthful lifecycle record.
     """
+
+    def __init__(self) -> None:
+        self._current: RunRecord | None = None
 
     def start_run(
         self,
@@ -425,24 +429,24 @@ class NoOpRunLogger:
         dag_name: str = "",
         initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
-        """No-op."""
-        pass
+        """Start a disposable run envelope."""
+        self._current = RunRecord(run_id=run_id, dag_name=dag_name, initial_context=initial_context)
 
     def record_tool_call(self, call: ToolCall) -> None:
-        """No-op."""
-        pass
+        """Discard tool call details."""
+        return None
 
     def record_llm_call(self, call: LLMCall) -> None:
-        """No-op."""
-        pass
+        """Discard LLM call details."""
+        return None
 
     def record_patch(self, patch: ContextPatch) -> None:  # type: ignore[name-defined]  # noqa: F821
-        """No-op."""
-        pass
+        """Discard context patch details."""
+        return None
 
     def record_provenance_link(self, link: ProvenanceLink) -> None:  # type: ignore[name-defined]  # noqa: F821
-        """No-op."""
-        pass
+        """Discard provenance details."""
+        return None
 
     def end_run(
         self,
@@ -450,12 +454,18 @@ class NoOpRunLogger:
         success: bool = True,
         error: str | None = None,
     ) -> RunRecord:
-        """Return empty record."""
-        return RunRecord(run_id="noop")
+        """Return a lifecycle record without retained events."""
+        record = self._current or RunRecord(run_id="noop")
+        record.final_context = final_context
+        record.completed_at = utc_now()
+        record.success = success
+        record.error = error
+        self._current = None
+        return record
 
     def get_current_record(self) -> RunRecord | None:
-        """Always returns None."""
-        return None
+        """Return the active disposable run envelope."""
+        return self._current
 
 
 class FileRunLogger(InMemoryRunLogger):

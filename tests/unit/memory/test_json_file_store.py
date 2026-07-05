@@ -1,6 +1,7 @@
 """Unit tests for JsonFileMemoryStore."""
 
 import json
+import logging
 from datetime import timedelta
 from pathlib import Path
 
@@ -156,9 +157,11 @@ class TestJsonFileStorePersistence:
         assert items == ()
 
     @pytest.mark.asyncio
-    async def test_corrupt_file_starts_empty(self, tmp_path: Path) -> None:
+    async def test_corrupt_file_starts_empty(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         path = tmp_path / "corrupt.json"
         path.write_text("NOT VALID JSON {{{{")
-        store = JsonFileMemoryStore(path=path)
+        with caplog.at_level(logging.WARNING):
+            store = JsonFileMemoryStore(path=path)
         items = await store.list_by_scope(MemoryScope.TENANT)
         assert items == ()
+        assert "Ignoring corrupt JSON memory store file" in caplog.text

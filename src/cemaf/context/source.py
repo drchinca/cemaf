@@ -20,8 +20,8 @@ Usage:
         source_type="history"
     )
 
-    # Use with token-aware compiler
-    compiled = await compiler.compile([source1, source2])
+    # Use with token-aware selection
+    selected = algorithm.select_sources((source1, source2), budget)
 """
 
 from dataclasses import dataclass, field

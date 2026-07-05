@@ -105,18 +105,21 @@ class Result(Generic[T]):
     def with_hint(self, action: str, reason: str, suggestion: str) -> Result[T]
 ```
 
-## MindState (Declarative Cognition)
+## MindState
 
-The `MindState` protocol provides a unified declarative schema for an agent's mental state, combining context, memory, and moderation.
+`MindState` is an experimental context-backed helper. It stores a `Context`,
+lets components apply context changes in sequence, and can render the resulting
+context into a prompt string. It does not configure memory or moderation.
 
 ```python
+from cemaf.context import Context
 from cemaf.core.mind_state import MindState
 
-# Declaratively build an agent's mind state
-state = MindState.build([
-    MemoryComponent(scope="session"),
-    TokenBudgetGate(limit=2000)
-])
+class RoleComponent:
+    def apply_to_context(self, context: Context) -> Context:
+        return context.set("agent.role", "reviewer")
+
+state = MindState.build([RoleComponent()])
 
 print(state.context)
 ```
@@ -126,7 +129,7 @@ print(state.context)
 Use the `@experimental` decorator to mark APIs that are unstable and subject to change:
 
 ```python
-from cemaf.core.experimental import experimental
+from cemaf.core.experimental import ExperimentalWarning, experimental
 
 @experimental
 class MyUnstableAPI:
@@ -134,15 +137,15 @@ class MyUnstableAPI:
     def do_something(self):
         pass
 
-# Instantiation emits DeprecationWarning
+# Instantiation emits ExperimentalWarning
 instance = MyUnstableAPI()
 # Warning: MyUnstableAPI is experimental and subject to change.
 # Do not use in production. API stability is not guaranteed.
 ```
 
 Experimental APIs:
-- Emit `DeprecationWarning` on instantiation
-- Have updated docstrings with `⚠️ EXPERIMENTAL` prefix
+- Emit `ExperimentalWarning` on instantiation or call
+- Have updated docstrings with an `EXPERIMENTAL` prefix
 - Function normally but alert users to potential breaking changes
 - Should not be used in production until marked stable
 

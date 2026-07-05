@@ -99,6 +99,13 @@ moderation_gate_registry.register(backend="post_flight", factory=_create_post_fl
 moderation_gate_registry.register(backend="composite", factory=_create_composite_gate)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() == "true"
+
+
 def create_moderation_rule(rule_type: str, **rule_options: Any) -> ModerationRule:
     """Create a moderation rule from a registered rule backend."""
     return moderation_rule_registry.create(backend=rule_type, **rule_options)
@@ -122,8 +129,8 @@ def create_moderation_pipeline(
     Factory for ModerationPipeline with sensible defaults.
 
     Args:
-        enabled: Enable moderation checks (not used, kept for API compatibility)
-        fail_on_violation: Fail requests on violations (not used, kept for API compatibility)
+        enabled: Enable moderation checks
+        fail_on_violation: Fail requests on violations
 
     Returns:
         Configured ModerationPipeline instance
@@ -135,13 +142,13 @@ def create_moderation_pipeline(
         # Warning mode (log but don't fail)
         pipeline = create_moderation_pipeline(fail_on_violation=False)
     """
-    # `enabled` / `fail_on_violation` are kept for backward compatibility.
-    del enabled, fail_on_violation
     return ModerationPipeline(
         pre_flight=pre_flight,
         post_flight=post_flight,
         event_bus=event_bus,
         name=name,
+        enabled=enabled,
+        fail_on_violation=fail_on_violation,
     )
 
 
@@ -225,10 +232,14 @@ def create_moderation_pipeline_from_config(settings: Settings | None = None) -> 
         # From environment
         pipeline = create_moderation_pipeline_from_config()
     """
-    cfg = settings or load_settings_from_env_sync()  # noqa: F841
+    cfg = settings or load_settings_from_env_sync()
+    moderation = cfg.moderation
 
-    enabled = os.getenv("CEMAF_MODERATION_ENABLED", "true").lower() == "true"
-    fail_on_violation = os.getenv("CEMAF_MODERATION_FAIL_ON_VIOLATION", "true").lower() == "true"
+    enabled = _env_bool("CEMAF_MODERATION_ENABLED", moderation.enabled)
+    fail_on_violation = _env_bool(
+        "CEMAF_MODERATION_FAIL_ON_VIOLATION",
+        moderation.fail_on_violation,
+    )
 
     return create_moderation_pipeline(
         enabled=enabled,

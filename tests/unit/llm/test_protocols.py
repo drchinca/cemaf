@@ -4,6 +4,7 @@ Tests for LLM protocols and message types.
 
 import pytest
 
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -74,6 +75,24 @@ class TestToolCall:
         assert tc.name == "calculator"
         assert tc.arguments == {"x": 1, "y": 2}
 
+    def test_constructor_parses_json_string_arguments(self):
+        """Direct construction follows the same contract as provider payloads."""
+        tc = ToolCall(id="abc", name="search", arguments='{"query": "cemaf"}')
+
+        assert tc.arguments == {"query": "cemaf"}
+
+    def test_constructor_preserves_invalid_argument_string_as_raw_value(self):
+        """Invalid direct argument strings stay inspectable instead of leaking as str."""
+        tc = ToolCall(id="abc", name="search", arguments="{not-json")
+
+        assert tc.arguments == {"_raw": "{not-json"}
+
+    def test_constructor_wraps_non_object_json_arguments(self):
+        """Tool arguments remain dict-shaped when direct JSON input is not an object."""
+        tc = ToolCall(id="abc", name="search", arguments='["not", "an", "object"]')
+
+        assert tc.arguments == {"_value": ["not", "an", "object"]}
+
     def test_to_dict(self):
         """Tool call serializes to OpenAI format."""
         tc = ToolCall(id="abc", name="calc", arguments={"x": 1})
@@ -82,6 +101,62 @@ class TestToolCall:
         assert d["id"] == "abc"
         assert d["type"] == "function"
         assert d["function"]["name"] == "calc"
+
+    def test_from_dict_parses_nested_json_string_arguments(self):
+        """Provider wire payloads encode tool arguments as a JSON string."""
+        tc = ToolCall.from_dict(
+            {
+                "id": "abc",
+                "function": {
+                    "name": "search",
+                    "arguments": '{"query": "cemaf"}',
+                },
+            }
+        )
+
+        assert tc.name == "search"
+        assert tc.arguments == {"query": "cemaf"}
+
+    def test_from_dict_parses_top_level_json_string_arguments(self):
+        """Legacy serialized payloads may store arguments at top level."""
+        tc = ToolCall.from_dict(
+            {
+                "id": "abc",
+                "name": "search",
+                "arguments": '{"query": "cemaf"}',
+            }
+        )
+
+        assert tc.name == "search"
+        assert tc.arguments == {"query": "cemaf"}
+
+    def test_from_dict_preserves_invalid_argument_string_as_raw_value(self):
+        """Invalid provider argument strings stay inspectable instead of leaking as str."""
+        tc = ToolCall.from_dict(
+            {
+                "id": "abc",
+                "function": {
+                    "name": "search",
+                    "arguments": "{not-json",
+                },
+            }
+        )
+
+        assert tc.arguments == {"_raw": "{not-json"}
+
+    def test_from_dict_wraps_non_object_json_arguments(self):
+        """Tool arguments must remain dict-shaped even if provider JSON is not an object."""
+        tc = ToolCall.from_dict(
+            {
+                "id": "abc",
+                "function": {
+                    "name": "search",
+                    "arguments": '["not", "an", "object"]',
+                },
+            }
+        )
+
+        assert tc.arguments == {"_value": ["not", "an", "object"]}
 
 
 class TestToolDefinition:
@@ -155,7 +230,7 @@ class TestLLMConfig:
         """Default configuration."""
         config = LLMConfig()
 
-        assert config.model == "gpt-4"
+        assert config.model == DEFAULT_FREE_LLM_MODEL
         assert config.temperature == 0.7
         assert config.max_tokens == 4096
 

@@ -24,8 +24,30 @@ class SSEFormatter:
             yield sse_line
     """
 
-    def __init__(self, include_event_type: bool = True) -> None:
+    def __init__(
+        self,
+        include_event_type: bool = True,
+        buffer_size: int = 1000,
+        chunk_timeout_seconds: float = 30.0,
+    ) -> None:
         self._include_event_type = include_event_type
+        self._buffer_size = buffer_size
+        self._chunk_timeout_seconds = chunk_timeout_seconds
+
+    @property
+    def include_event_type(self) -> bool:
+        """Whether formatted SSE events include the event type line."""
+        return self._include_event_type
+
+    @property
+    def buffer_size(self) -> int:
+        """Configured stream buffer size."""
+        return self._buffer_size
+
+    @property
+    def chunk_timeout_seconds(self) -> float:
+        """Configured chunk delivery timeout."""
+        return self._chunk_timeout_seconds
 
     def format_event(self, event: StreamEvent) -> str:
         """
@@ -59,11 +81,12 @@ class SSEFormatter:
             yield self.format_event(event)
 
     @staticmethod
-    def parse_sse(sse_text: str) -> list[StreamEvent]:
+    def parse_sse(sse_text: str, *, strict: bool = False) -> list[StreamEvent]:
         """
         Parse SSE text back into events.
 
         Useful for testing and client-side parsing.
+        Set ``strict=True`` to raise ``ValueError`` on malformed event frames.
         """
         events: list[StreamEvent] = []
         current_event_type: str | None = None
@@ -87,8 +110,9 @@ class SSEFormatter:
                         data = data["content"]
 
                     events.append(StreamEvent(type=event_type, data=data))
-                except (json.JSONDecodeError, ValueError):
-                    pass
+                except (json.JSONDecodeError, ValueError) as exc:
+                    if strict:
+                        raise ValueError(f"Invalid SSE event frame: {current_data}") from exc
 
                 current_event_type = None
                 current_data = None

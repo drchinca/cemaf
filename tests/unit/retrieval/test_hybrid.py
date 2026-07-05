@@ -233,6 +233,112 @@ class TestHybridRetriever:
         assert results[0].score == 0.9
 
 
+class TestGraphSource:
+    """Graph ranker slot participates in RRF alongside vector (and keyword)."""
+
+    @pytest.fixture
+    def sample_documents(self) -> dict[str, Document]:
+        return {
+            "doc_1": Document(id="doc_1", content="Python programming guide"),
+            "doc_2": Document(id="doc_2", content="Java programming guide"),
+            "doc_3": Document(id="doc_3", content="Rust systems programming"),
+            "doc_4": Document(id="doc_4", content="Graph databases in practice"),
+        }
+
+    @pytest.fixture
+    def vector_store_returning(self, sample_documents):
+        """Vector store whose two hits are doc_1 and doc_2."""
+
+        class _V:
+            async def search_by_text(self, query, k=10, filter=None):
+                return [
+                    SearchResult(document=sample_documents["doc_1"], score=0.9, rank=0),
+                    SearchResult(document=sample_documents["doc_2"], score=0.7, rank=1),
+                ][:k]
+
+            async def add(self, document): ...
+            async def add_batch(self, documents): ...
+            async def get(self, document_id):
+                return None
+
+            async def delete(self, document_id):
+                return False
+
+            async def search(self, query_embedding, k=10, filter=None):
+                return []
+
+            async def count(self):
+                return 0
+
+            async def clear(self): ...
+
+        return _V()
+
+    @pytest.mark.asyncio
+    async def test_graph_only_source_adds_docs_not_in_vector(
+        self, vector_store_returning, sample_documents
+    ) -> None:
+        """A doc surfaced only by the graph ranker appears in the merged output."""
+
+        def graph_rank(query: str, k: int) -> list[SearchResult]:
+            return [SearchResult(document=sample_documents["doc_4"], score=0.5, rank=0)][:k]
+
+        retriever = HybridRetriever(
+            vector_store=vector_store_returning,
+            graph_ranker=graph_rank,
+        )
+        results = await retriever.search(query="q")
+        ids = [r.document.id for r in results]
+        assert "doc_4" in ids  # graph-only doc reached the merged output
+        assert "doc_1" in ids  # vector's top hit still present
+
+    @pytest.mark.asyncio
+    async def test_all_three_sources_fuse(self, vector_store_returning, sample_documents) -> None:
+        """Vector + keyword + graph all contribute; a doc in all three ranks first."""
+
+        def keyword_fn(query: str, k: int) -> list[SearchResult]:
+            return [
+                SearchResult(document=sample_documents["doc_1"], score=0.8, rank=0),
+                SearchResult(document=sample_documents["doc_3"], score=0.6, rank=1),
+            ][:k]
+
+        def graph_rank(query: str, k: int) -> list[SearchResult]:
+            return [
+                SearchResult(document=sample_documents["doc_1"], score=0.7, rank=0),
+                SearchResult(document=sample_documents["doc_4"], score=0.5, rank=1),
+            ][:k]
+
+        retriever = HybridRetriever(
+            vector_store=vector_store_returning,
+            keyword_search=keyword_fn,
+            graph_ranker=graph_rank,
+        )
+        results = await retriever.search(query="q")
+        ids = [r.document.id for r in results]
+        # doc_1 is the only doc appearing in all three rankings — it must lead.
+        assert ids[0] == "doc_1"
+        # Graph-only + keyword-only docs still merged in.
+        assert "doc_4" in ids
+        assert "doc_3" in ids
+
+    @pytest.mark.asyncio
+    async def test_graph_ranker_absent_matches_prior_two_way_behavior(
+        self, vector_store_returning, sample_documents
+    ) -> None:
+        """Wiring only vector + keyword produces the same ordering as before the graph slot."""
+
+        def keyword_fn(query: str, k: int) -> list[SearchResult]:
+            return [SearchResult(document=sample_documents["doc_3"], score=0.8, rank=0)][:k]
+
+        retriever = HybridRetriever(
+            vector_store=vector_store_returning,
+            keyword_search=keyword_fn,
+        )
+        results = await retriever.search(query="q")
+        ids = {r.document.id for r in results}
+        assert ids == {"doc_1", "doc_2", "doc_3"}
+
+
 class TestRetrievalConfig:
     """Tests for RetrievalConfig defaults and immutability."""
 

@@ -112,7 +112,8 @@ Budget: 4 scenarios.
 - DataSource-level classification (SPEC-02 territory).
 - Encryption / at-rest protection — this is routing metadata, not a crypto boundary.
 - Per-field redaction within a source (whole-source gate only).
-- Auto-classification of content (levels are set by the producer; inference is future work).
+- Auto-classification of content (levels are set by the producer; inference belongs outside
+  this spec).
 - **Tool/command risk scoring or execution-security gating** — CEMAF is a context-engineering
   and orchestration substrate, not an execution-security layer. Scoring or blocking concrete
   shell commands belongs in a consumer control plane, not here.

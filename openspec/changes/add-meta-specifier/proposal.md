@@ -14,10 +14,10 @@ The OpenSpec bridge (PR #86) gave CEMAF the tooling to write and validate spec p
 - **Add `cemaf.meta.specifier.ProposalDoc`** — typed Pydantic model of an OpenSpec change (proposal.md text, tasks.md text, per-capability spec deltas with typed requirements and scenarios).
 - **Add `render_proposal(doc: ProposalDoc) -> Mapping[str, str]`** — pure-function markdown renderer producing the file map the OpenSpec workspace expects.
 - **Add `create_self_spec_dag()`** in `cemaf.meta.dags` — pipeline: MetaSpecifier writes proposal → `openspec validate --strict` via bridge → MetaAuditor reads `ValidationReport` → emits `AuditEntry`. Closes the loop.
-- **Register** MetaSpecifier + OpenSpec tools in `create_meta_executor()` when an `OpenSpecRuntime` + `OpenSpecWorkspace` are available in `RuntimeServices`.
+- **Register** MetaSpecifier + OpenSpec tools in `create_meta_executor()` when an `OpenSpecRuntime` + `OpenSpecWorkspace` are available in `MetaServices`.
 
 ## Impact
 
 - **Affected specs**: `meta-specifier` (new)
-- **Affected code**: `src/cemaf/meta/specifier.py` (new), `src/cemaf/meta/dags.py` (extend), `src/cemaf/meta/bootstrap.py` (extend), `src/cemaf/orchestration/services.py` (add two optional fields: `openspec_runtime`, `openspec_workspace`)
+- **Affected code**: `src/cemaf/meta/specifier.py` (new), `src/cemaf/meta/dags.py` (extend), `src/cemaf/meta/bootstrap.py` (extend with `MetaServices.openspec_runtime` / `openspec_workspace`)
 - **Not affected**: Base framework (one-way dependency preserved — meta imports from mcp.bridges.openspec, never the reverse)

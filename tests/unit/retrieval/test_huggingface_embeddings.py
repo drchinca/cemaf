@@ -32,6 +32,17 @@ class TestImportError:
 
 
 class TestProvider:
+    def test_rejects_non_positive_dimension_before_optional_import(self) -> None:
+        sys.modules.pop("cemaf.retrieval.huggingface_embeddings", None)
+
+        with patch.dict("sys.modules", {"huggingface_hub": None}):
+            from cemaf.retrieval.huggingface_embeddings import HuggingFaceEmbeddingProvider
+
+            with pytest.raises(ValueError, match="dimension must be positive, got 0"):
+                HuggingFaceEmbeddingProvider(api_key="hf-test", dimension=0)
+            with pytest.raises(ValueError, match="dimension must be positive, got -1"):
+                HuggingFaceEmbeddingProvider(api_key="hf-test", dimension=-1)
+
     def test_satisfies_protocol(self, fake_hf_module: ModuleType) -> None:
         sys.modules.pop("cemaf.retrieval.huggingface_embeddings", None)
 
@@ -62,6 +73,26 @@ class TestProvider:
             "hello world",
             model=provider.model_name,
         )
+
+    @pytest.mark.asyncio()
+    async def test_embed_rejects_response_dimension_mismatch(self, fake_hf_module: ModuleType) -> None:
+        sys.modules.pop("cemaf.retrieval.huggingface_embeddings", None)
+
+        with patch.dict("sys.modules", {"huggingface_hub": fake_hf_module}):
+            from cemaf.retrieval.huggingface_embeddings import HuggingFaceEmbeddingProvider
+
+            client = AsyncMock()
+            client.feature_extraction = AsyncMock(return_value=[0.1, 0.2, 0.3])
+            fake_hf_module.AsyncInferenceClient.return_value = client
+
+            provider = HuggingFaceEmbeddingProvider(api_key="hf-test", dimension=4)
+            with pytest.raises(
+                ValueError,
+                match="Hugging Face embedding response has dimension 3; expected 4",
+            ):
+                await provider.embed("hello world")
+
+        assert provider.dimension == 4
 
     @pytest.mark.asyncio()
     async def test_embed_pools_token_level_matrix(self, fake_hf_module: ModuleType) -> None:

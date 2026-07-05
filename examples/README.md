@@ -58,7 +58,8 @@ How CEMAF assembles a prompt from layered, prioritized, budgeted context.
 ## Local LLM (needs a running Ollama daemon)
 
 [`ollama_gemma.py`](ollama_gemma.py) · [`ollama_gemma_tiered.py`](ollama_gemma_tiered.py)
-— the smoke harness runs these when Ollama is reachable, skips with a reason when it isn't.
+— the CLI paths use a real Ollama daemon; the smoke harness runs deterministic
+offline `smoke_main()` paths over the same CEMAF wiring.
 
 ## Before you reimplement
 

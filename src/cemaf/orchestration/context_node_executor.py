@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -48,6 +48,11 @@ from cemaf.orchestration.resolvers import (
     StaticRefResolver,
 )
 from cemaf.retrieval.protocols import VectorStore
+
+if TYPE_CHECKING:
+    from cemaf.knowledge.protocols import KnowledgeGraph
+else:
+    type KnowledgeGraph = Any
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +118,7 @@ class ContextNodeExecutor:
         budget_guard: BudgetGuard | None = None,
         council_aggregator: VoteAggregator | None = None,
         interceptor_pipeline: InterceptorPipeline | None = None,
+        knowledge_graph: KnowledgeGraph | None = None,
         max_recovery_attempts: int = 2,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation.
@@ -138,6 +144,7 @@ class ContextNodeExecutor:
         self._budget_guard = budget_guard
         self._council_aggregator = council_aggregator
         self._interceptor_pipeline = interceptor_pipeline
+        self._knowledge_graph = knowledge_graph
         self._max_recovery_attempts = max_recovery_attempts
 
         # NodeResolver chain — first match wins, registered most-specific first.
@@ -146,7 +153,11 @@ class ContextNodeExecutor:
         # fallback. When agent_selector is absent, auction is skipped — preserves
         # the prior "static unless a selector is wired" semantics.
         resolvers: list[NodeResolver] = [
-            CouncilResolver(registry=agent_registry, aggregator=council_aggregator),
+            CouncilResolver(
+                registry=agent_registry,
+                aggregator=council_aggregator,
+                knowledge_graph=knowledge_graph,
+            ),
         ]
         if agent_selector is not None:
             resolvers.append(
@@ -198,8 +209,7 @@ class ContextNodeExecutor:
                 node_id=str(node.id),
                 agent_id=agent_name,
             )
-            # InstrumentedLLMClient satisfies LLMClient protocol structurally
-            effective_client: LLMClient | None = instrumented_client or self._llm_client  # type: ignore[assignment]
+            effective_client: LLMClient | None = instrumented_client or self._llm_client
             agent = self._registry.create_agent(
                 agent_name,
                 llm_client=effective_client,
@@ -256,6 +266,7 @@ class ContextNodeExecutor:
             domain_context=self._domain_context,
             global_memory=global_memory,
             artifacts=artifacts,
+            knowledge_graph=self._knowledge_graph,
         )
 
         # PRE interceptor chain (SPEC-01a). Runs on the already-built AgentContext;

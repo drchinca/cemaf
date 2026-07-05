@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
+from cemaf.core.defaults import DEFAULT_FREE_EMBEDDING_PROVIDER
 from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.retrieval.embedding_providers import HashEmbeddingProvider
 from cemaf.retrieval.huggingface_embeddings import (
@@ -131,7 +132,7 @@ def create_vector_store(
 
 
 def create_embedding_provider(
-    provider: str = "mock",
+    provider: str = DEFAULT_FREE_EMBEDDING_PROVIDER,
     *,
     model: str | None = None,
     dimension: int = 384,
@@ -158,13 +159,15 @@ def create_vector_store_from_config(
 ) -> VectorStore:
     """Create a vector store from configuration."""
     cfg = settings or load_settings_from_env_sync()
-    backend = backend or cfg.retrieval.vector_store_backend
+    backend = backend or os.getenv("CEMAF_VECTOR_STORE_BACKEND") or cfg.retrieval.vector_store_backend
+    dimension = int(os.getenv("CEMAF_EMBEDDING_DIMENSION", str(cfg.retrieval.embedding_dimension)))
 
     return create_vector_store(
         backend=backend,
         embedding_provider=embedding_provider,
-        dimension=cfg.retrieval.embedding_dimension,
+        dimension=dimension,
         db_path=os.getenv("CEMAF_RETRIEVAL_SQLITE_PATH", "cemaf_memory.db"),
+        dsn=os.getenv("CEMAF_POSTGRES_DSN"),
     )
 
 
@@ -175,12 +178,13 @@ def create_embedding_provider_from_config(
     """Create an embedding provider from retrieval settings."""
 
     cfg = settings or load_settings_from_env_sync()
-    provider_name = provider or cfg.retrieval.embedding_provider
-    model = cfg.retrieval.embedding_model
+    provider_name = provider or os.getenv("CEMAF_EMBEDDING_PROVIDER") or cfg.retrieval.embedding_provider
+    model = os.getenv("CEMAF_EMBEDDING_MODEL", cfg.retrieval.embedding_model)
+    dimension = int(os.getenv("CEMAF_EMBEDDING_DIMENSION", str(cfg.retrieval.embedding_dimension)))
     return create_embedding_provider(
         provider=provider_name,
         model=model or None,
-        dimension=cfg.retrieval.embedding_dimension,
+        dimension=dimension,
     )
 
 
@@ -193,11 +197,16 @@ def create_pg_vector_store(
 ) -> PgVectorStore:
     """Create a PgVectorStore, reading DSN from env when dsn is None.
 
-    embedding_provider is accepted for API compatibility but not used internally —
-    PgVectorStore requires callers to embed externally and pass vectors to search().
+    Pass embedding_provider when callers need search_by_text(); callers with
+    precomputed vectors can still use search() directly without one.
     Reads CEMAF_POSTGRES_DSN when dsn is None.
     """
     resolved_dsn: str = dsn or os.getenv("CEMAF_POSTGRES_DSN") or "postgresql://localhost/cemaf"
     from cemaf.retrieval.pgvector_store import PgVectorStore
 
-    return PgVectorStore(dsn=resolved_dsn, dimension=dimension, tenant_id=tenant_id)
+    return PgVectorStore(
+        dsn=resolved_dsn,
+        dimension=dimension,
+        tenant_id=tenant_id,
+        embedding_provider=embedding_provider,
+    )

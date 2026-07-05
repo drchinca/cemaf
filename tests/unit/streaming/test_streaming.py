@@ -4,6 +4,11 @@ Tests for streaming module.
 
 import pytest
 
+from cemaf.config.protocols import Settings, StreamingSettings
+from cemaf.streaming.factories import (
+    create_sse_stream_processor,
+    create_sse_stream_processor_from_config,
+)
 from cemaf.streaming.protocols import (
     CallbackStreamHandler,
     EventType,
@@ -172,3 +177,36 @@ class TestSSEFormatter:
         assert len(parsed) == 1
         assert parsed[0].type == EventType.CONTENT
         assert parsed[0].data == "Test content"
+
+    def test_parse_sse_lenient_mode_skips_invalid_frames(self):
+        """Lenient parsing preserves historical behavior for malformed frames."""
+        parsed = SSEFormatter.parse_sse("event: content\ndata: NOT JSON\n\n")
+
+        assert parsed == []
+
+    def test_parse_sse_strict_mode_rejects_invalid_frames(self):
+        """Strict parsing gives callers a fail-loud option for malformed frames."""
+        with pytest.raises(ValueError, match="Invalid SSE event frame"):
+            SSEFormatter.parse_sse("event: content\ndata: NOT JSON\n\n", strict=True)
+
+    def test_factory_preserves_streaming_configuration(self):
+        formatter = create_sse_stream_processor(buffer_size=250, chunk_timeout_seconds=4.5)
+
+        assert formatter.include_event_type is True
+        assert formatter.buffer_size == 250
+        assert formatter.chunk_timeout_seconds == 4.5
+
+    def test_factory_from_config_uses_settings(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("CEMAF_STREAMING_BUFFER_SIZE", raising=False)
+        monkeypatch.delenv("CEMAF_STREAMING_CHUNK_TIMEOUT_SECONDS", raising=False)
+        settings = Settings(
+            streaming=StreamingSettings(
+                buffer_size=333,
+                chunk_timeout_seconds=6.25,
+            )
+        )
+
+        formatter = create_sse_stream_processor_from_config(settings=settings)
+
+        assert formatter.buffer_size == 333
+        assert formatter.chunk_timeout_seconds == 6.25

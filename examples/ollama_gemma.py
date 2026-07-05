@@ -16,19 +16,6 @@ import os
 
 from pydantic import BaseModel, Field
 
-
-def smoke_skip_reason() -> str | None:
-    """Runs when an Ollama daemon is reachable; skips with a reason when it isn't."""
-    import urllib.error
-    import urllib.request
-
-    host = os.environ.get("CEMAF_OLLAMA_HOST", "http://localhost:11434")
-    try:
-        urllib.request.urlopen(f"{host}/api/tags", timeout=1.0)
-    except (urllib.error.URLError, OSError):
-        return f"Ollama not reachable at {host} (start it to run this example)"
-    return None
-
 from cemaf import (
     DAG,
     Agent,
@@ -90,9 +77,7 @@ class LocalLLMAgent(Agent[AskGoal, AskResult]):
             )
         text = completion.message.content
         if isinstance(text, list):
-            text = " ".join(
-                block.get("text", "") for block in text if isinstance(block, dict)
-            )
+            text = " ".join(block.get("text", "") for block in text if isinstance(block, dict))
         return AgentResult.ok(
             output=AskResult(
                 answer=str(text).strip(),
@@ -104,12 +89,7 @@ class LocalLLMAgent(Agent[AskGoal, AskResult]):
         )
 
 
-async def main() -> None:
-    model = os.environ.get("CEMAF_OLLAMA_MODEL", "gemma3:4b")
-    base_url = os.environ.get("CEMAF_OLLAMA_BASE_URL", "http://localhost:11434/v1")
-
-    llm = create_llm_client(provider="ollama", model=model, base_url=base_url)
-
+async def _run(llm: LLMClient, *, model: str) -> None:
     registry = AgentRegistry()
     registry.register_agent(agent_instance=LocalLLMAgent(llm=llm), goal_type=AskGoal)
 
@@ -146,6 +126,24 @@ async def main() -> None:
         return
     print(f"Answer: {answer.answer}")
     print(f"Tokens: prompt={answer.prompt_tokens} completion={answer.completion_tokens}")
+
+
+async def smoke_main() -> None:
+    from cemaf.llm.mock import MockLLMClient
+    from cemaf.llm.protocols import LLMConfig
+
+    llm = MockLLMClient(
+        responses=["Context engineering is the deliberate shaping of inputs, memory, tools, and flow."],
+        config=LLMConfig(model="mock-ollama"),
+    )
+    await _run(llm=llm, model="mock-ollama")
+
+
+async def main() -> None:
+    model = os.environ.get("CEMAF_OLLAMA_MODEL", "gemma3:4b")
+    base_url = os.environ.get("CEMAF_OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    llm = create_llm_client(provider="ollama", model=model, base_url=base_url)
+    await _run(llm=llm, model=model)
 
 
 if __name__ == "__main__":

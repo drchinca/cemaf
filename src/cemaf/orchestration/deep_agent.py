@@ -322,6 +322,7 @@ class DeepAgentOrchestrator:
             depth=parent_context.depth + 1,
             global_memory=parent_context.global_memory,  # Read-only global
             artifacts=parent_context.artifacts,
+            knowledge_graph=parent_context.knowledge_graph,
         )
 
         # Record spawn

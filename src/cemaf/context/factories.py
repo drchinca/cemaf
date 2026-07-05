@@ -356,12 +356,9 @@ def create_token_estimator(
         return token_estimator_registry.create(backend=estimator_type, **options)
 
     if model:
-        try:
-            estimator = token_estimator_registry.create(backend="tiktoken", **options)
-            if bool(getattr(estimator, "is_accurate", False)):
-                return estimator
-        except (ImportError, Exception):
-            pass
+        estimator = token_estimator_registry.create(backend="tiktoken", **options)
+        if bool(getattr(estimator, "is_accurate", False)):
+            return estimator
     return token_estimator_registry.create(backend="simple", **options)
 
 

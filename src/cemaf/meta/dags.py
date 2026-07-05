@@ -140,9 +140,10 @@ def create_solution_engine_dag() -> DAG:
 def create_app_synthesis_dag() -> DAG:
     """DAG: MetaSpecifier → MetaArchitect → MetaSynthesizer → MetaScaffolder.
 
-    CEMAF building a CEMAF-based app from a feature description. Each node
-    consumes its predecessor's output via context propagation; the final
-    Scaffolder writes a runnable project to disk.
+    Initial context supplies the feature/app synthesis inputs:
+    feature_description, change_id, capabilities, project_name, target_dir,
+    and agent_name. Optional keys: constraints, goal_fields, result_fields,
+    cemaf_source, overwrite.
     """
     dag = DAG(
         name="app_synthesis",
@@ -153,7 +154,14 @@ def create_app_synthesis_dag() -> DAG:
             id="specify",
             name="Specifier",
             agent_id="MetaSpecifier",
+            input_mapping={
+                "feature_description": "$$feature_description$$",
+                "change_id": "$$change_id$$",
+                "capabilities": "$$capabilities$$",
+                "constraints": "$$constraints$$",
+            },
             output_key="spec_result",
+            structured_output=True,
         )
     )
     dag = dag.add_node(
@@ -161,7 +169,12 @@ def create_app_synthesis_dag() -> DAG:
             id="design",
             name="Architect",
             agent_id="MetaArchitect",
+            input_mapping={
+                "feature_description": "$$feature_description$$",
+                "constraints": "$$constraints$$",
+            },
             output_key="dag_spec",
+            structured_output=True,
         )
     )
     dag = dag.add_node(
@@ -169,7 +182,14 @@ def create_app_synthesis_dag() -> DAG:
             id="synthesize",
             name="Synthesizer",
             agent_id="MetaSynthesizer",
+            input_mapping={
+                "agent_name": "$$agent_name$$",
+                "description": "$$feature_description$$",
+                "goal_fields": "$$goal_fields$$",
+                "result_fields": "$$result_fields$$",
+            },
             output_key="agent_code",
+            structured_output=True,
         )
     )
     dag = dag.add_node(
@@ -177,7 +197,22 @@ def create_app_synthesis_dag() -> DAG:
             id="scaffold",
             name="Scaffolder",
             agent_id="MetaScaffolder",
+            input_mapping={
+                "proposal": "$$spec_result.proposal$$",
+                "project_name": "$$project_name$$",
+                "target_dir": "$$target_dir$$",
+                "generated_agents": [
+                    {
+                        "class_name": "$$agent_name$$Agent",
+                        "goal_class_name": "$$agent_name$$Goal",
+                        "source": "$$agent_code.agent_code$$",
+                    }
+                ],
+                "cemaf_source": "$$cemaf_source$$",
+                "overwrite": "$$overwrite$$",
+            },
             output_key="scaffold_result",
+            structured_output=True,
         )
     )
     dag = dag.add_edge(edge=Edge(source=NodeID("specify"), target=NodeID("design")))

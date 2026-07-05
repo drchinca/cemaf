@@ -13,6 +13,13 @@ import warnings
 from typing import Any
 
 
+class ExperimentalWarning(UserWarning):
+    """Warning emitted when an experimental API is used."""
+
+
+__all__ = ["ExperimentalWarning", "experimental"]
+
+
 def experimental(cls_or_func: Any) -> Any:
     """
     Mark a class or function as experimental (unstable).
@@ -26,7 +33,7 @@ def experimental(cls_or_func: Any) -> Any:
         def my_unstable_function():
             pass
 
-    When imported or used, emits a DeprecationWarning to alert users.
+    When instantiated or called, emits an ExperimentalWarning to alert users.
     """
     target_name = getattr(cls_or_func, "__qualname__", str(cls_or_func))
 
@@ -38,7 +45,7 @@ def experimental(cls_or_func: Any) -> Any:
             warnings.warn(
                 f"{target_name} is experimental and subject to change. "
                 "Do not use in production. API stability is not guaranteed.",
-                category=DeprecationWarning,
+                category=ExperimentalWarning,
                 stacklevel=2,
             )
             original_init(self, *args, **kwargs)
@@ -46,7 +53,7 @@ def experimental(cls_or_func: Any) -> Any:
         cls_or_func.__init__ = new_init  # type: ignore[misc]
         # Update docstring to indicate experimental status
         if cls_or_func.__doc__:
-            cls_or_func.__doc__ = f"⚠️ EXPERIMENTAL - Subject to change\n\n{cls_or_func.__doc__}"
+            cls_or_func.__doc__ = f"EXPERIMENTAL - Subject to change\n\n{cls_or_func.__doc__}"
         return cls_or_func
     else:
         # Function decorator
@@ -55,7 +62,7 @@ def experimental(cls_or_func: Any) -> Any:
             warnings.warn(
                 f"{target_name} is experimental and subject to change. "
                 "Do not use in production. API stability is not guaranteed.",
-                category=DeprecationWarning,
+                category=ExperimentalWarning,
                 stacklevel=2,
             )
             return cls_or_func(*args, **kwargs)

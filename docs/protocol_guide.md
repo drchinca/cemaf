@@ -115,9 +115,8 @@ result = await rlm.execute(
 ### Pattern 1: Replace Default Implementation
 
 ```python
-from cemaf.context import ContextCompiler
 from cemaf.context.budget import TokenBudget
-from cemaf.context.compiler import CompiledContext
+from cemaf.context.compiler import CompiledContext, ContextCompiler
 
 class MyCustomCompiler:
     """Custom compiler that implements the protocol."""
@@ -265,11 +264,13 @@ rlm = create_rlm_tool(llm_client)
 
 # Or create manually with your own components
 from cemaf.rlm import DivideAndConquerQueryEngine, FixedSizeChunkingStrategy
-from my_compiler import MyCustomCompiler
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+
+compiler = PriorityContextCompiler(SimpleTokenEstimator())
 
 engine = DivideAndConquerQueryEngine(
     llm=llm_client,
-    compiler=MyCustomCompiler(),  # Your custom compiler!
+    compiler=compiler,
     max_depth=3,
 )
 ```

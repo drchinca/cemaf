@@ -212,8 +212,16 @@ compiled = await compiler.compile(
 **Flow**: Memory items included in context compilation
 
 ```python
+import json
+
+from cemaf.core.enums import MemoryScope
+
 # Memory items retrieved
-memories = await memory_store.retrieve_all(scope="conversation_123")
+session_items = await memory_store.list_by_scope(MemoryScope.SESSION)
+memories = tuple(
+    (item.key, json.dumps(item.value, sort_keys=True))
+    for item in session_items
+)
 
 # Included in context compilation
 compiled = await compiler.compile(
@@ -341,7 +349,7 @@ patch = ContextPatch.set(
 
 ```python
 # Search results retrieved
-results = await vector_store.search("query", k=5)
+results = await vector_store.search_by_text("query", k=5)
 
 # Converted to citations
 citations = tracker.track_search_results(results)
@@ -354,27 +362,32 @@ citations = tracker.track_search_results(results)
 
 ### Retrieval → RLM
 
-**Flow**: Retrieval used for semantic chunking in RLM
+**Flow**: Retrieval results become RLM chunks
 
 ```python
-# Semantic chunking using retrieval
-chunking = SemanticChunkingStrategy(
-    retrieval=vector_store,
-    estimator=token_estimator,
+from cemaf.context.budget import TokenBudget
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.rlm import ContextChunk, DivideAndConquerQueryEngine
+
+results = await vector_store.search_by_text("release risk", k=5)
+chunks = tuple(
+    ContextChunk(chunk_id=result.id, content=result.content)
+    for result in results
 )
 
-# RLM uses semantic chunking
-engine = RecursiveQueryEngine(
-    llm=llm_client,
-    compiler=compiler,
-    chunking=chunking,
+compiler = PriorityContextCompiler(SimpleTokenEstimator())
+engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=3)
+answer = await engine.query(
+    instruction="Summarize the release risks",
+    chunks=chunks,
+    budget=TokenBudget(max_tokens=4000),
 )
 ```
 
 **Integration Points**:
-- Retrieval provides semantic boundaries for chunking
-- Better chunk boundaries based on semantic similarity
-- RLM uses retrieval for improved chunking
+- Retrieval ranks the relevant documents
+- RLM receives retrieved documents as `ContextChunk` inputs
+- The compiler still enforces the token budget before LLM calls
 
 ### Moderation → Tools
 
@@ -463,14 +476,9 @@ executor = DAGExecutor(
 compiler = AdvancedContextCompiler(
     llm_client=llm,
     token_estimator=estimator,
-    memory_store=memory_store,  # Custom integration
 )
 
-engine = DivideAndConquerQueryEngine(
-    llm=llm,
-    compiler=compiler,  # Uses advanced compiler
-    chunking=SemanticChunkingStrategy(retrieval=vector_store),
-)
+engine = DivideAndConquerQueryEngine(llm, compiler, max_depth=3)
 ```
 
 ## Glass Box Audit Interconnections

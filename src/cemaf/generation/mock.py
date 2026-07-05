@@ -1,13 +1,14 @@
 """
 Mock generators for testing.
 
-These return placeholder outputs without calling external APIs.
+These return deterministic in-memory outputs without calling external APIs.
 """
 
 from typing import Any
 
 from cemaf.generation.protocols import (
     AudioSpec,
+    CodeLanguage,
     CodeSpec,
     DiagramSpec,
     ImageSpec,
@@ -36,7 +37,7 @@ class MockImageGenerator:
         self.call_count += 1
         self.last_spec = spec
 
-        # Return a 1x1 PNG placeholder
+        # Deterministic 1x1 PNG fixture.
         png_1x1 = (
             b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
             b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
@@ -284,7 +285,7 @@ Generated: {spec.prompt[:40]}...
 
 def generated_function():
     """Auto-generated function."""
-    pass
+    return None
 '''
             if spec.include_tests:
                 code += '''
@@ -299,7 +300,7 @@ def test_generated_function():
  */
 
 export function generatedFunction(): void {{
-  // Implementation
+  return;
 }}
 """
         else:
@@ -318,7 +319,7 @@ export function generatedFunction(): void {{
     async def complete(self, code: str, cursor_position: int, spec: CodeSpec) -> MediaOutput:
         """Mock code completion."""
         self.call_count += 1
-        completion = "  # Auto-completed\n  pass"
+        completion = _completion_for_language(spec.language)
         return MediaOutput.ok(
             content_str=completion,
             format=spec.language.value,
@@ -351,3 +352,28 @@ export function generatedFunction(): void {{
             format="markdown",
             model="mock-code-v1",
         )
+
+
+def _completion_for_language(language: CodeLanguage) -> str:
+    """Return a small syntactically valid completion for the requested language."""
+    match language:
+        case CodeLanguage.PYTHON:
+            return "    return None"
+        case CodeLanguage.TYPESCRIPT | CodeLanguage.JAVASCRIPT:
+            return "  return;"
+        case CodeLanguage.RUST:
+            return "    ()"
+        case CodeLanguage.GO:
+            return "\treturn nil"
+        case CodeLanguage.JAVA:
+            return "    return;"
+        case CodeLanguage.SQL:
+            return "SELECT 1;"
+        case CodeLanguage.HTML:
+            return "<div></div>"
+        case CodeLanguage.CSS:
+            return "display: block;"
+        case CodeLanguage.SHELL:
+            return "printf '%s\\n' \"done\""
+        case _:
+            return "\n"

@@ -164,17 +164,12 @@ class ArchitectAgent(Agent[ArchitectGoal, ArchitectResult]):
 _AGENT_TEMPLATE = textwrap.dedent('''\
     """Generated agent: {agent_name}."""
 
-    from __future__ import annotations
-
     import logging
-    from typing import Any
 
     from pydantic import BaseModel, Field
 
     from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
     from cemaf.core.types import AgentID
-    from cemaf.skills.base import Skill
-
     logger = logging.getLogger(__name__)
 
 
@@ -223,9 +218,6 @@ _AGENT_TEMPLATE = textwrap.dedent('''\
 
 class AgentSynthesizer(Agent[SynthesizerGoal, SynthesizerResult]):
     """Generate CEMAF agent Python source code from a specification."""
-
-    def __init__(self) -> None:
-        pass
 
     @property
     def id(self) -> AgentID:

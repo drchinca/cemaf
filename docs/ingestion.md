@@ -198,37 +198,26 @@ Built-in adapter backends are `text`, `json`, `table`, and `chunk`.
 
 ## Compression Strategies
 
-### Task-Specific Distillation
+### Budget-Aware Text Adaptation
 
-Not just "summarize" - compress while preserving task-relevant information:
+Use `TextAdapter` when raw text needs to fit a token budget:
 
 ```python
 from cemaf.ingestion import TextAdapter
 
-adapter = TextAdapter(
-    max_tokens=500,
-    truncation_strategy="middle",
-)
-
-# 10K document compressed to 500 tokens, dates/phones intact
+adapter = TextAdapter(max_tokens=500, truncation_strategy="middle")
 source = await adapter.adapt(customer_log, budget, priority=8)
 ```
 
-### Hierarchical Compression
+### Document Chunking
 
-Maintain document structure while reducing tokens:
+Use `ChunkAdapter` when a document should become multiple context sources:
 
 ```python
 from cemaf.ingestion import ChunkAdapter
 
-adapter = ChunkAdapter(
-    chunk_size=700,
-    overlap=120,
-)
-
-# Returns sources at different compression levels
-# Selection algorithm picks based on budget
-sources = await adapter.adapt_hierarchical(document, budget)
+adapter = ChunkAdapter(chunk_size=500, overlap=50, strategy="sentence")
+sources = await adapter.adapt_many(document, budget, base_priority=8)
 ```
 
 ## Priority Assignment
@@ -310,21 +299,18 @@ print(f"Included: {len(compiled.sources)}/{len(sources)}")
 For resource-constrained environments:
 
 ```python
-from cemaf.ingestion import ChunkAdapter
+from cemaf.ingestion import ChunkAdapter, TextAdapter
 
-adapter = ChunkAdapter(
-    # Aggressive compression for limited RAM
-    max_memory_mb=50,
-
-    # Streaming adaptation (don't load full doc)
-    streaming=True,
-
-    # Disk spillover for large documents
-    spillover_path="/tmp/cemaf_context",
+text_adapter = TextAdapter(max_tokens=300, truncation_strategy="head")
+chunk_adapter = ChunkAdapter(
+    chunk_size=300,
+    overlap=0,
+    metadata={"profile": "constrained"},
 )
 
-# Works on Raspberry Pi with 512MB RAM
-source = await adapter.adapt(large_document, budget)
+# Pick a single trimmed source or split into small chunks.
+source = await text_adapter.adapt(large_document, budget)
+chunks = await chunk_adapter.adapt_many(large_document, budget)
 ```
 
 ## Custom Adapters
@@ -332,8 +318,12 @@ source = await adapter.adapt(large_document, budget)
 Implement for your specific data types:
 
 ```python
-from cemaf.ingestion import ContextAdapter
+from typing import Any
+
+from cemaf.context.budget import TokenBudget
 from cemaf.context.source import ContextSource
+from cemaf.core.types import TokenCount
+from cemaf.ingestion import ContextAdapter
 
 class SlackMessageAdapter(ContextAdapter):
     """Adapt Slack messages for context."""
@@ -358,7 +348,7 @@ class SlackMessageAdapter(ContextAdapter):
             type="slack_message",
             key=data["ts"],
             content=content,
-            token_count=self.estimate_tokens(content),
+            token_count=TokenCount(self.estimate_tokens(content)),
             priority=priority,
             metadata={
                 "channel": data["channel"],
@@ -371,6 +361,13 @@ class SlackMessageAdapter(ContextAdapter):
         if isinstance(data, str):
             return len(data) // 4
         return len(str(data)) // 4
+
+    def _format_message(self, data: dict) -> str:
+        return f'{data.get("user", "unknown")}: {data.get("text", "")}'
+
+    def _compress(self, content: str, budget: TokenBudget) -> str:
+        max_chars = max(0, budget.available_tokens * 4)
+        return content[:max_chars]
 ```
 
 ## Best Practices
@@ -387,11 +384,11 @@ If you were using CEMAF's retrieval module:
 
 ```python
 # OLD: Retrieval-focused
-results = await vector_store.search(query)
+results = await vector_store.search_by_text(query)
 context = format_results(results)  # How do you know it fits?
 
 # NEW: Ingestion-focused
-results = await your_vector_store.search(query)  # Your retrieval
+results = await your_vector_store.search_by_text(query)  # Your retrieval
 sources = [
     await adapter.adapt(r, budget, priority=r.score * 10)
     for r in results

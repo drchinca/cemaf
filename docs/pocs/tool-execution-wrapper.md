@@ -159,7 +159,7 @@ Rationale:
 
 ## Learnings
 
-- **Span coverage is the killer feature, not LOC reduction.** The boilerplate-elimination story is real but small (~6-10 lines per tool). The unlocked capability — uniform OTel spans on every tool — is what makes self-audit / `MetaAuditor` actually useful. Frame the spec around observability, not DRY.
+- **Span coverage is the main capability, not LOC reduction.** The boilerplate-elimination story is real but small (~6-10 lines per tool). The new capability — uniform OTel spans on every tool — is what makes self-audit / `MetaAuditor` actually useful. Frame the spec around observability, not DRY.
 - **Middleware ordering is a documented invariant.** `span → exception → validation → truncate` (outermost to innermost). Spec must encode this with EARS rules in §3 invariants and a §7 correctness property.
 - **Tool-output truncation is a context-engineering problem, not a tool problem.** Truncation policy (max bytes, spillover to disk, `truncated=true` metadata) belongs in a `ToolOutput` `ContextSource` — POC #2 builds on this. The wrapper only enforces a cap; the *meaning* of that cap (LRU pruning across N tool calls, opencode's PRUNE_PROTECT=40k pattern) is upstream of one tool.
 - **Validation metadata format becomes a contract.** Once tools return `{"error_code": "validation_failed", "missing": [...]}`, downstream agents and LLMs can pattern-match. That's a stable interface — must go in the spec's §2 Interface Contract.

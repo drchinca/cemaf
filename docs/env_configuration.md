@@ -39,35 +39,31 @@ CEMAF is designed to be extensible. The `.env.example` includes configuration fo
 
 CEMAF supports any LLM provider through the `LLMClient` protocol:
 
-- **OpenAI** (GPT models)
+- **OpenAI** (Responses API and OpenAI-compatible gateways)
 - **Anthropic** (Claude models)
-- **Google** (Gemini models)
-- **Cohere** (Cohere models)
-- **Hugging Face** (Open-source models)
-- **Ollama** (Local models)
+- **AWS Bedrock** (AWS-hosted foundation models)
+- **Google** (Gemini models through AI Studio or Vertex AI)
+- **Ollama** (Local and Ollama Cloud models)
+- **Groq, Together, Hugging Face** (OpenAI-compatible hosted gateways)
 - **Custom providers** (implement `LLMClient` protocol)
 
 ### 2. Vector Stores
 
 CEMAF supports any vector store through the `VectorStore` protocol:
 
-- **Pinecone** (Cloud vector database)
-- **Qdrant** (Open-source vector database)
-- **Weaviate** (Graph + vector database)
-- **Chroma** (Embeddings database)
+- **In-memory** (Development/testing)
+- **SQLite** (Local durable vector store)
 - **PGVector** (PostgreSQL extension)
-- **FAISS** (Local vector search)
-- **In-Memory** (Development/testing)
-- **Custom stores** (implement `VectorStore` protocol)
+- **Custom stores** (implement `VectorStore` and register with `vector_store_registry`)
 
 ### 3. Embedding Providers
 
 CEMAF supports any embedding provider through the `EmbeddingProvider` protocol:
 
 - **OpenAI** (text-embedding-3-small, text-embedding-3-large)
-- **Cohere** (embed-english-v3.0, embed-multilingual-v3.0)
 - **Sentence Transformers** (all-MiniLM-L6-v2, all-mpnet-base-v2)
 - **Hugging Face** (Any Hugging Face embedding model)
+- **hash/mock** (Deterministic offline providers)
 - **Custom providers** (implement `EmbeddingProvider` protocol)
 
 ### 4. Memory Backends
@@ -75,20 +71,12 @@ CEMAF supports any embedding provider through the `EmbeddingProvider` protocol:
 CEMAF supports different memory storage backends:
 
 - **In-Memory** (Development, default)
+- **JSON file** (Local file persistence)
+- **SQLite** (Local durable persistence)
 - **PostgreSQL** (Production, persistent)
-- **Redis** (Fast, distributed)
-- **Custom backends** (implement `MemoryStore` protocol)
+- **Custom backends** (implement `MemoryStore` and register with `memory_store_registry`)
 
-### 5. Graph Databases (Extensible)
-
-While not in core CEMAF, you can extend it with graph databases:
-
-- **Neo4j** (Graph database)
-- **ArangoDB** (Multi-model database)
-- **NetworkX** (Python graph library)
-- **Custom** (Implement your own graph backend)
-
-### 6. Context Selection Algorithms
+### 5. Context Selection Algorithms
 
 CEMAF provides `ContextSelectionAlgorithm` and `TokenEstimator` protocols for custom context assembly:
 
@@ -115,20 +103,14 @@ context_selection_algorithm_registry.register(
 )
 ```
 
-### 7. Visualization Tools (Extensible)
+### 6. Persistence Backends
 
-CEMAF supports different visualization backends for DAGs:
+CEMAF defines persistence protocols for projects, runs, content, and artifacts.
+Concrete persistence stores are application-provided: register a backend with
+the relevant persistence registry, then select it with the
+`CEMAF_PERSISTENCE_*_STORE_BACKEND` environment variables.
 
-- **Mermaid** (Default, for DAG export)
-- **Graphviz** (Dot format)
-- **D3.js** (Interactive visualizations)
-- **Custom** (Implement your own visualizer)
-
-### 8. Persistence Backends
-
-CEMAF defines persistence protocols for projects, runs, content, and artifacts. Concrete persistence stores are application-provided: register a backend with the relevant persistence registry, then select it with the `CEMAF_PERSISTENCE_*_STORE_BACKEND` environment variables.
-
-### 9. MCP Transports
+### 7. MCP Transports
 
 CEMAF selects MCP transports through `mcp_transport_registry`:
 
@@ -137,14 +119,15 @@ CEMAF selects MCP transports through `mcp_transport_registry`:
 - **websocket** (Configure with `CEMAF_MCP_WEBSOCKET_URL` or `CEMAF_MCP_TRANSPORT_URL`)
 - **Custom transports** (implement `Transport`, register with `mcp_transport_registry`, select with `CEMAF_MCP_TRANSPORT_TYPE`)
 
-### 10. Model Catalogs
+### 8. Model Catalogs
 
 CEMAF selects model catalogs through `catalog_registry`:
 
-- **huggingface** (Default external model catalog)
+- **static** (Default offline catalog)
+- **huggingface** (Explicit external model catalog)
 - **Custom catalogs** (implement `ModelCatalog`, register with `catalog_registry`, select with `CEMAF_CATALOG_BACKEND`)
 
-### 11. Event Buses
+### 9. Event Buses
 
 CEMAF selects event buses through `event_bus_registry`:
 
@@ -153,7 +136,7 @@ CEMAF selects event buses through `event_bus_registry`:
 - **redis** (Durable Redis Streams event bus; configure with `CEMAF_EVENTS_REDIS_URL`)
 - **Custom buses** (implement `EventBus`, register with `event_bus_registry`, select with `CEMAF_EVENTS_BACKEND`)
 
-### 12. Evaluators
+### 10. Evaluators
 
 CEMAF resolves evaluator names through `evaluator_registry`:
 
@@ -161,7 +144,7 @@ CEMAF resolves evaluator names through `evaluator_registry`:
 - **groundedness**, **tool_use_success** (Grounding/tool-use built-ins)
 - **Custom evaluators** (implement `Evaluator`, register with `evaluator_registry`, resolve by name through eval tools and agents)
 
-### 13. Schedulers
+### 11. Schedulers
 
 CEMAF selects schedulers through `scheduler_registry`:
 
@@ -169,7 +152,7 @@ CEMAF selects schedulers through `scheduler_registry`:
 - **mock** (Testing scheduler)
 - **Custom schedulers** (implement `Scheduler`, register with `scheduler_registry`, select with `CEMAF_SCHEDULER_BACKEND`)
 
-### 14. Moderation Rules and Gates
+### 12. Moderation Rules and Gates
 
 CEMAF composes moderation through `moderation_rule_registry` and `moderation_gate_registry`:
 
@@ -177,7 +160,7 @@ CEMAF composes moderation through `moderation_rule_registry` and `moderation_gat
 - **pre_flight**, **post_flight**, **composite** (Built-in moderation gates)
 - **Custom rules/gates** (implement `ModerationRule` or `ModerationGate`, register with the relevant registry, compose with `create_moderation_rule()` / `create_moderation_gate()`)
 
-### 15. Validation Rules
+### 13. Validation Rules
 
 CEMAF composes validation through `validation_rule_registry`:
 
@@ -229,12 +212,11 @@ CEMAF_ENVIRONMENT=prod
 CEMAF_DEBUG=false
 
 # LLM
-CEMAF_LLM_DEFAULT_MODEL=claude-3-sonnet
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}  # From secrets manager
+CEMAF_LLM_PROVIDER=ollama
+CEMAF_LLM_DEFAULT_MODEL=gemma3:4b
 
 # Vector Store
-CEMAF_VECTOR_STORE_BACKEND=pinecone
-PINECONE_API_KEY=${PINECONE_API_KEY}
+CEMAF_VECTOR_STORE_BACKEND=pgvector
 
 # Memory
 CEMAF_MEMORY_BACKEND=postgres
@@ -244,8 +226,10 @@ CEMAF_MEMORY_DEFAULT_TTL_SECONDS=3600
 
 # Observability
 CEMAF_OBSERVABILITY_ENABLE_TRACING=true
-CEMAF_TRACING_BACKEND=otel
-OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT}
+CEMAF_OBSERVABILITY_TRACER_BACKEND=otel
+CEMAF_OBSERVABILITY_METRICS_BACKEND=prometheus
+CEMAF_OBSERVABILITY_RUN_LOGGER_BACKEND=file
+CEMAF_OBSERVABILITY_RUN_LOGGER_ROOT=/var/log/cemaf/runs
 ```
 
 ## See Also

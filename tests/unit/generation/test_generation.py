@@ -397,6 +397,23 @@ class TestMockCodeGenerator:
 
         assert output.success
         assert "def " in output.content_str
+        assert "    return None" in output.content_str
+        assert "\n    pass\n" not in output.content_str
+
+    @pytest.mark.asyncio
+    async def test_generate_typescript_no_placeholder_body(self):
+        """Generate TypeScript without placeholder implementation comments."""
+        gen = MockCodeGenerator()
+        spec = CodeSpec(
+            prompt="Create utility",
+            language=CodeLanguage.TYPESCRIPT,
+        )
+
+        output = await gen.generate(spec)
+
+        assert output.success
+        assert "return;" in output.content_str
+        assert "Implementation" not in output.content_str
 
     @pytest.mark.asyncio
     async def test_generate_with_tests(self):
@@ -412,6 +429,17 @@ class TestMockCodeGenerator:
 
         assert output.success
         assert "test_" in output.content_str
+
+    @pytest.mark.asyncio
+    async def test_complete_returns_language_aware_snippet(self):
+        """Code completion returns a snippet for the requested language."""
+        gen = MockCodeGenerator()
+
+        python_output = await gen.complete("", 0, CodeSpec(prompt="", language=CodeLanguage.PYTHON))
+        ts_output = await gen.complete("", 0, CodeSpec(prompt="", language=CodeLanguage.TYPESCRIPT))
+
+        assert python_output.content_str == "    return None"
+        assert ts_output.content_str == "  return;"
 
     @pytest.mark.asyncio
     async def test_refactor(self):

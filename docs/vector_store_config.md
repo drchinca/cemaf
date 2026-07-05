@@ -2,177 +2,118 @@
 
 ## Overview
 
-CEMAF now has a **configuration layer** that connects the `.env.example` vector store settings to the `VectorStore` protocol layer.
+CEMAF's retrieval layer is protocol-first. The built-in configuration path wires
+documented environment variables to registered `VectorStore` and
+`EmbeddingProvider` backends. External services are supported by implementing
+the protocol and registering an adapter.
 
-## What Was Added
+## Built-In Backends
 
-### 1. `RetrievalSettings` in Config Protocol
+Built-in vector stores:
 
-Added `RetrievalSettings` to `src/cemaf/config/protocols.py`:
+- `memory` - in-process development and tests.
+- `sqlite` - local durable vector storage.
+- `pgvector` - PostgreSQL with pgvector. Pass an `EmbeddingProvider` when
+  callers use `search_by_text()`; callers with precomputed vectors can call
+  `search()` directly.
 
-```python
-class RetrievalSettings(BaseModel):
-    """Settings for retrieval/vector store configuration."""
+Built-in embedding providers:
 
-    vector_store_backend: Literal[
-        "memory", "pinecone", "qdrant", "weaviate", "chroma", "pgvector", "faiss"
-    ] = "memory"
+- `hash` and `mock` - deterministic offline providers.
+- `openai` - OpenAI embeddings.
+- `huggingface` and `sentence-transformers` - Hugging Face embedding providers.
 
-    embedding_provider: str = "openai"
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimension: int = 1536
-```
+## Environment Variables
 
-This is now part of the main `Settings` class:
-
-```python
-class Settings(BaseModel):
-    # ... other settings ...
-    retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
-```
-
-### 2. Factory Function
-
-Added `create_vector_store_from_config()` to `src/cemaf/retrieval/factories.py`:
-
-```python
-def create_vector_store_from_config(
-    backend: str | None = None,
-    embedding_provider: EmbeddingProvider | None = None,
-) -> VectorStore:
-    """
-    Create a vector store from configuration.
-
-    Reads from environment variables:
-    - CEMAF_VECTOR_STORE_BACKEND: Backend type (default: "memory")
-    - CEMAF_EMBEDDING_DIMENSION: Embedding dimension
-    """
-```
-
-## How It Works
-
-### Environment Variable → Protocol Layer
-
-```
-.env.example (lines 88-89)
-    ↓
+```bash
 CEMAF_VECTOR_STORE_BACKEND=memory
-    ↓
-create_vector_store_from_config()
-    ↓
-VectorStore Protocol
-    ↓
-InMemoryVectorStore (or Pinecone, Qdrant, etc.)
+CEMAF_RETRIEVAL_SQLITE_PATH=./data/retrieval.db
+CEMAF_POSTGRES_DSN=postgresql://user:password@localhost:5432/cemaf
+
+CEMAF_EMBEDDING_PROVIDER=hash
+CEMAF_EMBEDDING_MODEL=hash-embedding
+CEMAF_EMBEDDING_DIMENSION=384
 ```
 
-### Usage Examples
+`CEMAF_VECTOR_STORE_BACKEND` accepts `memory`, `sqlite`, or `pgvector` for the
+built-in configuration model. Custom backends should be selected through direct
+factory calls after registration.
 
-**From environment variables:**
+## Usage
+
 ```python
+from cemaf.retrieval import create_embedding_provider_from_config
 from cemaf.retrieval import create_vector_store_from_config
 
-# Reads CEMAF_VECTOR_STORE_BACKEND from .env
-store = create_vector_store_from_config()
+embedding_provider = create_embedding_provider_from_config()
+store = create_vector_store_from_config(embedding_provider=embedding_provider)
 ```
 
-**From Settings object:**
+Explicit construction bypasses environment-backed settings and can use any
+registered backend:
+
 ```python
-from cemaf.config.loader import SettingsProviderImpl, EnvConfigSource
-from cemaf.retrieval import create_vector_store_from_config
+from cemaf.retrieval.factories import create_vector_store
 
-provider = SettingsProviderImpl()
-provider.add_source(EnvConfigSource(prefix="CEMAF"))
-settings = await provider.get()
-
-# Use settings.retrieval.vector_store_backend
-store = create_vector_store_from_config(
-    backend=settings.retrieval.vector_store_backend
+store = create_vector_store(
+    backend="sqlite",
+    embedding_provider=embedding_provider,
+    db_path="./data/retrieval.db",
 )
 ```
 
-**Explicit backend:**
-```python
-# Override env var
-store = create_vector_store_from_config(backend="memory")
-```
-
-## Configuration Mapping
-
-| Environment Variable | Settings Path | Default |
-|---------------------|---------------|---------|
-| `CEMAF_VECTOR_STORE_BACKEND` | `settings.retrieval.vector_store_backend` | `"memory"` |
-| `CEMAF_EMBEDDING_PROVIDER` | `settings.retrieval.embedding_provider` | `"openai"` |
-| `CEMAF_EMBEDDING_MODEL` | `settings.retrieval.embedding_model` | `"text-embedding-3-small"` |
-| `CEMAF_EMBEDDING_DIMENSION` | `settings.retrieval.embedding_dimension` | `1536` |
-
-## Protocol Layer Reference
-
-The `VectorStore` protocol is defined in `src/cemaf/retrieval/protocols.py`:
-
-```python
-@runtime_checkable
-class VectorStore(Protocol):
-    """Protocol for vector stores."""
-
-    async def add(self, document: Document) -> None: ...
-    async def search(self, query_embedding: tuple[float, ...], k: int = 10) -> list[SearchResult]: ...
-    # ... other methods ...
-```
-
-All implementations (InMemoryVectorStore, future Pinecone, Qdrant, etc.) conform to this protocol.
-
-## Current Status
-
-✅ **Implemented:**
-- `RetrievalSettings` in config protocol
-- `create_vector_store_from_config()` factory
-- Environment variable reading
-- In-memory vector store support
-
-🚧 **Future (Extensible):**
-- Pinecone implementation
-- Qdrant implementation
-- Weaviate implementation
-- Chroma implementation
-- PGVector implementation
-- FAISS implementation
-
 ## Extending
 
-To add a new vector store backend:
+Register custom vector stores instead of editing CEMAF factory code:
 
-1. **Implement the protocol:**
 ```python
-class PineconeVectorStore:
-    def __init__(self, api_key: str, index_name: str):
-        # Initialize Pinecone client
+from cemaf.retrieval.factories import vector_store_registry
+
+
+class ExternalVectorStore:
+    async def add(self, document):
         ...
 
-    async def add(self, document: Document) -> None:
-        # Implement protocol method
+    async def add_batch(self, documents):
         ...
+
+    async def get(self, document_id):
+        ...
+
+    async def search(self, query_embedding, k=10, filter=None):
+        ...
+
+    async def search_by_text(self, query_text, k=10, filter=None):
+        ...
+
+    async def delete(self, document_id):
+        ...
+
+    async def count(self):
+        ...
+
+    async def clear(self):
+        ...
+
+
+def create_external_vector_store(**kwargs):
+    return ExternalVectorStore(...)
+
+
+vector_store_registry.register(
+    backend="external",
+    factory=create_external_vector_store,
+)
 ```
 
-2. **Add to factory:**
+Then construct it directly:
+
 ```python
-def create_vector_store_from_config(...):
-    # ...
-    elif backend == "pinecone":
-        api_key = os.getenv("PINECONE_API_KEY")
-        index_name = os.getenv("PINECONE_INDEX_NAME")
-        return PineconeVectorStore(api_key=api_key, index_name=index_name)
-```
-
-3. **Update `.env.example`:**
-```bash
-CEMAF_VECTOR_STORE_BACKEND=pinecone
-PINECONE_API_KEY=your_key
-PINECONE_INDEX_NAME=cemaf-index
+store = create_vector_store(backend="external", embedding_provider=embedding_provider)
 ```
 
 ## See Also
 
-- [Vector Store Protocol](../src/cemaf/retrieval/protocols.py)
+- [Retrieval](retrieval.md)
 - [Factory Functions](../src/cemaf/retrieval/factories.py)
-- [Configuration Guide](./config.md)
-- [Environment Configuration](./env_configuration.md)
+- [Environment Configuration](env_configuration.md)

@@ -16,11 +16,18 @@ Extension Point:
 """
 
 import os
+from typing import TYPE_CHECKING, Any
 
 from cemaf.agents.protocols import AgentContext
+from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.types import JSON, AgentID
 from cemaf.core.utils import generate_id
+
+if TYPE_CHECKING:
+    from cemaf.knowledge.protocols import KnowledgeGraph
+else:
+    type KnowledgeGraph = Any
 
 
 def create_agent_context(
@@ -30,6 +37,7 @@ def create_agent_context(
     depth: int = 0,
     global_memory: JSON | None = None,
     artifacts: JSON | None = None,
+    knowledge_graph: KnowledgeGraph | None = None,
 ) -> AgentContext:
     """
     Factory for AgentContext with sensible defaults.
@@ -41,6 +49,7 @@ def create_agent_context(
         depth: Nesting depth in agent hierarchy
         global_memory: Shared memory across agents
         artifacts: Shared artifacts across agents
+        knowledge_graph: Optional shared knowledge graph adapter
 
     Returns:
         Configured AgentContext instance
@@ -64,6 +73,7 @@ def create_agent_context(
         depth=depth,
         global_memory=global_memory or {},
         artifacts=artifacts or {},
+        knowledge_graph=knowledge_graph,
     )
 
 
@@ -82,7 +92,7 @@ def create_agent_context_from_config(
     Args:
         agent_id: Unique agent identifier
         run_id: Run identifier (auto-generated if None)
-        settings: Settings provider (unused, kept for backward compatibility)
+        settings: Settings provider used to enforce agent hierarchy limits
 
     Returns:
         Configured AgentContext instance
@@ -92,8 +102,16 @@ def create_agent_context_from_config(
         from cemaf.core.types import AgentID
         agent_ctx = create_agent_context_from_config(AgentID("my_agent"))
     """
+    cfg = settings or load_settings_from_env_sync()
     parent_agent_id = os.getenv("CEMAF_AGENT_PARENT_ID")
     depth = int(os.getenv("CEMAF_AGENT_DEPTH", "0"))
+    max_depth = cfg.agents.deep_agent_max_depth
+    if depth < 0:
+        raise ValueError("CEMAF_AGENT_DEPTH must be greater than or equal to 0.")
+    if depth > max_depth:
+        raise ValueError(
+            f"CEMAF_AGENT_DEPTH ({depth}) exceeds configured CEMAF_AGENTS_DEEP_AGENT_MAX_DEPTH ({max_depth})."
+        )
 
     return create_agent_context(
         agent_id=agent_id,
