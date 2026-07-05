@@ -25,7 +25,7 @@ to fake.
 | REQ-02 | CEMAF is a composition root for multi-agent execution. | README and docs lead with `create_executor(...)`, `RuntimeServices`, `DAG`, `Node`, and `Edge`; `make check` confirms documented imports and graph data. |
 | REQ-03 | Defaults are local/free-first. | `.env.example` uses `CEMAF_LLM_PROVIDER=ollama`; default embeddings are hash-based; catalog backend defaults to static; paid/hosted providers are explicit extras and env choices. |
 | REQ-04 | Paid or hosted providers are not defaults. | Paid-provider-default scan returned no matches; `check_release_package.py` blocks hosted providers in core dependencies and verifies local-first optional extras. |
-| REQ-05 | No skipped tests. | `uv run --frozen pytest -q -rs` reported `4136 passed`; skip-pattern scan over `tests src examples pyproject.toml` returned no matches. |
+| REQ-05 | No skipped tests. | `uv run --frozen pytest -q -rs` reported `4144 passed`; skip-pattern scan over `tests src examples pyproject.toml` returned no matches. |
 | REQ-06 | Public protocol boundaries stay available. | `make check`, `check_doc_imports.py`, and full tests cover public imports for LLMs, embeddings, vector stores, memory, event buses, selectors, evaluators, `RuntimeServices`, and `cemaf.session.v1`. |
 | REQ-07 | Examples run offline unless explicitly marked local-daemon. | `examples/README.md` states listed examples run offline; `tests/integration/test_examples_smoke.py` guards them; direct smokes passed for `hello_world.py`, `session_snapshot.py`, `composed_engine.py`, and `release_engine.py --dry-run`. |
 | REQ-08 | Docs voice is senior, human, and non-sycophantic. | `docs/writing_style.md` defines the voice; `check_doc_voice.py` scans 109 Markdown files and passed. |
@@ -43,7 +43,7 @@ to fake.
 |---|---|
 | `make check` | Passed; includes lint, format check, mypy, doc links, graph data, trace data, voice, release naming, loop/operator, and package audits. |
 | `uv run --frozen python docs/architecture/scripts/check_doc_imports.py` | Passed: 95 Markdown files, 331 unique imports, 553 occurrences, 0 failures. |
-| `uv run --frozen pytest -q -rs` | Passed: 4136 passed, no skips reported. |
+| `uv run --frozen pytest -q -rs` | Passed: 4144 passed, no skips reported. |
 | `uv build --out-dir /tmp/cemaf-v3-build-check` | Passed: built sdist and wheel for `3.0.1`. |
 | Fresh wheel install smoke | Passed in `/tmp/cemaf-v3-wheel-smoke` with Python 3.14. |
 | Skip marker scan | No matches. |

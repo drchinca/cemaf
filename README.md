@@ -674,7 +674,7 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 4136 passing tests in the current release gate | no skipped tests
+**Project Stats**: 4144 passing tests in the current release gate | no skipped tests
 
 ---
 

@@ -15,7 +15,7 @@ REQUIRED_TEXT = (
     EXPECTED_VERSION,
     "drchinca/release/v3.0.1",
     "local/free-first",
-    "4136 passed",
+    "4144 passed",
     "331 unique",
     "553 total",
     "check_doc_voice.py",

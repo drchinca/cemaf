@@ -96,7 +96,7 @@ def _check_release_docs(failures: list[str]) -> None:
 
     _require_contains(failures, "CHANGELOG.md", f"## [{EXPECTED_VERSION}]")
     _require_contains(failures, "README.md", "Status-3.0")
-    _require_contains(failures, "README.md", "4136 passing")
+    _require_contains(failures, "README.md", "4144 passing")
     _require_contains(failures, "README.md", 'pip install "cemaf[ollama]"')
     _require_contains(failures, "docs/quickstart.md", 'pip install "cemaf[ollama]"')
     _require_contains(failures, "docs/publishing.md", f"Version: `{EXPECTED_VERSION}`")

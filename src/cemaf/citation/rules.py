@@ -9,7 +9,7 @@ import ast
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, cast
 
 from cemaf.citation.registry import SourceRegistry
@@ -346,8 +346,11 @@ class CitationMembershipRule:
             return ValidationResult.failure(errors=tuple(errors))
         return ValidationResult.success()
 
-    def _collect_source_refs(self, data: Any) -> list[_CitationRef]:
+    def _collect_source_refs(self, data: Any, seen: set[int] | None = None) -> list[_CitationRef]:
         from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+
+        if seen is None:
+            seen = set()
 
         if isinstance(data, Citation):
             return [_CitationRef(citation_id=data.id, source_id=data.source_id)]
@@ -355,22 +358,27 @@ class CitationMembershipRule:
         if isinstance(data, CitedFact):
             refs: list[_CitationRef] = []
             for citation in data.citations:
-                refs.extend(self._collect_source_refs(citation))
+                refs.extend(self._collect_source_refs(citation, seen))
             return refs
 
         if isinstance(data, CitationRegistry):
             refs = []
             for citation in data.get_all_citations():
-                refs.extend(self._collect_source_refs(citation))
+                refs.extend(self._collect_source_refs(citation, seen))
             return refs
 
         if isinstance(data, str):
             payload = _literal_payload_from_string(data)
             if payload is not None:
-                return self._collect_source_refs(payload)
+                return self._collect_source_refs(payload, seen)
             return _source_refs_from_string(data)
 
         if isinstance(data, Mapping):
+            data_id = id(data)
+            if data_id in seen:
+                return []
+            seen.add(data_id)
+
             refs = []
             if _looks_like_citation_mapping(data):
                 refs.append(
@@ -380,22 +388,42 @@ class CitationMembershipRule:
                     )
                 )
             for value in data.values():
-                refs.extend(self._collect_source_refs(value))
+                refs.extend(self._collect_source_refs(value, seen))
             return refs
 
         if isinstance(data, list | tuple | set | frozenset):
+            data_id = id(data)
+            if data_id in seen:
+                return []
+            seen.add(data_id)
+
             refs = []
             for item in data:
-                refs.extend(self._collect_source_refs(item))
+                refs.extend(self._collect_source_refs(item, seen))
             return refs
 
-        if hasattr(data, "model_dump"):
-            dumped = data.model_dump()
-            if isinstance(dumped, Mapping):
-                return self._collect_source_refs(dumped)
+        model_dump = getattr(data, "model_dump", None)
+        if callable(model_dump):
+            data_id = id(data)
+            if data_id in seen:
+                return []
+            seen.add(data_id)
+
+            try:
+                dumped = model_dump()
+            except (TypeError, ValueError, RecursionError):
+                return []
+            return self._collect_source_refs(dumped, seen)
 
         if is_dataclass(data) and not isinstance(data, type):
-            dumped = asdict(data)
-            return self._collect_source_refs(dumped)
+            data_id = id(data)
+            if data_id in seen:
+                return []
+            seen.add(data_id)
+
+            refs = []
+            for field in fields(data):
+                refs.extend(self._collect_source_refs(getattr(data, field.name), seen))
+            return refs
 
         return []
