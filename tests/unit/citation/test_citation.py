@@ -4,6 +4,7 @@ from datetime import datetime
 
 import pytest
 
+from cemaf.citation.eval import CitationMembershipEvaluator
 from cemaf.citation.factories import (
     citation_tracker_registry,
     create_citation_tracker,
@@ -15,7 +16,8 @@ from cemaf.citation.mock import (
     create_mock_cited_fact,
 )
 from cemaf.citation.models import Citation, CitationRegistry, CitedFact
-from cemaf.citation.rules import CitationFormatRule, CitationRequiredRule
+from cemaf.citation.registry import SourceRegistry, StaticSourceRegistry
+from cemaf.citation.rules import CitationFormatRule, CitationMembershipRule, CitationRequiredRule
 from cemaf.citation.tracker import CitationTracker
 from cemaf.retrieval.protocols import Document, SearchResult
 
@@ -944,3 +946,144 @@ class TestCitationFactories:
         """Test unknown citation tracker backend error points to registry extension."""
         with pytest.raises(ValueError, match="citation_tracker_registry.register"):
             create_citation_tracker(backend="missing_citation_backend")
+
+
+# =============================================================================
+# StaticSourceRegistry Tests
+# =============================================================================
+
+
+class TestStaticSourceRegistry:
+    """Tests for StaticSourceRegistry."""
+
+    def test_is_known_true(self) -> None:
+        """Test known source_id returns True."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001", "doc-002"])
+        assert registry.is_known("doc-001") is True
+
+    def test_is_known_false(self) -> None:
+        """Test unknown source_id returns False."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        assert registry.is_known("doc-999") is False
+
+    def test_satisfies_protocol(self) -> None:
+        """Test StaticSourceRegistry satisfies the SourceRegistry protocol."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        assert isinstance(registry, SourceRegistry)
+
+
+# =============================================================================
+# CitationMembershipRule Tests — the blocking rule
+# =============================================================================
+
+
+class TestCitationMembershipRule:
+    """Tests for CitationMembershipRule."""
+
+    @pytest.mark.asyncio
+    async def test_known_source_passes(self) -> None:
+        """Test citation with known source_id passes with no errors."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        citation = create_mock_citation(source_id="doc-001")
+
+        result = await rule.check(citation)
+
+        assert result.passed is True
+        assert len(result.errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_unknown_source_blocks(self) -> None:
+        """Test citation with unknown source_id fails with a blocking error."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        citation = create_mock_citation(id="cite-fake", source_id="fabricated-source")
+
+        result = await rule.check(citation)
+
+        assert result.passed is False
+        assert len(result.errors) == 1
+        assert result.errors[0].code == "UNKNOWN_SOURCE"
+        assert result.errors[0].value == "fabricated-source"
+
+    @pytest.mark.asyncio
+    async def test_cited_fact_with_unknown_source_blocks(self) -> None:
+        """Test CitedFact citing an unknown source_id fails."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        fact = create_mock_cited_fact(
+            citations=[create_mock_citation(source_id="not-real")],
+        )
+
+        result = await rule.check(fact)
+
+        assert result.passed is False
+        assert result.errors[0].code == "UNKNOWN_SOURCE"
+
+    @pytest.mark.asyncio
+    async def test_list_of_citations_mixed(self) -> None:
+        """Test a list with one known and one unknown source_id blocks."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        citations = [
+            create_mock_citation(id="cite-1", source_id="doc-001"),
+            create_mock_citation(id="cite-2", source_id="doc-fake"),
+        ]
+
+        result = await rule.check(citations)
+
+        assert result.passed is False
+        assert len(result.errors) == 1
+        assert "cite-2" in result.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_no_citations_passes(self) -> None:
+        """Test empty citation list passes trivially."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+
+        result = await rule.check([])
+
+        assert result.passed is True
+        assert len(result.errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_rule_name(self) -> None:
+        """Test rule has a name."""
+        registry = StaticSourceRegistry.from_iterable([])
+        rule = CitationMembershipRule(registry=registry, name="membership")
+        assert rule.name == "membership"
+
+
+# =============================================================================
+# CitationMembershipEvaluator Tests — bridges into GateEvalInterceptor
+# =============================================================================
+
+
+class TestCitationMembershipEvaluator:
+    """Tests for CitationMembershipEvaluator."""
+
+    @pytest.mark.asyncio
+    async def test_known_source_scores_full_and_passes(self) -> None:
+        """Test known source scores 1.0 and passes."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        evaluator = CitationMembershipEvaluator(registry=registry)
+        citation = create_mock_citation(source_id="doc-001")
+
+        result = await evaluator.evaluate(output=citation)
+
+        assert result.score == 1.0
+        assert result.passed is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_source_scores_zero_and_fails(self) -> None:
+        """Test unknown source scores 0.0 and fails — this is the gate hook."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        evaluator = CitationMembershipEvaluator(registry=registry)
+        citation = create_mock_citation(id="cite-fake", source_id="fabricated-source")
+
+        result = await evaluator.evaluate(output=citation)
+
+        assert result.score == 0.0
+        assert result.passed is False
+        assert "fabricated-source" in result.reason
