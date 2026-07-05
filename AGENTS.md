@@ -104,6 +104,16 @@ notes:
 If the answer is "I only used three modules and rewrote the rest," stop and
 search the docs/API again.
 
+## Branch Hygiene
+
+- After a merge completes, move the active checkout back to `develop` or
+  `development` before starting new work. If both exist, prefer `develop`.
+- Do not continue new work on a merge branch, release branch, or `main` after a
+  merge is done.
+- If neither `develop` nor `development` is available, or the worktree is not
+  clean, stop and report the blocker instead of switching branches or continuing
+  silently.
+
 ## Verification
 
 For docs changes:
