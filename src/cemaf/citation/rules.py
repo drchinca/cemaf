@@ -5,13 +5,19 @@ Provides rules for validating citations in content.
 These rules implement the Rule protocol from the validation module.
 """
 
+import re
 from typing import Any
 
+from cemaf.citation.registry import SourceRegistry
 from cemaf.core.types import JSON
 from cemaf.validation.protocols import (
+    ValidationError,
     ValidationResult,
     ValidationWarning,
 )
+
+_CITATION_ID_REPR_RE = re.compile(r"(?<![a-z_])id='([^']*)'")
+_SOURCE_ID_REPR_RE = re.compile(r"source_id='([^']*)'")
 
 
 class CitationRequiredRule:
@@ -207,3 +213,105 @@ class CitationFormatRule:
                 )
 
         return ValidationResult.success(warnings=tuple(warnings))
+
+
+class CitationMembershipRule:
+    """
+    Reject citations whose source_id is not a recognized source.
+
+    Unlike CitationRequiredRule and CitationFormatRule, this rule BLOCKS —
+    it returns errors, not warnings. A citation pointing at a fabricated
+    source_id is not a formatting nit, it's a hallucinated citation.
+
+    Implements the Rule protocol from the validation module.
+    """
+
+    def __init__(
+        self,
+        registry: SourceRegistry,
+        name: str = "citation_membership",
+    ) -> None:
+        """
+        Initialize the membership rule.
+
+        Args:
+            registry: SourceRegistry to check source_id membership against.
+            name: Rule name.
+        """
+        self._registry = registry
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        """Unique identifier for this rule."""
+        return self._name
+
+    async def check(self, data: Any, context: JSON | None = None) -> ValidationResult:
+        """
+        Check that every cited source_id is known to the registry.
+
+        Accepts:
+        - Citation: checks its source_id
+        - CitedFact: checks each citation's source_id
+        - list[Citation] | list[CitedFact]: checks every item
+        - str: the DAGExecutor stringifies NodeResult.output before an
+          interceptor ever sees it (non-Pydantic outputs go through
+          str(output)); extract source_id=... from the dataclass repr
+
+        Returns ValidationResult with errors (blocking) for unknown sources.
+
+        Args:
+            data: The data to validate.
+            context: Optional context for validation.
+
+        Returns:
+            ValidationResult that fails when any source_id is unrecognized.
+        """
+        # Import here to avoid circular imports
+        from cemaf.citation.models import Citation, CitedFact
+
+        citations_to_check: list[Citation] = []
+        cited_ids: list[tuple[str, str]] = []  # (citation_id, source_id) for str-repr inputs
+
+        if isinstance(data, Citation):
+            citations_to_check = [data]
+        elif isinstance(data, CitedFact):
+            citations_to_check = list(data.citations)
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, Citation):
+                    citations_to_check.append(item)
+                elif isinstance(item, CitedFact):
+                    citations_to_check.extend(item.citations)
+        elif isinstance(data, str):
+            citation_ids = _CITATION_ID_REPR_RE.findall(data)
+            source_ids = _SOURCE_ID_REPR_RE.findall(data)
+            cited_ids = list(zip(citation_ids, source_ids, strict=False))
+
+        errors: list[ValidationError] = []
+        for citation in citations_to_check:
+            if not self._registry.is_known(citation.source_id):
+                errors.append(
+                    ValidationError(
+                        code="UNKNOWN_SOURCE",
+                        message=f"Citation {citation.id} cites unknown source_id: {citation.source_id}",
+                        field="source_id",
+                        value=citation.source_id,
+                        suggestion="Cite a source_id present in the configured SourceRegistry",
+                    )
+                )
+        for citation_id, source_id in cited_ids:
+            if not self._registry.is_known(source_id):
+                errors.append(
+                    ValidationError(
+                        code="UNKNOWN_SOURCE",
+                        message=f"Citation {citation_id} cites unknown source_id: {source_id}",
+                        field="source_id",
+                        value=source_id,
+                        suggestion="Cite a source_id present in the configured SourceRegistry",
+                    )
+                )
+
+        if errors:
+            return ValidationResult.failure(errors=tuple(errors))
+        return ValidationResult.success()
