@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-07-04
+
+**V3 public release on `main`.**
+
+This patch release publishes the verified v3 release state after reconciling the
+previous `main` line with the local-first/provider-defaults branch. PyPI already
+contained an earlier `3.0.0` build, so the corrected public package ships as
+`3.0.1`; package indexes are paperwork with a memory, annoyingly.
+
+**Changed:**
+- Package metadata now targets `3.0.1`.
+- Release evidence now reflects the merged `main` gate: `4117 passed`, no skipped
+  tests, 95 Markdown files checked for public imports, and 331 unique documented
+  `from cemaf...` imports.
+
 ## [3.0.0] - 2026-07-04
 
 **V3 public release for local-first, protocol-first context engineering.**
@@ -26,8 +41,8 @@ applications.
 - Documentation voice guide and v3 release readiness checklist.
 
 **Changed:**
-- Package metadata now targets `3.0.0` and marks the project as stable rather
-  than alpha-era packaging.
+- Package metadata targeted `3.0.0` and marked the project as stable rather than
+  alpha-era packaging.
 - Optional extras make HTTP-backed local and hosted adapters explicit
   (`cemaf[ollama]`, `cemaf[openai-compatible]`, `cemaf[gemini]`, etc.).
 - Public README and quickstart paths lead with local/offline defaults before

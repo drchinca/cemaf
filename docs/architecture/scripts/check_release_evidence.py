@@ -7,17 +7,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 EVIDENCE = ROOT / "docs/release_v3_evidence.md"
-EXPECTED_VERSION = "3.0.0"
+EXPECTED_VERSION = "3.0.1"
 
 REQUIRED_REQUIREMENTS = tuple(f"REQ-{idx:02d}" for idx in range(1, 16))
 
 REQUIRED_TEXT = (
     EXPECTED_VERSION,
-    "drchinca/CMF-00/freemium_defaults",
+    "drchinca/release/v3.0.1",
     "local/free-first",
-    "4067 passed",
-    "328 unique",
-    "550 total",
+    "4117 passed",
+    "331 unique",
+    "553 total",
     "check_doc_voice.py",
     "check_release_naming.py",
     "check_loop_ops.py",
