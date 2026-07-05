@@ -107,7 +107,7 @@ the command results, and the remaining human release decision.
 
 - README states the framework boundary clearly: substrate, not application.
 - README quick start works with local/free defaults.
-- Package metadata is `3.0.0`, and the changelog has the matching section.
+- Package metadata is `3.0.1`, and the changelog has the matching section.
 - `.env.example` does not default to paid or hosted providers.
 - `examples/README.md` identifies offline examples first.
 - Every public factory with `settings=` consumes settings or documents an

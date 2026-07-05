@@ -231,12 +231,11 @@ from cemaf.citation import CitationFormatRule
 
 rule = CitationFormatRule(
     require_url=True,
-    require_author=True,
-    min_confidence=0.8,
+    require_title=True,
 )
 
-result = rule.validate(citation)
-if not result.valid:
+result = await rule.check(citation)
+if not result.passed:
     print(result.errors)
 ```
 
@@ -248,7 +247,66 @@ Ensures facts have supporting citations:
 from cemaf.citation import CitationRequiredRule
 
 rule = CitationRequiredRule(min_citations=1)
-result = rule.validate(fact)
+result = await rule.check(fact)
+```
+
+`CitationRequiredRule` and `CitationFormatRule` are warning-oriented quality
+checks. They do not prove a cited source exists.
+
+### CitationMembershipRule
+
+`CitationMembershipRule` is the blocking source-membership check: every
+`source_id` in a citation must exist in an injected `SourceRegistry`. The default
+`StaticSourceRegistry` is an in-memory allow-list for small fixed source sets;
+larger applications can implement the same protocol over a database, ontology,
+retrieval index, or catalog service.
+
+```python
+from cemaf.citation import CitationMembershipRule, StaticSourceRegistry
+
+sources = StaticSourceRegistry.from_iterable(["doc_456", "rfc_8446"])
+rule = CitationMembershipRule(registry=sources)
+
+result = await rule.check(
+    {
+        "answer": "TLS 1.3 reduces handshake round trips.",
+        "citations": [
+            {
+                "id": "cite_001",
+                "source_id": "rfc_8446",
+                "source_type": "document",
+                "title": "The Transport Layer Security Protocol Version 1.3",
+            }
+        ],
+    }
+)
+assert result.passed
+```
+
+The rule recursively inspects `Citation`, `CitedFact`, `CitationRegistry`,
+Pydantic outputs, dataclasses, dict/JSON payloads, and nested lists. A fabricated
+`source_id` returns `ValidationResult.failure(...)`.
+
+To make membership enforcement block a DAG, use the evaluator bridge with the
+interceptor spine:
+
+```python
+from cemaf.citation import CitationMembershipEvaluator, StaticSourceRegistry
+from cemaf.interceptors import GateEvalInterceptor, create_interceptor_pipeline
+from cemaf.orchestration.services import RuntimeServices
+
+source_registry = StaticSourceRegistry.from_iterable(["doc_456"])
+pipeline = create_interceptor_pipeline(
+    interceptors=(
+        GateEvalInterceptor(
+            evaluators=(CitationMembershipEvaluator(registry=source_registry),),
+            node_pattern="draft_answer",
+            threshold=0.5,
+        ),
+    )
+)
+
+services = RuntimeServices(interceptor_pipeline=pipeline)
 ```
 
 ## Integration with Context Patches

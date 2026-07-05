@@ -16,7 +16,7 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 
 1. **Update version in `pyproject.toml`**
    ```toml
-   version = "3.0.0"  # Match the release tag
+   version = "3.0.1"  # Match the release tag
    ```
 
 2. **Update CHANGELOG.md**
@@ -26,14 +26,14 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 3. **Commit and push changes**
    ```bash
    git add pyproject.toml CHANGELOG.md
-   git commit -m "chore: release v3.0.0"
+   git commit -m "chore: release v3.0.1"
    git push origin main
    ```
 
 4. **Create a GitHub Release**
    - Go to: https://github.com/drchinca/cemaf/releases/new
-   - Tag: `v3.0.0` (must start with `v`)
-   - Title: `v3.0.0`
+   - Tag: `v3.0.1` (must start with `v`)
+   - Title: `v3.0.1`
    - Description: Copy from CHANGELOG.md for this version
    - Click "Publish release"
 
@@ -122,11 +122,11 @@ CEMAF follows [Semantic Versioning](https://semver.org/):
 - **PATCH** version (3.0.1): Bug fixes, backwards compatible
 
 **Current Status:**
-- Version: `3.0.0`
+- Version: `3.0.1`
 - Status: Public v3 release
 
 **Version Progression:**
-- Public v3: `3.0.0`
+- Public v3: `3.0.1`
 - Patch releases: `3.0.x`
 
 ## Release Checklist
