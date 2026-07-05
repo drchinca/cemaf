@@ -35,8 +35,9 @@ class _CiteGoal(BaseModel):
 class _Cite:
     """Emits a citation to a configurable source_id."""
 
-    def __init__(self, source_id: str) -> None:
+    def __init__(self, source_id: str, *, as_payload: bool = False) -> None:
         self._source_id = source_id
+        self._as_payload = as_payload
 
     @property
     def id(self) -> AgentID:
@@ -50,13 +51,21 @@ class _Cite:
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: _CiteGoal, context: AgentContext) -> AgentResult[Citation]:
+    async def run(self, goal: _CiteGoal, context: AgentContext) -> AgentResult[Citation | dict[str, object]]:
         citation = Citation(
             id="cite-under-test",
             source_id=self._source_id,
             source_type="document",
             title="Under test",
         )
+        if self._as_payload:
+            return AgentResult.ok(
+                output={
+                    "answer": "The claim is supported by a citation.",
+                    "citations": [citation.to_dict()],
+                },
+                state=AgentState(),
+            )
         return AgentResult.ok(output=citation, state=AgentState())
 
 
@@ -132,6 +141,23 @@ async def test_fabricated_citation_blocks_downstream() -> None:
     assert cite_result.success is False
     assert cite_result.metadata["interceptors"]["gate_rejected"] is True
     assert ran == []  # downstream 'use' never executed — the fabricated citation was BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_fabricated_citation_in_answer_payload_blocks_downstream() -> None:
+    citer, ran = _Cite("fabricated-source", as_payload=True), []
+    executor = create_executor(
+        agent_registry=_registry(citer, ran),
+        config=ExecutorConfig(enable_events=False),
+        services=RuntimeServices(interceptor_pipeline=_membership_gate_pipeline()),
+    )
+    run = await executor.run(dag=_dag())
+
+    cite_result = next(r for r in run.node_results if r.node_id == NodeID("cite"))
+    assert cite_result.success is False
+    assert cite_result.metadata["interceptors"]["gate_rejected"] is True
+    assert "fabricated-source" in str(cite_result.metadata["interceptors"]["reason"])
+    assert ran == []
 
 
 @pytest.mark.asyncio

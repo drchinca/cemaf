@@ -3,6 +3,7 @@
 from datetime import datetime
 
 import pytest
+from pydantic import BaseModel
 
 from cemaf.citation.eval import CitationMembershipEvaluator
 from cemaf.citation.factories import (
@@ -1035,6 +1036,91 @@ class TestCitationMembershipRule:
         assert result.passed is False
         assert len(result.errors) == 1
         assert "cite-2" in result.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_dict_payload_with_nested_unknown_source_blocks(self) -> None:
+        """Test common JSON answer payloads are enforced, not only Citation objects."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        payload = {
+            "answer": "grounded claim",
+            "sections": [
+                {
+                    "citations": [
+                        create_mock_citation(id="cite-good", source_id="doc-001").to_dict(),
+                        create_mock_citation(id="cite-fake", source_id="not-in-registry").to_dict(),
+                    ]
+                }
+            ],
+        }
+
+        result = await rule.check(payload)
+
+        assert result.passed is False
+        assert len(result.errors) == 1
+        assert result.errors[0].value == "not-in-registry"
+        assert "cite-fake" in result.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_stringified_payload_with_unknown_source_blocks(self) -> None:
+        """Test executor-stringified answer payloads are inspected."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        payload = {
+            "answer": "grounded claim",
+            "citations": [create_mock_citation(id="cite-fake", source_id="fake-doc").to_dict()],
+        }
+
+        result = await rule.check(str(payload))
+
+        assert result.passed is False
+        assert result.errors[0].value == "fake-doc"
+        assert "cite-fake" in result.errors[0].message
+
+    @pytest.mark.asyncio
+    async def test_citation_registry_with_unknown_source_blocks(self) -> None:
+        """Test CitationRegistry contents are enforced."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        citation_registry = CitationRegistry()
+        citation_registry.register(create_mock_citation(id="cite-good", source_id="doc-001"))
+        citation_registry.register(create_mock_citation(id="cite-fake", source_id="fake-doc"))
+
+        result = await rule.check(citation_registry)
+
+        assert result.passed is False
+        assert result.errors[0].value == "fake-doc"
+
+    @pytest.mark.asyncio
+    async def test_pydantic_payload_with_unknown_source_blocks(self) -> None:
+        """Test Pydantic agent outputs are inspected through model_dump()."""
+
+        class AnswerPayload(BaseModel):
+            text: str
+            citations: list[dict[str, object]]
+
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+        payload = AnswerPayload(
+            text="grounded claim",
+            citations=[create_mock_citation(id="cite-fake", source_id="fake-doc").to_dict()],
+        )
+
+        result = await rule.check(payload)
+
+        assert result.passed is False
+        assert result.errors[0].value == "fake-doc"
+
+    @pytest.mark.asyncio
+    async def test_invalid_source_id_shape_blocks(self) -> None:
+        """Test citation-shaped mappings with empty/non-string source_id are not accepted."""
+        registry = StaticSourceRegistry.from_iterable(["doc-001"])
+        rule = CitationMembershipRule(registry=registry)
+
+        result = await rule.check({"id": "cite-empty", "source_id": "", "source_type": "document"})
+
+        assert result.passed is False
+        assert result.errors[0].value == ""
 
     @pytest.mark.asyncio
     async def test_no_citations_passes(self) -> None:

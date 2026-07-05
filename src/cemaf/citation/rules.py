@@ -5,8 +5,12 @@ Provides rules for validating citations in content.
 These rules implement the Rule protocol from the validation module.
 """
 
+import ast
+import json
 import re
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, is_dataclass
+from typing import Any, cast
 
 from cemaf.citation.registry import SourceRegistry
 from cemaf.core.types import JSON
@@ -16,8 +20,63 @@ from cemaf.validation.protocols import (
     ValidationWarning,
 )
 
-_CITATION_ID_REPR_RE = re.compile(r"(?<![a-z_])id='([^']*)'")
-_SOURCE_ID_REPR_RE = re.compile(r"source_id='([^']*)'")
+_CITATION_ID_REPR_RE = re.compile(r"(?<![a-z_])id=['\"]([^'\"]*)['\"]")
+_SOURCE_ID_REPR_RE = re.compile(r"source_id=['\"]([^'\"]*)['\"]")
+
+
+@dataclass(frozen=True)
+class _CitationRef:
+    citation_id: str
+    source_id: object
+
+
+def _looks_like_citation_mapping(data: Mapping[str, object]) -> bool:
+    if "source_id" not in data:
+        return False
+    citation_keys = {
+        "id",
+        "source_type",
+        "title",
+        "url",
+        "author",
+        "date",
+        "page",
+        "section",
+        "quote",
+        "confidence",
+        "retrieved_at",
+        "agent_id",
+        "node_id",
+        "context_path",
+        "provenance_link_id",
+    }
+    return any(key in data for key in citation_keys)
+
+
+def _source_refs_from_string(data: str) -> list[_CitationRef]:
+    source_ids = _SOURCE_ID_REPR_RE.findall(data)
+    citation_ids = _CITATION_ID_REPR_RE.findall(data)
+    refs: list[_CitationRef] = []
+    for idx, source_id in enumerate(source_ids):
+        citation_id = citation_ids[idx] if idx < len(citation_ids) else "<unknown>"
+        refs.append(_CitationRef(citation_id=citation_id, source_id=source_id))
+    return refs
+
+
+def _literal_payload_from_string(data: str) -> object | None:
+    stripped = data.strip()
+    if not stripped or stripped[0] not in "[{":
+        return None
+
+    try:
+        return cast(object, json.loads(stripped))
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        return cast(object, ast.literal_eval(stripped))
+    except (MemoryError, RecursionError, SyntaxError, TypeError, ValueError):
+        return None
 
 
 class CitationRequiredRule:
@@ -253,10 +312,11 @@ class CitationMembershipRule:
         Accepts:
         - Citation: checks its source_id
         - CitedFact: checks each citation's source_id
-        - list[Citation] | list[CitedFact]: checks every item
-        - str: the DAGExecutor stringifies NodeResult.output before an
-          interceptor ever sees it (non-Pydantic outputs go through
-          str(output)); extract source_id=... from the dataclass repr
+        - CitationRegistry: checks all registered citations
+        - list/tuple/set: recursively checks nested citations
+        - dict / JSON payloads: recursively checks citation-shaped mappings
+        - Pydantic/dataclass payloads: recursively checks serialized fields
+        - str: extracts source_id=... from dataclass-style reprs as a fallback
 
         Returns ValidationResult with errors (blocking) for unknown sources.
 
@@ -268,44 +328,14 @@ class CitationMembershipRule:
             ValidationResult that fails when any source_id is unrecognized.
         """
         # Import here to avoid circular imports
-        from cemaf.citation.models import Citation, CitedFact
-
-        citations_to_check: list[Citation] = []
-        cited_ids: list[tuple[str, str]] = []  # (citation_id, source_id) for str-repr inputs
-
-        if isinstance(data, Citation):
-            citations_to_check = [data]
-        elif isinstance(data, CitedFact):
-            citations_to_check = list(data.citations)
-        elif isinstance(data, list):
-            for item in data:
-                if isinstance(item, Citation):
-                    citations_to_check.append(item)
-                elif isinstance(item, CitedFact):
-                    citations_to_check.extend(item.citations)
-        elif isinstance(data, str):
-            citation_ids = _CITATION_ID_REPR_RE.findall(data)
-            source_ids = _SOURCE_ID_REPR_RE.findall(data)
-            cited_ids = list(zip(citation_ids, source_ids, strict=False))
-
         errors: list[ValidationError] = []
-        for citation in citations_to_check:
-            if not self._registry.is_known(citation.source_id):
+        for citation_ref in self._collect_source_refs(data):
+            source_id = citation_ref.source_id
+            if not isinstance(source_id, str) or not source_id or not self._registry.is_known(source_id):
                 errors.append(
                     ValidationError(
                         code="UNKNOWN_SOURCE",
-                        message=f"Citation {citation.id} cites unknown source_id: {citation.source_id}",
-                        field="source_id",
-                        value=citation.source_id,
-                        suggestion="Cite a source_id present in the configured SourceRegistry",
-                    )
-                )
-        for citation_id, source_id in cited_ids:
-            if not self._registry.is_known(source_id):
-                errors.append(
-                    ValidationError(
-                        code="UNKNOWN_SOURCE",
-                        message=f"Citation {citation_id} cites unknown source_id: {source_id}",
+                        message=(f"Citation {citation_ref.citation_id} cites unknown source_id: {source_id}"),
                         field="source_id",
                         value=source_id,
                         suggestion="Cite a source_id present in the configured SourceRegistry",
@@ -315,3 +345,57 @@ class CitationMembershipRule:
         if errors:
             return ValidationResult.failure(errors=tuple(errors))
         return ValidationResult.success()
+
+    def _collect_source_refs(self, data: Any) -> list[_CitationRef]:
+        from cemaf.citation.models import Citation, CitationRegistry, CitedFact
+
+        if isinstance(data, Citation):
+            return [_CitationRef(citation_id=data.id, source_id=data.source_id)]
+
+        if isinstance(data, CitedFact):
+            refs: list[_CitationRef] = []
+            for citation in data.citations:
+                refs.extend(self._collect_source_refs(citation))
+            return refs
+
+        if isinstance(data, CitationRegistry):
+            refs = []
+            for citation in data.get_all_citations():
+                refs.extend(self._collect_source_refs(citation))
+            return refs
+
+        if isinstance(data, str):
+            payload = _literal_payload_from_string(data)
+            if payload is not None:
+                return self._collect_source_refs(payload)
+            return _source_refs_from_string(data)
+
+        if isinstance(data, Mapping):
+            refs = []
+            if _looks_like_citation_mapping(data):
+                refs.append(
+                    _CitationRef(
+                        citation_id=str(data.get("id", "<unknown>")),
+                        source_id=data.get("source_id"),
+                    )
+                )
+            for value in data.values():
+                refs.extend(self._collect_source_refs(value))
+            return refs
+
+        if isinstance(data, list | tuple | set | frozenset):
+            refs = []
+            for item in data:
+                refs.extend(self._collect_source_refs(item))
+            return refs
+
+        if hasattr(data, "model_dump"):
+            dumped = data.model_dump()
+            if isinstance(dumped, Mapping):
+                return self._collect_source_refs(dumped)
+
+        if is_dataclass(data) and not isinstance(data, type):
+            dumped = asdict(data)
+            return self._collect_source_refs(dumped)
+
+        return []
