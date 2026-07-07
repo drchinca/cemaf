@@ -1,47 +1,26 @@
 """SQLite-backed persistent FsmStore implementation.
 
-Durable FSM persistence for single-host deployments, mirroring the connection
-discipline of `cemaf.memory.sqlite_store`:
+Durable FSM persistence for single-host deployments:
 - One long-lived aiosqlite connection per store instance (opened lazily)
 - WAL journal mode for concurrent readers + one writer without blocking
-- busy_timeout so SQLITE_BUSY turns into a bounded wait instead of an error
-- asyncio.Lock serializes in-process writes to the connection
-- a process-global writer lane (per db path) serializes writes across separate
-  store instances / event loops / threads pointed at the same database
+- busy_timeout so cross-connection contention becomes a bounded wait, not an error
+- asyncio.Lock serializes writes within the event loop
 - explicit close() for graceful shutdown
 
 Optimistic locking matches InMemoryFsmStore exactly: a missing row counts as
-version 0, and a `save(expected_version=...)` mismatch raises VersionConflict.
+version 0, and a `save(expected_version=...)` mismatch raises VersionConflict —
+that check, not any in-process write lock, is what prevents lost updates across
+connections.
 """
 
 from __future__ import annotations
 
 import asyncio
-import threading
-from pathlib import Path
 
 import aiosqlite
 
 from cemaf.state.errors import VersionConflict
 from cemaf.state.transitions import FsmState
-
-# Process-global writer locks keyed by absolute db path — same rationale as
-# cemaf.memory.sqlite_store: a per-instance asyncio.Lock only serializes within
-# one event loop; instances on different loops/threads need a shared OS lock.
-_WRITER_LANES: dict[str, threading.Lock] = {}
-_WRITER_LANES_GUARD = threading.Lock()
-
-
-def _writer_lane(db_path: str) -> threading.Lock:
-    """Return the process-global write lock for a db path (in-memory dbs excepted)."""
-    key = str(Path(db_path).resolve()) if db_path != ":memory:" else db_path
-    with _WRITER_LANES_GUARD:
-        lane = _WRITER_LANES.get(key)
-        if lane is None:
-            lane = threading.Lock()
-            _WRITER_LANES[key] = lane
-        return lane
-
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS fsm_states (
@@ -75,7 +54,6 @@ class SqliteFsmStore:
         self._journal_mode = journal_mode
         self._conn: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
-        self._writer_lane = _writer_lane(db_path)
 
     async def __aenter__(self) -> SqliteFsmStore:
         """Allow `async with` usage for deterministic connection cleanup."""
@@ -97,28 +75,17 @@ class SqliteFsmStore:
             if self._conn is not None:  # double-check after acquire
                 return self._conn
             conn = await aiosqlite.connect(self._db_path)
-            await self._acquire_writer_lane()
-            try:
-                await conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
-                await conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
-                await conn.execute("PRAGMA synchronous=NORMAL")
-                await conn.execute(_CREATE_TABLE)
-                await conn.execute(_CREATE_INDEX_STATE)
-                await conn.commit()
-            finally:
-                self._release_writer_lane()
+            # WAL + busy_timeout give concurrent readers + a single bounded-wait
+            # writer; the optimistic version check guards correctness across
+            # connections, so no cross-instance write lock is needed.
+            await conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
+            await conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            await conn.execute(_CREATE_TABLE)
+            await conn.execute(_CREATE_INDEX_STATE)
+            await conn.commit()
             self._conn = conn
         return self._conn
-
-    async def _acquire_writer_lane(self) -> None:
-        """Acquire the process-global write lock without blocking the event loop."""
-        backoff = 0.0005
-        while not self._writer_lane.acquire(blocking=False):
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 0.05)
-
-    def _release_writer_lane(self) -> None:
-        self._writer_lane.release()
 
     async def close(self) -> None:
         """Close the underlying connection. Idempotent."""
@@ -142,36 +109,32 @@ class SqliteFsmStore:
     async def save(self, *, state: FsmState, expected_version: int) -> FsmState:
         """Persist under optimistic lock — a missing row counts as version 0."""
         conn = await self._connection()
-        await self._acquire_writer_lane()
-        try:
-            async with self._lock:
-                async with conn.execute(
-                    "SELECT version FROM fsm_states WHERE fsm_kind = ? AND fsm_id = ?",
-                    (state.fsm_kind, state.fsm_id),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                current_version = int(row[0]) if row is not None else 0
-                if current_version != expected_version:
-                    raise VersionConflict(
-                        f"expected_version={expected_version} but stored={current_version} "
-                        f"for {(state.fsm_kind, state.fsm_id)!r}"
-                    )
-                await conn.execute(
-                    "INSERT OR REPLACE INTO fsm_states "
-                    "(fsm_kind, fsm_id, current_state, version, state_json, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        state.fsm_kind,
-                        state.fsm_id,
-                        state.current_state,
-                        state.version,
-                        state.model_dump_json(),
-                        state.updated_at.isoformat(),
-                    ),
+        async with self._lock:
+            async with conn.execute(
+                "SELECT version FROM fsm_states WHERE fsm_kind = ? AND fsm_id = ?",
+                (state.fsm_kind, state.fsm_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            current_version = int(row[0]) if row is not None else 0
+            if current_version != expected_version:
+                raise VersionConflict(
+                    f"expected_version={expected_version} but stored={current_version} "
+                    f"for {(state.fsm_kind, state.fsm_id)!r}"
                 )
-                await conn.commit()
-        finally:
-            self._release_writer_lane()
+            await conn.execute(
+                "INSERT OR REPLACE INTO fsm_states "
+                "(fsm_kind, fsm_id, current_state, version, state_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    state.fsm_kind,
+                    state.fsm_id,
+                    state.current_state,
+                    state.version,
+                    state.model_dump_json(),
+                    state.updated_at.isoformat(),
+                ),
+            )
+            await conn.commit()
         return state
 
     async def list(self, *, kind: str, current_state: str | None = None) -> list[FsmState]:
