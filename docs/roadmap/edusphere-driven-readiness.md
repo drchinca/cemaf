@@ -32,6 +32,7 @@ roadmap does that systematically for M2→M4.
 | Vertex Gemini Flash/Pro adapter | M2/M3 | `llm.GeminiClient(use_vertex=True)` → aiplatform endpoint | ✅ | none (reused) |
 | Retry / circuit-breaker on every cloud call | M1+ | `resilience` (retry, breaker, rate limiter) | ✅ | none (reused) |
 | Cost/latency/prompt tracing | M1+ | `observability` structured logger + token telemetry | ✅ | none (reused) |
+| Local model for ADR 0011 v0.5 rung (Ollama local/tiered/cloud) + deterministic mock Maker backing | E8 | `llm.ollama` (local + tiered router) · `ollama-cloud` backend (ollama.com/v1, bearer auth) · `MockLLMClient` — **all 100% line+branch covered** incl. the resilient-factory wiring | ✅ | **DONE** (R8) |
 | **Constrained decoding — force Maker output to a schema** | **M2** | `LLMConfig`/Gemini `_generation_config` have **no `response_schema`/`responseMimeType`**; only post-hoc `ResponseParser` | **🔧** | **R3 — planned, M2 blocker candidate** |
 | Nightly batch scheduling for the Checker | M3 | `scheduler`: `CronTrigger`/`IntervalTrigger`/`NightShiftTrigger` + `JobStore` + `LockGate` (idempotent single-run) | ✅ | none (reused) |
 | Cloud Tasks as the trigger source | M3 | trigger protocol + in-memory/nightshift triggers only | 🔧 | R4 — thin `Trigger` adapter (or keep in Edusphere `integrations/`) |
@@ -54,6 +55,7 @@ Ticket IDs are CEMAF-side; the "unblocks" column points at Edusphere
 |---|---|---|---|
 | **R1** | `SqliteFsmStore` — durable FsmStore backend (`backend="sqlite"`), optimistic-lock parity with InMemory | **Done** (this branch) | Guardrail durability; E4-T03 template |
 | **R2** | Lazy `cemaf.llm` exports (PEP 562) — protocol imports no longer load provider adapters + httpx | **Done** (this branch) | E4-T01 Guardrail purity gate |
+| **R8** | Ollama local/tiered/cloud + MockLLMClient hardened to 100% line+branch coverage (module + factory wiring: env auto-resolution, cloud bearer auth, missing-key error, tiered routing) | **Done** (this branch) | Edusphere **E8-T04/T07** (mock Maker + `run-emulated` Ollama rung) |
 
 ### Before the M2 freeze
 
