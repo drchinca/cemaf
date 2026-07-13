@@ -19,6 +19,7 @@ async def test_three_disposable_pipelines_survive_worker_loss_under_load(tmp_pat
     assert summary["healed"] == 60
     assert summary["replay_matches"] == 60
     assert summary["checkpoint_files"] == 60
+    assert summary["idempotent_effects"] == 60
     assert summary["attempt_trace_dirs"] == 120
     assert summary["abandoned_worker_traces"] == 60
     assert summary["lineage_patches"] == 240

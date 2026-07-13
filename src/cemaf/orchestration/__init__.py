@@ -55,6 +55,13 @@ from cemaf.orchestration.executor import (
 from cemaf.orchestration.factories import create_dag_executor, create_dag_executor_from_config
 from cemaf.orchestration.file_checkpointer import FileCheckpointer
 from cemaf.orchestration.planner import Planner
+from cemaf.orchestration.run_lease import (
+    FencedCheckpointer,
+    FileRunLeaseStore,
+    RunLease,
+    RunLeaseStore,
+    StaleRunLeaseError,
+)
 
 __all__ = [
     "DAG",
@@ -77,6 +84,11 @@ __all__ = [
     "DAGCheckpoint",
     "InMemoryCheckpointer",
     "FileCheckpointer",
+    "RunLease",
+    "RunLeaseStore",
+    "FileRunLeaseStore",
+    "FencedCheckpointer",
+    "StaleRunLeaseError",
     # Factories
     "create_dag_executor",
     "create_dag_executor_from_config",

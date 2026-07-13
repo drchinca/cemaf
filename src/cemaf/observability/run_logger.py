@@ -22,6 +22,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from cemaf.core.types import JSON
 from cemaf.core.utils import generate_id, safe_json, utc_now
+from cemaf.persistence.atomic_file import atomic_write_text
 
 
 @dataclass(frozen=True)
@@ -480,7 +481,7 @@ class FileRunLogger(InMemoryRunLogger):
 
     def _write_json(self, path: Path, payload: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(safe_json(payload), indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(safe_json(payload), indent=2))
 
     def get_run_dir(self, run_id: str) -> Path:
         return self._run_dirs.get(run_id, self._root / self._default_dir_name(run_id, ""))

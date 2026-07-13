@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -16,6 +17,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -32,7 +34,14 @@ from cemaf.orchestration.checkpointer import CheckpointingDAGExecutor, DAGCheckp
 from cemaf.orchestration.executor import DAGExecutor
 from cemaf.orchestration.file_checkpointer import FileCheckpointer
 from cemaf.orchestration.results import NodeResult
+from cemaf.orchestration.run_lease import (
+    FencedCheckpointer,
+    FileRunLeaseStore,
+    RunLease,
+    RunLeaseStore,
+)
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.persistence.idempotency import FileIdempotentEffectSink
 from cemaf.replay.replayer import Replayer, ReplayMode
 from examples.app_shapes.disposable_workers_durable_companion import build_pipeline
 
@@ -40,10 +49,21 @@ from examples.app_shapes.disposable_workers_durable_companion import build_pipel
 class ProcessNodeExecutor:
     """Domain executor with process-kill and duplicate-resume barriers."""
 
-    def __init__(self, *, root: Path, worker_id: str, mode: str) -> None:
+    def __init__(
+        self,
+        *,
+        root: Path,
+        worker_id: str,
+        mode: str,
+        lease_store: RunLeaseStore,
+        lease: RunLease,
+    ) -> None:
         self._root = root
         self._worker_id = worker_id
         self._mode = mode
+        self._lease_store = lease_store
+        self._lease = lease
+        self._effects = FileIdempotentEffectSink(root / "effects")
 
     async def execute_node(self, node, context: Context) -> NodeResult:  # type: ignore[no-untyped-def]
         node_id = str(node.id)
@@ -65,10 +85,12 @@ class ProcessNodeExecutor:
             output = {"value": str(source["value"]).upper(), "worker_id": self._worker_id}
         elif node_id == "publish":
             transformed = inputs["transformed"]
-            with (self._root / "external-effects.log").open("a", encoding="utf-8") as handle:
-                handle.write(f"{self._worker_id}:{transformed['value']}\n")
-                handle.flush()
-                os.fsync(handle.fileno())
+            if not await self._lease_store.validate(self._lease):
+                return NodeResult(node_id=node.id, success=False, error="stale publish lease")
+            await self._effects.publish(
+                key=f"{context.get('workflow_run_id')}:publish",
+                payload={"value": transformed["value"]},
+            )
             output = {"value": transformed["value"], "worker_id": self._worker_id}
         else:
             return NodeResult(node_id=node.id, success=False, error=f"unknown node {node_id}")
@@ -87,11 +109,28 @@ class ProcessNodeExecutor:
 async def _worker_main(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     run_id = RunID(args.run_id)
-    checkpointer = FileCheckpointer(root / "checkpoints", max_checkpoints=0)
+    lease_store = FileRunLeaseStore(root / "leases")
+    lease = await lease_store.acquire(
+        run_id,
+        args.worker_id,
+        ttl=timedelta(seconds=0.5),
+    )
+    if lease is None:
+        (root / f"result-{args.worker_id}.json").write_text(
+            json.dumps({"status": "claim_rejected", "error": "active run lease"}),
+            encoding="utf-8",
+        )
+        return
+    raw_checkpointer = FileCheckpointer(root / "checkpoints", max_checkpoints=0)
+    checkpointer = FencedCheckpointer(
+        inner=raw_checkpointer,
+        lease_store=lease_store,
+        lease=lease,
+    )
     initial = Context(data={"workflow_run_id": str(run_id), "payload": f"payload-{run_id}"})
     trace_initial = initial
     if args.action == "resume":
-        checkpoint = await checkpointer.load(run_id)
+        checkpoint = await raw_checkpointer.load(run_id)
         if checkpoint is None:
             raise RuntimeError(f"missing checkpoint for {run_id}")
         trace_initial = checkpoint.context
@@ -102,7 +141,13 @@ async def _worker_main(args: argparse.Namespace) -> None:
         initial_context=trace_initial,
     )
     base = DAGExecutor(
-        node_executor=ProcessNodeExecutor(root=root, worker_id=args.worker_id, mode=args.mode),
+        node_executor=ProcessNodeExecutor(
+            root=root,
+            worker_id=args.worker_id,
+            mode=args.mode,
+            lease_store=lease_store,
+            lease=lease,
+        ),
         services=RuntimeServices(run_logger=logger),
     )
     executor = CheckpointingDAGExecutor(
@@ -130,6 +175,7 @@ async def _worker_main(args: argparse.Namespace) -> None:
         ),
         encoding="utf-8",
     )
+    await lease_store.release(lease)
 
 
 def _spawn_worker(
@@ -189,6 +235,7 @@ def _kill_after_checkpoint(*, root: Path, run_id: str, worker_id: str) -> dict[s
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     process.send_signal(signal.SIGKILL)
     _communicate(process)
+    time.sleep(0.55)
     return {
         "exit_code": process.returncode,
         "checkpoint_status": checkpoint["status"],
@@ -223,7 +270,7 @@ def _single_owner_sigkill(root: Path) -> dict[str, Any]:
     stdout, stderr = _communicate(replacement)
     result_path = root / "result-replacement-process.json"
     result = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {}
-    effects = (root / "external-effects.log").read_text(encoding="utf-8").splitlines()
+    effects = list((root / "effects").glob("*.effect.json"))
     trace_replay = _load_trace_replay(
         root=root,
         run_id=run_id,
@@ -264,12 +311,22 @@ def _duplicate_resume(root: Path) -> dict[str, Any]:
         )
         for index in range(2)
     ]
-    for index in range(2):
-        _wait_for(root / f"ready-racer-{index}")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        ready = list(root.glob("ready-racer-*"))
+        rejected = [
+            path
+            for path in root.glob("result-racer-*.json")
+            if json.loads(path.read_text(encoding="utf-8")).get("status") == "claim_rejected"
+        ]
+        if len(ready) == 1 and len(rejected) == 1:
+            break
+        time.sleep(0.01)
+    else:
+        raise TimeoutError("racers did not resolve to one owner and one rejection")
     (root / "release-racers").write_text("go", encoding="utf-8")
     process_output = [_communicate(process) for process in racers]
-    effects_path = root / "external-effects.log"
-    effects = effects_path.read_text(encoding="utf-8").splitlines() if effects_path.exists() else []
+    effects = list((root / "effects").glob("*.effect.json"))
     completed_results = 0
     for index in range(2):
         result_path = root / f"result-racer-{index}.json"
@@ -287,12 +344,15 @@ def _duplicate_resume(root: Path) -> dict[str, Any]:
     }
 
 
-def _broken_write(self: Path, data: str, encoding: str | None = None, **_: Any) -> int:
-    with self.open("w", encoding=encoding or "utf-8") as handle:
-        handle.write(data[:17])
-        handle.flush()
-        os.fsync(handle.fileno())
-    raise OSError("injected process loss during write")
+def _interrupt_replace_for(target: Path):  # type: ignore[no-untyped-def]
+    original_replace = os.replace
+
+    def interrupted_replace(source: str | Path, destination: str | Path) -> None:
+        if Path(destination) == target:
+            raise OSError("injected process loss before atomic replace")
+        original_replace(source, destination)
+
+    return interrupted_replace
 
 
 async def _checkpoint_interruption(root: Path) -> dict[str, Any]:
@@ -315,7 +375,8 @@ async def _checkpoint_interruption(root: Path) -> dict[str, Any]:
         pending_nodes=(),
         context=Context(data={"version": 2}),
     )
-    with patch.object(Path, "write_text", _broken_write):
+    target = root / "checkpoints" / f"{run_id}.json"
+    with patch.object(os, "replace", _interrupt_replace_for(target)):
         try:
             await checkpointer.save(newer)
         except OSError:
@@ -342,12 +403,12 @@ def _trace_interruption(root: Path) -> dict[str, Any]:
         source=PatchSource.SYSTEM,
         reason="red-team interrupted trace write",
     )
-    with patch.object(Path, "write_text", _broken_write):
+    live_path = logger.get_run_dir("torn-trace") / "run_record.live.json"
+    with patch.object(os, "replace", _interrupt_replace_for(live_path)):
         try:
             logger.record_patch(patch_item)
         except OSError:
             pass
-    live_path = logger.get_run_dir("torn-trace") / "run_record.live.json"
     last_good_trace_survived = False
     try:
         payload = json.loads(live_path.read_text(encoding="utf-8"))
@@ -357,6 +418,26 @@ def _trace_interruption(root: Path) -> dict[str, Any]:
     return {
         "status": "SURVIVED" if last_good_trace_survived else "BROKEN",
         "last_good_trace_preserved": last_good_trace_survived,
+    }
+
+
+async def _effect_interruption(root: Path) -> dict[str, Any]:
+    sink = FileIdempotentEffectSink(root / "effects")
+    key = "interrupted-effect:publish"
+    target = root / "effects" / f"{hashlib.sha256(key.encode()).hexdigest()}.effect.json"
+    with patch.object(os, "replace", _interrupt_replace_for(target)):
+        try:
+            await sink.publish(key=key, payload={"value": "once"})
+        except OSError:
+            pass
+    partial_effect_visible = target.exists()
+    receipt = await sink.publish(key=key, payload={"value": "once"})
+    recovered_once = receipt.created and len(list((root / "effects").glob("*.effect.json"))) == 1
+    survived = not partial_effect_visible and recovered_once
+    return {
+        "status": "SURVIVED" if survived else "BROKEN",
+        "partial_effect_visible": partial_effect_visible,
+        "retry_created_once": recovered_once,
     }
 
 
@@ -370,6 +451,7 @@ def run_red_team(root: str | Path) -> dict[str, Any]:
             _checkpoint_interruption(base / "checkpoint-interruption")
         ),
         "interrupted_trace_write": _trace_interruption(base / "trace-interruption"),
+        "interrupted_effect_write": asyncio.run(_effect_interruption(base / "effect-interruption")),
     }
     broken = [name for name, result in results.items() if result["status"] == "BROKEN"]
     return {

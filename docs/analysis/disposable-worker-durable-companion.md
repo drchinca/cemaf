@@ -36,6 +36,8 @@ uv run python benchmarks/red_team_durable_companion.py
 | Healing | `AutoHealManager`, `RecoveryStrategy` | Companion recovery policy injected through `RuntimeServices` |
 | Attempt tracing | `FileRunLogger`, `RunRecord` | Durable companion root |
 | Replay | `Replayer(PATCH_ONLY)` | Companion read path after workers are gone |
+| Exclusive ownership | `FileRunLeaseStore`, `RunLease`, `FencedCheckpointer` | Durable companion root |
+| Exactly-once local effect | `FileIdempotentEffectSink` | Idempotent destination keyed by workflow run |
 
 The test terminates every first-attempt worker with `CancelledError` immediately
 before the second node. The first node has already been checkpointed. It then
@@ -59,8 +61,9 @@ Local run on 2026-07-13:
 | Durable attempt-trace directories | 2,000 |
 | Abandoned dead-worker traces retained | 1,000 |
 | Unique lineage patches | 4,000 / 4,000 |
-| Elapsed time | 2,076.605 ms |
-| Throughput | 481.56 pipelines/s |
+| Idempotent effect receipts | 1,000 |
+| Elapsed time after durability hardening | 12,349.357 ms |
+| Throughput after durability hardening | 80.98 pipelines/s |
 
 The correctness counts are the acceptance criteria; throughput is supporting
 evidence only. This is a controlled positive profile, not the final durability
@@ -76,38 +79,39 @@ same run, and injects process loss during checkpoint and trace overwrites.
 |---|---|---|
 | One owner: OS-killed worker can be replaced | **SURVIVED** | Process exited `-9`; checkpoint retained `ingest`; replacement completed with one external effect. |
 | Completed attempt trace reloads and replays | **SURVIVED** | `RunRecord.from_dict` + patch-only replay matched the persisted final context. |
-| Duplicate resume is exactly-once | **BROKEN** | Both replacement processes completed and the external publish side effect occurred twice. |
-| Interrupted checkpoint overwrite preserves last good state | **BROKEN** | Partial write destroyed the previous parseable checkpoint. |
-| Interrupted trace overwrite preserves last good trace | **BROKEN** | Partial write destroyed the previous parseable live trace. |
+| Duplicate resume is exactly-once | **SURVIVED** | One replacement acquired the durable lease; the other was rejected. One effect receipt was created. |
+| Interrupted checkpoint overwrite preserves last good state | **SURVIVED** | The atomic replacement failed before commit and the previous checkpoint remained parseable. |
+| Interrupted trace overwrite preserves last good trace | **SURVIVED** | The atomic replacement failed before commit and the previous live trace remained parseable. |
+| Interrupted effect write is retryable and exactly-once | **SURVIVED** | No partial receipt became visible; retry created one durable effect. |
 
-Overall strong durability verdict: **BROKEN**. The 1,000-run green profile is
-valid only under its single-owner, uninterrupted-write assumptions.
+Current local-backend red-team verdict: **SURVIVED** with no broken invariants.
+This supersedes the earlier broken result that motivated the hardening work.
 
 ## Proven Boundary And Remaining Production Work
 
-This proves restart recovery for two or three concurrent workers on one host or
-a shared filesystem only when each run has one active owner and storage writes
-finish. It does not prove safe concurrent takeover or crash-consistent local
-storage.
+This proves restart recovery, exclusive takeover, fencing, crash-consistent
+replacement, and an idempotent local effect destination for two or three
+concurrent workers on a POSIX host or POSIX-compatible shared filesystem.
 
 For multi-process or multi-host deployment, keep the same `Checkpointer`,
 `RunLogger`, and `EventBus` protocol boundaries and replace the local backends
-with transactional shared storage. Add a lease/claim protocol before allowing
-two workers to resume the same run concurrently. CEMAF already provides the
-durable Redis Streams `RedisEventBus`; a production shared checkpointer and
-run-claim implementation remain deployment adapters, not agent responsibilities.
+with transactional shared storage implementing the same lease and checkpointer
+contracts. CEMAF already provides the durable Redis Streams `RedisEventBus`;
+production database/cloud adapters remain deployment responsibilities, not
+agent responsibilities.
 
-The concrete hardening requirements exposed by the test are:
+The hardening implemented after the first red-team failure is:
 
 1. Atomic checkpoint and trace replacement: write a temporary file, flush and
    `fsync`, atomically rename, then sync the parent directory while retaining a
    previous generation.
-2. A durable run lease with fencing tokens so a stale worker cannot checkpoint
-   or publish after another worker takes ownership.
-3. Idempotency keys or a transactional outbox for external effects. A lease by
-   itself cannot guarantee exactly-once behavior across a crash between publish
-   and checkpoint.
-4. Durable recovery detection/claiming outside application harness code.
+2. A durable run lease with monotonic fencing tokens; stale checkpoint writes
+   are rejected even if validation raced with takeover.
+3. An idempotent effect-sink protocol and crash-safe local destination. External
+   adapters must propagate the key to their destination or use an outbox.
+
+Automated recovery detection and scheduling remain deployment composition: the
+framework now makes takeover safe, but does not run a permanent supervisor.
 
 ## Pre-Rewrite Checklist
 

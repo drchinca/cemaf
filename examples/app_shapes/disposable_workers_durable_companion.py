@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
@@ -41,7 +42,9 @@ from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import DAGExecutor
 from cemaf.orchestration.file_checkpointer import FileCheckpointer
 from cemaf.orchestration.results import ExecutionResult, NodeResult
+from cemaf.orchestration.run_lease import FencedCheckpointer, FileRunLeaseStore
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.persistence.idempotency import FileIdempotentEffectSink
 from cemaf.replay.replayer import Replayer, ReplayMode
 
 
@@ -70,6 +73,7 @@ class DurableCompanion:
 
     root: Path
     checkpointer: FileCheckpointer
+    lease_store: FileRunLeaseStore
 
     @classmethod
     def create(cls, root: str | Path) -> DurableCompanion:
@@ -81,6 +85,7 @@ class DurableCompanion:
                 durable_root / "checkpoints",
                 max_checkpoints=0,
             ),
+            lease_store=FileRunLeaseStore(durable_root / "leases"),
         )
 
     @property
@@ -121,10 +126,12 @@ class PipelineNodeExecutor:
         worker_id: str,
         terminate_at: str | None = None,
         fail_publish_once: bool = False,
+        effect_sink: FileIdempotentEffectSink | None = None,
     ) -> None:
         self._worker_id = worker_id
         self._terminate_at = terminate_at
         self._fail_publish_once = fail_publish_once
+        self._effect_sink = effect_sink
 
     async def execute_node(self, node: Node, context: Context) -> NodeResult:
         if str(node.id) == self._terminate_at:
@@ -152,6 +159,11 @@ class PipelineNodeExecutor:
                     metadata={"exception_type": "TransientWorkerError"},
                 )
             transformed = inputs["transformed"]
+            if self._effect_sink is not None:
+                await self._effect_sink.publish(
+                    key=f"{context.get('workflow_run_id')}:publish",
+                    payload={"value": transformed["value"]},
+                )
             output = {
                 "value": transformed["value"],
                 "worker_id": self._worker_id,
@@ -181,21 +193,30 @@ class DisposableWorker:
         self._companion = companion
         self.worker_id = worker_id
         self._logger = companion.trace_logger()
-        services = RuntimeServices(
-            run_logger=self._logger,
-            auto_heal_manager=companion.recovery_manager(worker_id),
-        )
+        self._terminate_at = terminate_at
+        self._fail_publish_once = fail_publish_once
+        self._effect_sink = FileIdempotentEffectSink(companion.root / "effects")
+
+    def _executor_for(self, lease) -> CheckpointingDAGExecutor:  # type: ignore[no-untyped-def]
         base = DAGExecutor(
             node_executor=PipelineNodeExecutor(
-                worker_id=worker_id,
-                terminate_at=terminate_at,
-                fail_publish_once=fail_publish_once,
+                worker_id=self.worker_id,
+                terminate_at=self._terminate_at,
+                fail_publish_once=self._fail_publish_once,
+                effect_sink=self._effect_sink,
             ),
-            services=services,
+            services=RuntimeServices(
+                run_logger=self._logger,
+                auto_heal_manager=self._companion.recovery_manager(self.worker_id),
+            ),
         )
-        self._executor = CheckpointingDAGExecutor(
+        return CheckpointingDAGExecutor(
             base_executor=base,
-            checkpointer=companion.checkpointer,
+            checkpointer=FencedCheckpointer(
+                inner=self._companion.checkpointer,
+                lease_store=self._companion.lease_store,
+                lease=lease,
+            ),
             checkpoint_interval=1,
         )
 
@@ -207,6 +228,14 @@ class DisposableWorker:
         initial_context: Context,
         resume: bool,
     ) -> ExecutionResult:
+        lease = await self._companion.lease_store.acquire(
+            run_id,
+            self.worker_id,
+            ttl=timedelta(seconds=30),
+        )
+        if lease is None:
+            raise RuntimeError(f"run {run_id} already has an active worker")
+        executor = self._executor_for(lease)
         attempt_id = f"{run_id}__{self.worker_id}"
         trace_initial = initial_context
         if resume:
@@ -228,13 +257,14 @@ class DisposableWorker:
 
         try:
             result = (
-                await self._executor.resume(run_id, dag)
+                await executor.resume(run_id, dag)
                 if resume
-                else await self._executor.run(dag, initial_context, run_id)
+                else await executor.run(dag, initial_context, run_id)
             )
         except asyncio.CancelledError:
             # Deliberately do not close the run. The live trace on disk is the
             # evidence left by the dead process.
+            await self._companion.lease_store.release(lease)
             raise
 
         self._logger.end_run(
@@ -242,6 +272,7 @@ class DisposableWorker:
             success=result.status == RunStatus.COMPLETED,
             error=result.error,
         )
+        await self._companion.lease_store.release(lease)
         return result
 
 
@@ -410,6 +441,7 @@ async def run_experiment(
         "healed": healed,
         "replay_matches": sum(replay_matches),
         "checkpoint_files": len(list((companion.root / "checkpoints").glob("*.json"))),
+        "idempotent_effects": len(list((companion.root / "effects").glob("*.effect.json"))),
         "attempt_trace_dirs": len(trace_dirs),
         "abandoned_worker_traces": abandoned_traces,
         "lineage_patches": len(patch_ids),
@@ -423,6 +455,7 @@ async def run_experiment(
     assert healed == run_count
     assert all(replay_matches)
     assert summary["checkpoint_files"] == run_count
+    assert summary["idempotent_effects"] == run_count
     assert summary["attempt_trace_dirs"] == run_count * 2
     assert abandoned_traces == run_count
     assert len(patch_ids) == run_count * expected_patches_per_run

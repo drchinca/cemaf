@@ -37,6 +37,7 @@ class DAGCheckpoint:
     context: Context = field(default_factory=Context)  # Updated to Context
     error: str | None = None
     failed_node: NodeID | None = None
+    fencing_token: int = 0
 
     def can_resume(self) -> bool:
         """Check if this checkpoint can be resumed."""
