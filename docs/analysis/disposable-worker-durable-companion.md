@@ -33,7 +33,7 @@ uv run python benchmarks/red_team_durable_companion.py
 | Flow | `DAG`, `Node`, `Edge`, `DAGExecutor` | Disposable worker |
 | Checkpoints and resume | `CheckpointingDAGExecutor`, `FileCheckpointer` | Durable companion root |
 | Lineage | Immutable `Context` and `ContextPatch` history | Durable checkpoint |
-| Healing | `AutoHealManager`, `RecoveryStrategy` | Companion recovery policy injected through `RuntimeServices` |
+| Healing | `AutoHealManager`, `RecoveryStrategy` | Policy code is recreated in each worker; its resulting context patch is checkpointed |
 | Attempt tracing | `FileRunLogger`, `RunRecord` | Durable companion root |
 | Replay | `Replayer(PATCH_ONLY)` | Companion read path after workers are gone |
 | Exclusive ownership | `FileRunLeaseStore`, `RunLease`, `FencedCheckpointer` | Durable companion root |
@@ -44,6 +44,10 @@ before the second node. The first node has already been checkpointed. It then
 constructs a new `DurableCompanion` and a new worker from only the filesystem
 root, resumes the pending nodes, injects a transient publish error, heals it,
 and verifies deterministic replay against the completed checkpoint.
+
+This does not yet persist a first-class recovery ledger or atomically bind a
+recovery decision to checkpoint, journal, and effect intent. The enterprise
+coordinator must own that commit boundary.
 
 ## Stress Result
 
@@ -93,12 +97,18 @@ This proves restart recovery, exclusive takeover, fencing, crash-consistent
 replacement, and an idempotent local effect destination for two or three
 concurrent workers on a POSIX host or POSIX-compatible shared filesystem.
 
-For multi-process or multi-host deployment, keep the same `Checkpointer`,
-`RunLogger`, and `EventBus` protocol boundaries and replace the local backends
-with transactional shared storage implementing the same lease and checkpointer
-contracts. CEMAF already provides the durable Redis Streams `RedisEventBus`;
-production database/cloud adapters remain deployment responsibilities, not
-agent responsibilities.
+For multi-process or multi-host deployment, the separate `Checkpointer`,
+`RunLogger`, lease store, and effect sink are not a sufficient production
+boundary: they cannot share one atomic commit. The production path is the
+backend-independent `DurableRunCoordinator` backed by one transactional
+`RuntimeAuthority`; a separate `CompanionRuntime` discovers abandoned work,
+dispatches the outbox, and updates projections. See the
+[durable execution injection decision](../architecture/durable-execution-injection-decision.md).
+
+The current harness also launches its replacement explicitly. It proves that a
+replacement *can* recover from persisted state, but not that production work
+discovery will notice and schedule an abandoned run. The enterprise contract
+must add durable queued/expired-work discovery and test that path end to end.
 
 The hardening implemented after the first red-team failure is:
 
@@ -119,8 +129,10 @@ framework now makes takeover safe, but does not run a permanent supervisor.
    already own the required concerns.
 2. The proof uses their public DAG, service, checkpoint, run-record, and replay
    contracts rather than defining a second orchestration loop or trace format.
-3. Cross-cutting healing and tracing are injected through `RuntimeServices`;
-   checkpoint storage is supplied through the `Checkpointer` protocol.
+3. In this local proof, cross-cutting healing and tracing are injected through
+   `RuntimeServices`, while checkpoint storage uses the `Checkpointer`
+   protocol. The enterprise path replaces these independent write paths with
+   one injected durable coordinator and one authority transaction.
 4. Only domain work, worker-loss injection, and the companion composition root
    live in the example.
 5. `test_disposable_workers_durable_companion.py` runs 60 three-worker pipelines

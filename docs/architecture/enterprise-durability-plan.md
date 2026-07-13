@@ -1,7 +1,8 @@
 # Enterprise Durability And Persistence Plan
 
 Status: implementation plan; not a production-readiness claim
-Scope: runtime authority, checkpoints, leases, run journal, outbox, and operational projections
+Scope: durable execution coordination, work discovery, runtime authority,
+checkpoints, leases, run journal, outbox, and operational projections
 Audience: CEMAF maintainers, adapter authors, platform engineers, and reviewers
 
 ## 1. Executive Decision
@@ -36,6 +37,14 @@ alternative, but multi-document transactions require a replica set or sharded
 cluster. SQLite supplies the executable reference semantics and local durable
 mode.
 
+Storage is only half of the execution design. The executor-facing injection is
+one backend-independent `DurableRunCoordinator`; the lower-level
+`RuntimeAuthority` is injected into that coordinator, not used directly by DAG
+code. Runnable/abandoned task discovery, outbox delivery, and projections run
+in a separate deterministic `CompanionRuntime`. See the
+[durable execution injection decision](durable-execution-injection-decision.md)
+for the responsibility boundary and rejected alternatives.
+
 ## 2. Current-State Audit
 
 The repository does not yet provide this enterprise backend layer.
@@ -57,7 +66,7 @@ The repository does not yet provide this enterprise backend layer.
 Important structural problems:
 
 - `CheckpointingDAGExecutor` is a wrapper outside the normal composition root.
-- `RuntimeServices` has no durability service bundle.
+- `RuntimeServices` has no durable-execution coordinator field.
 - A checkpoint write, run-log write, and external effect cannot currently commit
   as one transaction.
 - Existing PostgreSQL adapters create schema lazily at runtime. Enterprise
@@ -66,6 +75,11 @@ Important structural problems:
   working built-in default.
 - Current file leases use application time and do not renew. Database adapters
   must use database/server time and heartbeat renewal.
+- The disposable-worker proof manually launches replacement workers. There is
+  no durable runnable-work discovery contract, so it does not yet prove
+  autonomous recovery after a production worker disappears.
+- SPEC-04 `TaskRepository` and the newer `RunLeaseStore` describe overlapping
+  ownership concepts without one shared fenced transaction.
 
 ## 3. Non-Negotiable Invariants
 
@@ -98,24 +112,33 @@ Every authoritative adapter must satisfy the same observable contract.
     journal without losing authoritative state.
 14. No adapter silently reduces guarantees. Unsupported capabilities are
     rejected during composition.
+15. Every queued, explicitly retryable, or expired-running task is discoverable
+    through a durable work-source contract; queue delivery is never ownership.
+16. Effectful tools declare `PURE`, `IDEMPOTENT`, `OUTBOXED`, or `UNSAFE`.
+    Strict durable mode rejects `UNSAFE` tools before execution.
 
 ## 4. Target Architecture
 
 ```text
-                         disposable workers
-                    acquire / renew / transact
-                                │
-                                ▼
+                           disposable workers
+                     RuntimeServices injection
+                                 │
+                                 ▼
+                    DurableRunCoordinator
+                  open / renew / resume / commit
+                                 │
+                                 ▼
                 ┌──────────────────────────────┐
                 │ RuntimeAuthority             │
-                │                              │
-                │ lease + fencing              │
+                │ lease + fencing + work claim │
                 │ transaction / unit of work   │
-                │ checkpoints + run state      │
-                │ append-only journal          │
+                │ checkpoint + state + journal │
                 │ transactional outbox         │
                 └──────────────┬───────────────┘
-                               │ committed outbox/journal
+                               │ committed records
+                               ▼
+                       CompanionRuntime
+               recovery scan / outbox / projection
               ┌────────────────┼───────────────────┐
               ▼                ▼                   ▼
        external APIs     Elasticsearch         DuckDB
@@ -123,10 +146,10 @@ Every authoritative adapter must satisfy the same observable contract.
        or receiver       rebuildable           rebuildable
 ```
 
-The worker calls one authority transaction after a node completes. It does not
-independently write four stores. A separate dispatcher claims outbox records and
-delivers effects. Separate projectors consume the journal/outbox and update
-Elasticsearch or DuckDB.
+The worker calls the coordinator after a node completes. The coordinator makes
+one authority transaction; the worker does not independently write four stores.
+The companion runtime finds abandoned work, dispatches outbox records, and
+projects the journal into Elasticsearch or DuckDB.
 
 There is no supervisor agent in this design. Claiming, fencing, projection, and
 delivery are deterministic infrastructure services.
@@ -143,6 +166,9 @@ Proposed package:
 src/cemaf/durability/
 ├── models.py              # envelopes, lease, checkpoint, journal, outbox
 ├── protocols.py           # authority/UoW/projection contracts
+├── coordinator.py         # executor-facing durable attempt lifecycle
+├── runtime.py             # companion background loops and shutdown
+├── work_source.py         # queued/expired task discovery
 ├── capabilities.py        # declared backend guarantees
 ├── factories.py           # registry + typed configuration
 ├── migrations.py          # migration runner/protocol
@@ -185,6 +211,13 @@ class RuntimeAuthority(Protocol):
 
     async def renew(self, lease: RunLease, *, ttl: timedelta) -> RunLease: ...
     async def release(self, lease: RunLease) -> None: ...
+
+    async def claim_runnable(
+        self,
+        *,
+        worker_id: str,
+        limit: int,
+    ) -> tuple[RunLease, ...]: ...
 
     def transaction(
         self,
@@ -232,19 +265,17 @@ class OperationalProjection(Protocol):
 separate `Checkpointer`, `RunLogger`, and `EffectSink` implementations cannot
 provide atomic state-plus-effect semantics.
 
+`claim_runnable()` is the other missing seam. It exposes queued, explicitly
+retryable, and lease-expired runs to replacement workers. An external queue may
+wake workers, but the authority lease and fence remain the commit authority.
+
 ### Runtime composition
 
-Add one field rather than scattering backend objects:
+Add one executor-facing field rather than scattering backend objects:
 
 ```python
-@dataclass(frozen=True)
-class DurabilityServices:
-    authority: RuntimeAuthority
-    outbox_dispatcher: OutboxDispatcher | None = None
-    projections: tuple[OperationalProjection, ...] = ()
-
 RuntimeServices(
-    durability=DurabilityServices(...),
+    durable_execution=coordinator,
     # existing eval, moderation, memory, LLM, etc.
 )
 ```
@@ -257,7 +288,13 @@ RuntimeServices(
 4. fence each node commit;
 5. atomically commit checkpoint, transition, journal, and outbox;
 6. stop heartbeat and release on graceful completion;
-7. leave expiry-based takeover to replacement workers after process loss.
+7. leave expiry-based takeover to the durable work-source and replacement
+   workers after process loss.
+
+The outbox dispatcher, recovery scanner, projection loops, retention, and
+migration lifecycle belong to an application-lifetime `CompanionRuntime`, not
+to `RuntimeServices`. They may run in the same process for SQLite/local use or a
+separate service for multi-host production.
 
 The legacy `CheckpointingDAGExecutor` remains supported during migration, then
 becomes a compatibility adapter over `RuntimeAuthority`.
@@ -458,11 +495,14 @@ authority = create_runtime_authority(
     migration_mode="validate",
 )
 
-services = RuntimeServices(
-    durability=DurabilityServices(
-        authority=authority,
-        projections=(elastic_projection, duckdb_projection),
-    )
+coordinator = create_durable_run_coordinator(authority=authority)
+
+services = RuntimeServices(durable_execution=coordinator)
+
+companion = create_companion_runtime(
+    authority=authority,
+    projections=(elastic_projection, duckdb_projection),
+    outbox_destinations=destinations,
 )
 ```
 
@@ -649,6 +689,9 @@ DuckDB and Elasticsearch must prove:
 Deliverables:
 
 - `durability` models/protocols/capabilities package;
+- executor-facing coordinator and application-lifetime companion contracts;
+- canonical task/attempt/node-attempt identity and trusted tenant scope;
+- runnable-work discovery and effect capability contracts;
 - serialization version and canonical hash fixtures;
 - shared authority contract-test kit;
 - update SPEC-04 and architecture map to reconcile `TaskRepository` and
@@ -663,8 +706,9 @@ Deliverables:
 
 - SQLite schema/migrations;
 - authority, lease renewal, immutable checkpoints, journal, and outbox;
+- queued/expired task discovery and automatic replacement-worker proof;
 - outbox dispatcher with a fake idempotent destination;
-- `RuntimeServices.durability` executor wiring;
+- `RuntimeServices.durable_execution` executor wiring;
 - import tool from current file backend;
 - complete destructive local test suite.
 
@@ -800,6 +844,10 @@ true:
 
 - [ ] Runtime authority/UoW protocols are public, runtime-checkable, documented,
       and used by `create_executor` through `RuntimeServices`.
+- [ ] `RuntimeServices` injects the coordinator—not database clients or
+      background loops—and `CompanionRuntime` has an explicit lifespan.
+- [ ] A killed worker is detected through the runnable-work contract and a
+      replacement resumes without test code manually selecting that run.
 - [ ] SQLite reference authority passes every shared and destructive test.
 - [ ] PostgreSQL authority passes every shared/destructive test, tenant test,
       migration rehearsal, failover test, and backup restore/replay drill.
