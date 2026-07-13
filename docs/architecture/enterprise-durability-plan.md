@@ -14,13 +14,13 @@ CEMAF needs two explicitly different storage roles:
 2. **Operational projection** — rebuildable stores optimized for analytics,
    search, reporting, and long-term trace exploration.
 
-The approved backend roles are:
+The candidate backend role mappings are:
 
 | Backend | Runtime authority | Operational projection | Intended deployment |
 |---|---:|---:|---|
 | SQLite | Yes | Limited | Local, edge, single-host, test reference |
-| PostgreSQL | **Yes; enterprise default** | Yes | Multi-host production control plane |
-| MongoDB | Yes, with replica-set/sharded transaction requirements | Yes | Document-oriented production alternative |
+| PostgreSQL | Yes, if selected and conformant | Yes | Multi-host production candidate |
+| MongoDB | Yes, if its supported topology passes conformance | Yes | Document-oriented production candidate |
 | DuckDB | **No** | Yes | Embedded analytics, offline replay, benchmark history |
 | Elasticsearch | **No** | Yes | Searchable traces/events and operator read models |
 
@@ -30,12 +30,17 @@ read-write process, while Elasticsearch is designed around distributed indexing
 and optimistic document concurrency rather than cross-record control-plane
 transactions.
 
-PostgreSQL is the recommended production authority because it can atomically
-commit run state, checkpoint state, journal entries, and outbox rows while using
-row locks and `SKIP LOCKED` queue consumption. MongoDB is supported as an
-alternative, but multi-document transactions require a replica set or sharded
-cluster. SQLite supplies the executable reference semantics and local durable
-mode.
+PostgreSQL illustrates a relational authority capable of atomic run-state,
+checkpoint, journal, and outbox commits with row locks and `SKIP LOCKED` queue
+consumption. MongoDB illustrates a document-oriented candidate, but its
+multi-document transactions require a replica set or sharded cluster. SQLite
+illustrates an embedded reference/local durable candidate.
+
+These entries are evaluations, not a commitment to build, ship, install, or
+operate all five engines. CEMAF defines storage roles and conformance contracts;
+adapters are selected by user demand and graduate independently. A deployment
+uses only the roles and products it needs. The product-level target is defined
+in [CEMAF industry-standard goals](industry-standard-goals.md).
 
 Storage is only half of the execution design. The executor-facing injection is
 one backend-independent `DurableRunCoordinator`; the lower-level
@@ -108,8 +113,9 @@ Every authoritative adapter must satisfy the same observable contract.
 11. All timestamps are timezone-aware UTC. Lease correctness uses the authority
     database's clock, not a worker clock.
 12. Search and analytics failures never block the execution hot path.
-13. Elasticsearch and DuckDB data can be deleted and rebuilt from the authority
-    journal without losing authoritative state.
+13. Every search or analytics projection can be deleted and rebuilt from the
+    authority journal without losing authoritative state. Elasticsearch and
+    DuckDB are candidate implementations, not required dependencies.
 14. No adapter silently reduces guarantees. Unsupported capabilities are
     rejected during composition.
 15. Every queued, explicitly retryable, or expired-running task is discoverable
@@ -141,15 +147,15 @@ Every authoritative adapter must satisfy the same observable contract.
                recovery scan / outbox / projection
               ┌────────────────┼───────────────────┐
               ▼                ▼                   ▼
-       external APIs     Elasticsearch         DuckDB
-       idempotency key   trace/search view     analytics/replay view
-       or receiver       rebuildable           rebuildable
+       external APIs      search index       analytics store
+       idempotency key    trace/read view    analysis/replay view
+       or receiver        rebuildable        rebuildable
 ```
 
 The worker calls the coordinator after a node completes. The coordinator makes
 one authority transaction; the worker does not independently write four stores.
 The companion runtime finds abandoned work, dispatches outbox records, and
-projects the journal into Elasticsearch or DuckDB.
+projects the journal into any configured search or analytics adapter.
 
 There is no supervisor agent in this design. Claiming, fencing, projection, and
 delivery are deterministic infrastructure services.
@@ -172,11 +178,7 @@ src/cemaf/durability/
 ├── capabilities.py        # declared backend guarantees
 ├── factories.py           # registry + typed configuration
 ├── migrations.py          # migration runner/protocol
-├── sqlite.py              # reference authority
-├── postgres.py            # enterprise authority
-├── mongo.py               # document authority
-├── duckdb.py              # analytics projection only
-├── elastic.py             # search/trace projection only
+├── adapters/              # optional authority/projection implementations
 ├── outbox.py              # dispatcher and retry policy
 └── projectors.py          # journal → projections
 ```
@@ -373,9 +375,13 @@ journal plus the `runs` row.
 An outbox row and the checkpoint that caused it must commit in one authority
 transaction.
 
-## 7. Backend-Specific Plans
+## 7. Candidate Adapter Profiles
 
-### 7.1 SQLite authority
+This section records how suggested engines could satisfy CEMAF roles. It is not
+a release commitment. Implementing one profile neither requires nor blocks any
+other profile.
+
+### 7.1 SQLite authority candidate
 
 Purpose: canonical semantics, local applications, development, edge deployments,
 and destructive contract tests.
@@ -397,7 +403,7 @@ SQLite serializes writes and provides atomic transactions across connections.
 This makes it suitable for multi-process single-host authority, not horizontally
 scaled multi-host authority.
 
-### 7.2 PostgreSQL authority
+### 7.2 PostgreSQL authority candidate
 
 Purpose: default enterprise control plane.
 
@@ -422,7 +428,7 @@ Implementation requirements:
 Do not use advisory locks as the sole correctness mechanism. Row state and
 fencing tokens must survive client disconnects and remain auditable.
 
-### 7.3 MongoDB authority
+### 7.3 MongoDB authority candidate
 
 Purpose: alternative when the consuming platform standardizes on MongoDB and
 accepts its operational model.
@@ -444,7 +450,7 @@ Implementation requirements:
 Standalone MongoDB must fail the enterprise readiness check because it cannot
 provide the required multi-document transaction contract.
 
-### 7.4 DuckDB analytics projection
+### 7.4 DuckDB analytics projection candidate
 
 Purpose: offline/local analytics, benchmark history, cost analysis, replay
 inspection, and Parquet export.
@@ -463,7 +469,7 @@ Implementation requirements:
 Multi-process native-file writes are not a supported stable authority shape.
 Remote/beta concurrency features are out of scope until separately qualified.
 
-### 7.5 Elasticsearch operational projection
+### 7.5 Elasticsearch operational projection candidate
 
 Purpose: searchable traces, events, errors, provenance, and operator dashboards.
 
@@ -544,7 +550,7 @@ authority databases. Provide explicit deployment profiles.
 - Production default is `migration_mode="validate"`; mismatch fails readiness.
 - Development can opt into `migration_mode="apply"`.
 - Every destructive migration requires expand/backfill/contract phases.
-- Mongo indexes and validators, Elasticsearch templates/aliases, and DuckDB
+- Each installed adapter's indexes, validators, templates, aliases, or
   projection schemas are versioned through the same release manifest.
 
 ### File backend to database authority
@@ -632,7 +638,7 @@ cross-region databases.
 
 ### Shared authority contract suite
 
-Every SQLite, PostgreSQL, and MongoDB adapter runs the same black-box tests:
+Every authority adapter advertised as conformant runs the same black-box tests:
 
 - create/load/complete run;
 - immutable checkpoint versioning and hash verification;
@@ -671,7 +677,7 @@ layer.
 
 ### Projection contract suite
 
-DuckDB and Elasticsearch must prove:
+Every advertised search or analytics projection adapter must prove:
 
 - idempotent application of repeated journal batches;
 - cursor persistence and restart;
@@ -700,11 +706,13 @@ Deliverables:
 
 Merge gate: protocol review proves all non-negotiable invariants are expressible.
 
-### Phase 1 — SQLite reference authority
+### Phase 1 — One embedded reference authority
 
 Deliverables:
 
-- SQLite schema/migrations;
+- an ADR selecting the embedded reference adapter; SQLite is one candidate,
+  not a permanent protocol dependency;
+- schema/migrations for the selected adapter;
 - authority, lease renewal, immutable checkpoints, journal, and outbox;
 - queued/expired task discovery and automatic replacement-worker proof;
 - outbox dispatcher with a fake idempotent destination;
@@ -715,20 +723,22 @@ Deliverables:
 Merge gate: zero broken invariants across repeated process-kill, race, rollback,
 and replay tests; no hidden file-only path in the example.
 
-### Phase 2 — PostgreSQL enterprise authority
+### Phase 2 — Select and graduate one production authority profile
 
 Deliverables:
 
-- PostgreSQL adapter and explicit migrations;
+- an ADR selecting the first production adapter from demonstrated user and
+  operational requirements;
+- explicit migrations for the selected adapter;
 - transaction/fencing/outbox implementation;
-- RLS/tenant tests and least-privilege SQL roles;
+- tenant-isolation tests and least-privilege roles appropriate to that backend;
 - container integration tests, failover tests, pool/timeout metrics;
 - backup/restore runbook;
-- SQLite/PostgreSQL parity report.
+- reference/production semantic parity report.
 
 Merge gate: shared contract suite, destructive suite, migration rehearsal, and
-restore/replay proof all pass. PostgreSQL becomes the documented production
-default only after this gate.
+restore/replay proof all pass. Only the selected profile becomes documented as
+production-validated. No unselected engine is implied.
 
 ### Phase 3 — Production outbox destinations
 
@@ -743,45 +753,50 @@ Deliverables:
 Merge gate: crash between delivery and acknowledgement cannot create a second
 effect against the conforming test receiver.
 
-### Phase 4 — MongoDB authority
+### Phase 4 — Huge-context artifact boundary
 
 Deliverables:
 
-- PyMongo Async adapter, migrations/index validators, replica-set guard;
-- transaction, lease/fence, checkpoint, journal, and outbox implementations;
-- change-stream projector option;
-- replica-set failover and transaction retry testing;
-- SQLite/PostgreSQL/Mongo parity report.
+- versioned context/artifact manifest and content-addressed reference contract;
+- checkpoint size limits and externalization policy;
+- at least one object/artifact adapter selected through an ADR;
+- authorization, integrity, lifecycle, and unreachable-content tests;
+- large referenced-data resume and replay benchmark.
 
-Merge gate: same authority contract and destructive tests; standalone Mongo is
-rejected for enterprise mode.
+Merge gate: large data never enters the authority checkpoint or prompt unless a
+bounded projection explicitly selects it; missing/unauthorized artifacts fail
+closed and remain replayable.
 
-### Phase 5 — DuckDB projection
-
-Deliverables:
-
-- analytics schema/projector and cursor;
-- batch ingestion, rebuild, parity, Parquet export;
-- cost/eval/recovery analysis examples;
-- single-writer enforcement.
-
-Merge gate: repeated rebuild produces identical aggregate results and never
-participates in runtime authority.
-
-### Phase 6 — Elasticsearch projection
+### Phase 5 — Distributed scheduling and long-run proof
 
 Deliverables:
 
-- versioned templates/data streams, lifecycle policy examples;
-- asynchronous projector, cursor, retries/dead-letter;
-- trace/search/operator queries and dashboards;
-- rebuild and alias-cutover tooling;
-- redaction and tenant authorization tests.
+- fair claiming, priorities, quotas, backpressure, retry/backoff, and
+  poison-task handling;
+- optional data-locality hints that never become ownership authority;
+- multi-tenant overload and starvation tests;
+- multi-day execution with worker loss, recovery, and bounded context growth.
 
-Merge gate: projection can be destroyed/rebuilt without affecting execution;
-outage and backpressure do not block authority commits.
+Merge gate: declared fairness and load-shedding invariants hold under the
+published workload; every abandoned task reaches a terminal or operator-visible
+state.
 
-### Phase 7 — Enterprise graduation
+### Phase 6 — Optional adapter tracks
+
+Deliverables:
+
+- only adapters justified by adopter demand or a complete production profile;
+- one adapter-specific ADR, owner, supported-version policy, and operations
+  plan per track;
+- the shared conformance suite plus topology-specific destructive tests;
+- independent maturity labels: experimental, conformant, or
+  production-validated.
+
+Merge gate: each adapter graduates independently. MongoDB, DuckDB,
+Elasticsearch, or any other suggested engine is optional and cannot delay or
+weaken the core contracts.
+
+### Phase 7 — Pillar-based enterprise graduation
 
 Deliverables:
 
@@ -791,6 +806,8 @@ Deliverables:
 - security review and dependency/SBOM scanning;
 - published SLO template, dashboards, alerts, backup/restore, and incident runbooks;
 - compatibility policy and supported-version matrix.
+- direct evidence for every pillar in
+  [CEMAF industry-standard goals](industry-standard-goals.md).
 
 Merge/release gate: every item in the definition of done below has direct,
 current evidence. Until then, CEMAF remains alpha for enterprise durability.
@@ -803,23 +820,24 @@ Keep reviews bounded and preserve bisectability:
 2. Durability models, capability manifest, serialization fixtures.
 3. Authority/UoW protocols + reusable contract tests.
 4. RuntimeServices and executor integration behind a feature flag.
-5. SQLite migrations and lease/checkpoint implementation.
-6. SQLite journal/outbox + dispatcher.
-7. File-to-SQLite importer and example conversion.
-8. PostgreSQL migrations and connection lifecycle.
-9. PostgreSQL lease/fencing/UoW.
-10. PostgreSQL outbox and operations tooling.
-11. PostgreSQL destructive/container tests and runbook.
-12. Destination idempotency adapters.
-13. MongoDB authority series.
-14. DuckDB projection series.
-15. Elasticsearch projection series.
-16. Enterprise graduation evidence.
+5. Selected reference-adapter migrations and lease/checkpoint implementation.
+6. Selected reference-adapter journal/outbox + dispatcher.
+7. File-backend importer and example conversion.
+8. First production-profile selection ADR.
+9. Selected authority migrations, lease/fencing/UoW, and outbox.
+10. Selected authority destructive tests and operations runbook.
+11. Destination idempotency adapters.
+12. Context/artifact manifest and selected large-object adapter.
+13. Distributed scheduling and multi-day evidence.
+14. Independently approved optional adapter series.
+15. Pillar-based enterprise graduation evidence.
 
 No PR should add a backend implementation before the shared contract tests it
 must satisfy exist.
 
 ## 15. Risk Register
+
+Engine-specific rows apply only when that candidate adapter is selected.
 
 | Risk | Consequence | Required mitigation |
 |---|---|---|
@@ -832,7 +850,7 @@ must satisfy exist.
 | Projection becomes dependency | Search outage halts runs | Async journal/outbox projection only |
 | DuckDB multi-process writer | Conflicts/corruption risk | Single projector writer; never authority |
 | Elasticsearch mapping explosion | Cluster instability | Explicit mappings and bounded metadata |
-| Mongo standalone deployment | No atomic multi-collection UoW | Fail enterprise readiness |
+| Mongo standalone deployment, if adapter selected | No atomic multi-collection UoW | Fail that adapter's readiness |
 | PostgreSQL pool exhaustion | Lease renewal failure | Reserved capacity/priority, pool metrics, load shedding |
 | Migration dual-write split | Two sources of truth | Journal shadowing + fenced cutover generation |
 | Payload growth | DB/latency failure | Size limits, compression policy, later content-addressed blobs |
@@ -848,18 +866,20 @@ true:
       background loops—and `CompanionRuntime` has an explicit lifespan.
 - [ ] A killed worker is detected through the runnable-work contract and a
       replacement resumes without test code manually selecting that run.
-- [ ] SQLite reference authority passes every shared and destructive test.
-- [ ] PostgreSQL authority passes every shared/destructive test, tenant test,
-      migration rehearsal, failover test, and backup restore/replay drill.
+- [ ] The selected local reference authority passes every shared and
+      destructive test.
+- [ ] At least one selected production authority passes every shared/destructive
+      test, tenant test, migration rehearsal, failover test, and backup
+      restore/replay drill.
 - [ ] Lease heartbeat, monotonic fencing, and stale-write rejection are proven
       across processes and hosts.
 - [ ] Checkpoint, transition, journal, and outbox atomicity is fault-injection tested.
 - [ ] At least one real destination adapter proves crash-safe effective-once
       delivery using idempotency.
-- [ ] MongoDB, if advertised as authoritative, passes the identical suite on a
-      supported replica-set/sharded topology.
-- [ ] DuckDB and Elasticsearch are capability-rejected as runtime authorities.
-- [ ] Both projections can rebuild from the authority journal with parity.
+- [ ] Every additional authority adapter, if advertised as conformant, passes
+      the identical suite on its documented topology.
+- [ ] Every projection adapter is capability-rejected as runtime authority.
+- [ ] Every advertised projection can rebuild from the authority journal with parity.
 - [ ] Schema migrations, upgrades, rollback/cutover, and file import are tested.
 - [ ] Production configuration fails closed on missing authority, schema drift,
       insecure TLS, or insufficient backend capabilities.

@@ -41,10 +41,10 @@ still claim ownership from the authority themselves.
                                 │
               ┌─────────────────┼──────────────────┐
               ▼                 ▼                  ▼
-         PostgreSQL          SQLite/Mongo      committed journal
-         default authority   other authorities      │
-                                                  ├── Elasticsearch
-                                                  └── DuckDB
+       production adapter  embedded adapter   committed journal
+       selected profile    reference profile       │
+                                                  ├── search projection
+                                                  └── analytics projection
 ```
 
 This is not a supervisor agent. It does not choose DAG steps, generate plans,
@@ -87,8 +87,8 @@ a useful reference test, not the production architecture.
   ambiguous crash; only its authoritative commit is fenced.
 - Exactly-once behavior for an arbitrary external API. Effective-once behavior
   requires destination idempotency or a transactional receiver.
-- That Elasticsearch or DuckDB can own runtime state. They are disposable,
-  rebuildable projections.
+- That a search or analytics engine can own runtime state. Elasticsearch and
+  DuckDB are examples of disposable, rebuildable projections.
 - That a lease alone stops a partitioned process. The fencing predicate on
   every transaction is the safety mechanism; heartbeat is liveness.
 - That checkpoint snapshots are event sourcing. Checkpoints are the efficient
@@ -295,7 +295,7 @@ atomic.
 | `CompanionRuntime` | Optional runnable-task wake-ups, outbox, projections, retention | Task ownership, intelligent orchestration, or node execution |
 | Worker process | Temporary compute and in-flight values | Durable truth |
 | Destination adapter | Delivery and idempotency capability | Workflow ownership |
-| Elasticsearch/DuckDB | Search and analytics read models | Runtime authority |
+| Projection adapters | Search and analytics read models | Runtime authority |
 
 ## Rejected Alternatives
 
@@ -341,8 +341,8 @@ recovery state and decisions are durable authority records.
    readiness validation.
 5. Define `claim_runnable` ordering, fairness, retry eligibility, backoff, and
    poison-task/dead-letter semantics.
-6. Add one shared crash/concurrency contract suite that runs against SQLite,
-   PostgreSQL, and MongoDB.
+6. Add one shared crash/concurrency contract suite that runs against every
+   authority adapter CEMAF advertises as conformant.
 7. Change the disposable-worker example so replacement is discovered through
    the work-source contract rather than launched manually.
 
@@ -356,7 +356,7 @@ The boundary is accepted only when tests prove all of the following:
 - allow the stale process to continue and prove every mutation is rejected;
 - race multiple replacements and prove only one fencing token commits;
 - interrupt outbox delivery before and after destination acknowledgement;
-- delete Elasticsearch/DuckDB and rebuild equal read models from the journal;
+- delete any configured projection and rebuild equal read models from the journal;
 - swap each authority adapter under the identical black-box test suite;
 - show that an `UNSAFE` effectful tool fails strict production readiness;
 - prove no worker-local object or file is needed to resume, heal, trace, or
@@ -364,12 +364,13 @@ The boundary is accepted only when tests prove all of the following:
 
 ## Consequence
 
-The first implementation milestone is not “build five adapters.” It is to ship
+The first implementation milestone is not “build every suggested adapter.” It is to ship
 the identity model, coordinator protocol, authority/UoW protocol, runnable-work
 contract, effect capability contract, and shared destructive test harness.
-SQLite then becomes the executable semantic reference. PostgreSQL follows only
-after the reference behavior is stable; MongoDB must prove parity; DuckDB and
-Elasticsearch remain projections.
+One embedded adapter then becomes the executable semantic reference. One
+production authority profile is selected and graduated only after the reference
+behavior is stable. Further authority and projection adapters are optional and
+must prove parity independently.
 
 ## Supporting References
 
