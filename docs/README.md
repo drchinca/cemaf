@@ -69,6 +69,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 
 ### Canonical reference (read these)
 - [**Architecture**](architecture.md) — the software architecture we build toward
+- [**Enterprise Durability Plan**](architecture/enterprise-durability-plan.md) — authoritative runtime state, backend roles, migration, verification, and rollout
 - [**Design Patterns**](patterns.md) — the pattern catalog reviewers enforce
 - [**Module Layout**](modules.md) — where each thing lives
 
