@@ -29,6 +29,7 @@ Minimal product slices, not feature tours.
 |---|---|
 | [`app_shapes/rag_with_citations.py`](app_shapes/rag_with_citations.py) | Grounded RAG — every answer traces to a retrieved source (the membership invariant). |
 | [`app_shapes/tool_using_agent.py`](app_shapes/tool_using_agent.py) | An agent calls a flaky tool that self-heals via `@with_retry`, all inside a DAG. |
+| [`app_shapes/disposable_workers_durable_companion.py`](app_shapes/disposable_workers_durable_companion.py) | Two or three disposable workers die after checkpointing; replacements resume, heal, trace, and replay through a shared durable companion service plane. |
 
 ## Context layers (the namesake capability)
 
