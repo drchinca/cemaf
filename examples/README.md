@@ -29,6 +29,7 @@ Minimal product slices, not feature tours.
 |---|---|
 | [`app_shapes/rag_with_citations.py`](app_shapes/rag_with_citations.py) | Grounded RAG — every answer traces to a retrieved source (the membership invariant). |
 | [`app_shapes/tool_using_agent.py`](app_shapes/tool_using_agent.py) | An agent calls a flaky tool that self-heals via `@with_retry`, all inside a DAG. |
+| [`app_shapes/cemaf_langgraph_lcel_poc.py`](app_shapes/cemaf_langgraph_lcel_poc.py) | CEMAF as outer DAG/runtime with a real LangGraph + LCEL workflow behind an adapter node. |
 
 ## Context layers (the namesake capability)
 

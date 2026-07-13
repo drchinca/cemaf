@@ -7,12 +7,14 @@ import pytest
 from cemaf.context.context import Context
 from cemaf.context.patch import ContextPatch, PatchSource
 from cemaf.core.enums import NodeType, RunStatus
+from cemaf.core.execution import CancellationToken
 from cemaf.core.recovery import AutoHealManager, RecoveryStrategy
 from cemaf.core.result import Result
 from cemaf.core.types import NodeID, RunID
 from cemaf.observability.run_logger import InMemoryRunLogger
 from cemaf.orchestration.checkpointer import CheckpointingDAGExecutor, InMemoryCheckpointer
 from cemaf.orchestration.dag import DAG, Edge, Node
+from cemaf.orchestration.distributed_dag_executor import DistributedDAGExecutor
 from cemaf.orchestration.executor import DAGExecutor, NodeExecutor, NodeResult
 
 
@@ -48,6 +50,46 @@ class DAGSummarizeRecovery(RecoveryStrategy):
         )
         new_ctx = context.apply(patch)
         return Result.ok(new_ctx)
+
+
+@pytest.mark.asyncio
+async def test_distributed_executor_propagates_cancellation_through_checkpointing():
+    dag = DAG(name="cancelled_checkpointed").add_node(
+        Node(
+            id=NodeID("work"),
+            type=NodeType.TOOL,
+            name="Work",
+            ref_id="tool",
+            retry_on_failure=False,
+        )
+    )
+    node_exec = MockNodeExecutor()
+    checkpointer = InMemoryCheckpointer()
+    checkpointed = CheckpointingDAGExecutor(
+        base_executor=DAGExecutor(node_executor=node_exec),
+        checkpointer=checkpointer,
+    )
+    distributed = DistributedDAGExecutor(inner=checkpointed, n_workers=1)  # type: ignore[arg-type]
+    token = CancellationToken()
+    token.cancel("operator request")
+    run_id = RunID("cancelled-run")
+
+    await distributed.start_workers()
+    try:
+        result = await distributed.submit_dag(
+            dag=dag,
+            run_id=run_id,
+            cancellation_token=token,
+        )
+    finally:
+        await distributed.stop_workers()
+
+    assert result.status == RunStatus.CANCELLED
+    assert node_exec.execution_count == 0
+    checkpoint = await checkpointer.load(run_id)
+    assert checkpoint is not None
+    assert checkpoint.status == RunStatus.CANCELLED
+    assert checkpoint.error == "Execution cancelled: operator request"
 
 
 @pytest.mark.asyncio
