@@ -20,6 +20,12 @@ Run the load profile:
 uv run python benchmarks/stress_disposable_workers.py --runs 1000 --workers 3
 ```
 
+Run the destructive red-team profile:
+
+```bash
+uv run python benchmarks/red_team_durable_companion.py
+```
+
 ## CEMAF Composition
 
 | Concern | CEMAF primitive | Ownership in the proof |
@@ -57,13 +63,32 @@ Local run on 2026-07-13:
 | Throughput | 481.56 pipelines/s |
 
 The correctness counts are the acceptance criteria; throughput is supporting
-evidence only.
+evidence only. This is a controlled positive profile, not the final durability
+verdict.
+
+## Destructive Red-Team Result
+
+The red-team harness uses actual subprocesses, sends `SIGKILL` to the active
+worker, reloads state from disk, races two replacement processes against the
+same run, and injects process loss during checkpoint and trace overwrites.
+
+| Invariant | Result | Evidence |
+|---|---|---|
+| One owner: OS-killed worker can be replaced | **SURVIVED** | Process exited `-9`; checkpoint retained `ingest`; replacement completed with one external effect. |
+| Completed attempt trace reloads and replays | **SURVIVED** | `RunRecord.from_dict` + patch-only replay matched the persisted final context. |
+| Duplicate resume is exactly-once | **BROKEN** | Both replacement processes completed and the external publish side effect occurred twice. |
+| Interrupted checkpoint overwrite preserves last good state | **BROKEN** | Partial write destroyed the previous parseable checkpoint. |
+| Interrupted trace overwrite preserves last good trace | **BROKEN** | Partial write destroyed the previous parseable live trace. |
+
+Overall strong durability verdict: **BROKEN**. The 1,000-run green profile is
+valid only under its single-owner, uninterrupted-write assumptions.
 
 ## Proven Boundary And Remaining Production Work
 
-This proves the architecture for two or three concurrent workers on one host or
-a shared filesystem, with one active owner per run ID. It does not claim that a
-local JSON file is a multi-region control plane.
+This proves restart recovery for two or three concurrent workers on one host or
+a shared filesystem only when each run has one active owner and storage writes
+finish. It does not prove safe concurrent takeover or crash-consistent local
+storage.
 
 For multi-process or multi-host deployment, keep the same `Checkpointer`,
 `RunLogger`, and `EventBus` protocol boundaries and replace the local backends
@@ -71,6 +96,18 @@ with transactional shared storage. Add a lease/claim protocol before allowing
 two workers to resume the same run concurrently. CEMAF already provides the
 durable Redis Streams `RedisEventBus`; a production shared checkpointer and
 run-claim implementation remain deployment adapters, not agent responsibilities.
+
+The concrete hardening requirements exposed by the test are:
+
+1. Atomic checkpoint and trace replacement: write a temporary file, flush and
+   `fsync`, atomically rename, then sync the parent directory while retaining a
+   previous generation.
+2. A durable run lease with fencing tokens so a stale worker cannot checkpoint
+   or publish after another worker takes ownership.
+3. Idempotency keys or a transactional outbox for external effects. A lease by
+   itself cannot guarantee exactly-once behavior across a crash between publish
+   and checkpoint.
+4. Durable recovery detection/claiming outside application harness code.
 
 ## Pre-Rewrite Checklist
 
