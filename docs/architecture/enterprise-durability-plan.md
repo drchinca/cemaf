@@ -806,6 +806,8 @@ Deliverables:
 - security review and dependency/SBOM scanning;
 - published SLO template, dashboards, alerts, backup/restore, and incident runbooks;
 - compatibility policy and supported-version matrix.
+- a versioned production-profile manifest covering topology, limits,
+  capabilities, security, operations, and evidence;
 - direct evidence for every pillar in
   [CEMAF industry-standard goals](industry-standard-goals.md).
 
@@ -888,6 +890,11 @@ true:
 - [ ] Security review covers tenant isolation, secret handling, encryption,
       payload classification, and operator access.
 - [ ] Supported backend/server/client versions and compatibility policy are published.
+- [ ] Evidence bundles satisfy the versioning, reproducibility, raw-result,
+      limitation, and invalidation contract in
+      [CEMAF industry-standard goals](industry-standard-goals.md#evidence-bundle-contract).
+- [ ] The production-profile manifest links every claimed invariant to current
+      evidence and exposes every declared limit/degradation mode.
 - [ ] No unresolved P0/P1 durability defect remains.
 
 ## 17. Authoritative References
