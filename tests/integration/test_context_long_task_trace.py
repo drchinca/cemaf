@@ -541,7 +541,11 @@ async def test_scope_filtered_compilation_respects_memory_levels() -> None:
     )
     session_compiled = await provider.compile_with_memories(
         artifacts=(),
-        memory_query=MemoryQuery(scope=MemoryScope.SESSION, limit=10),
+        memory_query=MemoryQuery(
+            scope=MemoryScope.SESSION,
+            limit=10,
+            session_id="scope-levels",
+        ),
         budget=budget,
     )
 

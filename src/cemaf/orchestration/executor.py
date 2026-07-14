@@ -1182,10 +1182,11 @@ class DAGExecutor:
         is just `try once → decide → maybe heal → maybe retry`.
         """
         resolved_context = context
+        resolved_context = resolved_context.set("_run_id", _correlation_id_var.get())
         resolved_inputs: dict[str, Any] = {}
         if node.input_mapping:
             resolved_inputs = resolve_node_input(node.input_mapping, context)
-            resolved_context = context.set("_resolved_inputs", resolved_inputs)
+            resolved_context = resolved_context.set("_resolved_inputs", resolved_inputs)
 
         await self._emit_event(
             event_type=EventType.TASK_STARTED,

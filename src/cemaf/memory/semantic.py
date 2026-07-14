@@ -11,6 +11,7 @@ from cemaf.core.utils import utc_now
 from cemaf.memory.base import MemoryItem
 from cemaf.memory.protocols import MemoryStore as MemoryStoreProtocol
 from cemaf.memory.scoring import MemoryScorer, ScoredMemoryItem
+from cemaf.memory.session_keys import parse_session_memory_key, session_memory_logical_key
 from cemaf.retrieval.protocols import Document, EmbeddingProvider, SearchResult, VectorStore
 
 
@@ -25,6 +26,7 @@ class MemoryQuery:
     max_age: timedelta | None = None
     limit: int = 10
     scope_path: str | None = None  # Filter to items under this hierarchical scope path
+    session_id: str | None = None  # Isolate and normalize SESSION memories for one run
 
 
 @dataclass(frozen=True)
@@ -85,17 +87,22 @@ class DefaultSemanticMemoryStore:
         embed_text = content_for_embedding or self._item_to_embed_text(item=item)
         embedding = await self._embedding_provider.embed(text=embed_text)
 
+        session_key = parse_session_memory_key(item.key) if item.scope is MemoryScope.SESSION else None
+        metadata: JSON = {
+            "scope": item.scope.value,
+            "key": item.key,
+            "confidence": float(item.confidence),
+            "created_at": item.created_at.isoformat(),
+            "updated_at": item.updated_at.isoformat(),
+        }
+        if session_key is not None:
+            metadata["session_id"] = session_key[0]
+
         doc = Document(
             id=item.full_key,
             content=embed_text,
             embedding=embedding,
-            metadata={
-                "scope": item.scope.value,
-                "key": item.key,
-                "confidence": float(item.confidence),
-                "created_at": item.created_at.isoformat(),
-                "updated_at": item.updated_at.isoformat(),
-            },
+            metadata=metadata,
             created_at=item.created_at,
         )
         await self._vector_store.add(document=doc)
@@ -216,13 +223,22 @@ class DefaultSemanticMemoryStore:
     def _build_filter(self, query: MemoryQuery) -> JSON | None:
         """Build a vector store metadata filter."""
         if query.scope:
-            return {"scope": query.scope.value}
+            result: JSON = {"scope": query.scope.value}
+            if query.scope is MemoryScope.SESSION and query.session_id is not None:
+                result["session_id"] = query.session_id
+            return result
         if query.scopes:
             return {"scope": {"$in": [s.value for s in query.scopes]}}
         return None
 
     def _passes_filters(self, *, item: MemoryItem, query: MemoryQuery) -> bool:
         """Check if item passes query filters."""
+        if (
+            query.session_id is not None
+            and item.scope is MemoryScope.SESSION
+            and session_memory_logical_key(session_id=query.session_id, stored_key=item.key) is None
+        ):
+            return False
         if float(item.confidence) < query.min_confidence:
             return False
         if item.is_expired:

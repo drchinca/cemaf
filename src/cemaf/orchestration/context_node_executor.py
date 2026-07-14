@@ -1,5 +1,6 @@
 """ContextNodeExecutor - Bridges DAG nodes to agents via registry."""
 
+import asyncio
 import dataclasses
 import hashlib
 import json
@@ -18,6 +19,7 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
 from cemaf.core.domain import DomainContext
+from cemaf.core.enums import MemoryScope
 from cemaf.core.provenance import ProvenanceLink, SourceReference
 from cemaf.core.types import JSON, AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
@@ -235,6 +237,7 @@ class ContextNodeExecutor:
         global_memory = await self._recall_global_memory(
             agent_name=agent_name,
             goal_text=goal_text,
+            run_id=run_id,
             warnings=context_warnings,
         )
 
@@ -609,6 +612,7 @@ class ContextNodeExecutor:
         *,
         agent_name: str,
         goal_text: str,
+        run_id: str,
         warnings: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Load relevant memories for the agent; record any failure to `warnings`."""
@@ -616,10 +620,24 @@ class ContextNodeExecutor:
             return {}
         try:
             query_text = goal_text if goal_text else agent_name
-            results = await self._memory_manager.recall(
-                query=MemoryQuery(text=query_text, limit=10),
+            durable_scopes = tuple(scope for scope in MemoryScope if scope is not MemoryScope.SESSION)
+            durable_results, session_results = await asyncio.gather(
+                self._memory_manager.recall(
+                    query=MemoryQuery(text=query_text, scopes=durable_scopes, limit=10),
+                ),
+                self._memory_manager.recall(
+                    query=MemoryQuery(
+                        text=query_text,
+                        scope=MemoryScope.SESSION,
+                        limit=10,
+                        session_id=run_id,
+                    ),
+                ),
             )
-            return {r.item.key: r.item.value for r in results}
+            recalled: dict[str, Any] = {}
+            for result in (*durable_results, *session_results):
+                recalled[result.item.key] = result.item.value
+            return recalled
         except Exception as exc:
             logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)
             if warnings is not None:
