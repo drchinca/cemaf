@@ -546,6 +546,11 @@ class ContextNodeExecutor:
             return None
         if hasattr(output, "model_dump"):
             return json.dumps(output.model_dump())
+        if isinstance(output, (dict, list, tuple)):
+            return json.dumps(output, default=str)
+        to_dict = getattr(output, "to_dict", None)
+        if callable(to_dict):
+            return json.dumps(to_dict(), default=str)
         return str(output)
 
     def _extract_output_for_context(self, *, result: AgentResult[Any]) -> Any | None:
@@ -563,6 +568,11 @@ class ContextNodeExecutor:
             return None
         if hasattr(output, "model_dump"):
             return output.model_dump()
+        if isinstance(output, (dict, list, tuple)):
+            return output
+        to_dict = getattr(output, "to_dict", None)
+        if callable(to_dict):
+            return to_dict()
         # Non-Pydantic: return None so executor falls back to result.output
         return None
 

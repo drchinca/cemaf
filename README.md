@@ -620,7 +620,9 @@ protocols, and search tools.
 
 ## Configuration
 
-CEMAF is designed for zero-config startup with production-ready defaults. Customize via environment variables:
+CEMAF is designed for zero-config local startup with conservative defaults.
+Production readiness belongs to a validated deployment profile, not a default
+constructor. Customize via environment variables:
 
 ```bash
 # Copy example configuration

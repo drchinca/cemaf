@@ -19,19 +19,18 @@ from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.citation.models import Citation, CitedFact
+from cemaf.citation.rules import CitationFormatRule
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID
 from cemaf.interceptors import (
-    DecisionKind,
-    PostflightDecision,
-    PostInterceptor,
-    RecoveryHint,
+    GateFailureMode,
+    GateValidationInterceptor,
     create_interceptor_pipeline,
 )
 from cemaf.orchestration.dag import DAG, Node
 from cemaf.orchestration.executor import ExecutorConfig
-from cemaf.orchestration.results import NodeResult
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.validation.factories import create_validation_pipeline
 
 # ============================================================================
 # Simulated Components
@@ -101,34 +100,6 @@ class CitingWriterAgent(Agent[CitingGoal, CitedFact]):
         return AgentResult.ok(output=fact, state=state)
 
 
-class CitationGateInterceptor(PostInterceptor):
-    """Postflight interceptor that validates citations using CitationFormatRule."""
-
-    @property
-    def interceptor_id(self) -> str:
-        return "citation_gate"
-
-    async def post(self, *, node: Node, context: AgentContext, result: NodeResult) -> PostflightDecision:
-        output_str = str(result.output)
-
-        # Check stringified CitedFact representation for unpopulated URL attributes
-        if "url=None" in output_str or "url=''" in output_str or 'url=""' in output_str:
-            hint = RecoveryHint(
-                interceptor_id=self.interceptor_id,
-                code="MISSING_URL",
-                detail="Validation Warning: Citation cit_core_01 is missing required URL metadata.",
-                suggested_action="Provide a valid, non-empty URL string for citation 'cit_core_01'.",
-            )
-            return PostflightDecision(
-                kind=DecisionKind.RECOVER,
-                interceptor_id=self.interceptor_id,
-                reason="Citation missing required URL",
-                recovery_hint=hint,
-            )
-
-        return PostflightDecision(kind=DecisionKind.ACCEPT, interceptor_id=self.interceptor_id)
-
-
 # ============================================================================
 # Integration Test Case
 # ============================================================================
@@ -142,7 +113,18 @@ async def test_citation_quality_gate_and_self_healing() -> None:
     registry = AgentRegistry()
     registry.register_agent(agent_instance=agent_instance, goal_type=CitingGoal)
 
-    pipeline = create_interceptor_pipeline(interceptors=(CitationGateInterceptor(),))
+    validator = create_validation_pipeline(rules=[CitationFormatRule(require_url=True, require_title=True)])
+    pipeline = create_interceptor_pipeline(
+        interceptors=(
+            GateValidationInterceptor(
+                validator=validator,
+                node_pattern="citing_node",
+                fail_on_warnings=True,
+                on_failure=GateFailureMode.RECOVER,
+                interceptor_id="citation_format_gate",
+            ),
+        )
+    )
 
     # 2. Setup RuntimeServices and Executor
     services = RuntimeServices(interceptor_pipeline=pipeline)

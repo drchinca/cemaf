@@ -131,3 +131,19 @@ def test_checkpoint_serialization_preserves_patch_history() -> None:
     assert restored.context.data == {"goal": "build"}
     assert len(restored.context.patch_history) == 1
     assert restored.context.patch_history[0].path == "goal"
+
+
+@pytest.mark.unit
+def test_checkpoint_serialization_preserves_route_choices() -> None:
+    checkpoint = DAGCheckpoint(
+        run_id=RunID("routes"),
+        dag_name="conditional",
+        status=RunStatus.RUNNING,
+        completed_nodes=(NodeID("route"),),
+        pending_nodes=(NodeID("selected"),),
+        route_choices={"route": ["selected"]},
+    )
+
+    restored = checkpoint_from_dict(checkpoint_to_dict(checkpoint))
+
+    assert restored.route_choices == {"route": ["selected"]}

@@ -15,12 +15,17 @@ The number of integrations is not the measure.
 
 ## Current Truth
 
-As of 2026-07-13, CEMAF has a strong local file-backed proof for worker loss,
-fenced replacement, atomic file writes, replay, and an idempotent local effect.
+As of 2026-07-14, CEMAF has a strong local file-backed proof for worker loss,
+fenced replacement, atomic file writes, native `RuntimeServices` checkpoint
+resume, replay, and an idempotent local effect. It also has opt-in live boundary
+tests for local/cloud LLMs and PostgreSQL memory storage.
 It does **not** yet have a production-validated durable authority, automatic
 abandoned-work discovery, one atomic checkpoint/journal/outbox transaction,
 large-artifact manifests, multi-day evidence, or a graduated production
 profile. The target below must not be presented as shipped behavior.
+
+The executable claim-by-claim record is the
+[Capability Evidence Ledger](../production-evidence.md).
 
 The normative implementation contract is
 [SPEC-17: Production-Grade Autonomous Context Substrate](../specs/SPEC-17-autonomous-context-substrate.md).

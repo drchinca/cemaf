@@ -29,6 +29,7 @@ def checkpoint_to_dict(checkpoint: DAGCheckpoint) -> dict[str, Any]:
         "error": checkpoint.error,
         "failed_node": str(checkpoint.failed_node) if checkpoint.failed_node else None,
         "fencing_token": checkpoint.fencing_token,
+        "route_choices": checkpoint.route_choices,
     }
 
 
@@ -44,6 +45,7 @@ def checkpoint_from_dict(payload: dict[str, Any]) -> DAGCheckpoint:
         error=payload.get("error"),
         failed_node=NodeID(payload["failed_node"]) if payload.get("failed_node") else None,
         fencing_token=int(payload.get("fencing_token", 0)),
+        route_choices=payload.get("route_choices", {}),
     )
 
 

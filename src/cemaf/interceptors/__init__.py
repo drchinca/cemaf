@@ -6,6 +6,7 @@ makes a quality gate genuinely block downstream nodes.
 """
 
 from cemaf.interceptors.gate_eval import GateEvalInterceptor, GateFailureMode
+from cemaf.interceptors.gate_validation import GateValidationInterceptor
 from cemaf.interceptors.pipeline import InterceptorPipeline, create_interceptor_pipeline
 from cemaf.interceptors.policy import (
     AllowAllEngine,
@@ -27,6 +28,7 @@ __all__ = [
     "DecisionKind",
     "GateEvalInterceptor",
     "GateFailureMode",
+    "GateValidationInterceptor",
     "Interceptor",
     "InterceptorPipeline",
     "PolicyDecision",

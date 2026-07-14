@@ -53,9 +53,13 @@ Self-hosting (Layer 2) adds `MetaServices` on top of this with audit + KG +
 OpenSpec deps. See `cemaf.meta.bootstrap`.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from cemaf.agents.selection import AgentSelector
+from cemaf.blueprint.harvest import BlueprintHarvesterEngine
 from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
@@ -77,6 +81,9 @@ from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
 from cemaf.retrieval.protocols import VectorStore
+
+if TYPE_CHECKING:
+    from cemaf.orchestration.checkpointer import Checkpointer
 
 
 @dataclass(frozen=True)
@@ -130,9 +137,14 @@ class RuntimeServices:
     # Blueprints
     blueprint_library: BlueprintLibrary | None = None
     blueprint_selector: BlueprintSelectorHook | None = None
+    blueprint_harvester: BlueprintHarvesterEngine | None = None
 
     # Recovery
     auto_heal_manager: AutoHealManager | None = None
+
+    # Durable execution
+    checkpointer: Checkpointer | None = None
+    checkpoint_interval: int = 1
 
     # Distributed tracing
     tracer: Tracer | None = None

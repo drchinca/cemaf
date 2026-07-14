@@ -70,6 +70,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 ### Canonical reference (read these)
 - [**Architecture**](architecture.md) — the software architecture we build toward
 - [**Industry-Standard Goals**](architecture/industry-standard-goals.md) — the eight product pillars and evidence required for huge-context autonomous work
+- [**Capability Evidence Ledger**](production-evidence.md) — executable proof and explicit limits for every current public capability claim
 - [**Enterprise Durability Plan**](architecture/enterprise-durability-plan.md) — authoritative runtime state, backend roles, migration, verification, and rollout
 - [**Durable Execution Injection Boundary**](architecture/durable-execution-injection-decision.md) — what is injected, what the companion owns, and how abandoned work is recovered
 - [**Design Patterns**](patterns.md) — the pattern catalog reviewers enforce

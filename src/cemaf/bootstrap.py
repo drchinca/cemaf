@@ -40,6 +40,8 @@ def create_executor(
             svc.online_eval_pipeline.subscribe()
         if svc.quality_police:
             svc.quality_police.subscribe(event_bus=svc.event_bus)
+        if svc.blueprint_harvester:
+            svc.blueprint_harvester.subscribe(event_bus=svc.event_bus)
 
     # Build a filtered RuntimeServices view honoring the config's enable_* flags.
     # DAGExecutor now takes a single services bundle instead of 13 kwargs.

@@ -15,7 +15,7 @@ from typing import Protocol, runtime_checkable
 from cemaf.context.context import Context
 from cemaf.core.enums import RunStatus
 from cemaf.core.storage import InMemoryStorage
-from cemaf.core.types import NodeID, RunID
+from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import generate_id
 from cemaf.orchestration.dag import DAG
 from cemaf.orchestration.executor import DAGExecutor, ExecutionResult, NodeResult
@@ -38,6 +38,7 @@ class DAGCheckpoint:
     error: str | None = None
     failed_node: NodeID | None = None
     fencing_token: int = 0
+    route_choices: JSON = field(default_factory=dict)
 
     def can_resume(self) -> bool:
         """Check if this checkpoint can be resumed."""

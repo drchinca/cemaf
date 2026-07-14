@@ -171,6 +171,7 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         event_bus=event_bus,
         library=harvest_library,
         threshold=0.8,
+        subscribe=False,
     )
 
     services = RuntimeServices(
@@ -181,6 +182,7 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         agent_selector=DefaultAgentSelector(),
         council_aggregator=DefaultVoteAggregator(),
         online_eval_pipeline=online,
+        blueprint_harvester=harvester,
     )
     artifacts = {
         "online": online,
@@ -317,25 +319,19 @@ class TestBoundaryHonesty:
         assert "compiled_context_tokens" not in write.metadata
 
     @pytest.mark.asyncio
-    async def test_gap_harvest_wired_outside_runtime_services(self) -> None:
-        """GAP: the harvest flywheel is wired by subscribing to the EventBus directly,
-        NOT through RuntimeServices like every other subsystem. The composition root
-        holds no `blueprint_harvester` field — it is a separate wiring path."""
+    async def test_harvest_is_wired_through_runtime_services(self) -> None:
+        """The composition root owns harvester subscription lifecycle wiring."""
         fields = RuntimeServices().__dataclass_fields__
-        assert "blueprint_harvester" not in fields  # not a first-class engine seam yet
-        # (it works — but the caller must wire it out-of-band, unlike council/auction/evals)
+        assert "blueprint_harvester" in fields
 
     @pytest.mark.asyncio
-    async def test_interceptor_spine_now_exists_guardian_mesh_still_pending(self) -> None:
-        """PROGRESS: the interceptor spine (SPEC-01a) now exists — every AGENT node
-        passes through a PRE→execute→POST chain, and a POST gate genuinely blocks
-        (see tests/integration/test_interceptor_gate.py). The guardian MESH (SPEC-05 —
-        the composed set of cite-or-fail / moderation / calibration guardians as POST
-        interceptors) is the remaining gap."""
+    async def test_interceptor_spine_hosts_native_quality_validation_and_citation_gates(self) -> None:
+        """Safety gates compose on the shared PRE→execute→POST spine."""
         import importlib.util
 
-        # Spine: closed.
         assert importlib.util.find_spec("cemaf.interceptors") is not None
         assert "interceptor_pipeline" in RuntimeServices().__dataclass_fields__
-        # Guardian mesh: still pending (SPEC-05).
-        assert importlib.util.find_spec("cemaf.guardian") is None
+        from cemaf.interceptors import GateEvalInterceptor, GateValidationInterceptor
+
+        assert GateEvalInterceptor is not None
+        assert GateValidationInterceptor is not None
