@@ -5,10 +5,8 @@ single engine, not a feature menu. This test wires the MAXIMUM real set through
 one multi-station DAG and splits its assertions in two:
 
   TestEngineConnects  — seams that genuinely thread end-to-end today.
-  TestSeamGaps        — seams that DO NOT connect through the base executor yet,
-                        asserted as *current behaviour* so the gap is documented
-                        and regression-tracked, not hidden. Each is a candidate
-                        for the interceptor-pipeline spine (SPEC-01).
+  TestBoundaryHonesty — proves protocol-boundary delivery and names the limits
+                        that remain outside the base executor.
 
 No mocks — real EventBus, BudgetGuard, compiler, memory, council, auction,
 online-eval pipeline, and blueprint harvester.
@@ -98,6 +96,7 @@ class _Writer:
     def __init__(self, agent_id: str, load: float) -> None:
         self._id = AgentID(agent_id)
         self._load = load
+        self.seen_contexts: list[AgentContext] = []
 
     @property
     def id(self) -> AgentID:
@@ -120,6 +119,7 @@ class _Writer:
         return self._load
 
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[str]:
+        self.seen_contexts.append(context)
         article = "A thorough launch announcement. " * 5  # > 100 chars → passes LengthEvaluator
         return AgentResult.ok(
             output=article,
@@ -138,13 +138,15 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
     registry.register_instance(item=_Planner("p2", "ship"))
     registry.register_instance(item=_Planner("p3", "hold"))
     # auction candidates (both WRITE; idle should win)
+    writer_busy = _Writer("WriterBusy", load=0.9)
+    writer_idle = _Writer("WriterIdle", load=0.1)
     registry.register_agent(
-        agent_instance=_Writer("WriterBusy", load=0.9),
+        agent_instance=writer_busy,
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
     registry.register_agent(
-        agent_instance=_Writer("WriterIdle", load=0.1),
+        agent_instance=writer_idle,
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
@@ -185,6 +187,8 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         "harvest_source": harvest_source,
         "harvest_library": harvest_library,
         "harvester": harvester,
+        "writer_busy": writer_busy,
+        "writer_idle": writer_idle,
     }
     return services, registry, event_bus, artifacts
 
@@ -282,18 +286,17 @@ class TestEngineConnects:
         assert harvested, "harvester should have distilled a blueprint from the passing run"
 
 
-class TestSeamGaps:
-    """Seams that DO NOT connect through the base executor yet.
-
-    These assert *current behaviour* on purpose: they document exactly where the
-    engine is still a parts-bin, and they will fail (signalling the gap closed)
-    when the interceptor-pipeline spine (SPEC-01) threads these capabilities.
-    """
+class TestBoundaryHonesty:
+    """Positive seams and remaining limits stated at their actual boundary."""
 
     @pytest.mark.asyncio
-    async def test_gap_compiled_context_not_consumed_by_agent(self) -> None:
-        """GAP: the executor compiles context to a token budget, but agents read raw
-        inputs — the compiled context never reaches the prompt. (Audit P0.)"""
+    async def test_compiled_context_reaches_selected_agent(self) -> None:
+        """The compiler projection is delivered through AgentContext artifacts.
+
+        CEMAF cannot force a custom agent to use that projection in its private
+        LLM prompt, but the execution root does make the bounded context available
+        at the protocol boundary.
+        """
         from cemaf.bootstrap import create_executor
 
         services, registry, _bus, artifacts = _build_engine()
@@ -304,12 +307,13 @@ class TestSeamGaps:
         )
         run = await executor.run(dag=_engine_dag())
 
-        # The writer emits a fixed article regardless of any compiled context —
-        # proving compiled context did not shape the agent's output.
         write = {str(r.node_id): r for r in run.node_results}["write"]
         assert write.output.startswith("A thorough launch announcement.")
-        # No NodeResult surfaces a "compiled_context_tokens" telemetry field —
-        # the budget is computed but not enforced at the prompt boundary.
+        selected_writer = artifacts["writer_idle"]
+        assert selected_writer.seen_contexts  # type: ignore[attr-defined]
+        assert "compiled_context" in selected_writer.seen_contexts[0].artifacts  # type: ignore[attr-defined]
+        # Honest remaining seam: custom agents own their actual LLM invocation,
+        # so prompt consumption/token telemetry cannot be enforced structurally.
         assert "compiled_context_tokens" not in write.metadata
 
     @pytest.mark.asyncio

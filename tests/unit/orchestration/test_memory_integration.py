@@ -157,11 +157,23 @@ class TestContextNodeExecutorWithMemory:
             goal_type=_DeterministicGoal,
         )
 
-        await session_manager.bootstrap(session_id="test-run")
+        ingested: list[str] = []
 
-        executor = ContextNodeExecutor(
-            agent_registry=registry,
-            session_manager=session_manager,
+        class RecordingSessionManager:
+            async def bootstrap(self, session_id, **kwargs):
+                return await session_manager.bootstrap(session_id=session_id, **kwargs)
+
+            async def ingest(self, session_id, key, value, **kwargs):
+                ingested.append(key)
+                return await session_manager.ingest(session_id=session_id, key=key, value=value, **kwargs)
+
+            async def dispose(self, session_id, **kwargs):
+                return await session_manager.dispose(session_id=session_id, **kwargs)
+
+        node_executor = ContextNodeExecutor(agent_registry=registry)
+        executor = DAGExecutor(
+            node_executor=node_executor,
+            session_manager=RecordingSessionManager(),  # type: ignore[arg-type]
         )
 
         node = Node(
@@ -171,20 +183,16 @@ class TestContextNodeExecutorWithMemory:
             ref_id="DeterministicAgent",
             input_mapping={"query": "test"},
         )
-        context = Context(
-            data={
-                "_run_id": "test-run",
-                "_resolved_inputs": {"query": "test"},
-            }
+        result_run = await executor.run(
+            dag=DAG(name="session-ingest", nodes=(node,), edges=(), entry_node=node.id),
+            initial_context=Context(),
+            run_id=RunID("test-run"),
         )
-
-        result = await executor.execute_node(node=node, context=context)
+        result = result_run.node_results[0]
 
         assert result is not None
         assert result.success, f"agent must succeed: {result.error}"
-        session_state = await session_manager.get_state(session_id="test-run")
-        assert session_state is not None
-        assert session_state.memory_count >= 1, "result should have been ingested into session"
+        assert ingested == ["DeterministicAgent_output"]
 
     @pytest.mark.asyncio
     async def test_session_ingest_failure_is_graceful(self, registry: AgentRegistry) -> None:
@@ -193,31 +201,44 @@ class TestContextNodeExecutorWithMemory:
         class BrokenSessionManager:
             """Always raises on ingest."""
 
+            async def bootstrap(self, session_id):
+                return None
+
             async def ingest(self, session_id, key, value, **kwargs):
                 raise RuntimeError("Session store unavailable")
 
-        vector_store = create_in_memory_vector_store()
-        agent = registry.create_agent("Librarian", vector_store=vector_store)
-        assert agent is not None
-        registry.register_agent(agent_instance=agent)
+            async def dispose(self, session_id):
+                return None
 
-        executor = ContextNodeExecutor(
-            agent_registry=registry,
+        from cemaf.orchestration.results import NodeResult
+
+        class SuccessfulNodeExecutor:
+            async def execute_node(self, node, context):
+                return NodeResult(
+                    node_id=node.id,
+                    success=True,
+                    output="accepted",
+                    metadata={"agent_id": "DeterministicAgent"},
+                )
+
+        executor = DAGExecutor(
+            node_executor=SuccessfulNodeExecutor(),
             session_manager=BrokenSessionManager(),  # type: ignore[arg-type]
         )
 
         node = Node(
             id=NodeID("step_1"),
             type=NodeType.AGENT,
-            name="Librarian",
-            ref_id="Librarian",
-            input_mapping={"intent_query": "test"},
+            name="DeterministicAgent",
+            ref_id="DeterministicAgent",
+            output_key="accepted",
         )
-        context = Context(data={"_resolved_inputs": {"intent_query": "test"}})
 
         # Should not raise — ingest failure is isolated
-        result = await executor.execute_node(node=node, context=context)
-        assert result is not None
+        run = await executor.run(dag=DAG(name="broken-ingest", nodes=(node,), edges=(), entry_node=node.id))
+        result = run.node_results[0]
+        assert result.success
+        assert result.metadata["context_warnings"][0]["stage"] == "session_ingest"
 
 
 class TestDAGExecutorSessionLifecycle:

@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.core.utils import utc_now
@@ -113,7 +113,10 @@ class BatchLLMClient:
                 }
             )
 
-        response = await self._client.beta.messages.batches.create(requests=formatted)
+        # Batch request params are assembled from provider-neutral CEMAF
+        # models; contain the dynamic shape at the Anthropic SDK boundary.
+        create_batch = cast(Any, self._client.beta.messages.batches.create)
+        response = await create_batch(requests=formatted)
 
         return BatchJob(
             id=response.id,

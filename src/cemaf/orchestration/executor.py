@@ -17,6 +17,7 @@ Type imports happen at runtime within methods that need them.
 """
 
 import asyncio
+import dataclasses
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -356,6 +357,65 @@ class DAGExecutor:
         )
         await self._event_bus.publish(event=event)
 
+    async def _moderate_result(self, *, result: NodeResult, context: Context) -> NodeResult:
+        """Moderate a successful candidate before it becomes durable state."""
+        if self._moderation_pipeline is None or not result.success or result.output is None:
+            return result
+
+        metadata = dict(result.metadata or {})
+        metadata["_moderation_checked"] = True
+        moderation_result = await self._moderation_pipeline.check_output(
+            content=_flatten_for_moderation(output=result.output),
+            context=context,
+        )
+        if moderation_result.allowed:
+            return dataclasses.replace(result, metadata=metadata)
+
+        violation_codes = [v.code for v in moderation_result.violations]
+        logger.warning(
+            "Node output blocked by moderation",
+            node_id=str(result.node_id),
+            violations=violation_codes,
+        )
+        metadata["moderation_blocked"] = True
+        metadata["moderation_violations"] = violation_codes
+        return NodeResult(
+            node_id=result.node_id,
+            success=False,
+            output=None,
+            error=f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})",
+            duration_ms=result.duration_ms,
+            metadata=metadata,
+        )
+
+    async def _ingest_accepted_result(self, *, result: NodeResult, run_id: RunID) -> NodeResult:
+        """Store only a final, gate-accepted agent result in session memory."""
+        if self._session_manager is None or not result.success or result.output is None:
+            return result
+        metadata = dict(result.metadata or {})
+        agent_name = metadata.get("agent_id")
+        if not isinstance(agent_name, str) or not agent_name:
+            return result
+        try:
+            await self._session_manager.ingest(
+                session_id=str(run_id),
+                key=f"{agent_name}_output",
+                value={"output": result.output, "agent": agent_name},
+            )
+        except Exception as exc:
+            logger.warning("Failed to ingest result for '%s'", agent_name, exc_info=True)
+            warnings = list(metadata.get("context_warnings") or ())
+            warnings.append(
+                {
+                    "stage": "session_ingest",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                }
+            )
+            metadata["context_warnings"] = tuple(warnings)
+            return dataclasses.replace(result, metadata=metadata)
+        return result
+
     async def run(
         self,
         dag: DAG,
@@ -541,6 +601,10 @@ class DAGExecutor:
                 if not should_execute:
                     continue
 
+                # Keep the pre-node state so non-standard aggregate nodes can
+                # be rolled back if their final output fails moderation.
+                context_before_node = context
+
                 # Handle different node types
                 if node.type == NodeType.PARALLEL:
                     (
@@ -624,6 +688,22 @@ class DAGExecutor:
                     node_results.append(result)
                     completed[node_id] = result
 
+                # Standard nodes are moderated inside _try_once, before their
+                # output is applied. Aggregate node handlers are checked here;
+                # if blocked, restore their pre-node context before anything is
+                # announced as completed.
+                if not (result.metadata or {}).get("_moderation_checked"):
+                    moderated_result = await self._moderate_result(result=result, context=context_before_node)
+                    if moderated_result is not result:
+                        result = moderated_result
+                        if not result.success:
+                            context = context_before_node
+                        for result_index in range(len(node_results) - 1, -1, -1):
+                            if node_results[result_index].node_id == node_id:
+                                node_results[result_index] = result
+                                break
+                        completed[node_id] = result
+
                 # Record per-node metrics.
                 # We deliberately do NOT include node_id or run_id in tags —
                 # those are unbounded cardinality dimensions and will OOM a
@@ -686,44 +766,6 @@ class DAGExecutor:
                             "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
                         },
                     )
-
-                # Post-flight moderation on the node's output. The executor
-                # holds the pipeline (previously plumbed but never invoked);
-                # if it blocks, the node is rewritten to failed with an
-                # explicit violation error, and the DAG cannot pass the tainted
-                # output to downstream nodes.
-                if self._moderation_pipeline is not None and result.success and result.output is not None:
-                    # Flatten structured output to its text leaves before
-                    # moderation. str({"summary": "..."}) produces Python repr
-                    # which gates read as noise; semantic content lives inside.
-                    moderation_result = await self._moderation_pipeline.check_output(
-                        content=_flatten_for_moderation(output=result.output),
-                        context=context,
-                    )
-                    if not moderation_result.allowed:
-                        violation_codes = [v.code for v in moderation_result.violations]
-                        error_msg = (
-                            f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})"
-                        )
-                        logger.warning(
-                            "Node output blocked by moderation",
-                            node_id=str(node_id),
-                            violations=violation_codes,
-                        )
-                        blocked_metadata = dict(result.metadata or {})
-                        blocked_metadata["moderation_blocked"] = True
-                        blocked_metadata["moderation_violations"] = violation_codes
-                        result = NodeResult(
-                            node_id=node_id,
-                            success=False,
-                            output=None,
-                            error=error_msg,
-                            duration_ms=result.duration_ms,
-                            metadata=blocked_metadata,
-                        )
-                        # Replace the recorded result so downstream checks see failure.
-                        node_results[-1] = result
-                        completed[node_id] = result
 
                 # Budget guard halt check after each node. Cost recording
                 # itself happens inside _execute_with_retry (see there), so
@@ -1075,11 +1117,13 @@ class DAGExecutor:
         heal = _HealState(max_attempts=2)
         current_context = context
         last_error: str | None = None
+        last_result: NodeResult | None = None
         start_time = utc_now()
 
         for attempt in range(max_attempts):
             try:
                 result, current_context = await self._try_once(node=node, context=current_context)
+                last_result = result
                 if result.success:
                     return result, current_context
                 last_error = result.error
@@ -1113,6 +1157,8 @@ class DAGExecutor:
                 await asyncio.sleep(0.1 * (attempt + 1))
 
         end_time = utc_now()
+        if last_result is not None:
+            return last_result, current_context
         return (
             NodeResult(
                 node_id=node.id,
@@ -1164,8 +1210,14 @@ class DAGExecutor:
                 error=f"Node timed out after {self._node_timeout}s",
             )
 
-        new_context = self._apply_node_output(node, result, context)
         self._record_budget_usage(result=result)
+        result = await self._moderate_result(result=result, context=context)
+        if result.success:
+            result = await self._ingest_accepted_result(
+                result=result,
+                run_id=RunID(_correlation_id_var.get()),
+            )
+        new_context = self._apply_node_output(node, result, context)
         return result, new_context
 
     def _record_budget_usage(self, *, result: NodeResult) -> None:
