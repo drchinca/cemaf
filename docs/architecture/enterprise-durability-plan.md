@@ -5,6 +5,11 @@ Scope: durable execution coordination, work discovery, runtime authority,
 checkpoints, leases, run journal, outbox, and operational projections
 Audience: CEMAF maintainers, adapter authors, platform engineers, and reviewers
 
+Normative contract: [SPEC-17](../specs/SPEC-17-autonomous-context-substrate.md).
+This document supplies implementation sequencing and backend-candidate analysis;
+SPEC-17 owns the public interfaces, invariants, acceptance scenarios, evidence,
+and graduation semantics.
+
 ## 1. Executive Decision
 
 CEMAF needs two explicitly different storage roles:
@@ -163,24 +168,22 @@ delivery are deterministic infrastructure services.
 ## 5. Public Protocol Design
 
 Do not extend the existing four domain-store protocols into a lowest-common-
-denominator “universal store.” Add a dedicated durability package with narrow
-capability protocols and one transactional authority composition.
+denominator “universal store.” Add narrow capability protocols and one
+transactional authority composition within CEMAF's existing module ownership.
 
-Proposed package:
+Proposed placement:
 
 ```text
-src/cemaf/durability/
-├── models.py              # envelopes, lease, checkpoint, journal, outbox
-├── protocols.py           # authority/UoW/projection contracts
-├── coordinator.py         # executor-facing durable attempt lifecycle
-├── runtime.py             # companion background loops and shutdown
-├── work_source.py         # queued/expired task discovery
-├── capabilities.py        # declared backend guarantees
-├── factories.py           # registry + typed configuration
-├── migrations.py          # migration runner/protocol
-├── adapters/              # optional authority/projection implementations
-├── outbox.py              # dispatcher and retry policy
-└── projectors.py          # journal → projections
+src/cemaf/
+├── persistence/runtime.py          # authority/UoW/lease/checkpoint/outbox/projection
+├── persistence/artifacts.py        # large-object references/integrity/auth metadata
+├── orchestration/durable.py        # executor-facing durable attempt lifecycle
+├── orchestration/companion.py      # background loops and shutdown
+├── scheduler/work_source.py        # claiming/backpressure/fairness
+├── context/manifest.py             # context universe + working-context receipts
+├── config/production_profile.py    # adapter capabilities/profile schema
+├── validation/profile.py           # fail-closed readiness validation
+└── observability/evidence.py       # evidence bundles/verifier/claims
 ```
 
 The initial public shape should be equivalent to:
@@ -694,7 +697,7 @@ Every advertised search or analytics projection adapter must prove:
 
 Deliverables:
 
-- `durability` models/protocols/capabilities package;
+- persistence/orchestration durability models, protocols, and capability schema;
 - executor-facing coordinator and application-lifetime companion contracts;
 - canonical task/attempt/node-attempt identity and trusted tenant scope;
 - runnable-work discovery and effect capability contracts;

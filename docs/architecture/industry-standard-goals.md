@@ -22,6 +22,11 @@ abandoned-work discovery, one atomic checkpoint/journal/outbox transaction,
 large-artifact manifests, multi-day evidence, or a graduated production
 profile. The target below must not be presented as shipped behavior.
 
+The normative implementation contract is
+[SPEC-17: Production-Grade Autonomous Context Substrate](../specs/SPEC-17-autonomous-context-substrate.md).
+This document is the product-level summary; SPEC-17 owns stable invariant IDs,
+interfaces, acceptance scenarios, and graduation rules.
+
 ## Canonical Terms
 
 | Term | Meaning |

@@ -155,6 +155,22 @@ registering a resolver, not editing `execute_node`. This is the seam a future
 | `Node.council` (incl. `rounds=N`) + `CouncilResolver` dispatch (output steers DAG) | SPEC-10 §2 | `cemaf/orchestration/dag.py`, `cemaf/orchestration/resolvers/council.py` | landed |
 | `RuntimeServices.council_aggregator` wiring | SPEC-10 §2 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | landed |
 
+## Production-grade autonomous context substrate (SPEC-17)
+
+| Spec concept | Source spec | Target module | Status |
+|---|---|---|---|
+| `ArtifactRef`, `ArtifactRegistry` | SPEC-17 §2.2 | `cemaf/persistence/artifacts.py` | scaffold pending |
+| `ContextManifest`, `WorkingContextReceipt` | SPEC-17 §2.2 | `cemaf/context/manifest.py` | scaffold pending |
+| `AttemptLease`, `CheckpointEnvelope`, `NodeCommit` | SPEC-17 §2.3 | `cemaf/persistence/runtime.py` | scaffold pending |
+| `RuntimeAuthority`, `DurabilityUnitOfWork`, `OutboxStore`, `OperationalProjection` | SPEC-17 §2.3 | `cemaf/persistence/runtime.py` | scaffold pending |
+| `DurableRunCoordinator`, `DurableAttempt` | SPEC-17 §2.3 | `cemaf/orchestration/durable.py` | scaffold pending |
+| `CompanionRuntime` | SPEC-17 §2.3 | `cemaf/orchestration/companion.py` | scaffold pending |
+| `RuntimeServices.durable_execution` | SPEC-17 §2.3 | `cemaf/orchestration/services.py`, `cemaf/bootstrap.py` | scaffold pending |
+| `EffectDeclaration`, `EffectDestination` | SPEC-17 §2.4 | `cemaf/tools/effects.py` | scaffold pending |
+| `SchedulingLimits`, `BackpressurePolicy` | SPEC-17 §2.5 | `cemaf/scheduler/work_source.py` | scaffold pending |
+| `AdapterCapabilityManifest`, `ProductionProfile` | SPEC-17 §2.6 | `cemaf/config/production_profile.py`, `cemaf/validation/profile.py` | scaffold pending |
+| `EvidenceBundle`, `EvidenceVerifier`, `MaturityClaim` | SPEC-17 §2.7 | `cemaf/observability/evidence.py` | scaffold pending |
+
 ## Phase 2+ implementation plan
 
 The map above is a target. The build-out is sequenced so each phase is independently mergeable and testable. Approximate ordering — phases may overlap when dependencies are satisfied.
@@ -170,6 +186,7 @@ The map above is a target. The build-out is sequenced so each phase is independe
 | **Phase 7** | Guardian mesh (SPEC-05) — six guardians as POST-interceptors, composed by `GuardianMesh`. | Each guardian has unit tests + a Gherkin scenario from SPEC-05 §4 |
 | **Phase 8** | MetaDispatcher + self-resolving DAG (SPEC-06) — recovery routing, RECOVERY profile, audit-gated acceptance. | Failed node emits `RecoveryRequest`; dispatcher selects recovery DAG; audit gate blocks unsafe accepts |
 | **Phase 9** | Audit-gate hardening + GATE evaluator SLOs (SPEC-00 §8) — promote OBSERVE evaluators to GATE once thresholds are stable. | All target evaluators in GATE mode with documented thresholds and incident playbooks |
+| **Phase 10** | Production substrate foundation (SPEC-17) — reconcile task identity/leases, add evidence verifier and shared conformance harness, then coordinator/authority/context-manifest contracts. | SPEC-17 L0/L1 pass; one reference profile produces current invariant-addressed evidence before any production adapter is advertised |
 
 Each phase ends with: (a) integration tests proving the seam, (b) updates to this map flipping rows from `scaffold pending` → `landed`, (c) any spec drift reflected back into SPEC-00..06.
 
