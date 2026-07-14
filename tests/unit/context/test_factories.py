@@ -80,6 +80,46 @@ def test_create_token_estimator_supports_custom_registered_backend() -> None:
     assert created["args"]["calibration"] == "strict"
 
 
+def test_create_token_estimator_falls_back_when_tiktoken_is_unavailable() -> None:
+    """An available but inaccurate tiktoken estimator falls back to the heuristic."""
+    original_factory = token_estimator_registry._factories["tiktoken"]  # noqa: SLF001
+
+    class UnavailableTiktokenEstimator:
+        is_accurate = False
+
+        def estimate(self, text: str) -> int:
+            return 999
+
+    try:
+        token_estimator_registry.register(
+            backend="tiktoken",
+            factory=lambda **_: UnavailableTiktokenEstimator(),
+        )
+
+        estimator = create_token_estimator(model="gpt-4", chars_per_token=2.0)
+
+        assert isinstance(estimator, SimpleTokenEstimator)
+        assert estimator.estimate("abcd") == 2
+    finally:
+        token_estimator_registry.register(backend="tiktoken", factory=original_factory)
+
+
+def test_create_token_estimator_does_not_hide_broken_tiktoken_backend() -> None:
+    """A broken exact-token backend should fail loud instead of silently downgrading."""
+    original_factory = token_estimator_registry._factories["tiktoken"]  # noqa: SLF001
+
+    def _broken_factory(**kwargs):  # noqa: ANN001
+        raise RuntimeError("tiktoken backend misconfigured")
+
+    try:
+        token_estimator_registry.register(backend="tiktoken", factory=_broken_factory)
+
+        with pytest.raises(RuntimeError, match="tiktoken backend misconfigured"):
+            create_token_estimator(model="gpt-4")
+    finally:
+        token_estimator_registry.register(backend="tiktoken", factory=original_factory)
+
+
 def test_create_token_estimator_from_config_supports_custom_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

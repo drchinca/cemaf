@@ -50,7 +50,7 @@ class PreFlightGate:
     further checks, or full evaluation mode where all rules are applied.
 
     Example:
-        >>> rules = [ProfanityRule(), PIIRule(), ContentPolicyRule()]
+        >>> rules = [KeywordRule(blocked_words=("spam",)), PIIRule()]
         >>> gate = PreFlightGate(rules, fail_fast=True)
         >>> result = await gate.check(user_input)
         >>> if not result.allowed:
@@ -173,7 +173,7 @@ class PostFlightGate:
     sensitive parts are redacted and the modified content is returned.
 
     Example:
-        >>> rules = [PIIOutputRule(), ToxicityRule()]
+        >>> rules = [PIIRule(), LengthRule(max_length=4000)]
         >>> gate = PostFlightGate(rules, redact_on_violation=True)
         >>> result = await gate.check(llm_response)
         >>> if result.redacted_content:

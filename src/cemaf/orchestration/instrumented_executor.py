@@ -8,8 +8,8 @@ Per-node spans: The DAGExecutor dispatches nodes through internal helpers
 and ContextVars that are not exposed as public hooks. Instrumenting at the
 per-node level without forking DAGExecutor would require either monkey-
 patching private methods (fragile) or adding a callback hook to the
-executor contract (future work tracked as cemaf#instrumented-node-spans).
-For now, each DAG run produces one root span covering the full execution.
+executor contract. This wrapper emits one root span covering the full
+execution.
 """
 
 from cemaf.context.context import Context
@@ -61,6 +61,37 @@ class InstrumentedDAGExecutor:
                 span.set_status("OK")
             else:
                 span.set_status("ERROR", result.error or "DAG execution failed")
+            return result
+        except Exception as exc:
+            span.set_status("ERROR", str(exc))
+            raise
+        finally:
+            span.end()
+
+    async def resume(
+        self,
+        run_id: RunID,
+        dag: DAG,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
+        """Resume through the inner durable executor under a correlated root span."""
+        span = self._tracer.start_span(
+            "cemaf.dag.resume",
+            attributes={
+                "cemaf.dag.name": dag.name,
+                "cemaf.run.id": str(run_id),
+            },
+        )
+        try:
+            result = await self._inner.resume(
+                run_id=run_id,
+                dag=dag,
+                cancellation_token=cancellation_token,
+            )
+            if result.success:
+                span.set_status("OK")
+            else:
+                span.set_status("ERROR", result.error or "DAG resume failed")
             return result
         except Exception as exc:
             span.set_status("ERROR", str(exc))

@@ -1,14 +1,13 @@
 """DAG-level integration test: ollama-cloud through RuntimeServices → DAGExecutor.
 
-Skipped unless OLLAMA_CLOUD_API_KEY is set. Wires the real ollama-cloud LLM
-client into a real DAG run and verifies an agent receives a real LLM response.
-This proves the full seam — factory → RuntimeServices → executor → agent —
-end-to-end, not just the HTTP round-trip.
+Wires the ollama-cloud LLM client into a real DAG run and verifies an agent
+receives a parsed LLM response. The HTTP endpoint is faked so the default suite
+does not require external credentials.
 """
 
 from __future__ import annotations
 
-import os
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -24,21 +23,40 @@ from cemaf import (
     create_executor,
 )
 from cemaf.core.types import AgentID
-from cemaf.llm.factories import create_llm_client
+from cemaf.llm.factories import DEFAULT_OLLAMA_CLOUD_MODEL, create_llm_client
 from cemaf.llm.protocols import LLMClient, Message
 from cemaf.orchestration.services import RuntimeServices
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("OLLAMA_CLOUD_API_KEY"),
-    reason="OLLAMA_CLOUD_API_KEY not set; skipping live ollama-cloud DAG test",
-)
 
-FREE_TIER_MODELS = [
-    "gpt-oss:20b-cloud",
-    "gpt-oss:120b-cloud",
-    "qwen3-coder:480b-cloud",
-    "minimax-m2.1:cloud",
-]
+class _FakeResponse:
+    status_code = 200
+    text = ""
+
+    def json(self) -> dict[str, Any]:
+        return {
+            "model": DEFAULT_OLLAMA_CLOUD_MODEL,
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "pong"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+        }
+
+
+class _FakeAsyncClient:
+    async def __aenter__(self) -> _FakeAsyncClient:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    async def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> _FakeResponse:
+        assert url == "https://ollama.com/v1/chat/completions"
+        assert json["model"] == DEFAULT_OLLAMA_CLOUD_MODEL
+        assert headers["Authorization"] == "Bearer test-ollama-key"
+        return _FakeResponse()
 
 
 class PromptGoal(BaseModel):
@@ -89,9 +107,16 @@ class EchoLLMAgent(Agent[PromptGoal, PromptResult]):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", FREE_TIER_MODELS)
-async def test_ollama_cloud_drives_real_dag(model: str) -> None:
-    llm = create_llm_client(provider="ollama-cloud", model=model)
+async def test_ollama_cloud_drives_real_dag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "cemaf.llm.openai_compat.httpx.AsyncClient",
+        lambda *, timeout: _FakeAsyncClient(),
+    )
+    llm = create_llm_client(
+        provider="ollama-cloud",
+        api_key="test-ollama-key",
+        model=DEFAULT_OLLAMA_CLOUD_MODEL,
+    )
     agent = EchoLLMAgent(llm=llm)
 
     registry = AgentRegistry()
@@ -113,7 +138,7 @@ async def test_ollama_cloud_drives_real_dag(model: str) -> None:
     )
     run_result = await executor.run(dag=dag)
 
-    assert run_result.success, f"dag failed for {model}: {run_result}"
+    assert run_result.success, f"dag failed: {run_result}"
     payload = run_result.final_context.data["result"]
     if isinstance(payload, PromptResult):
         parsed = payload
@@ -122,5 +147,5 @@ async def test_ollama_cloud_drives_real_dag(model: str) -> None:
     else:
         parsed = PromptResult.model_validate_json(payload)
 
-    assert parsed.answer.strip(), f"empty answer from {model}"
-    assert parsed.model, f"no model name reported by {model}"
+    assert parsed.answer.strip() == "pong"
+    assert parsed.model == DEFAULT_OLLAMA_CLOUD_MODEL

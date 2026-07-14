@@ -9,6 +9,14 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from cemaf.core.defaults import (
+    DEFAULT_FREE_CATALOG_BACKEND,
+    DEFAULT_FREE_EMBEDDING_DIMENSION,
+    DEFAULT_FREE_EMBEDDING_MODEL,
+    DEFAULT_FREE_EMBEDDING_PROVIDER,
+    DEFAULT_FREE_LLM_MODEL,
+    DEFAULT_FREE_LLM_PROVIDER,
+)
 from cemaf.core.types import JSON
 
 
@@ -63,10 +71,13 @@ class LLMSettings(BaseModel):
     provider: Literal[
         "mock",
         "openai",
+        "openai-responses",
+        "openai-compatible",
+        "openai-compat",
         "anthropic",
-        "azure",
         "bedrock",
         "vertex",
+        "vertex-ai",
         "ollama",
         "ollama-tiered",
         "ollama-cloud",
@@ -74,8 +85,8 @@ class LLMSettings(BaseModel):
         "together",
         "gemini",
         "huggingface",
-    ] = "mock"
-    default_model: str = "gpt-4"
+    ] = DEFAULT_FREE_LLM_PROVIDER
+    default_model: str = DEFAULT_FREE_LLM_MODEL
     api_key: str = ""
     base_url: str = ""
     default_temperature: float = 0.7
@@ -99,7 +110,7 @@ class CacheSettings(BaseModel):
     model_config = {"frozen": True}
 
     enabled: bool = True
-    backend: Literal["memory", "ttl", "redis", "memcached"] = "memory"
+    backend: Literal["memory", "ttl"] = "memory"
     default_ttl_seconds: int = 3600
     max_size: int = 1000
 
@@ -112,6 +123,7 @@ class ObservabilitySettings(BaseModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     enable_tracing: bool = False
     enable_metrics: bool = False
+    enable_run_recording: bool = True
 
 
 class RetrievalSettings(BaseModel):
@@ -119,19 +131,19 @@ class RetrievalSettings(BaseModel):
 
     model_config = {"frozen": True}
 
-    # Vector store backend: memory, pinecone, qdrant, weaviate, chroma, pgvector, faiss
-    vector_store_backend: Literal[
-        "memory", "pinecone", "qdrant", "weaviate", "chroma", "pgvector", "faiss"
-    ] = "memory"
+    # Built-in vector store backend: memory, sqlite, pgvector
+    vector_store_backend: Literal["memory", "sqlite", "pgvector"] = "memory"
 
-    # Embedding provider: openai, cohere, sentence-transformers, huggingface
-    embedding_provider: str = "openai"
+    # Built-in embedding provider: hash, mock, openai, huggingface, sentence-transformers
+    embedding_provider: Literal["hash", "mock", "openai", "huggingface", "sentence-transformers"] = (
+        DEFAULT_FREE_EMBEDDING_PROVIDER
+    )
 
     # Embedding model name
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str = DEFAULT_FREE_EMBEDDING_MODEL
 
     # Embedding dimension (auto-detected for most providers)
-    embedding_dimension: int = 1536
+    embedding_dimension: int = DEFAULT_FREE_EMBEDDING_DIMENSION
 
 
 class ResilienceSettings(BaseModel):
@@ -189,7 +201,7 @@ class ContextAgentsSettings(BaseModel):
 
     # Planner settings
     planner_model: str = Field(
-        default="gpt-4",
+        default=DEFAULT_FREE_LLM_MODEL,
         description="LLM model to use for autonomous planning",
     )
     planner_temperature: float = Field(
@@ -205,7 +217,7 @@ class ContextAgentsSettings(BaseModel):
         description="Enable token usage tracking for cost analysis",
     )
     default_token_model: str = Field(
-        default="gpt-4",
+        default=DEFAULT_FREE_LLM_MODEL,
         description="Default model for token counting when not specified",
     )
 
@@ -236,6 +248,9 @@ class SchedulerSettings(BaseModel):
     default_max_retries: int = 3
     enable_persistence: bool = False
     check_interval_seconds: float = 1.0
+    heartbeat_interval_seconds: float = 10.0
+    heartbeat_ttl_seconds: float = 30.0
+    worker_id: str = ""
 
 
 class MCPSettings(BaseModel):
@@ -262,7 +277,7 @@ class ModerationSettings(BaseModel):
     enable_profanity_filter: bool = True
     enable_toxicity_check: bool = False
     toxicity_threshold: float = 0.7
-    llm_model: str = "gpt-4"
+    llm_model: str = DEFAULT_FREE_LLM_MODEL
 
 
 class OrchestrationSettings(BaseModel):
@@ -384,7 +399,7 @@ class EvalsSettings(BaseModel):
     pass_threshold: float = 0.5
     fail_fast: bool = False
     include_reasoning: bool = True
-    llm_model: str = "gpt-4"
+    llm_model: str = DEFAULT_FREE_LLM_MODEL
     max_tokens: int = 1000
     temperature: float = 0.0
     enable_semantic_similarity: bool = True
@@ -396,8 +411,8 @@ class CatalogSettings(BaseModel):
 
     model_config = {"frozen": True}
 
-    backend: Literal["huggingface"] = "huggingface"
-    endpoint: str = "https://huggingface.co"
+    backend: Literal["static", "huggingface"] = DEFAULT_FREE_CATALOG_BACKEND
+    endpoint: str = ""
     api_key: str = ""
     timeout_seconds: float = 30.0
     default_limit: int = 25

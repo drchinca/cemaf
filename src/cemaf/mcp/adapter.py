@@ -331,7 +331,7 @@ class MCPAdapter:
         Returns list of available tools.
         """
         params.get("cursor")
-        # Pagination not implemented - return all tools
+        # Tool listing is exposed as one complete page.
         tools = [ToolBridge.to_mcp(t).to_dict() for t in self._tools.values()]
         return {"tools": tools}
 

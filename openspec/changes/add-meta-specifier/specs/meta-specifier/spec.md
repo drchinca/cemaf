@@ -26,7 +26,7 @@ The system SHALL provide a MetaSpecifier agent that consumes a `SpecGoal` and re
 
 - **GIVEN** a MetaSpecifier constructed with `llm_client=None`
 - **WHEN** the agent runs with any `SpecGoal`
-- **THEN** the returned `ProposalDoc` is a template stub whose structure is valid OpenSpec markdown
+- **THEN** the returned `ProposalDoc` is a deterministic template proposal whose structure is valid OpenSpec markdown
 - **AND** no network call is attempted
 
 ### Requirement: render_proposal is a pure, deterministic markdown renderer
@@ -71,7 +71,7 @@ Validation is intentionally folded into the MetaSpecifier agent rather than a se
 
 ## Out of Scope
 
-- Archival workflow (`openspec archive`) — future change.
+- Archival workflow (`openspec archive`) — outside this change.
 - Human approval UI — out of scope; promotion is a CLI step today.
 - Auto-synthesis from spec to code — that's MetaSynthesizer's job, composed downstream.
 - Writing to the repo's `openspec/` at runtime — MetaSpecifier's workspace MUST be a meta-owned scratch dir, not the repo's authored specs.

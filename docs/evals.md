@@ -9,11 +9,11 @@ flowchart TB
     subgraph Evaluators
         EXACT[ExactMatchEvaluator<br/>Exact comparison]
         CONTAINS[ContainsEvaluator<br/>Substring check]
-        SEMANTIC[SemanticEvaluator<br/>Meaning comparison]
+        SEMANTIC[SemanticSimilarityEvaluator<br/>Meaning comparison]
     end
 
     subgraph LLM Judge
-        JUDGE[LLMJudge<br/>AI evaluation]
+        JUDGE[LLMJudgeEvaluator<br/>AI evaluation]
         PROMPT[Evaluation Prompt<br/>Criteria]
         LLM[LLM Client<br/>Reasoning]
     end
@@ -38,7 +38,7 @@ flowchart TB
 sequenceDiagram
     participant Test
     participant Evaluator
-    participant Judge as LLMJudge
+    participant Judge as LLMJudgeEvaluator
     participant LLM
 
     Note over Test,LLM: Simple Evaluation
@@ -69,12 +69,12 @@ result = evaluator.evaluate("text with required content")
 ## LLM-as-Judge
 
 ```python
-from cemaf.evals.llm_judge import LLMJudge
+from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
 
-judge = LLMJudge(llm_client=my_llm)
+judge = LLMJudgeEvaluator(llm_client=my_llm, criteria=JudgeCriteria.FACTUALITY)
 result = await judge.evaluate(
-    prompt="Is this correct?",
-    response="The answer is 42"
+    output="The answer is 42",
+    context={"prompt": "Is this correct?"},
 )
 ```
 
@@ -93,12 +93,13 @@ Multi-tier evaluation that runs fast deterministic checks first, escalating to e
 ```python
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig
 from cemaf.evals.evaluators import ExactMatchEvaluator, LengthEvaluator
-from cemaf.evals.semantic import SemanticEvaluator
+from cemaf.evals.llm_judge import LLMJudgeEvaluator
+from cemaf.evals.semantic import SemanticSimilarityEvaluator
 
 judge = HierarchicalJudge(
     tier1_evaluators=(ExactMatchEvaluator(), LengthEvaluator()),
-    tier2_evaluator=SemanticEvaluator(llm_client=my_llm),
-    tier3_evaluator=LLMJudge(llm_client=my_llm),
+    tier2_evaluator=SemanticSimilarityEvaluator(embedding_provider=my_embeddings),
+    tier3_evaluator=LLMJudgeEvaluator(llm_client=my_llm),
     config=HierarchicalJudgeConfig(
         tier1_pass_threshold=0.5,
         tier3_ambiguity_range=(0.4, 0.7),  # escalate to tier 3 when tier 2 score is ambiguous

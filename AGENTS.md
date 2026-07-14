@@ -120,7 +120,8 @@ For docs changes:
 
 ```bash
 uv run python docs/architecture/scripts/check_doc_links.py
-uv run python docs/architecture/scripts/check_doc_imports.py
+python3 docs/architecture/scripts/check_doc_imports.py
+uv run python docs/architecture/scripts/check_loop_ops.py
 ```
 
 For code changes:

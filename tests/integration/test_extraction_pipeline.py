@@ -149,3 +149,67 @@ class TestFullSessionLifecycleWithExtraction:
         assert "promoted:another-learning" in project_keys
         # Low confidence should NOT be promoted
         assert "promoted:uncertain-thing" not in project_keys
+
+
+class TestDisposeActuallyRemovesSessionItems:
+    """dispose() must genuinely clear SESSION scope — proven by re-querying the
+    store, not just by trusting the returned count."""
+
+    @pytest.mark.asyncio
+    async def test_session_scope_is_empty_after_dispose(self) -> None:
+        # Use the store's deterministic list_by_scope as ground truth: semantic
+        # recall() is similarity-ranked and may not return every item, so it is
+        # the wrong oracle for "is the scope empty".
+        manager, semantic_store, _, session_manager = _wire_full_stack()
+        store = semantic_store._memory_store
+        await session_manager.bootstrap(session_id="s1")
+
+        # Semantically distinct values — near-identical dicts ({"v":0}/{"v":1})
+        # embed ~0.9 cosine under MockEmbeddingProvider and would be deduped,
+        # which would mask what this test is actually checking.
+        distinct_values = [
+            {"insight": "users prefer concise responses"},
+            {"insight": "error messages need actionable context"},
+            {"insight": "latency matters more than completeness for chat"},
+        ]
+        for i, value in enumerate(distinct_values):
+            await session_manager.ingest(
+                session_id="s1",
+                key=f"fact-{i}",
+                value=value,
+                confidence=0.9,
+            )
+
+        # Pre-condition: the items really are in SESSION scope.
+        before = await store.list_by_scope(scope=MemoryScope.SESSION)
+        assert len(before) == 3
+
+        removed = await session_manager.dispose(session_id="s1")
+
+        # The returned count claims items removed...
+        assert removed == 3
+        # ...and listing the store PROVES they are actually gone (the gap the old
+        # tests never closed — a no-op forget() would have passed them).
+        after = await store.list_by_scope(scope=MemoryScope.SESSION)
+        assert len(after) == 0
+
+    @pytest.mark.asyncio
+    async def test_promoted_items_survive_in_project_but_leave_session(self) -> None:
+        """After dispose with promotion: PROJECT has the promoted copy, SESSION is empty."""
+        manager, semantic_store, _, session_manager = _wire_full_stack()
+        store = semantic_store._memory_store
+        await session_manager.bootstrap(session_id="s2")
+        await session_manager.ingest(session_id="s2", key="keep", value={"v": "x"}, confidence=0.95)
+
+        await session_manager.dispose(
+            session_id="s2",
+            promote_to=MemoryScope.PROJECT,
+            promotion_min_confidence=0.7,
+        )
+
+        session_after = await store.list_by_scope(scope=MemoryScope.SESSION)
+        project_after = await store.list_by_scope(scope=MemoryScope.PROJECT)
+
+        # The original SESSION item is gone; a PROJECT copy survives.
+        assert len(session_after) == 0
+        assert any(item.key == "keep" for item in project_after)

@@ -67,6 +67,14 @@ repos:
 
   - repo: local
     hooks:
+      - id: check-doc-imports
+        name: check-doc-imports
+        entry: python3 docs/architecture/scripts/check_doc_imports.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
       - id: pytest-check
         name: pytest-check
         entry: .venv/bin/pytest -p no:cacheprovider

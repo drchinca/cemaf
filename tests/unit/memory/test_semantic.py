@@ -15,6 +15,7 @@ from cemaf.memory.semantic import (
     MemorySearchResult,
     SemanticMemoryStore,
 )
+from cemaf.memory.session_keys import session_memory_key
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
 # ---------------------------------------------------------------------------
@@ -155,6 +156,30 @@ class TestSemanticSearch:
         store = _make_store()
         results = await store.search(query=MemoryQuery(text="anything"))
         assert results == ()
+
+    @pytest.mark.asyncio
+    async def test_text_search_filters_session_owner_before_top_k(self) -> None:
+        store = _make_store()
+        for session_id in ("run-a", "run-b"):
+            await store.store(
+                item=_make_item(
+                    key=session_memory_key(session_id=session_id, key="Writer_output"),
+                    value={"session": session_id},
+                ),
+                content_for_embedding="identical shared query",
+            )
+
+        results = await store.search(
+            query=MemoryQuery(
+                text="identical shared query",
+                scope=MemoryScope.SESSION,
+                session_id="run-b",
+                limit=1,
+            )
+        )
+
+        assert len(results) == 1
+        assert results[0].item.value == {"session": "run-b"}
 
 
 # ---------------------------------------------------------------------------

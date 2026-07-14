@@ -9,19 +9,10 @@ OTLP-aware viewer (Jaeger / Tempo / Honeycomb) consumes — no collector needed.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 
 import pytest
-
-try:
-    _OTEL_PRESENT = importlib.util.find_spec("opentelemetry.sdk") is not None
-except ModuleNotFoundError:
-    _OTEL_PRESENT = False
-
-
-pytestmark = pytest.mark.skipif(not _OTEL_PRESENT, reason="otel extra not installed")
 
 
 @pytest.fixture

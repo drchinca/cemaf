@@ -107,9 +107,9 @@ def create_composite_evaluator_from_config(
     settings: Settings | None = None,
 ) -> CompositeEvaluator:
     """Create a CompositeEvaluator from environment configuration."""
-    cfg = settings or load_settings_from_env_sync()  # noqa: F841
+    cfg = settings or load_settings_from_env_sync()
 
-    pass_threshold = float(os.getenv("CEMAF_EVALS_PASS_THRESHOLD", "0.5"))
+    pass_threshold = float(os.getenv("CEMAF_EVALS_PASS_THRESHOLD", str(cfg.evals.pass_threshold)))
 
     return create_composite_evaluator(
         evaluators=evaluators,

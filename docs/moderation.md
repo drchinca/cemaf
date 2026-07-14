@@ -18,11 +18,11 @@ The `ModerationPipeline` provides a unified interface for content moderation:
 
 ```python
 from cemaf.moderation import ModerationPipeline, PreFlightGate, PostFlightGate
-from cemaf.moderation.rules import KeywordRule, PIIRule, ToxicityRule
+from cemaf.moderation.rules import KeywordRule, LengthRule, PIIRule
 
 # Create gates
-pre_gate = PreFlightGate([KeywordRule(["spam"]), PIIRule()])
-post_gate = PostFlightGate([ToxicityRule()])
+pre_gate = PreFlightGate([KeywordRule(blocked_words=("spam",)), PIIRule()])
+post_gate = PostFlightGate([LengthRule(max_length=4000)])
 
 # Create pipeline
 pipeline = ModerationPipeline(
@@ -52,7 +52,7 @@ from cemaf.moderation import PreFlightGate
 from cemaf.moderation.rules import KeywordRule, PIIRule
 
 gate = PreFlightGate(
-    rules=[KeywordRule(["spam", "phishing"]), PIIRule()],
+    rules=[KeywordRule(blocked_words=("spam", "phishing")), PIIRule()],
     fail_fast=True,  # Stop on first error-level violation
 )
 
@@ -67,11 +67,18 @@ Checks content after processing:
 
 ```python
 from cemaf.moderation import PostFlightGate
-from cemaf.moderation.rules import ToxicityRule, ComplianceRule
+from cemaf.moderation.rules import LengthRule, PatternRule
 
 gate = PostFlightGate(
-    rules=[ToxicityRule(), ComplianceRule()],
-    fail_fast=False,  # Collect all violations
+    rules=[
+        LengthRule(max_length=4000),
+        PatternRule(
+            pattern=r"\bmedical advice\b",
+            violation_code="medical_advice",
+            violation_message="Medical advice requires an explicit product policy",
+        ),
+    ],
+    redact_on_violation=False,
 )
 
 result = await gate.check(llm_output)
@@ -87,9 +94,9 @@ Blocks content containing specific keywords:
 from cemaf.moderation.rules import KeywordRule
 
 rule = KeywordRule(
-    blocked_keywords=["spam", "phishing", "malware"],
+    blocked_words=("spam", "phishing", "malware"),
     severity="error",  # "error" or "warning"
-    case_sensitive=False,
+    whole_word_only=True,
 )
 ```
 
@@ -109,29 +116,31 @@ rule = PIIRule(
 )
 ```
 
-### ToxicityRule
+### LengthRule
 
-Detects toxic or harmful content:
+Checks minimum or maximum content length:
 
 ```python
-from cemaf.moderation.rules import ToxicityRule
+from cemaf.moderation.rules import LengthRule
 
-rule = ToxicityRule(
-    threshold=0.7,  # Toxicity score threshold
-    severity="error",
+rule = LengthRule(
+    min_length=10,
+    max_length=4000,
+    severity="warning",
 )
 ```
 
-### ComplianceRule
+### PatternRule
 
-Enforces compliance requirements:
+Blocks content that matches a custom regex pattern:
 
 ```python
-from cemaf.moderation.rules import ComplianceRule
+from cemaf.moderation.rules import PatternRule
 
-rule = ComplianceRule(
-    required_disclaimers=["This is AI-generated content"],
-    prohibited_content=["medical advice", "legal advice"],
+rule = PatternRule(
+    pattern=r"\bmedical advice\b",
+    violation_code="medical_advice",
+    violation_message="Medical advice requires an explicit product policy",
     severity="error",
 )
 ```
@@ -333,8 +342,8 @@ mod_result, output = await pipeline.wrap_execution(
 
 ```python
 # Different rules for different stages
-pre_gate = PreFlightGate([KeywordRule(), PIIRule()])
-post_gate = PostFlightGate([ToxicityRule(), ComplianceRule()])
+pre_gate = PreFlightGate([KeywordRule(blocked_words=("spam",)), PIIRule()])
+post_gate = PostFlightGate([LengthRule(max_length=4000)])
 
 pipeline = ModerationPipeline(
     pre_flight=pre_gate,

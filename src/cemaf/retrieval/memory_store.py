@@ -7,6 +7,7 @@ Uses cosine similarity for search.
 import math
 
 from cemaf.core.types import JSON
+from cemaf.retrieval.embedding_validation import normalize_embedding_dimension, require_positive_dimension
 from cemaf.retrieval.protocols import (
     Document,
     EmbeddingProvider,
@@ -23,7 +24,7 @@ def cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     if len(a) != len(b):
         raise ValueError(f"Vector dimensions don't match: {len(a)} vs {len(b)}")
 
-    dot_product = sum(x * y for x, y in zip(a, b, strict=False))
+    dot_product = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
 
@@ -41,7 +42,7 @@ class MockEmbeddingProvider:
     """
 
     def __init__(self, dimension: int = 384) -> None:
-        self._dimension = dimension
+        self._dimension = require_positive_dimension(dimension)
         self._model_name = "mock-embeddings"
 
     @property
@@ -90,13 +91,24 @@ class InMemoryVectorStore:
     ) -> None:
         self._documents: dict[str, Document] = {}
         self._embedding_provider = embedding_provider
+        require_positive_dimension(embedding_provider.dimension, label="embedding provider dimension")
 
     async def add(self, document: Document) -> None:
         """Add a document."""
+        embedding: tuple[float, ...] | None
         if not document.has_embedding:
             # Generate embedding if not provided
             embedding = await self._embedding_provider.embed(document.content)
-            document = document.with_embedding(embedding)
+        else:
+            embedding = document.embedding
+
+        document = document.with_embedding(
+            normalize_embedding_dimension(
+                embedding,
+                expected_dimension=self._embedding_provider.dimension,
+                label=f"embedding for document {document.id!r}",
+            )
+        )
 
         self._documents[document.id] = document
 
@@ -123,6 +135,11 @@ class InMemoryVectorStore:
         filter: JSON | None = None,
     ) -> list[SearchResult]:
         """Search for similar documents."""
+        query_embedding = normalize_embedding_dimension(
+            query_embedding,
+            expected_dimension=self._embedding_provider.dimension,
+            label="query embedding",
+        )
         results: list[tuple[float, Document]] = []
 
         for doc in self._documents.values():

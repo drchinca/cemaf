@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 from cemaf.core.types import LLMProvider, TokenCount
 from cemaf.llm.protocols import (
@@ -39,12 +40,17 @@ class AnthropicLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Send messages to Claude and return completion result."""
+        del fidelity, token_budget, correlation_id
         cfg = config_override or self._config
         system_msg, api_messages = _convert_messages(messages=messages)
 
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
@@ -57,7 +63,11 @@ class AnthropicLLMClient:
 
         start = time.monotonic()
         try:
-            response = await self._client.messages.create(**kwargs)
+            # Optional SDK fields are assembled dynamically from CEMAF's
+            # provider-neutral config. Cast only at the typed SDK boundary;
+            # the Anthropic client still validates the request at runtime.
+            create_message = cast(Any, self._client.messages.create)
+            response = await create_message(**kwargs)
         except Exception as exc:
             return CompletionResult.fail(error=f"Anthropic API error: {exc}")
 
@@ -104,7 +114,7 @@ class AnthropicLLMClient:
         cfg = config_override or self._config
         system_msg, api_messages = _convert_messages(messages=messages)
 
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
@@ -115,7 +125,8 @@ class AnthropicLLMClient:
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
 
-        async with self._client.messages.stream(**kwargs) as stream:
+        stream_message = cast(Any, self._client.messages.stream)
+        async with stream_message(**kwargs) as stream:
             accumulated_text = ""
             tool_calls: list[ToolCall] = []
             current_tool_json = ""
@@ -133,9 +144,12 @@ class AnthropicLLMClient:
                     elif hasattr(event.delta, "partial_json"):
                         current_tool_json += event.delta.partial_json
                 elif event.type == "content_block_start":
-                    if hasattr(event.content_block, "id"):
-                        current_tool_id = event.content_block.id
-                        current_tool_name = event.content_block.name
+                    content_block = cast(Any, event.content_block)
+                    if getattr(content_block, "type", "tool_use") == "tool_use" and hasattr(
+                        content_block, "id"
+                    ):
+                        current_tool_id = content_block.id
+                        current_tool_name = content_block.name
                         current_tool_json = ""
                 elif event.type == "content_block_stop" and current_tool_id:
                     try:
@@ -207,7 +221,7 @@ class AnthropicLLMClient:
         and caches server-side.
         """
         system_msg, api_messages = _convert_messages(messages=messages)
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": api_messages,
         }
@@ -222,7 +236,8 @@ class AnthropicLLMClient:
                 }
                 for t in tools
             ]
-        response = await self._client.messages.count_tokens(**kwargs)
+        count_tokens = cast(Any, self._client.messages.count_tokens)
+        response = await count_tokens(**kwargs)
         return TokenCount(response.input_tokens)
 
 

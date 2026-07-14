@@ -1,10 +1,7 @@
 """Unit tests for RedisSessionStore using fakeredis (no live Redis required)."""
 
+import fakeredis
 import pytest
-
-fakeredis = pytest.importorskip("fakeredis", reason="fakeredis not installed")
-
-from datetime import UTC, datetime
 
 from cemaf.core.utils import utc_now
 from cemaf.memory.redis_session_store import RedisSessionStore
@@ -26,7 +23,7 @@ def _make_state(
 
 
 @pytest.fixture
-def fake_redis_store() -> "RedisSessionStore":
+def fake_redis_store() -> RedisSessionStore:
     """RedisSessionStore wired to a fakeredis server; no external dependency."""
     server = fakeredis.FakeServer()
 

@@ -7,6 +7,8 @@ intervals, and async job execution.
 
 from cemaf.scheduler.executor import AsyncJobExecutor
 from cemaf.scheduler.factories import (
+    create_managed_scheduler,
+    create_managed_scheduler_from_config,
     create_scheduler_executor,
     create_scheduler_executor_from_config,
     scheduler_registry,
@@ -23,7 +25,25 @@ from cemaf.scheduler.gates import (
     evaluate_gates,
     execution_gate_registry,
 )
+from cemaf.scheduler.heartbeats import (
+    HeartbeatMonitor,
+    HeartbeatStore,
+    InMemoryHeartbeatStore,
+    WorkerHeartbeat,
+    WorkerHeartbeatStatus,
+)
 from cemaf.scheduler.mock import MockScheduler, MockTrigger
+from cemaf.scheduler.nightshift import NightShiftGate, NightShiftTrigger, NightShiftWindow
+from cemaf.scheduler.primitives import (
+    InMemoryJobStore,
+    JobDefinition,
+    JobKind,
+    JobLease,
+    JobRunRecord,
+    JobRunStatus,
+    JobStore,
+    ManagedScheduler,
+)
 from cemaf.scheduler.protocols import (
     Job,
     JobResult,
@@ -58,6 +78,7 @@ __all__ = [
     "create_scheduler_executor",
     "create_scheduler_executor_from_config",
     "scheduler_registry",
+    # Gates
     "TimeGate",
     "SessionCountGate",
     "LockGate",
@@ -65,6 +86,28 @@ __all__ = [
     "create_execution_gates",
     "evaluate_gates",
     "execution_gate_registry",
+    # Managed scheduler
+    "create_managed_scheduler",
+    "create_managed_scheduler_from_config",
+    "ManagedScheduler",
+    # Managed primitives
+    "JobKind",
+    "JobDefinition",
+    "JobLease",
+    "JobRunStatus",
+    "JobRunRecord",
+    "JobStore",
+    "InMemoryJobStore",
+    # Heartbeats
+    "WorkerHeartbeatStatus",
+    "WorkerHeartbeat",
+    "HeartbeatStore",
+    "InMemoryHeartbeatStore",
+    "HeartbeatMonitor",
+    # Nightshift
+    "NightShiftWindow",
+    "NightShiftGate",
+    "NightShiftTrigger",
     # Mock
     "MockScheduler",
     "MockTrigger",

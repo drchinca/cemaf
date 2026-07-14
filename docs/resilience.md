@@ -224,10 +224,14 @@ Default configuration:
 Streaming uses rate limiter and circuit breaker but skips retry (streaming responses can't be retried mid-stream):
 
 ```python
-stream = await client.stream(messages=messages)
-async for chunk in stream:
+async for chunk in client.stream(messages=messages):
     print(chunk.content, end="")
 ```
+
+When streaming cannot start because the rate limiter rejects the call or the
+circuit breaker is already open, the resilient client yields one final
+`StreamChunk` with `finish_reason=FinishReason.PARTIAL_ERROR` instead of
+raising from the iterator setup path.
 
 ### Metrics Integration
 

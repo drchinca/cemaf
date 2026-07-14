@@ -5,10 +5,8 @@ single engine, not a feature menu. This test wires the MAXIMUM real set through
 one multi-station DAG and splits its assertions in two:
 
   TestEngineConnects  — seams that genuinely thread end-to-end today.
-  TestSeamGaps        — seams that DO NOT connect through the base executor yet,
-                        asserted as *current behaviour* so the gap is documented
-                        and regression-tracked, not hidden. Each is a candidate
-                        for the interceptor-pipeline spine (SPEC-01).
+  TestBoundaryHonesty — proves protocol-boundary delivery and names the limits
+                        that remain outside the base executor.
 
 No mocks — real EventBus, BudgetGuard, compiler, memory, council, auction,
 online-eval pipeline, and blueprint harvester.
@@ -43,6 +41,8 @@ from cemaf.council.types import Opinion
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
+from cemaf.knowledge import EntityType, KGEntity, create_knowledge_graph
+from cemaf.memory.factories import create_memory_manager
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.dag import (
     DAG,
@@ -98,6 +98,7 @@ class _Writer:
     def __init__(self, agent_id: str, load: float) -> None:
         self._id = AgentID(agent_id)
         self._load = load
+        self.seen_contexts: list[AgentContext] = []
 
     @property
     def id(self) -> AgentID:
@@ -120,11 +121,27 @@ class _Writer:
         return self._load
 
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[str]:
+        self.seen_contexts.append(context)
         article = "A thorough launch announcement. " * 5  # > 100 chars → passes LengthEvaluator
+        kg_visible = context.knowledge_graph is not None
+        if context.knowledge_graph is not None:
+            await context.knowledge_graph.add_entity(
+                KGEntity(
+                    id=f"article:{context.agent_id}",
+                    type=EntityType.MODULE,
+                    name="Composed Engine Article",
+                    description=article,
+                )
+            )
         return AgentResult.ok(
             output=article,
             state=AgentState(),
-            metadata={"cost_estimate_usd": 0.07, "tokens_total": 700, "overall_score": 0.95},
+            metadata={
+                "cost_estimate_usd": 0.07,
+                "tokens_total": 700,
+                "overall_score": 0.95,
+                "kg_visible": kg_visible,
+            },
         )
 
 
@@ -138,13 +155,15 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
     registry.register_instance(item=_Planner("p2", "ship"))
     registry.register_instance(item=_Planner("p3", "hold"))
     # auction candidates (both WRITE; idle should win)
+    writer_busy = _Writer("WriterBusy", load=0.9)
+    writer_idle = _Writer("WriterIdle", load=0.1)
     registry.register_agent(
-        agent_instance=_Writer("WriterBusy", load=0.9),
+        agent_instance=writer_busy,
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
     registry.register_agent(
-        agent_instance=_Writer("WriterIdle", load=0.1),
+        agent_instance=writer_idle,
         goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
@@ -169,7 +188,11 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         event_bus=event_bus,
         library=harvest_library,
         threshold=0.8,
+        subscribe=False,
     )
+
+    memory_manager = create_memory_manager()
+    knowledge_graph = create_knowledge_graph(memory_manager=memory_manager)
 
     services = RuntimeServices(
         event_bus=event_bus,
@@ -179,12 +202,17 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
         agent_selector=DefaultAgentSelector(),
         council_aggregator=DefaultVoteAggregator(),
         online_eval_pipeline=online,
+        blueprint_harvester=harvester,
+        knowledge_graph=knowledge_graph,
     )
     artifacts = {
         "online": online,
         "harvest_source": harvest_source,
         "harvest_library": harvest_library,
         "harvester": harvester,
+        "writer_busy": writer_busy,
+        "writer_idle": writer_idle,
+        "knowledge_graph": knowledge_graph,
     }
     return services, registry, event_bus, artifacts
 
@@ -256,6 +284,12 @@ class TestEngineConnects:
         # 5. BudgetGuard accumulated real cost across the run.
         assert services.budget_guard.accumulated_cost_usd > 0  # type: ignore[union-attr]
 
+        # 6. The KG service is part of the same composition-root path, not a side channel.
+        assert executor._knowledge_graph is artifacts["knowledge_graph"]
+        assert results["write"].metadata["kg_visible"] is True
+        assert services.knowledge_graph is not None
+        assert await services.knowledge_graph.get_entity("article:WriterIdle") is not None
+
     @pytest.mark.asyncio
     async def test_event_chain_executor_to_online_eval_to_harvest(self) -> None:
         """Executor TASK_COMPLETED → OnlineEval EVAL_COMPLETED → harvester distills a blueprint."""
@@ -282,18 +316,17 @@ class TestEngineConnects:
         assert harvested, "harvester should have distilled a blueprint from the passing run"
 
 
-class TestSeamGaps:
-    """Seams that DO NOT connect through the base executor yet.
-
-    These assert *current behaviour* on purpose: they document exactly where the
-    engine is still a parts-bin, and they will fail (signalling the gap closed)
-    when the interceptor-pipeline spine (SPEC-01) threads these capabilities.
-    """
+class TestBoundaryHonesty:
+    """Positive seams and remaining limits stated at their actual boundary."""
 
     @pytest.mark.asyncio
-    async def test_gap_compiled_context_not_consumed_by_agent(self) -> None:
-        """GAP: the executor compiles context to a token budget, but agents read raw
-        inputs — the compiled context never reaches the prompt. (Audit P0.)"""
+    async def test_compiled_context_reaches_selected_agent(self) -> None:
+        """The compiler projection is delivered through AgentContext artifacts.
+
+        CEMAF cannot force a custom agent to use that projection in its private
+        LLM prompt, but the execution root does make the bounded context available
+        at the protocol boundary.
+        """
         from cemaf.bootstrap import create_executor
 
         services, registry, _bus, artifacts = _build_engine()
@@ -304,34 +337,29 @@ class TestSeamGaps:
         )
         run = await executor.run(dag=_engine_dag())
 
-        # The writer emits a fixed article regardless of any compiled context —
-        # proving compiled context did not shape the agent's output.
         write = {str(r.node_id): r for r in run.node_results}["write"]
         assert write.output.startswith("A thorough launch announcement.")
-        # No NodeResult surfaces a "compiled_context_tokens" telemetry field —
-        # the budget is computed but not enforced at the prompt boundary.
+        selected_writer = artifacts["writer_idle"]
+        assert selected_writer.seen_contexts  # type: ignore[attr-defined]
+        assert "compiled_context" in selected_writer.seen_contexts[0].artifacts  # type: ignore[attr-defined]
+        # Honest remaining seam: custom agents own their actual LLM invocation,
+        # so prompt consumption/token telemetry cannot be enforced structurally.
         assert "compiled_context_tokens" not in write.metadata
 
     @pytest.mark.asyncio
-    async def test_gap_harvest_wired_outside_runtime_services(self) -> None:
-        """GAP: the harvest flywheel is wired by subscribing to the EventBus directly,
-        NOT through RuntimeServices like every other subsystem. The composition root
-        holds no `blueprint_harvester` field — it is a separate wiring path."""
+    async def test_harvest_is_wired_through_runtime_services(self) -> None:
+        """The composition root owns harvester subscription lifecycle wiring."""
         fields = RuntimeServices().__dataclass_fields__
-        assert "blueprint_harvester" not in fields  # not a first-class engine seam yet
-        # (it works — but the caller must wire it out-of-band, unlike council/auction/evals)
+        assert "blueprint_harvester" in fields
 
     @pytest.mark.asyncio
-    async def test_interceptor_spine_now_exists_guardian_mesh_still_pending(self) -> None:
-        """PROGRESS: the interceptor spine (SPEC-01a) now exists — every AGENT node
-        passes through a PRE→execute→POST chain, and a POST gate genuinely blocks
-        (see tests/integration/test_interceptor_gate.py). The guardian MESH (SPEC-05 —
-        the composed set of cite-or-fail / moderation / calibration guardians as POST
-        interceptors) is the remaining gap."""
+    async def test_interceptor_spine_hosts_native_quality_validation_and_citation_gates(self) -> None:
+        """Safety gates compose on the shared PRE→execute→POST spine."""
         import importlib.util
 
-        # Spine: closed.
         assert importlib.util.find_spec("cemaf.interceptors") is not None
         assert "interceptor_pipeline" in RuntimeServices().__dataclass_fields__
-        # Guardian mesh: still pending (SPEC-05).
-        assert importlib.util.find_spec("cemaf.guardian") is None
+        from cemaf.interceptors import GateEvalInterceptor, GateValidationInterceptor
+
+        assert GateEvalInterceptor is not None
+        assert GateValidationInterceptor is not None

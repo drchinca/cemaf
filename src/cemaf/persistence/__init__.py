@@ -33,6 +33,12 @@ from cemaf.persistence.factories import (
     project_store_registry,
     run_store_registry,
 )
+from cemaf.persistence.idempotency import (
+    EffectReceipt,
+    FileIdempotentEffectSink,
+    IdempotencyConflictError,
+    IdempotentEffectSink,
+)
 from cemaf.persistence.protocols import (
     ArtifactStore,
     ContentStore,
@@ -51,6 +57,10 @@ __all__ = [
     "ArtifactStore",
     "ContentStore",
     "RunStore",
+    "EffectReceipt",
+    "IdempotentEffectSink",
+    "FileIdempotentEffectSink",
+    "IdempotencyConflictError",
     # Factories
     "create_project_store",
     "create_project_store_from_config",

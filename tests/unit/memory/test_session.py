@@ -166,6 +166,33 @@ class TestFullLifecycle:
         assert state is not None
         assert state.phase == SessionPhase.DISPOSED
 
+    @pytest.mark.asyncio
+    async def test_concurrent_sessions_with_same_key_do_not_overwrite_or_delete_each_other(self) -> None:
+        """Session ownership must survive identical agent-output keys under load."""
+        sm = _make_session_manager()
+        await sm.bootstrap(session_id="run-a")
+        await sm.bootstrap(session_id="run-b")
+
+        await sm.ingest(session_id="run-a", key="Writer_output", value={"run": "a"})
+        await sm.ingest(session_id="run-b", key="Writer_output", value={"run": "b"})
+
+        await sm.dispose(session_id="run-a", promote_to=MemoryScope.PROJECT)
+        project_item = await sm._manager.recall_by_key(  # noqa: SLF001 - ownership regression probe
+            scope=MemoryScope.PROJECT,
+            key="Writer_output",
+        )
+        assert project_item is not None
+        assert project_item.value == {"run": "a"}
+
+        # Disposing run-a must not delete run-b's identically named memory.
+        await sm.dispose(session_id="run-b", promote_to=MemoryScope.TENANT)
+        tenant_item = await sm._manager.recall_by_key(  # noqa: SLF001 - ownership regression probe
+            scope=MemoryScope.TENANT,
+            key="Writer_output",
+        )
+        assert tenant_item is not None
+        assert tenant_item.value == {"run": "b"}
+
 
 # ---------------------------------------------------------------------------
 # Phase enforcement

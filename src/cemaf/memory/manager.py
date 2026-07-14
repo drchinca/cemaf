@@ -36,6 +36,7 @@ Factory:
 Then inject via `RuntimeServices(memory_manager=manager, session_manager=...)`.
 """
 
+from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
 from cemaf.core.enums import MemoryScope
@@ -45,6 +46,7 @@ from cemaf.memory.base import MemoryItem
 from cemaf.memory.deduplication import MemoryDeduplicator
 from cemaf.memory.episodic import Episode, EpisodicEvent, EpisodicStore
 from cemaf.memory.semantic import MemoryQuery, MemorySearchResult, SemanticMemoryStore
+from cemaf.memory.session_keys import session_memory_logical_key
 
 
 @runtime_checkable
@@ -150,8 +152,24 @@ class DefaultMemoryManager:
         self,
         query: MemoryQuery,
     ) -> tuple[MemorySearchResult, ...]:
-        """Search memory using semantic similarity and temporal decay."""
-        return await self._semantic.search(query=query)
+        """Search memory, isolating SESSION results when a session ID is supplied."""
+        results = await self._semantic.search(query=query)
+        if query.session_id is None:
+            return results
+
+        isolated: list[MemorySearchResult] = []
+        for result in results:
+            item = result.item
+            if item.scope is not MemoryScope.SESSION:
+                isolated.append(result)
+                continue
+            logical_key = session_memory_logical_key(
+                session_id=query.session_id,
+                stored_key=item.key,
+            )
+            if logical_key is not None:
+                isolated.append(replace(result, item=replace(item, key=logical_key)))
+        return tuple(isolated)
 
     async def recall_by_key(
         self,

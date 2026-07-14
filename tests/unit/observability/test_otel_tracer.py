@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -59,55 +59,46 @@ class TestOTelSpan:
 
     def test_set_status_ok(self):
         """set_status('OK') maps to StatusCode.OK."""
-        try:
-            from opentelemetry.trace import StatusCode
+        from opentelemetry.trace import StatusCode
 
-            mock_span = MagicMock()
-            span = OTelSpan(mock_span)
-            span.set_status("OK")
-            mock_span.set_status.assert_called_once()
-            call_args = mock_span.set_status.call_args[0]
-            assert call_args[0] == StatusCode.OK
-        except ImportError:
-            pytest.skip("opentelemetry-sdk not installed")
+        mock_span = MagicMock()
+        span = OTelSpan(mock_span)
+        span.set_status("OK")
+        mock_span.set_status.assert_called_once()
+        call_args = mock_span.set_status.call_args[0]
+        assert call_args[0] == StatusCode.OK
 
     def test_set_status_error(self):
         """set_status('ERROR') maps to StatusCode.ERROR."""
-        try:
-            from opentelemetry.trace import StatusCode
+        from opentelemetry.trace import StatusCode
 
-            mock_span = MagicMock()
-            span = OTelSpan(mock_span)
-            span.set_status("ERROR", "something went wrong")
-            call_args = mock_span.set_status.call_args[0]
-            assert call_args[0] == StatusCode.ERROR
-        except ImportError:
-            pytest.skip("opentelemetry-sdk not installed")
+        mock_span = MagicMock()
+        span = OTelSpan(mock_span)
+        span.set_status("ERROR", "something went wrong")
+        call_args = mock_span.set_status.call_args[0]
+        assert call_args[0] == StatusCode.ERROR
 
 
 class TestOTelTracer:
     def test_start_span_delegates_to_inner(self):
-        try:
-            import opentelemetry.trace  # noqa: F401
-        except ImportError:
-            pytest.skip("opentelemetry-sdk not installed")
-
         mock_tracer = MagicMock()
         mock_inner_span = MagicMock()
-        mock_tracer.start_span.return_value = mock_inner_span
+        mock_scope = MagicMock()
+        mock_scope.__enter__.return_value = mock_inner_span
+        mock_tracer.start_as_current_span.return_value = mock_scope
 
         tracer = OTelTracer(mock_tracer)
         span = tracer.start_span("test.span", {"key": "value"})
 
-        mock_tracer.start_span.assert_called_once()
+        mock_tracer.start_as_current_span.assert_called_once()
         assert isinstance(span, OTelSpan)
 
     def test_start_span_creates_exportable_span(self):
         """Integration: OTelTracer wraps an OTel SDK Tracer and span is recording."""
         try:
             from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
             from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+            from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
         except ImportError:
             pytest.skip("opentelemetry-sdk not installed")
 

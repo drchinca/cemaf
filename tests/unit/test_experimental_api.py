@@ -2,7 +2,7 @@
 TDD Tests for Experimental API Markers.
 
 Tests verify that @experimental decorator:
-1. Emits DeprecationWarning on instantiation
+1. Emits ExperimentalWarning on instantiation
 2. Updates docstring to indicate experimental status
 3. Works with classes and functions
 4. Does not break core functionality
@@ -11,7 +11,7 @@ Tests verify that @experimental decorator:
 import warnings
 
 from cemaf.context.context import Context
-from cemaf.core.experimental import experimental
+from cemaf.core.experimental import ExperimentalWarning, experimental
 from cemaf.core.mind_state import MindState
 
 
@@ -19,7 +19,7 @@ def test_experimental_decorator_warns_on_class_instantiation():
     """
     GIVEN: A class marked with @experimental
     WHEN: The class is instantiated
-    THEN: Should emit DeprecationWarning with stability message
+    THEN: Should emit ExperimentalWarning with stability message
     """
 
     @experimental
@@ -34,7 +34,7 @@ def test_experimental_decorator_warns_on_class_instantiation():
         instance = TestClass()
 
         assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
+        assert issubclass(w[0].category, ExperimentalWarning)
         assert "experimental" in str(w[0].message).lower()
         assert "subject to change" in str(w[0].message).lower()
         assert instance.value == 42
@@ -82,7 +82,7 @@ def test_experimental_decorator_works_with_functions():
     """
     GIVEN: A function marked with @experimental
     WHEN: The function is called
-    THEN: Should emit DeprecationWarning and return correct result
+    THEN: Should emit ExperimentalWarning and return correct result
     """
 
     @experimental
@@ -95,7 +95,7 @@ def test_experimental_decorator_works_with_functions():
         result = experimental_func(5)
 
         assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
+        assert issubclass(w[0].category, ExperimentalWarning)
         assert result == 10
 
 
@@ -110,7 +110,7 @@ def test_mind_state_is_marked_experimental():
         MindState(id="test-id")
 
         assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
+        assert issubclass(w[0].category, ExperimentalWarning)
         assert "MindState" in str(w[0].message)
 
 
@@ -129,7 +129,7 @@ def test_mind_state_build_works_despite_experimental():
     """
     GIVEN: MindState class marked experimental
     WHEN: build() is called
-    THEN: Should work normally (though incomplete)
+    THEN: Should build a Context-backed state
     """
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
@@ -139,11 +139,40 @@ def test_mind_state_build_works_despite_experimental():
         assert isinstance(mind_state.context, Context)
 
 
+def test_mind_state_build_applies_components_in_order():
+    """
+    GIVEN: Components that update Context
+    WHEN: MindState.build() is called
+    THEN: The resulting state contains each component update
+    """
+
+    class SetContextValue:
+        def __init__(self, key: str, value: str) -> None:
+            self._key = key
+            self._value = value
+
+        def apply_to_context(self, context: Context) -> Context:
+            return context.set(self._key, self._value)
+
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+
+        mind_state = MindState.build(
+            [
+                SetContextValue("agent.role", "reviewer"),
+                SetContextValue("agent.mode", "strict"),
+            ]
+        )
+
+    assert mind_state.context.get("agent.role") == "reviewer"
+    assert mind_state.context.get("agent.mode") == "strict"
+
+
 def test_mind_state_to_prompt_works_despite_experimental():
     """
     GIVEN: MindState instance marked experimental
     WHEN: to_prompt() is called
-    THEN: Should return a string (even if empty/incomplete)
+    THEN: Should return a string
     """
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")

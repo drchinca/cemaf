@@ -184,15 +184,16 @@ Defines expected output structure:
 ```python
 from cemaf.blueprint import OutputContract, DataContract
 
+data_contract = DataContract(
+    schema_type="object",
+    fields=("title", "content"),
+    required_fields=("title", "content"),
+)
+
 contract = OutputContract(
-    schema=DataContract(
-        type="object",
-        properties={
-            "title": {"type": "string"},
-            "content": {"type": "string"},
-        },
-        required=["title", "content"],
-    ),
+    format="json",
+    required_sections=("title", "content"),
+    schema_definition='{"type":"object","required":["title","content"]}',
 )
 ```
 
@@ -204,9 +205,10 @@ Defines execution constraints:
 from cemaf.blueprint import ExecutionPolicy
 
 policy = ExecutionPolicy(
-    max_iterations=3,
-    timeout_seconds=30,
-    retry_on_failure=True,
+    incremental_strategy="checkpoint",
+    checkpoint_location="s3://bucket/checkpoints",
+    max_retries=3,
+    retry_on=("rate_limit", "transient_network", "timeout"),
 )
 ```
 
@@ -218,9 +220,10 @@ Defines security requirements:
 from cemaf.blueprint import SecurityPolicy
 
 security = SecurityPolicy(
-    require_moderation=True,
-    allow_external_calls=False,
-    max_token_limit=4000,
+    pii_fields=("email", "phone"),
+    encryption="at_rest_and_in_transit",
+    secret_provider="vault",
+    compliance_frameworks=("GDPR", "SOC2"),
 )
 ```
 
@@ -239,25 +242,29 @@ prompt = blueprint.to_prompt()
 # - Metadata section (if metadata present)
 ```
 
-## Factory Methods
+## Builder Methods
 
-Use factory methods for common patterns:
+Use `BlueprintBuilder` for common patterns:
 
 ```python
-from cemaf.blueprint import create_content_blueprint, create_analysis_blueprint
+from cemaf.blueprint import BlueprintBuilder
 
 # Content generation blueprint
-content_bp = create_content_blueprint(
-    id="blog",
-    objective="Generate blog post",
-    tone="professional",
+content_bp = (
+    BlueprintBuilder("blog", "Blog Post")
+    .with_goal("Generate blog post")
+    .with_style(tone="professional", format="markdown")
+    .with_instruction("Write a concise post with a clear title and sections.")
+    .build()
 )
 
 # Analysis blueprint
-analysis_bp = create_analysis_blueprint(
-    id="sales_analysis",
-    objective="Analyze sales data",
-    methodology="quantitative",
+analysis_bp = (
+    BlueprintBuilder("sales_analysis", "Sales Analysis")
+    .with_goal("Analyze sales data", success_criteria=["identify trends"])
+    .with_style(tone="analytical", format="markdown")
+    .with_instruction("Summarize findings, drivers, and risks.")
+    .build()
 )
 ```
 

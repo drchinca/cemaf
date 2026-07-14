@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from cemaf.retrieval.embedding_validation import normalize_embedding_dimension, require_positive_dimension
+
 DEFAULT_HF_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_HF_EMBEDDING_DIMENSION = 384
 
@@ -21,6 +23,8 @@ class HuggingFaceEmbeddingProvider:
         provider: str = "hf-inference",
         timeout_seconds: float = 60.0,
     ) -> None:
+        self._dimension = require_positive_dimension(dimension)
+
         try:
             from huggingface_hub import AsyncInferenceClient
         except ImportError as exc:
@@ -46,7 +50,6 @@ class HuggingFaceEmbeddingProvider:
 
         self._client = AsyncInferenceClient(**client_kwargs)
         self._model = model
-        self._dimension = dimension
         self._provider = provider
 
     @property
@@ -68,10 +71,11 @@ class HuggingFaceEmbeddingProvider:
             return tuple(0.0 for _ in range(self._dimension))
 
         response = await self._client.feature_extraction(text, model=self._model)
-        vector = _coerce_embedding_vector(response)
-        if len(vector) != self._dimension:
-            self._dimension = len(vector)
-        return vector
+        return normalize_embedding_dimension(
+            _coerce_embedding_vector(response),
+            expected_dimension=self._dimension,
+            label="Hugging Face embedding response",
+        )
 
     async def embed_batch(self, texts: list[str]) -> list[tuple[float, ...]]:
         """Generate embeddings for multiple texts."""

@@ -1,9 +1,11 @@
 """Tests for observability factory functions."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
+from cemaf.config.protocols import ObservabilitySettings, Settings
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.factories import (
     create_budget_guard,
@@ -21,8 +23,17 @@ from cemaf.observability.factories import (
     tracer_registry,
 )
 from cemaf.observability.run_logger import FileRunLogger, NoOpRunLogger, RunRecord
-from cemaf.observability.simple import NoOpMetrics, NoOpTracer
+from cemaf.observability.simple import NoOpMetrics, NoOpTracer, SimpleMetrics
 from cemaf.observability.structured import StructuredLogger
+
+
+def test_builtin_observability_backends_are_registered() -> None:
+    assert {"simple", "structured"} <= set(logger_registry.list_backends())
+    assert {"noop", "otel", "opentelemetry"} <= set(tracer_registry.list_backends())
+    assert {"noop", "simple", "prometheus", "otel", "opentelemetry"} <= set(
+        metrics_collector_registry.list_backends()
+    )
+    assert {"memory", "file", "noop"} <= set(run_logger_registry.list_backends())
 
 
 class TestCreateRunLogger:
@@ -74,10 +85,79 @@ def test_create_tracer_supports_noop_backend() -> None:
     assert isinstance(tracer, NoOpTracer)
 
 
+def test_create_tracer_supports_otel_backend_with_injected_tracer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cemaf.observability.otel_tracer as otel_tracer
+
+    monkeypatch.setattr(otel_tracer, "_require_otel", lambda: None)
+
+    raw_tracer = MagicMock()
+    tracer = create_tracer(backend="otel", tracer=raw_tracer)
+
+    assert isinstance(tracer, otel_tracer.OTelTracer)
+
+
 def test_create_metrics_collector_supports_noop_backend() -> None:
     metrics = create_metrics_collector()
 
     assert isinstance(metrics, NoOpMetrics)
+
+
+def test_create_metrics_collector_from_config_uses_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CEMAF_OBSERVABILITY_METRICS_BACKEND", raising=False)
+    monkeypatch.delenv("CEMAF_OBSERVABILITY_METRICS_PREFIX", raising=False)
+    settings = Settings(
+        app_name="customapp",
+        observability=ObservabilitySettings(enable_metrics=True),
+    )
+
+    metrics = create_metrics_collector_from_config(settings=settings)
+
+    assert isinstance(metrics, SimpleMetrics)
+    assert metrics._prefix == "customapp"
+
+
+def test_create_metrics_collector_supports_otel_backend_with_injected_meter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cemaf.observability.otel_metrics as otel_metrics
+
+    monkeypatch.setattr(otel_metrics, "_require_otel_metrics", lambda: None)
+
+    meter = MagicMock()
+    metrics = create_metrics_collector(backend="otel", meter=meter)
+
+    assert isinstance(metrics, otel_metrics.OTelMetricsCollector)
+
+
+def test_create_metrics_collector_supports_prometheus_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cemaf.observability.prometheus_metrics as prometheus_metrics
+
+    class FakePrometheusMetrics:
+        def __init__(self, *, prefix: str = "cemaf") -> None:
+            self.prefix = prefix
+
+        def counter(self, name: str, value: int = 1, tags: object | None = None) -> None:
+            pass
+
+        def gauge(self, name: str, value: float, tags: object | None = None) -> None:
+            pass
+
+        def histogram(self, name: str, value: float, tags: object | None = None) -> None:
+            pass
+
+        def timing(self, name: str, value_ms: float, tags: object | None = None) -> None:
+            pass
+
+    monkeypatch.setattr(prometheus_metrics, "PrometheusMetrics", FakePrometheusMetrics)
+
+    metrics = create_metrics_collector(backend="prometheus", prefix="prod")
+
+    assert isinstance(metrics, FakePrometheusMetrics)
+    assert metrics.prefix == "prod"
 
 
 def test_register_custom_logger_backend() -> None:
@@ -143,6 +223,40 @@ def test_create_registered_logger_from_env(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert isinstance(logger, EnvLogger)
     assert captured["level"] == "ERROR"
+
+
+def test_create_logger_from_config_uses_settings_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class SettingsLogger:
+        def debug(self, message: str, *args: object, **kwargs: object) -> None:
+            pass
+
+        def info(self, message: str, *args: object, **kwargs: object) -> None:
+            pass
+
+        def warning(self, message: str, *args: object, **kwargs: object) -> None:
+            pass
+
+        def error(self, message: str, *args: object, **kwargs: object) -> None:
+            pass
+
+        def with_context(self, **kwargs: object) -> SettingsLogger:
+            return self
+
+    def factory(**kwargs: object) -> SettingsLogger:
+        captured.update(kwargs)
+        return SettingsLogger()
+
+    logger_registry.register(backend="settings-logger", factory=factory)
+    monkeypatch.setenv("CEMAF_OBSERVABILITY_LOGGER_BACKEND", "settings-logger")
+    monkeypatch.delenv("CEMAF_OBSERVABILITY_LOG_LEVEL", raising=False)
+    settings = Settings(observability=ObservabilitySettings(log_level="DEBUG"))
+
+    logger = create_logger_from_config(settings=settings)
+
+    assert isinstance(logger, SettingsLogger)
+    assert captured["level"] == "DEBUG"
 
 
 def test_register_custom_tracer_backend() -> None:
@@ -289,6 +403,21 @@ def test_create_registered_run_logger_from_env(monkeypatch: pytest.MonkeyPatch, 
     assert isinstance(logger, EnvRunLogger)
     assert captured["enable_recording"] is False
     assert captured["root"] == str(tmp_path)
+
+
+def test_create_run_logger_from_config_uses_settings_recording_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CEMAF_OBSERVABILITY_RUN_LOGGER_BACKEND", raising=False)
+    monkeypatch.delenv("CEMAF_OBSERVABILITY_ENABLE_RUN_RECORDING", raising=False)
+    monkeypatch.delenv("CEMAF_OBSERVABILITY_RUN_LOGGER_ROOT", raising=False)
+    settings = Settings(
+        observability=ObservabilitySettings(enable_run_recording=False),
+    )
+
+    logger = create_run_logger_from_config(settings=settings)
+
+    assert isinstance(logger, NoOpRunLogger)
 
 
 def test_unknown_observability_backends_name_registries() -> None:

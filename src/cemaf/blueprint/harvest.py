@@ -183,6 +183,8 @@ class BlueprintHarvesterEngine:
 
     def subscribe(self, *, event_bus: EventBus) -> None:
         """Wire observer + trigger handlers onto the bus. Idempotent relative to `unsubscribe`."""
+        if self._unsubscribers:
+            return
         for event_type in self._observe_events:
             unsub = event_bus.subscribe(event_type, self._observe_handler)
             self._unsubscribers.append(unsub)

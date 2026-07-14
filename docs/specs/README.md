@@ -31,6 +31,17 @@ SPEC-00 umbrella — and ships backward-compatible.
 | [SPEC-12](SPEC-12-agent-collision-avoidance.md) | Agent Collision Avoidance | TCAS-style coordination over concurrent `ContextPatch` writes |
 | [SPEC-13](SPEC-13-scoped-blueprint-harvest.md) | Scoped Blueprint Harvest | per-project blueprint scoping + PROJECT→GLOBAL promotion |
 | [SPEC-14](SPEC-14-session-snapshot-contract.md) | Operator Session Snapshot | `cemaf.session.v1` read-only run snapshot contract |
+
+## Additional Composition And Production Contracts (SPEC-15..17)
+
+These specs extend the public composition and production substrate without
+requiring particular storage products.
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-15](SPEC-15-memory-branches.md) | Memory Branches | SPEC-00, SPEC-12 | isolated memory branches and merge-review protocol |
+| [SPEC-16](SPEC-16-engine-manifest.md) | Declarative Engine Manifest | SPEC-00 | declarative lowering to the existing composition root |
+| [SPEC-17](SPEC-17-autonomous-context-substrate.md) | Production-Grade Autonomous Context Substrate | SPEC-00, 04–06, 11, 14–16 | durable coordinator/authority, context manifests, scheduling, profiles, evidence, and claim gates |
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see

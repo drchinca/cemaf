@@ -238,9 +238,9 @@ await adapter.serve(transport)
 
 ```python
 from cemaf.mcp import MCPAdapter
-from cemaf.memory import InMemoryMemoryStore
+from cemaf.memory import InMemoryStore
 
-memory_store = InMemoryMemoryStore()
+memory_store = InMemoryStore()
 
 adapter = MCPAdapter(
     memory_store=memory_store,

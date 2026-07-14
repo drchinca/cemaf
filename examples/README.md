@@ -29,6 +29,8 @@ Minimal product slices, not feature tours.
 |---|---|
 | [`app_shapes/rag_with_citations.py`](app_shapes/rag_with_citations.py) | Grounded RAG — every answer traces to a retrieved source (the membership invariant). |
 | [`app_shapes/tool_using_agent.py`](app_shapes/tool_using_agent.py) | An agent calls a flaky tool that self-heals via `@with_retry`, all inside a DAG. |
+| [`app_shapes/disposable_workers_durable_companion.py`](app_shapes/disposable_workers_durable_companion.py) | Two or three disposable workers die after checkpointing; replacements resume, heal, trace, and replay through a shared durable companion service plane. |
+| [`app_shapes/cemaf_langgraph_lcel_poc.py`](app_shapes/cemaf_langgraph_lcel_poc.py) | CEMAF as outer DAG/runtime with a real LangGraph + LCEL workflow behind an adapter node. |
 
 ## Context layers (the namesake capability)
 
@@ -58,7 +60,8 @@ How CEMAF assembles a prompt from layered, prioritized, budgeted context.
 ## Local LLM (needs a running Ollama daemon)
 
 [`ollama_gemma.py`](ollama_gemma.py) · [`ollama_gemma_tiered.py`](ollama_gemma_tiered.py)
-— the smoke harness runs these when Ollama is reachable, skips with a reason when it isn't.
+— the CLI paths use a real Ollama daemon; the smoke harness runs deterministic
+offline `smoke_main()` paths over the same CEMAF wiring.
 
 ## Before you reimplement
 

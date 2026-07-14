@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,7 +19,6 @@ from cemaf.security.rbac import (
     RBACEnforcer,
     RBACMemoryStore,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -236,7 +234,12 @@ async def test_rbac_store_propagates_redaction_hook() -> None:
     item = make_item(value={"secret": "topsecret", "public": "open"})
     await inner.set(item)
 
-    from cemaf.security.masking import MaskingPipeline, MaskingRule, MaskingStrategy, create_masking_hook  # noqa: PLC0415
+    from cemaf.security.masking import (  # noqa: PLC0415
+        MaskingPipeline,
+        MaskingRule,
+        MaskingStrategy,
+        create_masking_hook,
+    )
 
     rule = MaskingRule(field="secret", strategy=MaskingStrategy.MASK)
     pipeline = MaskingPipeline(rules=[rule])

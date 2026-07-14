@@ -149,7 +149,7 @@ class RLMQueryTool(Tool):
 
             budget = TokenBudget(
                 max_tokens=max_tokens,
-                reserved_for_output=DEFAULT_RESERVED_OUTPUT_TOKENS,
+                reserved_for_output=min(DEFAULT_RESERVED_OUTPUT_TOKENS, max_tokens // 4),
             )
 
             result = await self._engine.query(

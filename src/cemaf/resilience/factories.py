@@ -212,15 +212,34 @@ def create_retry_policy_from_config(settings: Settings | None = None) -> RetrySt
         # From environment
         policy = create_retry_policy_from_config()
     """
-    cfg = settings or load_settings_from_env_sync()  # noqa: F841
+    cfg = settings or load_settings_from_env_sync()
+    resilience = cfg.resilience
 
     backend = os.getenv("CEMAF_RESILIENCE_RETRY_BACKEND", "default")
-    max_attempts = int(os.getenv("CEMAF_RESILIENCE_MAX_RETRIES", "3"))
-    initial_delay = float(os.getenv("CEMAF_RESILIENCE_INITIAL_RETRY_DELAY_SECONDS", "1.0"))
-    max_delay = float(os.getenv("CEMAF_RESILIENCE_MAX_RETRY_DELAY_SECONDS", "60.0"))
-    backoff_strategy = os.getenv("CEMAF_RESILIENCE_RETRY_BACKOFF_STRATEGY", "exponential")
-    backoff_multiplier = float(os.getenv("CEMAF_RESILIENCE_RETRY_BACKOFF_MULTIPLIER", "2.0"))
-    jitter = _env_bool("CEMAF_RESILIENCE_RETRY_JITTER", True)
+    max_attempts = int(os.getenv("CEMAF_RESILIENCE_MAX_RETRIES", str(resilience.max_retries)))
+    initial_delay = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_INITIAL_RETRY_DELAY_SECONDS",
+            str(resilience.initial_retry_delay_seconds),
+        )
+    )
+    max_delay = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_MAX_RETRY_DELAY_SECONDS",
+            str(resilience.max_retry_delay_seconds),
+        )
+    )
+    backoff_strategy = os.getenv(
+        "CEMAF_RESILIENCE_RETRY_BACKOFF_STRATEGY",
+        resilience.retry_backoff_strategy,
+    )
+    backoff_multiplier = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_RETRY_BACKOFF_MULTIPLIER",
+            str(resilience.retry_backoff_multiplier),
+        )
+    )
+    jitter = _env_bool("CEMAF_RESILIENCE_RETRY_JITTER", resilience.retry_jitter)
 
     return create_retry_policy(
         backend=backend,
@@ -249,12 +268,34 @@ def create_circuit_breaker_from_config(settings: Settings | None = None) -> Circ
         # From environment
         breaker = create_circuit_breaker_from_config()
     """
-    _ = settings
+    cfg = settings or load_settings_from_env_sync()
+    resilience = cfg.resilience
+
     backend = os.getenv("CEMAF_RESILIENCE_CIRCUIT_BREAKER_BACKEND", "default")
-    failure_threshold = int(os.getenv("CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5"))
-    failure_window = float(os.getenv("CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_WINDOW_SECONDS", "60.0"))
-    recovery_timeout = float(os.getenv("CEMAF_RESILIENCE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS", "30.0"))
-    success_threshold = int(os.getenv("CEMAF_RESILIENCE_CIRCUIT_BREAKER_SUCCESS_THRESHOLD", "2"))
+    failure_threshold = int(
+        os.getenv(
+            "CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+            str(resilience.circuit_breaker_failure_threshold),
+        )
+    )
+    failure_window = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_CIRCUIT_BREAKER_FAILURE_WINDOW_SECONDS",
+            str(resilience.circuit_breaker_failure_window_seconds),
+        )
+    )
+    recovery_timeout = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_SECONDS",
+            str(resilience.circuit_breaker_recovery_timeout_seconds),
+        )
+    )
+    success_threshold = int(
+        os.getenv(
+            "CEMAF_RESILIENCE_CIRCUIT_BREAKER_SUCCESS_THRESHOLD",
+            str(resilience.circuit_breaker_success_threshold),
+        )
+    )
 
     return create_circuit_breaker(
         backend=backend,
@@ -280,12 +321,27 @@ def create_rate_limiter_from_config(settings: Settings | None = None) -> RateLim
         # From environment
         limiter = create_rate_limiter_from_config()
     """
-    _ = settings
+    cfg = settings or load_settings_from_env_sync()
+    resilience = cfg.resilience
+
     backend = os.getenv("CEMAF_RESILIENCE_RATE_LIMITER_BACKEND", "token_bucket")
-    requests_per_second = float(os.getenv("CEMAF_RESILIENCE_RATE_LIMIT_REQUESTS_PER_SECOND", "10.0"))
-    burst = int(os.getenv("CEMAF_RESILIENCE_RATE_LIMIT_BURST", "10"))
-    wait_on_limit = _env_bool("CEMAF_RESILIENCE_RATE_LIMIT_WAIT_ON_LIMIT", True)
-    max_wait_seconds = float(os.getenv("CEMAF_RESILIENCE_RATE_LIMIT_MAX_WAIT_SECONDS", "30.0"))
+    requests_per_second = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_RATE_LIMIT_REQUESTS_PER_SECOND",
+            str(resilience.rate_limit_requests_per_second),
+        )
+    )
+    burst = int(os.getenv("CEMAF_RESILIENCE_RATE_LIMIT_BURST", str(resilience.rate_limit_burst)))
+    wait_on_limit = _env_bool(
+        "CEMAF_RESILIENCE_RATE_LIMIT_WAIT_ON_LIMIT",
+        resilience.rate_limit_wait_on_limit,
+    )
+    max_wait_seconds = float(
+        os.getenv(
+            "CEMAF_RESILIENCE_RATE_LIMIT_MAX_WAIT_SECONDS",
+            str(resilience.rate_limit_max_wait_seconds),
+        )
+    )
 
     return create_rate_limiter(
         backend=backend,

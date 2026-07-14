@@ -17,6 +17,7 @@ Type imports happen at runtime within methods that need them.
 """
 
 import asyncio
+import dataclasses
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -316,6 +317,12 @@ class DAGExecutor:
         self._auto_heal_manager = services.auto_heal_manager
         self._budget_guard = services.budget_guard
         self._session_manager = services.session_manager
+        self._tracer = services.tracer
+        self._checkpointer = services.checkpointer
+        if services.checkpoint_interval < 1:
+            raise ValueError("RuntimeServices.checkpoint_interval must be >= 1")
+        self._checkpoint_interval = services.checkpoint_interval
+        self._knowledge_graph = services.knowledge_graph
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.
@@ -356,6 +363,105 @@ class DAGExecutor:
         )
         await self._event_bus.publish(event=event)
 
+    async def _save_runtime_checkpoint(
+        self,
+        *,
+        run_id: RunID,
+        dag: DAG,
+        status: RunStatus,
+        completed: dict[NodeID, NodeResult],
+        context: Context,
+        error: str | None = None,
+        failed_node: NodeID | None = None,
+    ) -> None:
+        """Persist native executor state without bypassing runtime services."""
+        if self._checkpointer is None:
+            return
+        from cemaf.orchestration.checkpointer import DAGCheckpoint
+
+        order = dag.topological_sort()
+        pending_nodes = (
+            ()
+            if status is RunStatus.COMPLETED
+            else tuple(node_id for node_id in order if node_id not in completed or node_id == failed_node)
+        )
+        route_choices = {
+            str(source): [str(target) for target in sorted(targets, key=str)]
+            for source, targets in _current_route_choices().items()
+        }
+        await self._checkpointer.save(
+            DAGCheckpoint(
+                run_id=run_id,
+                dag_name=dag.name,
+                status=status,
+                completed_nodes=tuple(completed),
+                pending_nodes=pending_nodes,
+                context=context,
+                error=error,
+                failed_node=failed_node,
+                route_choices=route_choices,
+            )
+        )
+
+    async def _moderate_result(self, *, result: NodeResult, context: Context) -> NodeResult:
+        """Moderate a successful candidate before it becomes durable state."""
+        if self._moderation_pipeline is None or not result.success or result.output is None:
+            return result
+
+        metadata = dict(result.metadata or {})
+        metadata["_moderation_checked"] = True
+        moderation_result = await self._moderation_pipeline.check_output(
+            content=_flatten_for_moderation(output=result.output),
+            context=context,
+        )
+        if moderation_result.allowed:
+            return dataclasses.replace(result, metadata=metadata)
+
+        violation_codes = [v.code for v in moderation_result.violations]
+        logger.warning(
+            "Node output blocked by moderation",
+            node_id=str(result.node_id),
+            violations=violation_codes,
+        )
+        metadata["moderation_blocked"] = True
+        metadata["moderation_violations"] = violation_codes
+        return NodeResult(
+            node_id=result.node_id,
+            success=False,
+            output=None,
+            error=f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})",
+            duration_ms=result.duration_ms,
+            metadata=metadata,
+        )
+
+    async def _ingest_accepted_result(self, *, result: NodeResult, run_id: RunID) -> NodeResult:
+        """Store only a final, gate-accepted agent result in session memory."""
+        if self._session_manager is None or not result.success or result.output is None:
+            return result
+        metadata = dict(result.metadata or {})
+        agent_name = metadata.get("agent_id")
+        if not isinstance(agent_name, str) or not agent_name:
+            return result
+        try:
+            await self._session_manager.ingest(
+                session_id=str(run_id),
+                key=f"{agent_name}_output",
+                value={"output": result.output, "agent": agent_name},
+            )
+        except Exception as exc:
+            logger.warning("Failed to ingest result for '%s'", agent_name, exc_info=True)
+            warnings = list(metadata.get("context_warnings") or ())
+            warnings.append(
+                {
+                    "stage": "session_ingest",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                }
+            )
+            metadata["context_warnings"] = tuple(warnings)
+            return dataclasses.replace(result, metadata=metadata)
+        return result
+
     async def run(
         self,
         dag: DAG,
@@ -381,12 +487,49 @@ class DAGExecutor:
             _route_choices_var.reset(route_token)
             _correlation_id_var.reset(correlation_token)
 
+    async def resume(
+        self,
+        run_id: RunID,
+        dag: DAG,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
+        """Resume a natively checkpointed run through the same service root."""
+        if self._checkpointer is None:
+            raise ValueError("RuntimeServices.checkpointer is required for resume")
+        checkpoint = await self._checkpointer.load(run_id)
+        if checkpoint is None:
+            raise ValueError(f"No checkpoint found for {run_id}")
+        if not checkpoint.can_resume():
+            raise ValueError(f"Cannot resume: status={checkpoint.status}")
+        if checkpoint.dag_name != dag.name:
+            raise ValueError(f"DAG mismatch: {checkpoint.dag_name} != {dag.name}")
+
+        restored_routes = {
+            NodeID(source): {NodeID(target) for target in targets}
+            for source, targets in checkpoint.route_choices.items()
+            if isinstance(targets, (list, tuple, set))
+        }
+        route_token = _route_choices_var.set(restored_routes)
+        correlation_token = _correlation_id_var.set(str(run_id))
+        try:
+            return await self._run_impl(
+                dag=dag,
+                initial_context=checkpoint.context,
+                run_id=run_id,
+                cancellation_token=cancellation_token,
+                resume_checkpoint=checkpoint,
+            )
+        finally:
+            _route_choices_var.reset(route_token)
+            _correlation_id_var.reset(correlation_token)
+
     async def _run_impl(
         self,
         dag: DAG,
         initial_context: Context | None = None,
         run_id: RunID | None = None,
         cancellation_token: CancellationToken | None = None,
+        resume_checkpoint: Any | None = None,
     ) -> ExecutionResult:
         """
         Execute the DAG.
@@ -486,6 +629,23 @@ class DAGExecutor:
 
             # Track completed nodes for edge conditions
             completed: dict[NodeID, NodeResult] = {}
+            if resume_checkpoint is not None:
+                for completed_node in resume_checkpoint.completed_nodes:
+                    if completed_node != resume_checkpoint.failed_node:
+                        completed[completed_node] = NodeResult(
+                            node_id=completed_node,
+                            success=True,
+                            metadata={"resumed_from_checkpoint": True},
+                        )
+
+            if self._checkpointer is not None and resume_checkpoint is None:
+                await self._save_runtime_checkpoint(
+                    run_id=run_id,
+                    dag=dag,
+                    status=RunStatus.RUNNING,
+                    completed=completed,
+                    context=context,
+                )
 
             # Build handler context for node-type dispatchers. route_choices
             # is a dict reference shared with the ContextVar's view; mutations
@@ -540,6 +700,10 @@ class DAGExecutor:
 
                 if not should_execute:
                     continue
+
+                # Keep the pre-node state so non-standard aggregate nodes can
+                # be rolled back if their final output fails moderation.
+                context_before_node = context
 
                 # Handle different node types
                 if node.type == NodeType.PARALLEL:
@@ -624,6 +788,22 @@ class DAGExecutor:
                     node_results.append(result)
                     completed[node_id] = result
 
+                # Standard nodes are moderated inside _try_once, before their
+                # output is applied. Aggregate node handlers are checked here;
+                # if blocked, restore their pre-node context before anything is
+                # announced as completed.
+                if not (result.metadata or {}).get("_moderation_checked"):
+                    moderated_result = await self._moderate_result(result=result, context=context_before_node)
+                    if moderated_result is not result:
+                        result = moderated_result
+                        if not result.success:
+                            context = context_before_node
+                        for result_index in range(len(node_results) - 1, -1, -1):
+                            if node_results[result_index].node_id == node_id:
+                                node_results[result_index] = result
+                                break
+                        completed[node_id] = result
+
                 # Record per-node metrics.
                 # We deliberately do NOT include node_id or run_id in tags —
                 # those are unbounded cardinality dimensions and will OOM a
@@ -666,6 +846,15 @@ class DAGExecutor:
                     _payload["recovery_attempts"] = _recovery_attempts
                 if _gate_rejected:
                     _payload["gate_rejected"] = True
+                # Surface the node's decision metadata (council verdict + ballots,
+                # auction winner + score, gate verdict) into the audit-feeding
+                # event, so the audit trail's NODE_EXECUTED entry records WHAT was
+                # decided — not just that a node ran. Without this the trail is
+                # blind to the very decisions the glassbox claims to capture.
+                for _decision_key in ("council", "selection", "auction", "gate"):
+                    _decision = result.metadata.get(_decision_key)
+                    if _decision is not None:
+                        _payload[_decision_key] = _decision
                 await self._emit_event(
                     event_type=EventType.TASK_COMPLETED if result.success else EventType.TASK_FAILED,
                     payload=_payload,
@@ -687,43 +876,16 @@ class DAGExecutor:
                         },
                     )
 
-                # Post-flight moderation on the node's output. The executor
-                # holds the pipeline (previously plumbed but never invoked);
-                # if it blocks, the node is rewritten to failed with an
-                # explicit violation error, and the DAG cannot pass the tainted
-                # output to downstream nodes.
-                if self._moderation_pipeline is not None and result.success and result.output is not None:
-                    # Flatten structured output to its text leaves before
-                    # moderation. str({"summary": "..."}) produces Python repr
-                    # which gates read as noise; semantic content lives inside.
-                    moderation_result = await self._moderation_pipeline.check_output(
-                        content=_flatten_for_moderation(output=result.output),
+                if self._checkpointer is not None and len(node_results) % self._checkpoint_interval == 0:
+                    await self._save_runtime_checkpoint(
+                        run_id=run_id,
+                        dag=dag,
+                        status=RunStatus.RUNNING,
+                        completed=completed,
                         context=context,
+                        error=result.error,
+                        failed_node=node_id if not result.success else None,
                     )
-                    if not moderation_result.allowed:
-                        violation_codes = [v.code for v in moderation_result.violations]
-                        error_msg = (
-                            f"Output blocked by moderation (codes: {violation_codes or ['unspecified']})"
-                        )
-                        logger.warning(
-                            "Node output blocked by moderation",
-                            node_id=str(node_id),
-                            violations=violation_codes,
-                        )
-                        blocked_metadata = dict(result.metadata or {})
-                        blocked_metadata["moderation_blocked"] = True
-                        blocked_metadata["moderation_violations"] = violation_codes
-                        result = NodeResult(
-                            node_id=node_id,
-                            success=False,
-                            output=None,
-                            error=error_msg,
-                            duration_ms=result.duration_ms,
-                            metadata=blocked_metadata,
-                        )
-                        # Replace the recorded result so downstream checks see failure.
-                        node_results[-1] = result
-                        completed[node_id] = result
 
                 # Budget guard halt check after each node. Cost recording
                 # itself happens inside _execute_with_retry (see there), so
@@ -785,8 +947,19 @@ class DAGExecutor:
                         health_check_metadata=health_check_metadata,
                     )
 
-                # Stop on failure if retry_on_failure is False
-                if not result.success and not node.retry_on_failure and node.type != NodeType.CONDITIONAL:
+                # A deterministic gate rejection is terminal even when the
+                # node normally retries failures. The interceptor has already
+                # decided the output is unsafe/invalid; unconditional edges
+                # must not let downstream work execute around that decision.
+                _interceptor_metadata = result.metadata.get("interceptors")
+                _gate_rejected_result = isinstance(_interceptor_metadata, dict) and bool(
+                    _interceptor_metadata.get("gate_rejected")
+                )
+                if (
+                    not result.success
+                    and (not node.retry_on_failure or _gate_rejected_result)
+                    and node.type != NodeType.CONDITIONAL
+                ):
                     # Record DAG failure metrics
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
@@ -809,6 +982,17 @@ class DAGExecutor:
                             final_context=context,
                             success=False,
                             error=result.error,
+                        )
+
+                    if self._checkpointer is not None:
+                        await self._save_runtime_checkpoint(
+                            run_id=run_id,
+                            dag=dag,
+                            status=RunStatus.FAILED,
+                            completed=completed,
+                            context=context,
+                            error=result.error,
+                            failed_node=node_id,
                         )
 
                     _ws_fail = context.data.get("workspace_id")
@@ -842,6 +1026,15 @@ class DAGExecutor:
                 self._run_logger.end_run(
                     final_context=context,
                     success=True,
+                )
+
+            if self._checkpointer is not None:
+                await self._save_runtime_checkpoint(
+                    run_id=run_id,
+                    dag=dag,
+                    status=RunStatus.COMPLETED,
+                    completed=completed,
+                    context=context,
                 )
 
             # Record DAG success metrics
@@ -892,6 +1085,16 @@ class DAGExecutor:
                 self._run_logger.end_run(
                     final_context=context,
                     success=False,
+                    error=str(e),
+                )
+
+            if self._checkpointer is not None:
+                await self._save_runtime_checkpoint(
+                    run_id=run_id,
+                    dag=dag,
+                    status=RunStatus.FAILED,
+                    completed={result.node_id: result for result in node_results},
+                    context=context,
                     error=str(e),
                 )
 
@@ -1028,6 +1231,12 @@ class DAGExecutor:
             _ctx_out = (result.metadata or {}).get("_context_output")
             context_value = _ctx_out if (node.structured_output and _ctx_out is not None) else result.output
 
+            # Prefer the agent's own rationale (if it recorded one) as the patch
+            # reason, so context history explains WHY a value was produced — not
+            # just which node emitted it. Falls back to the generic node label.
+            agent_reason = str((result.metadata or {}).get("reasoning", "")).strip()
+            patch_reason = agent_reason or f"Output from node '{node.id}'"
+
             # Create patch for provenance
             patch = ContextPatch(
                 path=node.output_key,
@@ -1035,7 +1244,7 @@ class DAGExecutor:
                 value=context_value,
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
-                reason=f"Output from node '{node.id}'",
+                reason=patch_reason,
                 correlation_id=_correlation_id_var.get(),
             )
 
@@ -1075,11 +1284,13 @@ class DAGExecutor:
         heal = _HealState(max_attempts=2)
         current_context = context
         last_error: str | None = None
+        last_result: NodeResult | None = None
         start_time = utc_now()
 
         for attempt in range(max_attempts):
             try:
                 result, current_context = await self._try_once(node=node, context=current_context)
+                last_result = result
                 if result.success:
                     return result, current_context
                 last_error = result.error
@@ -1113,6 +1324,8 @@ class DAGExecutor:
                 await asyncio.sleep(0.1 * (attempt + 1))
 
         end_time = utc_now()
+        if last_result is not None:
+            return last_result, current_context
         return (
             NodeResult(
                 node_id=node.id,
@@ -1135,11 +1348,25 @@ class DAGExecutor:
         per-attempt bookkeeping is readable in isolation and the retry loop
         is just `try once → decide → maybe heal → maybe retry`.
         """
+        node_span = (
+            self._tracer.start_span(
+                "cemaf.node.attempt",
+                attributes={
+                    "cemaf.run.id": _correlation_id_var.get(),
+                    "cemaf.node.id": str(node.id),
+                    "cemaf.node.type": (node.type.value if hasattr(node.type, "value") else str(node.type)),
+                    "cemaf.agent.id": node.ref_id or "",
+                },
+            )
+            if self._tracer is not None
+            else None
+        )
         resolved_context = context
+        resolved_context = resolved_context.set("_run_id", _correlation_id_var.get())
         resolved_inputs: dict[str, Any] = {}
         if node.input_mapping:
             resolved_inputs = resolve_node_input(node.input_mapping, context)
-            resolved_context = context.set("_resolved_inputs", resolved_inputs)
+            resolved_context = resolved_context.set("_resolved_inputs", resolved_inputs)
 
         await self._emit_event(
             event_type=EventType.TASK_STARTED,
@@ -1153,20 +1380,59 @@ class DAGExecutor:
         )
 
         try:
-            result = await asyncio.wait_for(
-                self._node_executor.execute_node(node, resolved_context),
-                timeout=self._node_timeout,
-            )
-        except TimeoutError:
-            result = NodeResult(
-                node_id=node.id,
-                success=False,
-                error=f"Node timed out after {self._node_timeout}s",
-            )
+            try:
+                result = await asyncio.wait_for(
+                    self._node_executor.execute_node(node, resolved_context),
+                    timeout=self._node_timeout,
+                )
+            except TimeoutError:
+                result = NodeResult(
+                    node_id=node.id,
+                    success=False,
+                    error=f"Node timed out after {self._node_timeout}s",
+                )
 
-        new_context = self._apply_node_output(node, result, context)
-        self._record_budget_usage(result=result)
-        return result, new_context
+            self._record_budget_usage(result=result)
+            result = await self._moderate_result(result=result, context=context)
+            if result.success:
+                result = await self._ingest_accepted_result(
+                    result=result,
+                    run_id=RunID(_correlation_id_var.get()),
+                )
+            new_context = self._apply_node_output(node, result, context)
+            if node_span is not None:
+                metadata = result.metadata or {}
+                node_span.set_attribute("cemaf.node.success", result.success)
+                node_span.set_attribute("cemaf.node.duration_ms", result.duration_ms)
+                node_span.set_attribute(
+                    "cemaf.cost.usd",
+                    metadata.get("cost_estimate_usd", metadata.get("cost_usd", 0.0)),
+                )
+                node_span.set_attribute(
+                    "cemaf.tokens.total",
+                    metadata.get("tokens_total", metadata.get("tokens_used", 0)),
+                )
+                node_span.set_attribute(
+                    "cemaf.recovery.attempts",
+                    metadata.get("recovery_attempts", 0),
+                )
+                if result.error:
+                    node_span.add_event("cemaf.node.failure", {"error": result.error})
+                    node_span.set_status("ERROR", result.error)
+                else:
+                    node_span.set_status("OK")
+            return result, new_context
+        except Exception as exc:
+            if node_span is not None:
+                node_span.add_event(
+                    "cemaf.node.exception",
+                    {"error": str(exc), "error_type": type(exc).__name__},
+                )
+                node_span.set_status("ERROR", str(exc))
+            raise
+        finally:
+            if node_span is not None:
+                node_span.end()
 
     def _record_budget_usage(self, *, result: NodeResult) -> None:
         """Record per-node cost against BudgetGuard, NaN-safe.

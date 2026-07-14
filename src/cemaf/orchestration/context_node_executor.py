@@ -1,10 +1,13 @@
 """ContextNodeExecutor - Bridges DAG nodes to agents via registry."""
 
+import asyncio
+import dataclasses
 import hashlib
 import json
 import logging
+import math
 from time import perf_counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -16,6 +19,7 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
 from cemaf.core.domain import DomainContext
+from cemaf.core.enums import MemoryScope
 from cemaf.core.provenance import ProvenanceLink, SourceReference
 from cemaf.core.types import JSON, AgentID, NodeID, ProvenanceID
 from cemaf.core.utils import utc_now
@@ -49,6 +53,11 @@ from cemaf.orchestration.resolvers import (
 )
 from cemaf.retrieval.protocols import VectorStore
 
+if TYPE_CHECKING:
+    from cemaf.knowledge.protocols import KnowledgeGraph
+else:
+    type KnowledgeGraph = Any
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +78,6 @@ def _apply_recovery_exhausted(
     outer ``_execute_with_retry`` does not re-run a deterministic gate failure)
     while preserving the recovery trail in metadata for provenance.
     """
-    import dataclasses
 
     block = dict(result.metadata.get("interceptors", {})) if result.metadata else {}
     if not isinstance(block, dict):
@@ -113,6 +121,7 @@ class ContextNodeExecutor:
         budget_guard: BudgetGuard | None = None,
         council_aggregator: VoteAggregator | None = None,
         interceptor_pipeline: InterceptorPipeline | None = None,
+        knowledge_graph: KnowledgeGraph | None = None,
         max_recovery_attempts: int = 2,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation.
@@ -138,6 +147,7 @@ class ContextNodeExecutor:
         self._budget_guard = budget_guard
         self._council_aggregator = council_aggregator
         self._interceptor_pipeline = interceptor_pipeline
+        self._knowledge_graph = knowledge_graph
         self._max_recovery_attempts = max_recovery_attempts
 
         # NodeResolver chain — first match wins, registered most-specific first.
@@ -146,7 +156,11 @@ class ContextNodeExecutor:
         # fallback. When agent_selector is absent, auction is skipped — preserves
         # the prior "static unless a selector is wired" semantics.
         resolvers: list[NodeResolver] = [
-            CouncilResolver(registry=agent_registry, aggregator=council_aggregator),
+            CouncilResolver(
+                registry=agent_registry,
+                aggregator=council_aggregator,
+                knowledge_graph=knowledge_graph,
+            ),
         ]
         if agent_selector is not None:
             resolvers.append(
@@ -198,8 +212,7 @@ class ContextNodeExecutor:
                 node_id=str(node.id),
                 agent_id=agent_name,
             )
-            # InstrumentedLLMClient satisfies LLMClient protocol structurally
-            effective_client: LLMClient | None = instrumented_client or self._llm_client  # type: ignore[assignment]
+            effective_client: LLMClient | None = instrumented_client or self._llm_client
             agent = self._registry.create_agent(
                 agent_name,
                 llm_client=effective_client,
@@ -234,6 +247,7 @@ class ContextNodeExecutor:
         global_memory = await self._recall_global_memory(
             agent_name=agent_name,
             goal_text=goal_text,
+            run_id=run_id,
             warnings=context_warnings,
         )
 
@@ -256,6 +270,7 @@ class ContextNodeExecutor:
             domain_context=self._domain_context,
             global_memory=global_memory,
             artifacts=artifacts,
+            knowledge_graph=self._knowledge_graph,
         )
 
         # PRE interceptor chain (SPEC-01a). Runs on the already-built AgentContext;
@@ -290,6 +305,9 @@ class ContextNodeExecutor:
         # sees prior failures.
         recovery_hints: list[RecoveryHint] = []
         attempts_remaining = self._max_recovery_attempts
+        attempt_usage: list[dict[str, float | int]] = []
+        accumulated_cost_usd = 0.0
+        accumulated_tokens = 0
 
         try:
             while True:
@@ -314,6 +332,38 @@ class ContextNodeExecutor:
                 result = await agent.run(goal=goal, context=attempt_context)
                 duration_ms = (perf_counter() - start) * 1000
 
+                # Preserve the bill for every agent attempt, including drafts
+                # rejected by a POST gate. The outer DAG budget guard sees only
+                # the final NodeResult, so returning final-attempt telemetry
+                # alone silently under-counts recovery work.
+                result_metadata = result.metadata or {}
+                usage_keys_present = any(
+                    key in result_metadata
+                    for key in ("cost_estimate_usd", "cost_usd", "tokens_total", "tokens_used")
+                )
+                if usage_keys_present:
+                    try:
+                        attempt_cost = float(
+                            result_metadata.get("cost_estimate_usd", result_metadata.get("cost_usd", 0.0))
+                            or 0.0
+                        )
+                        attempt_tokens = int(
+                            result_metadata.get("tokens_total", result_metadata.get("tokens_used", 0)) or 0
+                        )
+                    except (TypeError, ValueError):
+                        attempt_cost, attempt_tokens = 0.0, 0
+                    if math.isnan(attempt_cost) or math.isinf(attempt_cost):
+                        attempt_cost = 0.0
+                    accumulated_cost_usd += max(0.0, attempt_cost)
+                    accumulated_tokens += max(0, attempt_tokens)
+                    attempt_usage.append(
+                        {
+                            "attempt": len(attempt_usage) + 1,
+                            "cost_usd": max(0.0, attempt_cost),
+                            "tokens": max(0, attempt_tokens),
+                        }
+                    )
+
                 # Build provenance link (recorded once per attempt for an honest trail)
                 if self._run_logger:
                     link = ProvenanceLink(
@@ -329,25 +379,26 @@ class ContextNodeExecutor:
                     self._run_logger.record_provenance_link(link=link)
 
                 if not result.success:
+                    failure_metadata = _failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata)
+                    if attempt_usage:
+                        failure_metadata.update(
+                            {
+                                "cost_estimate_usd": accumulated_cost_usd,
+                                "tokens_total": accumulated_tokens,
+                                "attempt_usage": attempt_usage,
+                            }
+                        )
                     return NodeResult(
                         node_id=node.id,
                         success=False,
                         error=result.error or f"Agent '{agent_name}' failed",
                         duration_ms=duration_ms,
-                        metadata=_failure_metadata(agent_name=agent_name, bid_metadata=bid_metadata),
+                        metadata=failure_metadata,
                     )
 
                 output = self._extract_output(result=result)
                 # context_output is the dict form for downstream node resolution
                 context_output = self._extract_output_for_context(result=result)
-
-                # Ingest successful result into session memory
-                await self._ingest_result(
-                    agent_name=agent_name,
-                    output=output,
-                    run_id=run_id,
-                    warnings=context_warnings,
-                )
 
                 # Merge the agent's telemetry metadata (cost_estimate_usd,
                 # tokens_total, model, etc.) into the NodeResult so downstream
@@ -358,6 +409,10 @@ class ContextNodeExecutor:
                 merged_metadata["context_hash"] = context_hash
                 merged_metadata["_context_output"] = context_output
                 merged_metadata["recalled_memory_count"] = len(global_memory)
+                if attempt_usage:
+                    merged_metadata["cost_estimate_usd"] = accumulated_cost_usd
+                    merged_metadata["tokens_total"] = accumulated_tokens
+                    merged_metadata["attempt_usage"] = attempt_usage
                 if context_warnings:
                     merged_metadata["context_warnings"] = tuple(context_warnings)
                 if bid_metadata is not None:
@@ -420,6 +475,14 @@ class ContextNodeExecutor:
             if recovery_hints:
                 crash_metadata["recovery_attempts"] = len(recovery_hints)
                 crash_metadata["recovery_hints_trail"] = [h.to_dict() for h in recovery_hints]
+            if attempt_usage:
+                crash_metadata.update(
+                    {
+                        "cost_estimate_usd": accumulated_cost_usd,
+                        "tokens_total": accumulated_tokens,
+                        "attempt_usage": attempt_usage,
+                    }
+                )
             return NodeResult(
                 node_id=node.id,
                 success=False,
@@ -494,6 +557,11 @@ class ContextNodeExecutor:
             return None
         if hasattr(output, "model_dump"):
             return json.dumps(output.model_dump())
+        if isinstance(output, (dict, list, tuple)):
+            return json.dumps(output, default=str)
+        to_dict = getattr(output, "to_dict", None)
+        if callable(to_dict):
+            return json.dumps(to_dict(), default=str)
         return str(output)
 
     def _extract_output_for_context(self, *, result: AgentResult[Any]) -> Any | None:
@@ -511,6 +579,11 @@ class ContextNodeExecutor:
             return None
         if hasattr(output, "model_dump"):
             return output.model_dump()
+        if isinstance(output, (dict, list, tuple)):
+            return output
+        to_dict = getattr(output, "to_dict", None)
+        if callable(to_dict):
+            return to_dict()
         # Non-Pydantic: return None so executor falls back to result.output
         return None
 
@@ -560,6 +633,7 @@ class ContextNodeExecutor:
         *,
         agent_name: str,
         goal_text: str,
+        run_id: str,
         warnings: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Load relevant memories for the agent; record any failure to `warnings`."""
@@ -567,10 +641,24 @@ class ContextNodeExecutor:
             return {}
         try:
             query_text = goal_text if goal_text else agent_name
-            results = await self._memory_manager.recall(
-                query=MemoryQuery(text=query_text, limit=10),
+            durable_scopes = tuple(scope for scope in MemoryScope if scope is not MemoryScope.SESSION)
+            durable_results, session_results = await asyncio.gather(
+                self._memory_manager.recall(
+                    query=MemoryQuery(text=query_text, scopes=durable_scopes, limit=10),
+                ),
+                self._memory_manager.recall(
+                    query=MemoryQuery(
+                        text=query_text,
+                        scope=MemoryScope.SESSION,
+                        limit=10,
+                        session_id=run_id,
+                    ),
+                ),
             )
-            return {r.item.key: r.item.value for r in results}
+            recalled: dict[str, Any] = {}
+            for result in (*durable_results, *session_results):
+                recalled[result.item.key] = result.item.value
+            return recalled
         except Exception as exc:
             logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)
             if warnings is not None:
@@ -647,31 +735,3 @@ class ContextNodeExecutor:
                     }
                 )
             return None
-
-    async def _ingest_result(
-        self,
-        *,
-        agent_name: str,
-        output: str | None,
-        run_id: str,
-        warnings: list[dict[str, str]] | None = None,
-    ) -> None:
-        """Store agent result in session memory; record any failure to `warnings`."""
-        if self._session_manager is None or not output:
-            return
-        try:
-            await self._session_manager.ingest(
-                session_id=run_id,
-                key=f"{agent_name}_output",
-                value={"output": output, "agent": agent_name},
-            )
-        except Exception as exc:
-            logger.warning("Failed to ingest result for '%s'", agent_name, exc_info=True)
-            if warnings is not None:
-                warnings.append(
-                    {
-                        "stage": "session_ingest",
-                        "error_type": type(exc).__name__,
-                        "error_message": str(exc),
-                    }
-                )

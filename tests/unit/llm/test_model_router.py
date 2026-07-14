@@ -2,6 +2,7 @@
 
 import pytest
 
+from cemaf.core.types import FinishReason
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.model_router import DefaultComplexityEstimator, ModelRoute, ModelRouter
 from cemaf.llm.protocols import Message
@@ -93,6 +94,57 @@ class TestModelRouter:
         assert str(result.message.content) == "expensive"
 
     @pytest.mark.asyncio
+    async def test_protocol_hints_forward_to_selected_route(self):
+        """Routing hints are for both selection and downstream adapters."""
+
+        class RecordingClient(MockLLMClient):
+            seen_hints: dict[str, object | None]
+
+            async def complete(
+                self,
+                messages,
+                tools=None,
+                config_override=None,
+                *,
+                fidelity=None,
+                token_budget=None,
+                correlation_id=None,
+            ):
+                self.seen_hints = {
+                    "fidelity": fidelity,
+                    "token_budget": token_budget,
+                    "correlation_id": correlation_id,
+                }
+                return await super().complete(
+                    messages=messages,
+                    tools=tools,
+                    config_override=config_override,
+                    fidelity=fidelity,
+                    token_budget=token_budget,
+                    correlation_id=correlation_id,
+                )
+
+        selected = RecordingClient(responses=["selected"])
+        router = ModelRouter(
+            routes=[ModelRoute(threshold=1.1, client=selected, model_name="selected-model")],
+        )
+        budget = object()
+
+        result = await router.complete(
+            _msg("hi"),
+            fidelity="high",
+            token_budget=budget,
+            correlation_id="run-123",
+        )
+
+        assert result.success
+        assert selected.seen_hints == {
+            "fidelity": "high",
+            "token_budget": budget,
+            "correlation_id": "run-123",
+        }
+
+    @pytest.mark.asyncio
     async def test_fallback_on_circuit_open(self):
         class BrokenClient:
             @property
@@ -101,7 +153,7 @@ class TestModelRouter:
 
                 return LLMConfig()
 
-            async def complete(self, messages, tools=None, config_override=None):
+            async def complete(self, messages, tools=None, config_override=None, **kwargs):
                 raise CircuitOpenError("test circuit open")
 
             async def stream(self, *a, **kw):
@@ -131,3 +183,106 @@ class TestModelRouter:
         result = await router.complete(_msg("hello"))
         assert result.success
         assert "fallback" in str(result.content)
+
+    @pytest.mark.asyncio
+    async def test_stream_routes_to_selected_client(self):
+        cheap = MockLLMClient(responses=["cheap stream"])
+        expensive = MockLLMClient(responses=["expensive stream"])
+        router = ModelRouter(
+            routes=[
+                ModelRoute(threshold=0.4, client=cheap, model_name="cheap-model"),
+                ModelRoute(threshold=1.1, client=expensive, model_name="expensive-model"),
+            ],
+        )
+
+        chunks = [chunk async for chunk in router.stream(_msg("hi"))]
+
+        assert "".join(chunk.content for chunk in chunks) == "cheap stream"
+        assert chunks[-1].is_final
+        assert cheap.call_count == 1
+        assert expensive.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_stream_falls_back_on_circuit_open_before_chunks(self):
+        class BrokenClient:
+            @property
+            def config(self):
+                from cemaf.llm.protocols import LLMConfig
+
+                return LLMConfig()
+
+            async def complete(self, messages, tools=None, config_override=None, **kwargs):
+                raise CircuitOpenError("test circuit open")
+
+            async def stream(self, *a, **kw):
+                raise CircuitOpenError("test circuit open")
+
+            def count_tokens(self, text):
+                from cemaf.core.types import TokenCount
+
+                return TokenCount(0)
+
+            def count_messages_tokens(self, messages):
+                from cemaf.core.types import TokenCount
+
+                return TokenCount(0)
+
+            async def count_tokens_exact(self, messages, tools=None):
+                from cemaf.core.types import TokenCount
+
+                return TokenCount(0)
+
+        fallback = MockLLMClient(responses=["fallback stream"])
+        router = ModelRouter(
+            routes=[
+                ModelRoute(threshold=1.1, client=BrokenClient(), model_name="broken"),
+                ModelRoute(threshold=2.0, client=fallback, model_name="fallback"),
+            ],
+        )
+
+        chunks = [chunk async for chunk in router.stream(_msg("hello"))]
+
+        assert "".join(chunk.content for chunk in chunks) == "fallback stream"
+        assert chunks[-1].is_final
+        assert fallback.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stream_exhaustion_yields_partial_error_chunk(self):
+        class BrokenClient:
+            @property
+            def config(self):
+                from cemaf.llm.protocols import LLMConfig
+
+                return LLMConfig()
+
+            async def complete(self, messages, tools=None, config_override=None, **kwargs):
+                raise CircuitOpenError("test circuit open")
+
+            async def stream(self, *a, **kw):
+                raise CircuitOpenError("test circuit open")
+
+            def count_tokens(self, text):
+                from cemaf.core.types import TokenCount
+
+                return TokenCount(0)
+
+            def count_messages_tokens(self, messages):
+                from cemaf.core.types import TokenCount
+
+                return TokenCount(0)
+
+            async def count_tokens_exact(self, messages, tools=None):
+                from cemaf.core.types import TokenCount
+
+                return TokenCount(0)
+
+        router = ModelRouter(
+            routes=[ModelRoute(threshold=1.1, client=BrokenClient(), model_name="broken")],
+        )
+
+        chunks = [chunk async for chunk in router.stream(_msg("hello"))]
+
+        assert len(chunks) == 1
+        assert chunks[0].is_final
+        assert chunks[0].finish_reason is FinishReason.PARTIAL_ERROR
+        assert "All routes exhausted" in chunks[0].content

@@ -1,6 +1,7 @@
 """Tests for configuration module."""
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +20,14 @@ from cemaf.config.mock import InMemoryConfigSource
 from cemaf.config.protocols import (
     LLMSettings,
     Settings,
+)
+from cemaf.core.defaults import (
+    DEFAULT_FREE_CATALOG_BACKEND,
+    DEFAULT_FREE_EMBEDDING_DIMENSION,
+    DEFAULT_FREE_EMBEDDING_MODEL,
+    DEFAULT_FREE_EMBEDDING_PROVIDER,
+    DEFAULT_FREE_LLM_MODEL,
+    DEFAULT_FREE_LLM_PROVIDER,
 )
 
 # =============================================================================
@@ -51,11 +60,18 @@ class TestEnvConfigSource:
         assert result == {"debug": True}
 
     async def test_load_nested_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test loading nested configuration (splits on all underscores)."""
-        monkeypatch.setenv("CEMAF_LLM_MODEL", "gpt-4")
+        """Test loading nested configuration using settings field names."""
+        monkeypatch.setenv("CEMAF_LLM_DEFAULT_MODEL", "gpt-4")
         source = EnvConfigSource(prefix="CEMAF")
         result = await source.load()
-        assert result == {"llm": {"model": "gpt-4"}}
+        assert result == {"llm": {"default_model": "gpt-4"}}
+
+    async def test_load_nested_module_with_underscore(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test environment keys for Settings modules whose name has underscores."""
+        monkeypatch.setenv("CEMAF_CONTEXT_AGENTS_LIBRARIAN_TOP_K", "3")
+        source = EnvConfigSource(prefix="CEMAF")
+        result = await source.load()
+        assert result == {"context_agents": {"librarian_top_k": 3}}
 
     async def test_load_integer_coercion(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test integer value coercion."""
@@ -298,11 +314,66 @@ class TestConfigFactories:
                 monkeypatch.delenv(key, raising=False)
         monkeypatch.setenv("CEMAF_ENVIRONMENT", "prod")
         monkeypatch.setenv("CEMAF_DEBUG", "true")
+        monkeypatch.setenv("CEMAF_LLM_DEFAULT_MODEL", "gpt-4o")
 
         settings = await load_settings_from_env()
 
         assert settings.environment == "prod"
         assert settings.debug is True
+        assert settings.llm.default_model == "gpt-4o"
+
+    def test_env_example_keys_are_backed_by_settings_or_code(self) -> None:
+        """Active CEMAF_* examples should not advertise ignored configuration knobs."""
+        root = Path(__file__).parents[3]
+        env_keys: list[str] = []
+        for line in (root / ".env.example").read_text().splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key = stripped.split("=", 1)[0].strip()
+            if key.startswith("CEMAF_"):
+                env_keys.append(key)
+
+        src_text = "\n".join(
+            path.read_text(errors="ignore") for path in (root / "src" / "cemaf").rglob("*.py")
+        )
+        source = EnvConfigSource(prefix="CEMAF")
+        unknown: list[str] = []
+
+        for key in env_keys:
+            parts = [part.lower() for part in key.removeprefix("CEMAF_").split("_")]
+            mapped = source._settings_path_parts(parts)
+            maps_to_settings = False
+            if mapped and mapped[0] in Settings.model_fields:
+                if len(mapped) == 1:
+                    maps_to_settings = True
+                else:
+                    model_cls = Settings.model_fields[mapped[0]].annotation
+                    fields = getattr(model_cls, "model_fields", {})
+                    maps_to_settings = mapped[1] in fields or mapped[0] == "custom"
+
+            if not maps_to_settings and key not in src_text:
+                unknown.append(f"{key} -> {'.'.join(mapped)}")
+
+        assert unknown == []
+
+    def test_env_example_defaults_are_free_first(self) -> None:
+        """The published env template must not default to paid/hosted providers."""
+        root = Path(__file__).parents[3]
+        values: dict[str, str] = {}
+        for line in (root / ".env.example").read_text().splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            values[key.strip()] = value.strip()
+
+        assert values["CEMAF_LLM_PROVIDER"] == DEFAULT_FREE_LLM_PROVIDER
+        assert values["CEMAF_LLM_DEFAULT_MODEL"] == DEFAULT_FREE_LLM_MODEL
+        assert values["CEMAF_EMBEDDING_PROVIDER"] == DEFAULT_FREE_EMBEDDING_PROVIDER
+        assert values["CEMAF_EMBEDDING_MODEL"] == DEFAULT_FREE_EMBEDDING_MODEL
+        assert values["CEMAF_EMBEDDING_DIMENSION"] == str(DEFAULT_FREE_EMBEDDING_DIMENSION)
+        assert values["CEMAF_CATALOG_BACKEND"] == DEFAULT_FREE_CATALOG_BACKEND
 
 
 # =============================================================================
@@ -323,7 +394,12 @@ class TestSettings:
     def test_nested_defaults(self) -> None:
         """Test nested default values."""
         settings = Settings()
-        assert settings.llm.default_model == "gpt-4"
+        assert settings.llm.provider == DEFAULT_FREE_LLM_PROVIDER
+        assert settings.llm.default_model == DEFAULT_FREE_LLM_MODEL
+        assert settings.retrieval.embedding_provider == DEFAULT_FREE_EMBEDDING_PROVIDER
+        assert settings.retrieval.embedding_model == DEFAULT_FREE_EMBEDDING_MODEL
+        assert settings.retrieval.embedding_dimension == DEFAULT_FREE_EMBEDDING_DIMENSION
+        assert settings.catalog.backend == DEFAULT_FREE_CATALOG_BACKEND
         assert settings.memory.default_ttl_seconds == 3600
         assert settings.cache.enabled is True
 

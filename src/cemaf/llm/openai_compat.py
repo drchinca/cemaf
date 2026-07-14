@@ -1,13 +1,18 @@
-"""OpenAI-compatible LLM client — works with OpenAI, Ollama, Groq, Hugging Face, and more.
+"""OpenAI-compatible LLM client - works with Ollama, vLLM, OpenAI, Groq, Hugging Face, and more.
 
 Any provider that speaks the OpenAI chat completions API can use this adapter.
 
 Usage:
-    # OpenAI
-    client = OpenAICompatClient(api_key="sk-...", model="gpt-4o")
+    # Ollama-compatible local endpoint (free-first default)
+    client = OpenAICompatClient()
 
-    # Ollama (local Qwen, Gemma, Llama)
-    client = OpenAICompatClient(base_url="http://localhost:11434/v1", model="qwen3.5")
+    # Explicit OpenAI-compatible cloud endpoint
+    client = OpenAICompatClient(
+        base_url="https://api.openai.com/v1",
+        api_key="sk-...",
+        model="...",
+        provider=LLMProvider.OPENAI,
+    )
 
     # Groq
     client = OpenAICompatClient(
@@ -46,7 +51,8 @@ from collections.abc import AsyncIterator
 from time import perf_counter
 from typing import Any
 
-from cemaf.core.types import LLMProvider, TokenCount
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
+from cemaf.core.types import FinishReason, LLMProvider, TokenCount
 
 try:
     import httpx
@@ -64,22 +70,24 @@ from cemaf.llm.protocols import (
 )
 
 logger = logging.getLogger(__name__)
+DEFAULT_OPENAI_COMPAT_BASE_URL = "http://localhost:11434/v1"
 
 
 class OpenAICompatClient:
-    """LLM client for any OpenAI-compatible API (OpenAI, Ollama, Groq, Together, Hugging Face, LMStudio)."""
+    """LLM client for any OpenAI-compatible API (Ollama, vLLM, OpenAI, Groq, Together, Hugging Face)."""
 
     def __init__(
         self,
         *,
         api_key: str = "",
-        base_url: str = "https://api.openai.com/v1",
-        model: str = "gpt-4o",
+        base_url: str = DEFAULT_OPENAI_COMPAT_BASE_URL,
+        model: str = DEFAULT_FREE_LLM_MODEL,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        top_p: float = 1.0,
         timeout_seconds: float = 120.0,
         default_headers: dict[str, str] | None = None,
-        provider: LLMProvider | str = LLMProvider.OPENAI,
+        provider: LLMProvider | str = LLMProvider.OLLAMA,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -88,6 +96,7 @@ class OpenAICompatClient:
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            top_p=top_p,
             timeout_seconds=timeout_seconds,
         )
         self._default_headers = default_headers or {}
@@ -101,8 +110,13 @@ class OpenAICompatClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Send chat completion request to OpenAI-compatible API."""
+        del fidelity, token_budget, correlation_id
         if httpx is None:
             return CompletionResult.fail(
                 error="httpx is required for OpenAICompatClient. Install with: uv add httpx"
@@ -116,6 +130,7 @@ class OpenAICompatClient:
             "messages": [_message_to_dict(m) for m in messages],
             "temperature": cfg.temperature,
             "max_tokens": cfg.max_tokens,
+            "top_p": cfg.top_p,
         }
         if cfg.stop_sequences:
             payload["stop"] = list(cfg.stop_sequences)
@@ -183,7 +198,11 @@ class OpenAICompatClient:
     ) -> AsyncIterator[StreamChunk]:
         """Stream chat completion from OpenAI-compatible API."""
         if httpx is None:
-            yield StreamChunk(content="Error: httpx required", is_final=True)
+            yield StreamChunk(
+                content="Error: httpx required",
+                finish_reason=FinishReason.PARTIAL_ERROR,
+                is_final=True,
+            )
             return
 
         cfg = config_override or self._config
@@ -193,8 +212,13 @@ class OpenAICompatClient:
             "messages": [_message_to_dict(m) for m in messages],
             "temperature": cfg.temperature,
             "max_tokens": cfg.max_tokens,
+            "top_p": cfg.top_p,
             "stream": True,
         }
+        if cfg.stop_sequences:
+            payload["stop"] = list(cfg.stop_sequences)
+        if tools:
+            payload["tools"] = [t.to_openai_format() for t in tools]
 
         headers = {"Content-Type": "application/json", **self._default_headers}
         if self._api_key:
@@ -210,6 +234,15 @@ class OpenAICompatClient:
                 headers=headers,
             ) as response,
         ):
+            if response.status_code != 200:
+                yield StreamChunk(
+                    content=f"Error: OpenAI-compatible streaming API error {response.status_code}",
+                    finish_reason=FinishReason.PARTIAL_ERROR,
+                    is_final=True,
+                    accumulated_content=accumulated,
+                )
+                return
+
             async for line in response.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -225,8 +258,14 @@ class OpenAICompatClient:
                     if content:
                         accumulated += content
                         yield StreamChunk(content=content, accumulated_content=accumulated)
-                except json.JSONDecodeError:
-                    continue
+                except json.JSONDecodeError as exc:
+                    yield StreamChunk(
+                        content=f"Error: OpenAI-compatible stream returned malformed JSON: {exc.msg}",
+                        finish_reason=FinishReason.PARTIAL_ERROR,
+                        is_final=True,
+                        accumulated_content=accumulated,
+                    )
+                    return
 
     def count_tokens(self, text: str) -> TokenCount:
         """Heuristic token count (3.5 chars/token, calibrated for OpenAI tokenizers)."""

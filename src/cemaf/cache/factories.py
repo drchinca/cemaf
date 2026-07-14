@@ -93,7 +93,7 @@ def create_cache_from_config(settings: Settings | None = None) -> Cache:
         settings = Settings(...)
         cache = create_cache_from_config(settings=settings)
     """
-    cfg = settings or load_settings_from_env_sync()  # noqa: F841
+    cfg = settings or load_settings_from_env_sync()
 
     backend = str(os.getenv("CEMAF_CACHE_BACKEND", cfg.cache.backend))
     max_size = int(os.getenv("CEMAF_CACHE_MAX_SIZE", str(cfg.cache.max_size)))

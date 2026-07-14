@@ -11,10 +11,11 @@ from pydantic import BaseModel
 
 from cemaf import DAG, AgentRegistry, Node, create_executor
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
-from cemaf.core.types import AgentID
+from cemaf.core.types import AgentID, LLMProvider
 from cemaf.llm.factories import create_llm_client, llm_registry
 from cemaf.llm.gemini import GeminiClient
 from cemaf.llm.openai_compat import OpenAICompatClient
+from cemaf.llm.openai_responses import OpenAIResponsesLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.llm.resilient import ResilientLLMClient, create_resilient_client
 from cemaf.orchestration.services import RuntimeServices
@@ -51,8 +52,25 @@ class PingAgent(Agent[PingGoal, PingResult]):
 
 
 class TestProviderRegistry:
-    def test_all_8_backends_registered(self) -> None:
-        expected = {"mock", "anthropic", "openai", "ollama", "groq", "together", "gemini", "bedrock"}
+    def test_all_core_backends_registered(self) -> None:
+        expected = {
+            "mock",
+            "anthropic",
+            "openai",
+            "openai-responses",
+            "openai-compatible",
+            "openai-compat",
+            "ollama",
+            "ollama-tiered",
+            "ollama-cloud",
+            "groq",
+            "together",
+            "huggingface",
+            "gemini",
+            "vertex",
+            "vertex-ai",
+            "bedrock",
+        }
         registered = set(llm_registry._factories.keys())
         assert expected.issubset(registered)
 
@@ -65,12 +83,26 @@ class TestProviderRegistry:
         assert isinstance(client, OpenAICompatClient)
         assert client.config.model == "qwen3.5"
 
-    def test_openai_creates_openai_compat(self) -> None:
-        client = create_llm_client("openai", api_key="sk-test", model="gpt-4o")
+    def test_openai_creates_responses_client(self) -> None:
+        client = create_llm_client("openai", client=object(), model="gpt-5.5")
+        assert isinstance(client, OpenAIResponsesLLMClient)
+
+    def test_openai_compatible_creates_openai_compat(self) -> None:
+        client = create_llm_client(
+            "openai-compatible",
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+            model="gpt-4o",
+            provider_family=LLMProvider.OPENAI,
+        )
         assert isinstance(client, OpenAICompatClient)
 
     def test_gemini_creates_gemini_client(self) -> None:
         client = create_llm_client("gemini", api_key="AIza-test")
+        assert isinstance(client, GeminiClient)
+
+    def test_vertex_creates_gemini_client(self) -> None:
+        client = create_llm_client("vertex", gcp_project="proj-test")
         assert isinstance(client, GeminiClient)
 
     def test_groq_points_to_groq_api(self) -> None:
@@ -142,10 +174,22 @@ class TestProviderSwitching:
         providers = [
             ("mock", {}),
             ("ollama", {"model": "qwen3.5"}),
-            ("openai", {"api_key": "sk-test", "model": "gpt-4o"}),
+            ("ollama-cloud", {"api_key": "ollama-test"}),
+            ("openai", {"client": object(), "model": "gpt-5.5"}),
+            (
+                "openai-compatible",
+                {
+                    "api_key": "sk-test",
+                    "base_url": "https://api.openai.com/v1",
+                    "model": "gpt-4o",
+                    "provider_family": LLMProvider.OPENAI,
+                },
+            ),
             ("gemini", {"api_key": "AIza-test"}),
+            ("vertex", {"gcp_project": "proj-test"}),
             ("groq", {"api_key": "gsk-test"}),
             ("together", {"api_key": "tok-test"}),
+            ("huggingface", {"api_key": "hf-test"}),
             ("bedrock", {}),
         ]
 
@@ -156,15 +200,17 @@ class TestProviderSwitching:
             assert client.config.model, f"{provider} has no model"
             clients.append(client)
 
-        assert len(clients) == 7
+        assert len(clients) == 11
 
     def test_all_support_token_counting(self) -> None:
         """Every provider can count tokens."""
         providers = [
             create_llm_client("mock"),
             create_llm_client("ollama", model="test"),
-            create_llm_client("openai", api_key="k"),
+            create_llm_client("openai", client=object()),
+            create_llm_client("openai-compatible", api_key="k"),
             create_llm_client("gemini", api_key="k"),
+            create_llm_client("vertex", gcp_project="proj-test"),
             create_llm_client("bedrock"),
         ]
 

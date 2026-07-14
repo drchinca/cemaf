@@ -236,7 +236,7 @@ class ProjectSkeleton(BaseModel):
     )
     cemaf_source: str = Field(
         default="",
-        description="pyproject spec for cemaf (e.g. 'cemaf @ git+https://…'); empty emits a loud placeholder",
+        description="pyproject spec for cemaf (e.g. 'cemaf @ git+https://…'); empty uses the package name",
     )
 
 
@@ -253,7 +253,7 @@ class ScaffoldGoal(BaseModel):
     )
     cemaf_source: str = Field(
         default="",
-        description="pyproject spec for cemaf; empty emits a placeholder the user must fill",
+        description="pyproject spec for cemaf; empty uses the package name",
     )
     overwrite: bool = Field(default=False, description="If True, replace existing project dir")
 

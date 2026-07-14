@@ -1,29 +1,18 @@
-"""Tests for configure_otel — proves the 'otel' extra makes export setup work.
+"""Tests for configure_otel — proves the OTel dependency set wires export setup.
 
 configure_otel imports opentelemetry-sdk + the OTLP exporter; before the `otel`
 optional-extra existed, `pip install cemaf[all]` shipped it import-broken. These
-tests skip cleanly when the extra is absent (CI without [otel]) and assert real
-provider wiring when present.
+tests assert real provider wiring and fail loudly when the test environment is
+missing the dependency.
 """
 
 from __future__ import annotations
-
-import importlib.util
 
 import pytest
 
 from cemaf.observability.otel_setup import configure_otel
 
-# find_spec on a submodule raises ModuleNotFoundError under Python 3.14 if the
-# parent package is absent (instead of returning None). Wrap defensively so
-# tests skip cleanly in CI environments without the 'otel' extra installed.
-try:
-    _OTEL_PRESENT = importlib.util.find_spec("opentelemetry.sdk") is not None
-except ModuleNotFoundError:
-    _OTEL_PRESENT = False
 
-
-@pytest.mark.skipif(not _OTEL_PRESENT, reason="otel extra not installed")
 def test_configure_otel_sets_global_providers() -> None:
     from opentelemetry import metrics, trace
     from opentelemetry.sdk.trace import TracerProvider

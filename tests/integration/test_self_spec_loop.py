@@ -267,18 +267,19 @@ async def test_self_spec_dag_runs_through_executor(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.real_cli
-@pytest.mark.skipif(
-    shutil.which("openspec") is None,
-    reason="Real openspec CLI not on PATH — skip binary-dependent smoke",
-)
-async def test_specifier_against_real_openspec_cli(tmp_path: Path) -> None:
-    """Smoke test against the real CLI — skipped if not installed."""
+async def test_specifier_against_available_openspec_runtime(tmp_path: Path) -> None:
+    """Smoke test against the real CLI when present, otherwise the fake runtime."""
     from cemaf.agents.base import AgentContext
     from cemaf.mcp.bridges.openspec.runtime import SystemOpenSpecRuntime
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
-    runtime = SystemOpenSpecRuntime()
+    if shutil.which("openspec") is None:
+        runtime = FakeOpenSpecRuntime()
+        runtime.register_result(("validate",), SubprocessResult(returncode=0, stdout=b"", stderr=b""))
+        expected_runtime = "fake:openspec"
+    else:
+        runtime = SystemOpenSpecRuntime()
+        expected_runtime = "system:openspec"
 
     agent_registry = AgentRegistry()
     tool_registry = ToolRegistry()
@@ -302,7 +303,7 @@ async def test_specifier_against_real_openspec_cli(tmp_path: Path) -> None:
         ),
         context=AgentContext(run_id="test", agent_id="MetaSpecifier"),
     )
-    # Whether validation passes against the real CLI depends on CLI version —
-    # we only assert that the bridge successfully shelled out and parsed output.
+    # Whether validation passes against the real CLI depends on CLI version.
+    # We only assert that the bridge/runtime path executed and parsed output.
     assert result.success
-    assert result.output.runtime.startswith("system:")  # type: ignore[union-attr]
+    assert result.output.runtime == expected_runtime  # type: ignore[union-attr]

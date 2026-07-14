@@ -97,22 +97,26 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Entry point**: `meta.bootstrap.create_meta_executor()` — wraps `create_executor()`, auto-creates audit system from EventBus, KG from MemoryManager, registers 4 meta-agents + 4 meta-tools.
+**Entry point**: `meta.bootstrap.create_meta_executor()` — wraps `create_executor()`, auto-creates audit system from EventBus, KG from MemoryManager, and registers available meta-agents/tools from `RuntimeServices` plus `MetaServices`.
 
 **How it works**: Meta-agents are standard `Agent[GoalT, ResultT]` implementations. They use meta-tools (standard `Tool` ABC) to interact with CEMAF internals. Everything runs through the same `DAGExecutor` — no special execution paths.
 
 | Meta-Agent | What It Does | Tools It Uses |
 |-----------|-------------|--------------|
 | `MetaArchitect` | Designs DAG pipelines from feature descriptions | IntrospectRegistryTool, GenerateDAGTool |
+| `MetaSpecifier` | Authors OpenSpec proposals and validates them through the OpenSpec bridge | OpenSpec tool surface when runtime is configured |
 | `MetaSynthesizer` | Generates CEMAF agent Python source from templates | None (template-based) |
 | `MetaAuditor` | Analyzes execution traces for quality/anomalies | TraceAnalyzerTool |
 | `MetaKnowledgeGraph` | Queries/refreshes the entity knowledge graph | KnowledgeGraphTool |
+| `MetaScaffolder` | Emits runnable CEMAF app skeletons from specs and generated agents | None (renderer/file writer) |
 
 | Pre-built DAG | Flow | Purpose |
 |--------------|------|---------|
 | `self_audit` | MetaAuditor → audit_report | Audit recent execution quality |
 | `feature_synthesis` | MetaArchitect → MetaSynthesizer | Design + generate new agent |
 | `knowledge_refresh` | MetaAuditor → MetaKnowledgeGraph | Extract execution data into KG |
+| `self_spec` | MetaSpecifier → MetaAuditor | Author, validate, and audit an OpenSpec proposal |
+| `app_synthesis` | MetaSpecifier → MetaArchitect → MetaSynthesizer → MetaScaffolder | Turn a feature description into a runnable CEMAF app skeleton |
 
 ## Testing Discipline
 
@@ -155,7 +159,7 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 | Blueprint Harvest | `create_blueprint_harvester()` + real EventBus → high-scoring run distilled into a reusable blueprint, discoverable by `library.search` (`test_blueprint_harvest_factory.py`) |
 | Composed Engine | ONE DAG run threads council → auction → agent → online-eval → harvest through one composition root (`test_composed_engine.py`); `examples/composed_engine.py` is the runnable canonical "whole engine" demo |
 | Interceptor GATE | GateEvalInterceptor (POST) on a real 2-node DAG: short output fails the gate → downstream never runs; long output passes; empty pipeline = no-op; gate-reject doesn't burn retries (`test_interceptor_gate.py`) |
-| NodeResolver dispatch | execute_node dispatches via the resolver chain (council/auction/static, first-match wins); a custom resolver registered ahead of the built-ins claims its node and short-circuits — adding a node 'kind' is registering a resolver, not a new `if`-branch (`test_resolver_chain.py`) |
+| NodeResolver dispatch | execute_node dispatches via the resolver chain (council/auction/static, first-match wins); a custom resolver registered ahead of the built-ins handles its node and short-circuits — adding a node 'kind' is registering a resolver, not a new `if`-branch (`test_resolver_chain.py`) |
 
 ## Pattern Reference
 

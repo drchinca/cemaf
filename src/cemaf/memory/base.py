@@ -13,6 +13,7 @@ Memory items have:
 from __future__ import annotations
 
 import json
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ from pathlib import Path
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.core.utils import utc_now
+
+logger = logging.getLogger(__name__)
 
 # Type aliases for hooks
 RedactionHook = Callable[["MemoryItem"], "MemoryItem"]
@@ -330,13 +333,17 @@ class JsonFileMemoryStore(MemoryStore):
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """Load items from disk; silently start empty on any failure."""
+        """Load items from disk; missing or corrupt files recover to an empty store."""
         try:
             raw: dict[str, object] = json.loads(self._path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return
+        except json.JSONDecodeError as exc:
+            logger.warning("Ignoring corrupt JSON memory store file %s: %s", self._path, exc)
             return
         for record in raw.values():
             if not isinstance(record, dict):
+                logger.warning("Skipping invalid JSON memory store record from %s.", self._path)
                 continue
             try:
                 ttl_seconds = record.get("ttl_seconds")
@@ -356,7 +363,8 @@ class JsonFileMemoryStore(MemoryStore):
                 )
                 if not item.is_expired:
                     self._data[item.full_key] = item
-            except (KeyError, ValueError):
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning("Skipping invalid JSON memory store record from %s: %s", self._path, exc)
                 continue
 
     def _save(self) -> None:

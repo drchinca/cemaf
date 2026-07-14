@@ -75,11 +75,12 @@ class EmbeddingProvider(Protocol):
     """
     Protocol for embedding providers.
 
-    Implement for different embedding models:
+    Implement this protocol for embedding models and services:
     - OpenAI text-embedding-3
     - Sentence Transformers
-    - Cohere
+    - Hugging Face hosted embeddings
     - Local models
+    - Custom embedding services
     """
 
     @property
@@ -129,19 +130,16 @@ class VectorStore(Protocol):
 
     Built-in implementations:
     - InMemoryVectorStore (for development/testing)
+    - SqliteVectorStore (local durable storage)
+    - PgVectorStore (PostgreSQL with pgvector)
 
-    Common backends you can implement:
-    - Pinecone (cloud vector database)
-    - Qdrant (open-source vector database)
-    - Weaviate (graph + vector database)
-    - Chroma (embeddings database)
-    - PGVector (PostgreSQL extension)
-    - FAISS (local vector search)
+    External backends can cover cloud vector databases, local ANN indexes,
+    or storage engines that expose vector search.
 
     To implement your own:
     1. Create a class that implements all methods below
     2. Use @runtime_checkable to make it compatible with this protocol
-    3. Add it to create_vector_store_from_config() in factories.py
+    3. Register it with vector_store_registry.register(...)
     4. See cemaf/retrieval/factories.py for extension instructions
 
     Example:

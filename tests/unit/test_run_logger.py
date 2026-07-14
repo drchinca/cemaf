@@ -276,14 +276,40 @@ class TestNoOpRunLogger:
     """Tests for NoOpRunLogger."""
 
     def test_no_op_operations(self) -> None:
-        """Test that no-op logger does nothing."""
+        """Test that no-op logger discards events without fabricating the run envelope."""
         logger = NoOpRunLogger()
 
         # All operations should work without error
-        logger.start_run(run_id="run-123")
+        initial_ctx = Context(data={"start": True})
+        logger.start_run(run_id="run-123", dag_name="noop_dag", initial_context=initial_ctx)
+        current = logger.get_current_record()
+        assert current is not None
+        assert current.run_id == "run-123"
+        assert current.dag_name == "noop_dag"
+        assert current.initial_context == initial_ctx
+
         logger.record_tool_call(ToolCall(tool_id="tool1", input={}, output={}))
         logger.record_patch(ContextPatch.set("a", 1))
-        record = logger.end_run()
+        final_ctx = Context(data={"done": True})
+        record = logger.end_run(final_context=final_ctx, success=False, error="disabled")
+
+        assert record.run_id == "run-123"
+        assert record.dag_name == "noop_dag"
+        assert record.final_context == final_ctx
+        assert record.success is False
+        assert record.error == "disabled"
+        assert record.completed_at is not None
+        assert record.total_tool_calls == 0
+        assert record.total_patches == 0
+        assert logger.get_current_record() is None
+
+    def test_end_without_start_returns_noop_record(self) -> None:
+        """No-op logger remains forgiving when callers end without starting."""
+        logger = NoOpRunLogger()
+
+        record = logger.end_run(success=False, error="not-started")
 
         assert record.run_id == "noop"
-        assert logger.get_current_record() is None
+        assert record.success is False
+        assert record.error == "not-started"
+        assert record.completed_at is not None

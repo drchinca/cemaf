@@ -33,8 +33,11 @@ def create_sse_stream_processor(
         # Custom configuration
         processor = create_sse_stream_processor(buffer_size=500)
     """
-    # SSEFormatter only accepts include_event_type, ignoring other params
-    return SSEFormatter(include_event_type=True)
+    return SSEFormatter(
+        include_event_type=True,
+        buffer_size=buffer_size,
+        chunk_timeout_seconds=chunk_timeout_seconds,
+    )
 
 
 def create_sse_stream_processor_from_config(settings: Settings | None = None) -> SSEFormatter:
@@ -52,10 +55,16 @@ def create_sse_stream_processor_from_config(settings: Settings | None = None) ->
         # From environment
         processor = create_sse_stream_processor_from_config()
     """
-    cfg = settings or load_settings_from_env_sync()  # noqa: F841
+    cfg = settings or load_settings_from_env_sync()
+    streaming = cfg.streaming
 
-    buffer_size = int(os.getenv("CEMAF_STREAMING_BUFFER_SIZE", "1000"))
-    chunk_timeout = float(os.getenv("CEMAF_STREAMING_CHUNK_TIMEOUT_SECONDS", "30.0"))
+    buffer_size = int(os.getenv("CEMAF_STREAMING_BUFFER_SIZE", str(streaming.buffer_size)))
+    chunk_timeout = float(
+        os.getenv(
+            "CEMAF_STREAMING_CHUNK_TIMEOUT_SECONDS",
+            str(streaming.chunk_timeout_seconds),
+        )
+    )
 
     return create_sse_stream_processor(
         buffer_size=buffer_size,

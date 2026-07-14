@@ -1,37 +1,84 @@
-"""Live integration test for the ollama-cloud provider.
+"""Integration test for the ollama-cloud provider endpoint shape.
 
-Skipped unless OLLAMA_CLOUD_API_KEY is set. Hits the real
-https://ollama.com/v1 endpoint with a free-tier model. Proves the
-factory wiring + OpenAI-compat client + auth header round-trip end-to-end.
+Uses a fake OpenAI-compatible HTTP endpoint so the default suite proves factory
+wiring, URL construction, auth headers, payload shape, and response parsing
+without requiring external credentials.
 """
 
 from __future__ import annotations
 
-import os
+from typing import Any
 
 import pytest
 
-from cemaf.llm.factories import create_llm_client
+from cemaf.llm.factories import DEFAULT_OLLAMA_CLOUD_MODEL, create_llm_client
 from cemaf.llm.protocols import Message
 
-pytestmark = pytest.mark.skipif(
-    not os.getenv("OLLAMA_CLOUD_API_KEY"),
-    reason="OLLAMA_CLOUD_API_KEY not set; skipping live ollama-cloud test",
-)
 
-FREE_TIER_MODELS = [
-    "gpt-oss:20b-cloud",
-    "gpt-oss:120b-cloud",
-    "qwen3-coder:480b-cloud",
-    "minimax-m2.1:cloud",
-]
+class _FakeResponse:
+    status_code = 200
+    text = ""
+
+    def json(self) -> dict[str, Any]:
+        return {
+            "model": DEFAULT_OLLAMA_CLOUD_MODEL,
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "pong"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+        }
+
+
+class _FakeAsyncClient:
+    def __init__(self, *, timeout: float) -> None:
+        self.timeout = timeout
+        self.requests: list[dict[str, Any]] = []
+
+    async def __aenter__(self) -> _FakeAsyncClient:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    async def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> _FakeResponse:
+        self.requests.append({"url": url, "json": json, "headers": headers})
+        return _FakeResponse()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", FREE_TIER_MODELS)
-async def test_ollama_cloud_completes_against_real_endpoint(model: str) -> None:
-    client = create_llm_client(provider="ollama-cloud", model=model)
+async def test_ollama_cloud_completes_against_endpoint_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_client = _FakeAsyncClient(timeout=120.0)
+    monkeypatch.setattr(
+        "cemaf.llm.openai_compat.httpx.AsyncClient",
+        lambda *, timeout: fake_client,
+    )
+
+    client = create_llm_client(
+        provider="ollama-cloud",
+        api_key="test-ollama-key",
+        model=DEFAULT_OLLAMA_CLOUD_MODEL,
+    )
     response = await client.complete(messages=[Message.user(content="Reply with the single word: pong")])
-    text = getattr(response, "content", None) or getattr(response, "message", None) or ""
-    assert text, f"empty response from {model}"
-    assert isinstance(text, str)
+
+    assert response.success
+    assert response.content == "pong"
+    assert response.model == DEFAULT_OLLAMA_CLOUD_MODEL
+    assert fake_client.requests == [
+        {
+            "url": "https://ollama.com/v1/chat/completions",
+            "json": {
+                "model": DEFAULT_OLLAMA_CLOUD_MODEL,
+                "messages": [{"role": "user", "content": "Reply with the single word: pong"}],
+                "temperature": 0.7,
+                "max_tokens": 4096,
+                "top_p": 1.0,
+            },
+            "headers": {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-ollama-key",
+            },
+        }
+    ]

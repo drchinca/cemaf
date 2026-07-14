@@ -7,7 +7,7 @@ Context Engineering Multi-Agent Framework
 1. [**Architecture**](architecture.md) — the software architecture we build toward
 2. [**Design Patterns**](patterns.md) — the 12 patterns reviewers enforce
 3. [**Module Layout**](modules.md) — where each kind of thing lives
-4. [**Module Flow Graph**](architecture/cemaf-graph.html) — interactive force-directed graph of all 43 modules + import flow (open in a browser); hover any node to trace what it depends on / what depends on it
+4. [**Module Flow Graph**](architecture/cemaf-graph.html) — interactive force-directed graph of all modules + import flow (open in a browser); hover any node to trace what it depends on / what depends on it
 5. [**Architecture Atlas**](architecture/cemaf-architecture.html) — a visual, multi-view tour (open in a browser); ground-truth companion to [deep-architecture.md](architecture/deep-architecture.md)
 
 ## Quick Links
@@ -16,7 +16,7 @@ Context Engineering Multi-Agent Framework
 - [Protocol Guide](protocol_guide.md) - Understanding protocol-based design
 - [Extension Patterns](extension_patterns.md) - How to extend CEMAF
 - [Module Reference](module_reference.md) - API reference
-- [Specs (SPEC-00..10)](specs/README.md) - The primary artifacts; code, tests, and docs derive from them
+- [Specs (SPEC-00..17)](specs/README.md) - The primary artifacts; code, tests, and docs derive from them
 - [Self-Hosting Layer](self-hosting.md) - CEMAF using CEMAF to audit and extend itself
 
 ---
@@ -30,7 +30,7 @@ CEMAF's differentiator: industrial-grade context management.
 | Doc | Purpose |
 |-----|---------|
 | [context.md](context.md) | Immutable Context object, patches, provenance |
-| [context_algorithms.md](context_algorithms.md) | Selection algorithms, KV cache, semantic compression |
+| [context_algorithms.md](context_algorithms.md) | Implemented context selection algorithms |
 | [ingestion.md](ingestion.md) | Context adapters - format/compress/prioritize data |
 
 **Key Question**: "How do I fit relevant information into the token budget?"
@@ -63,17 +63,19 @@ shipped specs (SPEC-01a/09/10) — the deliberative + quality-gating layer.
 
 **Key Question**: "How does the engine decide and enforce quality?"
 
-### 3. Edge Capabilities (The Differentiator)
+### 3. Deferred Edge Designs
 
-Run agents on resource-constrained, intermittently-connected devices.
+These pages are status notes for capabilities that are not part of the shipped
+package today. Keep edge-specific queueing, synchronization, and host-resource
+policy in your application or deployment layer unless a CEMAF protocol exists.
 
 | Doc | Purpose |
 |-----|---------|
-| [offline.md](offline.md) | Store-and-forward, offline queues, local LLM fallback |
-| [throttling.md](throttling.md) | Resource guards, circuit breakers, context paging |
-| [sync.md](sync.md) | State synchronization, CRDT, conflict resolution |
+| [offline.md](offline.md) | Offline support status and shipped alternatives |
+| [throttling.md](throttling.md) | Resource-guard status and shipped alternatives |
+| [sync.md](sync.md) | Sync status and shipped alternatives |
 
-**Key Question**: "How do I run reliably on a Raspberry Pi with spotty WiFi?"
+**Key Question**: "Which edge concerns belong in the app instead of CEMAF?"
 
 ### 4. Glass Box Audit (The Debugger)
 
@@ -211,13 +213,17 @@ Use individual CEMAF modules in your existing framework.
 
 ```python
 # Just use context compilation in LangChain
-from cemaf.context import PriorityContextCompiler
+from cemaf.context import PriorityContextCompiler, SimpleTokenEstimator
 
-compiler = PriorityContextCompiler()
-compiled = await compiler.compile(sources, budget)
+compiler = PriorityContextCompiler(SimpleTokenEstimator())
+compiled = await compiler.compile(
+    artifacts=(("brief", "important content"),),
+    memories=(),
+    budget=budget,
+)
 
 # Pass to your existing chain
-response = my_langchain_chain.run(compiled.to_text())
+response = my_langchain_chain.invoke(compiled.to_messages())
 ```
 
 ---
@@ -226,5 +232,5 @@ response = my_langchain_chain.run(compiled.to_text())
 
 1. **New to CEMAF?** Start with [Quick Start](quickstart.md)
 2. **Integrating with existing code?** See [Integration](integration.md)
-3. **Deploying to edge?** Read [Offline](offline.md), [Throttling](throttling.md), [Sync](sync.md)
-4. **Understanding context management?** Deep dive into [Context Algorithms](context_algorithms.md)
+3. **Understanding context management?** Deep dive into [Context Algorithms](context_algorithms.md)
+4. **Deploying to edge?** Read [Offline](offline.md), [Throttling](throttling.md), and [Sync](sync.md) for current boundaries before adding app-level infrastructure.

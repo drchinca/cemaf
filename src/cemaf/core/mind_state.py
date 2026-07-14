@@ -1,6 +1,4 @@
-"""
-MindState Protocol - The unified declarative schema for agent cognition.
-"""
+"""Experimental context-backed state object for agent prompts."""
 
 from typing import Protocol, runtime_checkable
 
@@ -22,18 +20,12 @@ class MindStateComponent(Protocol):
 @experimental
 class MindState(BaseModel):
     """
-    A unified declarative schema for an agent's mental state.
-    Combines Context, Memory configuration, and Moderation policies.
+    Experimental context-backed state object for agent prompts.
 
     STABILITY: Unstable - API subject to change without notice.
-    This class is experimental and not recommended for production use.
-    Core functionality (build(), to_prompt()) is incomplete.
-
-    Planned for future implementation:
-    - JSX-style builder API
-    - Unified prompt generation
-    - Memory configuration integration
-    - Moderation policy integration
+    This class is experimental and not recommended for production use. The
+    current implementation stores a Context, applies components in order, and
+    renders context data into a prompt.
     """
 
     model_config = {"frozen": True}
@@ -41,23 +33,14 @@ class MindState(BaseModel):
     id: str = Field(description="Unique identifier for this mind state")
     context: Context = Field(default_factory=Context, description="The current cognitive context")
 
-    # Placeholders for future unified fields
-    # memory_config: MemoryConfig | None = None
-    # moderation_policy: ModerationPolicy | None = None
-
     @classmethod
     def build(cls, components: list[MindStateComponent]) -> MindState:
         """
         Declaratively build a MindState from a list of components.
-        This is the foundation for the 'Context JSX' style API.
 
         Example:
-            state = MindState.build([
-                MemoryComponent(scope="session"),
-                TokenBudgetGate(limit=2000)
-            ])
+            state = MindState.build([])
         """
-        # TODO: Implement full declarative building logic
         import uuid
 
         ctx = Context()

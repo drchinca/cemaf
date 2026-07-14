@@ -35,8 +35,6 @@ logger = get_logger("core.registry")
 class RegistryError(Exception):
     """Raised when registry operations fail."""
 
-    pass
-
 
 class BaseRegistry[T](ABC):
     """

@@ -1,28 +1,20 @@
-"""Integration tests for PostgresMemoryStore.
+"""Offline integration tests for PostgresMemoryStore.
 
-Requires a live PostgreSQL instance. All tests are skipped when:
-- asyncpg is not installed, OR
-- CEMAF_POSTGRES_DSN environment variable is not set.
-
-Run with:
-    CEMAF_POSTGRES_DSN=postgresql://user:pass@localhost/cemaf_test pytest \
-        tests/integration/test_postgres_memory_store.py -v
+These tests drive the real PostgresMemoryStore methods against a small
+asyncpg-shaped in-memory pool. They verify CEMAF's query/serialization behavior
+without requiring a live database in the default suite. Real database smoke can
+be run separately by wiring PostgresMemoryStore with an actual DSN.
 """
 
-import os
+from __future__ import annotations
+
+import json
+import re
 from collections.abc import AsyncIterator
+from datetime import timedelta
+from typing import Any
 
 import pytest
-
-asyncpg = pytest.importorskip("asyncpg", reason="asyncpg not installed")
-
-_DSN = os.getenv("CEMAF_POSTGRES_DSN", "")
-pytestmark = pytest.mark.skipif(
-    not _DSN,
-    reason="CEMAF_POSTGRES_DSN not set — skipping Postgres integration tests",
-)
-
-from datetime import timedelta
 
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
@@ -33,11 +25,128 @@ from cemaf.memory.postgres_store import PostgresMemoryStore
 _TEST_SCHEMA = "cemaf_test"
 
 
+class _FakeAcquire:
+    def __init__(self, conn: _FakeConnection) -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> _FakeConnection:
+        return self._conn
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+
+class _FakePool:
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self.closed = False
+        self.conn = _FakeConnection(self)
+
+    def acquire(self) -> _FakeAcquire:
+        return _FakeAcquire(self.conn)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _FakeConnection:
+    def __init__(self, pool: _FakePool) -> None:
+        self._pool = pool
+
+    async def execute(self, query: str, *params: Any) -> str:
+        normalized = " ".join(query.strip().split()).upper()
+        if normalized.startswith("CREATE SCHEMA") or normalized.startswith("DROP SCHEMA"):
+            if normalized.startswith("DROP SCHEMA"):
+                self._pool.rows.clear()
+            return "OK"
+
+        if normalized.startswith("INSERT INTO"):
+            (
+                tenant,
+                scope,
+                key,
+                value_json,
+                confidence,
+                created_at,
+                updated_at,
+                ttl,
+                expires_at,
+                scope_path,
+            ) = params
+            self._pool.rows[(tenant, scope, key)] = {
+                "tenant_id": tenant,
+                "scope": scope,
+                "key": key,
+                "value_json": value_json,
+                "confidence": confidence,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "ttl_seconds": ttl,
+                "expires_at": expires_at,
+                "scope_path": scope_path,
+            }
+            return "INSERT 0 1"
+
+        if normalized.startswith("UPDATE"):
+            expires_at, tenant, scope, key = params
+            row = self._pool.rows.get((tenant, scope, key))
+            if row is None:
+                return "UPDATE 0"
+            row["expires_at"] = expires_at
+            return "UPDATE 1"
+
+        if normalized.startswith("DELETE FROM") and "SCOPE = $2 AND KEY = $3" in normalized:
+            tenant, scope, key = params
+            removed = self._pool.rows.pop((tenant, scope, key), None)
+            return f"DELETE {1 if removed is not None else 0}"
+
+        if normalized.startswith("DELETE FROM") and "EXPIRES_AT IS NOT NULL" in normalized:
+            tenant, now = params
+            keys = [
+                key
+                for key, row in self._pool.rows.items()
+                if key[0] == tenant and row["expires_at"] is not None and row["expires_at"] < now
+            ]
+            for key in keys:
+                self._pool.rows.pop(key, None)
+            return f"DELETE {len(keys)}"
+
+        raise AssertionError(f"unexpected SQL execute: {query}")
+
+    async def fetchrow(self, query: str, *params: Any) -> dict[str, Any] | None:
+        tenant, scope, key = params
+        row = self._pool.rows.get((tenant, scope, key))
+        return dict(row) if row is not None else None
+
+    async def fetch(self, query: str, *params: Any) -> list[dict[str, Any]]:
+        tenant, scope, now, *exclude_values = params
+        excluded_fields = re.findall(r"value_json->>'([^']+)'", query)
+        rows: list[dict[str, Any]] = []
+
+        for (row_tenant, row_scope, _), row in self._pool.rows.items():
+            if row_tenant != tenant or row_scope != scope:
+                continue
+            expires_at = row["expires_at"]
+            if expires_at is not None and expires_at <= now:
+                continue
+
+            value = json.loads(row["value_json"])
+            excluded = False
+            for field_name, field_excluded_values in zip(excluded_fields, exclude_values, strict=False):
+                blocked = {str(v) for v in field_excluded_values}
+                if str(value.get(field_name)) in blocked:
+                    excluded = True
+                    break
+            if not excluded:
+                rows.append(dict(row))
+        return rows
+
+
 def _make_item(
     *,
     scope: MemoryScope = MemoryScope.TENANT,
     key: str = "test_key",
-    value: dict | None = None,
+    value: dict[str, Any] | None = None,
     confidence: float = 0.9,
     ttl: timedelta | None = None,
     scope_path: str | None = None,
@@ -54,24 +163,19 @@ def _make_item(
 
 @pytest.fixture
 async def store() -> AsyncIterator[PostgresMemoryStore]:
-    """Fresh PostgresMemoryStore using a test schema, cleaned up after each test."""
+    """Fresh PostgresMemoryStore using an asyncpg-shaped fake pool."""
 
-    s = PostgresMemoryStore(dsn=_DSN, schema=_TEST_SCHEMA, tenant_id="test_tenant")
-    pool = await s._ensure_pool()
-    # Wipe schema between tests for isolation
-    async with pool.acquire() as conn:
-        await conn.execute(f"DROP SCHEMA IF EXISTS {_TEST_SCHEMA} CASCADE")
+    s = PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id="test_tenant")
+    s._pool = _FakePool()  # type: ignore[attr-defined]
     await s._ensure_schema()
     try:
         yield s
     finally:
-        async with pool.acquire() as conn:
-            await conn.execute(f"DROP SCHEMA IF EXISTS {_TEST_SCHEMA} CASCADE")
         await s.close()
 
 
 async def test_set_get_roundtrip(store: PostgresMemoryStore) -> None:
-    """All MemoryItem fields survive a write/read round-trip through Postgres."""
+    """All MemoryItem fields survive a write/read round-trip through the Postgres adapter."""
     item = _make_item(
         key="roundtrip",
         value={"nested": {"count": 42}, "tag": "alpha"},
@@ -87,7 +191,6 @@ async def test_set_get_roundtrip(store: PostgresMemoryStore) -> None:
     assert retrieved.value == {"nested": {"count": 42}, "tag": "alpha"}
     assert abs(float(retrieved.confidence) - 0.75) < 1e-5
     assert retrieved.scope_path == "brand/sub"
-    # Timestamps are timezone-aware coming back from asyncpg; compare up to the second
     assert retrieved.created_at.year == item.created_at.year
 
 
@@ -96,7 +199,6 @@ async def test_get_returns_none_for_expired(store: PostgresMemoryStore) -> None:
     item = _make_item(key="expiring", ttl=timedelta(milliseconds=10))
     await store.set(item=item)
 
-    # Force expires_at to the past by directly writing an already-expired timestamp
     pool = await store._ensure_pool()
     past = utc_now() - timedelta(seconds=10)
     async with pool.acquire() as conn:
@@ -136,7 +238,6 @@ async def test_list_by_scope_excludes_expired(store: PostgresMemoryStore) -> Non
     for it in items:
         await store.set(item=it)
 
-    # Manually expire the third item
     pool = await store._ensure_pool()
     past = utc_now() - timedelta(seconds=5)
     async with pool.acquire() as conn:
@@ -173,12 +274,17 @@ async def test_exclude_filter(store: PostgresMemoryStore) -> None:
     assert "class_c" not in keys
 
 
-async def test_tenant_isolation(store: PostgresMemoryStore) -> None:
+async def test_tenant_isolation() -> None:
     """Two stores with different tenant_ids cannot see each other's data."""
-    store_alpha = PostgresMemoryStore(dsn=_DSN, schema=_TEST_SCHEMA, tenant_id="alpha")
-    store_beta = PostgresMemoryStore(dsn=_DSN, schema=_TEST_SCHEMA, tenant_id="beta")
+    pool = _FakePool()
+    store_alpha = PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id="alpha")
+    store_beta = PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id="beta")
+    store_alpha._pool = pool  # type: ignore[attr-defined]
+    store_beta._pool = pool  # type: ignore[attr-defined]
 
     try:
+        await store_alpha._ensure_schema()
+        await store_beta._ensure_schema()
         await store_alpha.set(item=_make_item(key="secret_alpha", value={"owner": "alpha"}))
         await store_beta.set(item=_make_item(key="secret_beta", value={"owner": "beta"}))
 

@@ -16,7 +16,7 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 
 1. **Update version in `pyproject.toml`**
    ```toml
-   version = "0.2.0"  # Update this
+   version = "3.1.1"  # Must match the release tag
    ```
 
 2. **Update CHANGELOG.md**
@@ -26,14 +26,14 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 3. **Commit and push changes**
    ```bash
    git add pyproject.toml CHANGELOG.md
-   git commit -m "chore: bump version to 0.2.0"
-   git push origin main
+   git commit -m "chore: release v3.1.1"
+   git push origin <release-branch>
    ```
 
 4. **Create a GitHub Release**
    - Go to: https://github.com/drchinca/cemaf/releases/new
-   - Tag: `v0.2.0` (must start with `v`)
-   - Title: `v0.2.0`
+   - Tag: `v3.1.1` (must start with `v`)
+   - Title: `v3.1.1`
    - Description: Copy from CHANGELOG.md for this version
    - Click "Publish release"
 
@@ -87,27 +87,6 @@ If GitHub Actions is unavailable, you can publish manually:
    pip index versions cemaf
    ```
 
-### Testing with TestPyPI
-
-Before publishing to production PyPI, you can test with TestPyPI:
-
-1. **Manually trigger workflow**
-   - Go to: https://github.com/drchinca/cemaf/actions
-   - Select "Publish to PyPI" workflow
-   - Click "Run workflow"
-   - This publishes to TestPyPI only
-
-2. **Test installation**
-   ```bash
-   pip install --index-url https://test.pypi.org/simple/ cemaf
-   ```
-
-3. **Verify it works**
-   ```python
-   from cemaf.context import Context
-   print("Success!")
-   ```
-
 ## PyPI Trusted Publishing Setup
 
 CEMAF uses PyPI's trusted publishing (OIDC) for secure, token-free publishing.
@@ -139,28 +118,30 @@ CEMAF uses PyPI's trusted publishing (OIDC) for secure, token-free publishing.
 CEMAF follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR** version (1.0.0): Incompatible API changes
-- **MINOR** version (0.1.0): New functionality, backwards compatible
-- **PATCH** version (0.0.1): Bug fixes, backwards compatible
+- **MINOR** version (3.1.0): New functionality, backwards compatible
+- **PATCH** version (3.1.1): Bug fixes, backwards compatible
 
 **Current Status:**
-- Version: `0.1.0`
-- Status: Alpha
+- Version: `3.1.1`
+- Status: Public v3 release
 
 **Version Progression:**
-- Alpha: `0.1.x` → `0.2.x` (breaking changes allowed)
-- Beta: `0.9.x` → `0.10.x` (API stabilizing)
-- Stable: `1.0.0` (API stability guaranteed)
+- Current line: `3.1.x`
 
 ## Release Checklist
 
 Before creating a release:
 
-- [ ] All tests passing (`pytest tests/`)
-- [ ] All pre-commit hooks passing
+- [ ] `make check` passes
+- [ ] `uv run python docs/architecture/scripts/check_doc_imports.py` passes
+- [ ] `uv run --frozen pytest -q -rs` passes; opt-in live tests are run separately
+- [ ] `uv build` succeeds
+- [ ] `uv run python docs/architecture/scripts/check_release_package.py` passes
 - [ ] Version bumped in `pyproject.toml`
 - [ ] CHANGELOG.md updated with changes
 - [ ] Documentation updated (if needed)
 - [ ] README.md updated (if needed)
+- [ ] `.env.example` and quickstart keep local/free defaults first
 - [ ] No sensitive information in git history
 - [ ] Branch is up-to-date with main
 
@@ -182,14 +163,9 @@ The publishing workflow (`.github/workflows/publish-to-pypi.yml`) consists of:
    - Publishes to PyPI using trusted publishing
    - Environment: `pypi`
 
-3. **Publish to TestPyPI** (on manual trigger)
-   - Downloads build artifacts
-   - Publishes to TestPyPI
-   - Environment: `testpypi`
-
 **Triggers:**
 - `release: types: [published]` - Automatic on GitHub release
-- `workflow_dispatch` - Manual trigger from Actions tab
+- `workflow_dispatch` - Manual trigger (build artifacts only, no publish)
 
 ## Troubleshooting
 
@@ -209,7 +185,7 @@ The publishing workflow (`.github/workflows/publish-to-pypi.yml`) consists of:
 **Solution:**
 1. Verify trusted publishing is configured on PyPI
 2. Check workflow has `id-token: write` permission
-3. Verify environment name matches (`pypi` or `testpypi`)
+3. Verify environment name matches (`pypi`)
 
 ### Version conflict
 

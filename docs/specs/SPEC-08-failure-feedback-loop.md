@@ -450,7 +450,7 @@ goal context — the agent now sees *which* test, *which* line, and the
 ```python
 async def attempt(signal: FailureSignal | None) -> Result[Any]:
     """Drive the coding agent — generate or repair code."""
-    goal = AgentGoal(prior_failure=signal)
+    goal = {"prior_failure": signal}
     result = await coding_agent.run(goal)
     return Result.ok(
         data=result.artefact,

@@ -10,7 +10,7 @@ import pytest
 from cemaf.context.advanced_compiler import AdvancedContextCompiler
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import TokenEstimator
-from cemaf.llm.protocols import CompletionResult, LLMClient, LLMConfig, Message
+from cemaf.llm.protocols import CompletionResult, LLMClient, LLMConfig, Message, ToolDefinition
 
 
 class MockTokenEstimator(TokenEstimator):
@@ -31,10 +31,16 @@ class MockLLMClient(LLMClient):
     async def complete(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
-        self.completion_calls.append((messages, tools, config_override))
+        self.completion_calls.append(
+            (messages, tools, config_override, fidelity, token_budget, correlation_id)
+        )
         prompt_content = messages[0].content
         for key, summary_text in self._summaries.items():
             if key in prompt_content:  # Simple check to match summary to content

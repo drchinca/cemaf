@@ -39,10 +39,20 @@ def _make_embedding_response(embeddings: list[list[float]]) -> MagicMock:
     return response
 
 
+class TestConstructor:
+    def test_rejects_non_positive_dimension_before_optional_import(self) -> None:
+        """Constructor validation must not depend on the optional OpenAI package."""
+        from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
+
+        with pytest.raises(ValueError, match="dimension must be positive, got 0"):
+            OpenAIEmbeddingProvider(api_key="test-key", dimension=0)
+        with pytest.raises(ValueError, match="dimension must be positive, got -1"):
+            OpenAIEmbeddingProvider(api_key="test-key", dimension=-1)
+
+
 class TestSatisfiesProtocol:
     def test_satisfies_protocol(self) -> None:
         """OpenAIEmbeddingProvider structurally satisfies EmbeddingProvider."""
-        openai = pytest.importorskip("openai")  # noqa: F841
         from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
         provider = OpenAIEmbeddingProvider(api_key="test-key")
@@ -53,7 +63,6 @@ class TestEmbed:
     @pytest.mark.asyncio()
     async def test_embed_returns_correct_dimension(self, mock_client: AsyncMock) -> None:
         """embed() returns a tuple with the configured dimension."""
-        openai = pytest.importorskip("openai")  # noqa: F841
         from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
         dimension = 256
@@ -81,7 +90,6 @@ class TestEmbed:
     @pytest.mark.asyncio()
     async def test_embed_empty_text_returns_zero_vector(self) -> None:
         """embed() returns zero vector for empty/whitespace text."""
-        openai = pytest.importorskip("openai")  # noqa: F841
         from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
         with patch.object(OpenAIEmbeddingProvider, "__init__", lambda self, **kw: None):
@@ -95,12 +103,47 @@ class TestEmbed:
         assert result == tuple(0.0 for _ in range(8))
         provider._client.embeddings.create.assert_not_awaited()
 
+    @pytest.mark.asyncio()
+    async def test_embed_raises_on_missing_embedding_response(self, mock_client: AsyncMock) -> None:
+        """embed() fails loud when the provider omits the requested vector."""
+        from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
+
+        mock_client.embeddings.create = AsyncMock(
+            return_value=_make_embedding_response(embeddings=[]),
+        )
+
+        with patch.object(OpenAIEmbeddingProvider, "__init__", lambda self, **kw: None):
+            provider = OpenAIEmbeddingProvider(api_key="x")
+            provider._client = mock_client
+            provider._model = "text-embedding-3-small"
+            provider._dimension = 4
+
+        with pytest.raises(ValueError, match="returned 0 vectors for 1 inputs"):
+            await provider.embed(text="hello world")
+
+    @pytest.mark.asyncio()
+    async def test_embed_raises_on_dimension_mismatch(self, mock_client: AsyncMock) -> None:
+        """embed() fails loud when provider vector dimension differs from configuration."""
+        from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
+
+        mock_client.embeddings.create = AsyncMock(
+            return_value=_make_embedding_response(embeddings=[[0.1, 0.2, 0.3]]),
+        )
+
+        with patch.object(OpenAIEmbeddingProvider, "__init__", lambda self, **kw: None):
+            provider = OpenAIEmbeddingProvider(api_key="x")
+            provider._client = mock_client
+            provider._model = "text-embedding-3-small"
+            provider._dimension = 4
+
+        with pytest.raises(ValueError, match="has dimension 3; expected 4"):
+            await provider.embed(text="hello world")
+
 
 class TestEmbedBatch:
     @pytest.mark.asyncio()
     async def test_embed_batch_single_api_call(self, mock_client: AsyncMock) -> None:
         """embed_batch() sends all texts in one API call."""
-        openai = pytest.importorskip("openai")  # noqa: F841
         from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
         dimension = 4
@@ -125,7 +168,6 @@ class TestEmbedBatch:
     @pytest.mark.asyncio()
     async def test_embed_batch_handles_empty_texts(self, mock_client: AsyncMock) -> None:
         """embed_batch() returns zero vectors for empty strings, real vectors for others."""
-        openai = pytest.importorskip("openai")  # noqa: F841
         from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
         dimension = 4
@@ -155,7 +197,6 @@ class TestEmbedBatch:
     @pytest.mark.asyncio()
     async def test_embed_batch_empty_list(self) -> None:
         """embed_batch() with empty list returns empty list without API call."""
-        openai = pytest.importorskip("openai")  # noqa: F841
         from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 
         with patch.object(OpenAIEmbeddingProvider, "__init__", lambda self, **kw: None):
@@ -168,6 +209,43 @@ class TestEmbedBatch:
 
         assert results == []
         provider._client.embeddings.create.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    async def test_embed_batch_raises_on_response_count_mismatch(self, mock_client: AsyncMock) -> None:
+        """embed_batch() fails loud instead of zero-filling missing provider vectors."""
+        from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
+
+        dimension = 4
+        mock_client.embeddings.create = AsyncMock(
+            return_value=_make_embedding_response(embeddings=[[1.0] * dimension]),
+        )
+
+        with patch.object(OpenAIEmbeddingProvider, "__init__", lambda self, **kw: None):
+            provider = OpenAIEmbeddingProvider(api_key="x")
+            provider._client = mock_client
+            provider._model = "text-embedding-3-small"
+            provider._dimension = dimension
+
+        with pytest.raises(ValueError, match="returned 1 vectors for 2 inputs"):
+            await provider.embed_batch(texts=["alpha", "beta"])
+
+    @pytest.mark.asyncio()
+    async def test_embed_batch_raises_on_dimension_mismatch(self, mock_client: AsyncMock) -> None:
+        """embed_batch() validates every returned vector dimension."""
+        from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
+
+        mock_client.embeddings.create = AsyncMock(
+            return_value=_make_embedding_response(embeddings=[[1.0] * 4, [2.0] * 3]),
+        )
+
+        with patch.object(OpenAIEmbeddingProvider, "__init__", lambda self, **kw: None):
+            provider = OpenAIEmbeddingProvider(api_key="x")
+            provider._client = mock_client
+            provider._model = "text-embedding-3-small"
+            provider._dimension = 4
+
+        with pytest.raises(ValueError, match="item 1 has dimension 3; expected 4"):
+            await provider.embed_batch(texts=["alpha", "beta"])
 
 
 class TestMissingPackage:

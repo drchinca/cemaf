@@ -265,9 +265,15 @@ async def test_audit_to_knowledge_graph_wiring() -> None:
 async def test_dream_agent_three_gate_trigger() -> None:
     """DreamAgent with three-gate system: time + session + lock."""
     mm = FakeMemoryManager()
+    # Two items share identical content (a real duplicate) plus one unique.
     await mm.remember(
         scope=MemoryScope.PROJECT,
         key="fact1",
+        value={"data": "important context"},
+    )
+    await mm.remember(
+        scope=MemoryScope.PROJECT,
+        key="fact1_dup",
         value={"data": "important context"},
     )
     await mm.remember(
@@ -289,8 +295,11 @@ async def test_dream_agent_three_gate_trigger() -> None:
     result = await agent.run(goal=goal, context=ctx)
 
     assert result.success
-    assert result.output.consolidated_count == 2
+    # Exactly one redundant duplicate merged away; store shrinks 3 → 2.
+    assert result.output.consolidated_count == 1
     assert "Dream complete" in result.output.summary
+    remaining = await mm.recall(query=MemoryQuery(text=""))
+    assert len(remaining) == 2
 
 
 @pytest.mark.asyncio

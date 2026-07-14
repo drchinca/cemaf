@@ -7,7 +7,7 @@ from environment variables, dictionaries, and files.
 
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Self
 
 from cemaf.config.protocols import (
     ConfigLoadError,
@@ -15,6 +15,16 @@ from cemaf.config.protocols import (
     Settings,
 )
 from cemaf.core.types import JSON
+
+
+class _EmptyConfigWatch:
+    """Async iterator returned by static config sources with no change stream."""
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> JSON:
+        raise StopAsyncIteration
 
 
 class EnvConfigSource:
@@ -25,7 +35,7 @@ class EnvConfigSource:
     to nested dictionaries using underscore as separator.
 
     Example:
-        CEMAF_LLM_DEFAULT_MODEL=gpt-4 -> {"llm": {"default_model": "gpt-4"}}
+        CEMAF_LLM_DEFAULT_MODEL=gemma3:4b -> {"llm": {"default_model": "gemma3:4b"}}
     """
 
     def __init__(
@@ -62,10 +72,11 @@ class EnvConfigSource:
             # Remove prefix
             key_without_prefix = key[len(prefix_with_sep) :]
 
-            # Split into parts
+            # Split into Settings-aware path parts.
             parts = key_without_prefix.split(self._separator)
             if self._lowercase_keys:
                 parts = [p.lower() for p in parts]
+                parts = self._settings_path_parts(parts)
 
             # Build nested dict
             current = result
@@ -79,11 +90,9 @@ class EnvConfigSource:
 
         return result
 
-    async def watch(self) -> AsyncIterator[JSON]:
+    def watch(self) -> AsyncIterator[JSON]:
         """Environment variables don't support watching."""
-        # Return immediately - no watching support
-        return
-        yield {}  # noqa: E501 - unreachable code required for generator type
+        return _EmptyConfigWatch()
 
     def _coerce_value(self, value: str) -> bool | int | float | str:
         """Coerce string value to appropriate type."""
@@ -107,6 +116,21 @@ class EnvConfigSource:
 
         # String
         return value
+
+    def _settings_path_parts(self, parts: list[str]) -> list[str]:
+        """Map env key parts to Settings top-level fields plus nested field names."""
+        if not parts:
+            return parts
+
+        for width in range(len(parts), 0, -1):
+            top_level = "_".join(parts[:width])
+            if top_level in Settings.model_fields:
+                remainder = parts[width:]
+                if not remainder:
+                    return [top_level]
+                return [top_level, "_".join(remainder)]
+
+        return parts
 
 
 class DictConfigSource:
@@ -135,11 +159,9 @@ class DictConfigSource:
         """Return the dictionary."""
         return dict(self._data)
 
-    async def watch(self) -> AsyncIterator[JSON]:
+    def watch(self) -> AsyncIterator[JSON]:
         """Dictionaries don't change."""
-        # Return immediately - no watching support
-        return
-        yield {}  # noqa: E501 - unreachable code required for generator type
+        return _EmptyConfigWatch()
 
 
 class SettingsProviderImpl:

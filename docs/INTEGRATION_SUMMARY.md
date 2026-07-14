@@ -56,7 +56,7 @@ settings = Settings(
         librarian_top_k=3,
         researcher_namespace="custom_knowledge",
         researcher_top_k=20,
-        planner_model="gpt-4",
+        planner_model="gemma3:4b",
         planner_temperature=0.3,
         token_telemetry_enabled=True,
     )
