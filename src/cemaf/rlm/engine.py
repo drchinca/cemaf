@@ -78,6 +78,17 @@ class DivideAndConquerQueryEngine:
             RecursiveQueryResult with answer and metadata
         """
         max_depth = max_depth if max_depth is not None else self._max_depth
+        if budget.available_tokens <= 0:
+            # Direct engine callers commonly pass a small context ceiling and
+            # leave TokenBudget's model-output reserve at its large default.
+            # Treat that ceiling as context-only instead of compiling an empty
+            # projection. The RLM tool supplies an explicit output reserve.
+            budget = TokenBudget(
+                max_tokens=budget.max_tokens,
+                reserved_for_output=0,
+                allocations=budget.allocations,
+                metadata=budget.metadata,
+            )
 
         if not chunks:
             logger.warning("RLM query with no chunks", depth=depth, instruction_len=len(instruction))
@@ -86,29 +97,24 @@ class DivideAndConquerQueryEngine:
                 depth_reached=depth,
             )
 
-        # Convert chunks to (key, content) pairs for compiler
+        raw_chunk_tokens = sum(int(chunk.token_count) for chunk in chunks)
         chunk_data = tuple((chunk.chunk_id, chunk.content) for chunk in chunks)
         compiled = await self._compiler.compile(
             artifacts=chunk_data,
             memories=(),
             budget=budget,
         )
-
-        # Single-query mode is only safe when the compiled context fits the budget
-        # AND the compiler kept EVERY chunk. `within_budget()` reports True even
-        # after the compiler silently drops over-budget chunks, so gating on it
-        # alone would answer from a partial subset while reporting full coverage.
-        # Requiring zero exclusions forces recursion whenever any chunk was dropped.
         excluded_count = int(compiled.metadata.get("excluded_count", 0))
-        if compiled.within_budget() and excluded_count == 0:
+        if raw_chunk_tokens <= budget.available_tokens and compiled.within_budget() and excluded_count == 0:
             logger.debug(
                 "RLM single query (within budget, full coverage)",
                 depth=depth,
                 num_chunks=len(chunks),
                 compiled_tokens=compiled.total_tokens,
+                raw_chunk_tokens=raw_chunk_tokens,
                 budget_tokens=budget.max_tokens,
             )
-            result = await self._single_query(instruction, chunks, compiled)
+            result = await self._single_query(instruction, compiled)
 
             # If LLM call failed, return failure (not success with error message)
             if not result["found"]:
@@ -274,11 +280,12 @@ class DivideAndConquerQueryEngine:
     async def _single_query(
         self,
         instruction: str,
-        chunks: tuple[ContextChunk, ...],
         compiled: CompiledContext,
     ) -> dict[str, Any]:
-        """Execute single LLM query with all chunks."""
-        context_content = "\n\n---\n\n".join(f"[Chunk {chunk.chunk_id}]\n{chunk.content}" for chunk in chunks)
+        """Execute one LLM query using only the compiler-bounded projection."""
+        context_content = "\n\n---\n\n".join(
+            f"[Chunk {source.key}]\n{source.content}" for source in compiled.sources
+        )
 
         prompt = f"""{instruction}
 
@@ -326,7 +333,11 @@ context, explicitly state that."""
             token_est = int(chunk.token_count) if chunk.token_count else len(chunk.content) // 4
             if batch_tokens + token_est > available and batch:
                 # Process current batch
-                result = await self._single_query_from_chunks(instruction=instruction, chunks_list=batch)
+                result = await self._single_query_from_chunks(
+                    instruction=instruction,
+                    chunks_list=batch,
+                    budget=budget,
+                )
                 llm_calls += 1
                 examined += len(batch)
                 total_tokens_used += result["tokens_used"]
@@ -341,7 +352,11 @@ context, explicitly state that."""
 
         # Process remaining batch
         if batch:
-            result = await self._single_query_from_chunks(instruction=instruction, chunks_list=batch)
+            result = await self._single_query_from_chunks(
+                instruction=instruction,
+                chunks_list=batch,
+                budget=budget,
+            )
             llm_calls += 1
             examined += len(batch)
             total_tokens_used += result["tokens_used"]
@@ -405,27 +420,15 @@ context, explicitly state that."""
         self,
         instruction: str,
         chunks_list: list[ContextChunk],
+        budget: TokenBudget,
     ) -> dict[str, Any]:
-        """Execute a single LLM query from a list of chunks."""
-        context_content = "\n\n---\n\n".join(f"[Chunk {c.chunk_id}]\n{c.content}" for c in chunks_list)
-        prompt = f"""{instruction}
-
-Context:
-{context_content}
-
-Provide your answer based on the context above."""
-
-        messages = [Message.user(prompt)]
-        result = await self._llm.complete(messages)
-
-        if not result.success:
-            return {"answer": f"Error: {result.error}", "found": False, "tokens_used": 0}
-
-        return {
-            "answer": result.content if isinstance(result.content, str) else str(result.content),
-            "found": True,
-            "tokens_used": int(result.total_tokens),
-        }
+        """Compile a chunk batch to its budget before executing it."""
+        compiled = await self._compiler.compile(
+            artifacts=tuple((chunk.chunk_id, chunk.content) for chunk in chunks_list),
+            memories=(),
+            budget=budget,
+        )
+        return await self._single_query(instruction, compiled)
 
     async def _aggregate_answer_list(
         self,
@@ -434,7 +437,14 @@ Provide your answer based on the context above."""
         budget: TokenBudget,
     ) -> dict[str, Any]:
         """Aggregate multiple partial answers into one."""
-        parts = "\n\n".join(f"Part {i + 1}:\n{a}" for i, a in enumerate(answers))
+        compiled = await self._compiler.compile(
+            artifacts=tuple((f"answer_{index}", answer) for index, answer in enumerate(answers)),
+            memories=(),
+            budget=budget,
+        )
+        parts = "\n\n".join(
+            f"Part {index + 1}:\n{source.content}" for index, source in enumerate(compiled.sources)
+        )
         prompt = f"""{instruction}
 
 I have gathered information from {len(answers)} batches:
@@ -464,6 +474,14 @@ Synthesize these into a single coherent response."""
         """Aggregate results from left and right recursive queries."""
         left_answer = left_result.answer or "No information found"
         right_answer = right_result.answer or "No information found"
+        compiled = await self._compiler.compile(
+            artifacts=(("left", left_answer), ("right", right_answer)),
+            memories=(),
+            budget=budget,
+        )
+        bounded_answers = {source.key: source.content for source in compiled.sources}
+        left_answer = bounded_answers.get("left", "Omitted by token budget")
+        right_answer = bounded_answers.get("right", "Omitted by token budget")
 
         prompt = f"""{instruction}
 

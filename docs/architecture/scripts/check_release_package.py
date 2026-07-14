@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
-EXPECTED_VERSION = "3.0.1"
 EXPECTED_STATUS = "Development Status :: 5 - Production/Stable"
 
 HOSTED_CORE_DEPS = (
@@ -45,15 +44,16 @@ def _require_contains(failures: list[str], rel_path: str, needle: str) -> None:
         failures.append(f"{rel_path}: missing {needle!r}")
 
 
-def _check_pyproject(failures: list[str]) -> None:
+def _check_pyproject(failures: list[str]) -> str:
     data = _load_pyproject()
     project = data["project"]
     optional = project.get("optional-dependencies", {})
+    version = str(project.get("version", ""))
 
     if project.get("name") != "cemaf":
         failures.append("pyproject project.name must be 'cemaf'")
-    if project.get("version") != EXPECTED_VERSION:
-        failures.append(f"pyproject version must be {EXPECTED_VERSION}")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        failures.append("pyproject version must be a stable semantic version")
     if "context engineering" not in project.get("description", "").lower():
         failures.append("pyproject description must position CEMAF around context engineering")
     if project.get("requires-python") != ">=3.14":
@@ -87,20 +87,32 @@ def _check_pyproject(failures: list[str]) -> None:
     wheel = data.get("tool", {}).get("hatch", {}).get("build", {}).get("targets", {}).get("wheel", {})
     if wheel.get("packages") != ["src/cemaf"]:
         failures.append("wheel target must package src/cemaf")
+    return version
+
+
+def _check_version_consistency(failures: list[str], version: str) -> None:
+    lock = tomllib.loads(_read("uv.lock"))
+    locked_cemaf = next(
+        (package for package in lock.get("package", ()) if package.get("name") == "cemaf"),
+        None,
+    )
+    if locked_cemaf is None:
+        failures.append("uv.lock does not contain the editable cemaf package")
+    elif locked_cemaf.get("version") != version:
+        failures.append(
+            f"version mismatch: pyproject={version}, uv.lock={locked_cemaf.get('version')}"
+        )
+
+    _require_contains(failures, "CHANGELOG.md", f"## [{version}]")
 
 
 def _check_release_docs(failures: list[str]) -> None:
-    for rel_path in ("README.md", "CHANGELOG.md", "docs/publishing.md", "docs/release_v3_readiness.md"):
+    for rel_path in ("README.md", "CHANGELOG.md", "docs/publishing.md"):
         if not (ROOT / rel_path).is_file():
             failures.append(f"missing release doc: {rel_path}")
 
-    _require_contains(failures, "CHANGELOG.md", f"## [{EXPECTED_VERSION}]")
-    _require_contains(failures, "README.md", "Status-3.0")
-    _require_contains(failures, "README.md", "4144 passing")
     _require_contains(failures, "README.md", 'pip install "cemaf[ollama]"')
     _require_contains(failures, "docs/quickstart.md", 'pip install "cemaf[ollama]"')
-    _require_contains(failures, "docs/publishing.md", f"Version: `{EXPECTED_VERSION}`")
-    _require_contains(failures, "docs/release_v3_readiness.md", "check_release_package.py")
 
     stale_markers = (
         "0.1.0 Alpha",
@@ -135,7 +147,8 @@ def _check_ci(failures: list[str]) -> None:
 
 def main() -> int:
     failures: list[str] = []
-    _check_pyproject(failures)
+    version = _check_pyproject(failures)
+    _check_version_consistency(failures, version)
     _check_release_docs(failures)
     _check_ci(failures)
 
@@ -145,7 +158,7 @@ def main() -> int:
             print(f"  {failure}")
         return 1
 
-    print(f"Release package check passed for {EXPECTED_VERSION}.")
+    print(f"Release package check passed for {version}.")
     return 0
 
 

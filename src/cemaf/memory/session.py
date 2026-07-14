@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
@@ -15,7 +15,13 @@ from cemaf.memory.compaction import CompactedMemory, MemoryCompactor
 from cemaf.memory.episodic import EpisodicEvent
 from cemaf.memory.extraction_pipeline import ExtractionPipeline
 from cemaf.memory.manager import MemoryManager
-from cemaf.memory.semantic import MemoryQuery
+from cemaf.memory.semantic import MemoryQuery, MemorySearchResult
+from cemaf.memory.session_keys import session_memory_key, session_memory_logical_key
+
+
+def _logical_session_item(*, session_id: str, item: MemoryItem) -> MemoryItem | None:
+    logical_key = session_memory_logical_key(session_id=session_id, stored_key=item.key)
+    return replace(item, key=logical_key) if logical_key is not None else None
 
 
 class SessionPhase(StrEnum):
@@ -180,19 +186,21 @@ class DefaultSessionManager:
     ) -> MemoryItem:
         """Store to SESSION scope and record episodic event."""
         state = self._sessions.get(session_id)
+        stored_key = session_memory_key(session_id=session_id, key=key)
         if state is None:
-            return await self._manager.remember(
+            item = await self._manager.remember(
                 scope=MemoryScope.SESSION,
-                key=key,
+                key=stored_key,
                 value=value,
                 confidence=confidence,
             )
+            return replace(item, key=key)
         if state.phase != SessionPhase.ACTIVE:
             raise ValueError(f"Cannot ingest in phase {state.phase.value}, must be active")
 
         item = await self._manager.remember(
             scope=MemoryScope.SESSION,
-            key=key,
+            key=stored_key,
             value=value,
             confidence=confidence,
         )
@@ -216,7 +224,23 @@ class DefaultSessionManager:
             count=state.memory_count + 1,
         )
 
-        return item
+        return replace(item, key=key)
+
+    async def _session_results(
+        self,
+        *,
+        session_id: str,
+        limit: int,
+    ) -> tuple[MemorySearchResult, ...]:
+        """Return only SESSION memories owned by ``session_id``."""
+        results = await self._manager.recall(
+            query=MemoryQuery(scope=MemoryScope.SESSION, limit=limit),
+        )
+        return tuple(
+            result
+            for result in results
+            if session_memory_logical_key(session_id=session_id, stored_key=result.item.key) is not None
+        )
 
     async def compact(
         self,
@@ -232,10 +256,12 @@ class DefaultSessionManager:
         self._sessions[session_id] = state
 
         # Gather session memories
-        results = await self._manager.recall(
-            query=MemoryQuery(scope=MemoryScope.SESSION, limit=1000),
+        results = await self._session_results(session_id=session_id, limit=1000)
+        items = tuple(
+            logical
+            for result in results
+            if (logical := _logical_session_item(session_id=session_id, item=result.item)) is not None
         )
-        items = tuple(r.item for r in results)
 
         # Compact
         compacted = await self._compactor.compact_batch_to_budget(
@@ -271,10 +297,12 @@ class DefaultSessionManager:
 
         # Run extraction pipeline before cleanup
         if self._extraction_pipeline is not None:
-            session_results = await self._manager.recall(
-                query=MemoryQuery(scope=MemoryScope.SESSION, limit=1000),
+            session_results = await self._session_results(session_id=session_id, limit=1000)
+            session_memories = tuple(
+                logical
+                for result in session_results
+                if (logical := _logical_session_item(session_id=session_id, item=result.item)) is not None
             )
-            session_memories = tuple(r.item for r in session_results)
             episodes = ()
             recent_events = await self._manager.get_recent_history(
                 session_id=session_id,
@@ -290,18 +318,22 @@ class DefaultSessionManager:
         if state.episode_id:
             await self._manager.end_episode(episode_id=state.episode_id)
 
-        session_results = await self._manager.recall(
-            query=MemoryQuery(scope=MemoryScope.SESSION, limit=10000),
-        )
+        session_results = await self._session_results(session_id=session_id, limit=10000)
 
         # Promote before cleanup — otherwise the items vanish first.
         if promote_to is not None:
             for result in session_results:
                 item = result.item
+                logical_key = session_memory_logical_key(
+                    session_id=session_id,
+                    stored_key=item.key,
+                )
+                if logical_key is None:
+                    continue
                 if float(item.confidence) >= promotion_min_confidence:
                     await self._manager.remember(
                         scope=promote_to,
-                        key=item.key,
+                        key=logical_key,
                         value=item.value,
                         confidence=float(item.confidence),
                     )
@@ -381,10 +413,12 @@ class ReportingSessionManager(DefaultSessionManager):
         promoted_items: tuple[dict[str, str], ...] = ()
 
         if self._extraction_pipeline is not None:
-            session_results = await self._manager.recall(
-                query=MemoryQuery(scope=MemoryScope.SESSION, limit=1000),
+            session_results = await self._session_results(session_id=session_id, limit=1000)
+            session_memories = tuple(
+                logical
+                for result in session_results
+                if (logical := _logical_session_item(session_id=session_id, item=result.item)) is not None
             )
-            session_memories = tuple(result.item for result in session_results)
             recent_events = await self._manager.get_recent_history(session_id=session_id, limit=100)
             try:
                 extraction_report = await self._extraction_pipeline.run(
@@ -409,17 +443,21 @@ class ReportingSessionManager(DefaultSessionManager):
             except Exception as exc:
                 warnings.append(f"episode close failed: {type(exc).__name__}: {exc}")
 
-        session_results = await self._manager.recall(
-            query=MemoryQuery(scope=MemoryScope.SESSION, limit=10000),
-        )
+        session_results = await self._session_results(session_id=session_id, limit=10000)
 
         if promote_to is not None:
             for result in session_results:
                 item = result.item
+                logical_key = session_memory_logical_key(
+                    session_id=session_id,
+                    stored_key=item.key,
+                )
+                if logical_key is None:
+                    continue
                 if float(item.confidence) >= promotion_min_confidence:
                     await self._manager.remember(
                         scope=promote_to,
-                        key=item.key,
+                        key=logical_key,
                         value=item.value,
                         confidence=float(item.confidence),
                     )

@@ -242,8 +242,25 @@ class CitationFormatRule:
             citations_to_check = [data]
         elif isinstance(data, CitedFact):
             citations_to_check = list(data.citations)
-        elif isinstance(data, list):
+        elif isinstance(data, (list, tuple)):
             citations_to_check = [c for c in data if isinstance(c, Citation)]
+        elif isinstance(data, dict):
+            raw_citations = data.get("citations", ())
+            if isinstance(raw_citations, (list, tuple)):
+                for raw in raw_citations:
+                    if isinstance(raw, Citation):
+                        citations_to_check.append(raw)
+                    elif isinstance(raw, dict):
+                        try:
+                            citations_to_check.append(Citation.from_dict(raw))
+                        except Exception:
+                            warnings.append(
+                                ValidationWarning(
+                                    code="INVALID_CITATION_FORMAT",
+                                    message="Citation payload could not be parsed",
+                                    field="citations",
+                                )
+                            )
 
         for citation in citations_to_check:
             if self._require_title and not citation.title:

@@ -16,7 +16,7 @@ Context Engineering Multi-Agent Framework
 - [Protocol Guide](protocol_guide.md) - Understanding protocol-based design
 - [Extension Patterns](extension_patterns.md) - How to extend CEMAF
 - [Module Reference](module_reference.md) - API reference
-- [Specs (SPEC-00..10)](specs/README.md) - The primary artifacts; code, tests, and docs derive from them
+- [Specs (SPEC-00..17)](specs/README.md) - The primary artifacts; code, tests, and docs derive from them
 - [Self-Hosting Layer](self-hosting.md) - CEMAF using CEMAF to audit and extend itself
 
 ---

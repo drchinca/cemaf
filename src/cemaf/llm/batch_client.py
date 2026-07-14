@@ -114,7 +114,10 @@ class BatchLLMClient:
                 }
             )
 
-        response = await self._client.beta.messages.batches.create(requests=cast(Any, formatted))
+        # Batch request params are assembled from provider-neutral CEMAF
+        # models; contain the dynamic shape at the Anthropic SDK boundary.
+        create_batch = cast(Any, self._client.beta.messages.batches.create)
+        response = await create_batch(requests=formatted)
 
         return BatchJob(
             id=response.id,

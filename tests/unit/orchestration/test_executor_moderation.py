@@ -16,6 +16,8 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
+from cemaf.events.bus import InMemoryEventBus
+from cemaf.events.protocols import Event, EventType
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.moderation.protocols import (
     ModerationContent,
@@ -115,12 +117,34 @@ async def test_clean_output_is_allowed() -> None:
 
 @pytest.mark.asyncio
 async def test_blocked_output_fails_node_and_dag() -> None:
-    """Regression for P0 #28: the executor MUST actually call check_output."""
+    """Blocked content never reaches context, memory, or a success event."""
+    ingested: list[tuple[str, str, Any]] = []
+    events: list[Event] = []
+
+    class _RecordingSessions:
+        async def bootstrap(self, session_id: str) -> None:
+            return None
+
+        async def ingest(self, session_id: str, key: str, value: Any, **kwargs: Any) -> None:
+            ingested.append((session_id, key, value))
+
+        async def dispose(self, session_id: str) -> None:
+            return None
+
+    async def capture(event: Event) -> None:
+        events.append(event)
+
+    bus = InMemoryEventBus()
+    bus.subscribe_all(capture)
     pipeline = ModerationPipeline(post_flight=_KeywordBlockGate())
     executor = create_executor(
         agent_registry=_registry(),
-        config=ExecutorConfig(enable_events=False, enable_moderation=True),
-        services=RuntimeServices(moderation_pipeline=pipeline),
+        config=ExecutorConfig(enable_events=True, enable_moderation=True),
+        services=RuntimeServices(
+            moderation_pipeline=pipeline,
+            session_manager=_RecordingSessions(),  # type: ignore[arg-type]
+            event_bus=bus,
+        ),
     )
     result = await executor.run(dag=_single_node_dag(payload="this is BLOCKED content"))
     node_result = result.node_results[0]
@@ -128,6 +152,13 @@ async def test_blocked_output_fails_node_and_dag() -> None:
     assert "moderation" in (node_result.error or "").lower()
     assert node_result.metadata.get("moderation_blocked") is True
     assert "keyword.forbidden" in node_result.metadata.get("moderation_violations", [])
+    assert result.final_context is not None
+    assert result.final_context.get("echo_out") is None
+    assert result.final_context.patch_history == ()
+    assert ingested == []
+    node_events = [event for event in events if event.payload.get("node_id") == "n1"]
+    assert not any(event.type == EventType.TASK_COMPLETED for event in node_events)
+    assert any(event.type == EventType.TASK_FAILED for event in node_events)
 
 
 @pytest.mark.asyncio

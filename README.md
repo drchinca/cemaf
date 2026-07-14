@@ -3,7 +3,7 @@
 **Context Engineering Multi-Agent Framework**
 
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=flat-square)](https://opensource.org)
-[![Project Status: 3.0](https://img.shields.io/badge/Status-3.0-green?style=flat-square)](https://github.com/drchinca/cemaf)
+[![Project Status: 3.1](https://img.shields.io/badge/Status-3.1-green?style=flat-square)](https://github.com/drchinca/cemaf)
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
 [![Python](https://img.shields.io/badge/Python-3.14+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
@@ -627,7 +627,9 @@ protocols, and search tools.
 
 ## Configuration
 
-CEMAF is designed for zero-config startup with local-first defaults. Customize via environment variables:
+CEMAF is designed for zero-config local startup with conservative defaults.
+Production readiness belongs to a validated deployment profile, not a default
+constructor. Customize via environment variables:
 
 ```bash
 # Copy example configuration
@@ -674,7 +676,7 @@ pytest tests/ --cov=cemaf
 pre-commit run --all-files
 ```
 
-**Project Stats**: 4144 passing tests in the current release gate | no skipped tests
+**Project Stats**: 4,000+ automated tests | unit, integration, live-adapter, and destructive harnesses
 
 ---
 

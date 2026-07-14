@@ -16,7 +16,7 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 
 1. **Update version in `pyproject.toml`**
    ```toml
-   version = "3.0.1"  # Match the release tag
+   version = "3.1.1"  # Must match the release tag
    ```
 
 2. **Update CHANGELOG.md**
@@ -26,14 +26,14 @@ The project uses GitHub Actions to automatically publish to PyPI when you create
 3. **Commit and push changes**
    ```bash
    git add pyproject.toml CHANGELOG.md
-   git commit -m "chore: release v3.0.1"
-   git push origin main
+   git commit -m "chore: release v3.1.1"
+   git push origin <release-branch>
    ```
 
 4. **Create a GitHub Release**
    - Go to: https://github.com/drchinca/cemaf/releases/new
-   - Tag: `v3.0.1` (must start with `v`)
-   - Title: `v3.0.1`
+   - Tag: `v3.1.1` (must start with `v`)
+   - Title: `v3.1.1`
    - Description: Copy from CHANGELOG.md for this version
    - Click "Publish release"
 
@@ -119,15 +119,14 @@ CEMAF follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR** version (1.0.0): Incompatible API changes
 - **MINOR** version (3.1.0): New functionality, backwards compatible
-- **PATCH** version (3.0.1): Bug fixes, backwards compatible
+- **PATCH** version (3.1.1): Bug fixes, backwards compatible
 
 **Current Status:**
-- Version: `3.0.1`
+- Version: `3.1.1`
 - Status: Public v3 release
 
 **Version Progression:**
-- Public v3: `3.0.1`
-- Patch releases: `3.0.x`
+- Current line: `3.1.x`
 
 ## Release Checklist
 
@@ -135,7 +134,7 @@ Before creating a release:
 
 - [ ] `make check` passes
 - [ ] `uv run python docs/architecture/scripts/check_doc_imports.py` passes
-- [ ] `uv run --frozen pytest -q -rs` passes and reports no skips
+- [ ] `uv run --frozen pytest -q -rs` passes; opt-in live tests are run separately
 - [ ] `uv build` succeeds
 - [ ] `uv run python docs/architecture/scripts/check_release_package.py` passes
 - [ ] Version bumped in `pyproject.toml`

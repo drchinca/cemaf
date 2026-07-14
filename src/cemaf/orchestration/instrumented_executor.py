@@ -67,3 +67,34 @@ class InstrumentedDAGExecutor:
             raise
         finally:
             span.end()
+
+    async def resume(
+        self,
+        run_id: RunID,
+        dag: DAG,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
+        """Resume through the inner durable executor under a correlated root span."""
+        span = self._tracer.start_span(
+            "cemaf.dag.resume",
+            attributes={
+                "cemaf.dag.name": dag.name,
+                "cemaf.run.id": str(run_id),
+            },
+        )
+        try:
+            result = await self._inner.resume(
+                run_id=run_id,
+                dag=dag,
+                cancellation_token=cancellation_token,
+            )
+            if result.success:
+                span.set_status("OK")
+            else:
+                span.set_status("ERROR", result.error or "DAG resume failed")
+            return result
+        except Exception as exc:
+            span.set_status("ERROR", str(exc))
+            raise
+        finally:
+            span.end()

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from cemaf.observability.otel_tracer import OTelSpan, OTelTracer, _flatten_value
 
 
@@ -81,19 +83,24 @@ class TestOTelTracer:
     def test_start_span_delegates_to_inner(self):
         mock_tracer = MagicMock()
         mock_inner_span = MagicMock()
-        mock_tracer.start_span.return_value = mock_inner_span
+        mock_scope = MagicMock()
+        mock_scope.__enter__.return_value = mock_inner_span
+        mock_tracer.start_as_current_span.return_value = mock_scope
 
         tracer = OTelTracer(mock_tracer)
         span = tracer.start_span("test.span", {"key": "value"})
 
-        mock_tracer.start_span.assert_called_once()
+        mock_tracer.start_as_current_span.assert_called_once()
         assert isinstance(span, OTelSpan)
 
     def test_start_span_creates_exportable_span(self):
         """Integration: OTelTracer wraps an OTel SDK Tracer and span is recording."""
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+        try:
+            from opentelemetry.sdk.trace import TracerProvider
+            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+            from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+        except ImportError:
+            pytest.skip("opentelemetry-sdk not installed")
 
         exporter = InMemorySpanExporter()
         provider = TracerProvider()

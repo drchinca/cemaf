@@ -46,6 +46,12 @@ def _load(path: Path) -> ModuleType:
 async def test_example_runs_offline(example_path: Path) -> None:
     module = _load(example_path)
 
+    skip_reason = getattr(module, "smoke_skip_reason", None)
+    if callable(skip_reason):
+        reason = skip_reason()
+        if reason:
+            pytest.skip(str(reason))
+
     main = getattr(module, "smoke_main", None) or getattr(module, "main", None)
     assert callable(main), f"{example_path.name} must define main() or smoke_main()"
 

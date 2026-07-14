@@ -70,10 +70,12 @@ Full diagram + per-module details: [modules.md](modules.md).
 
 ### Canonical reference (read these)
 - [**Architecture**](architecture.md) — the software architecture we build toward
+- [**Industry-Standard Goals**](architecture/industry-standard-goals.md) — the eight product pillars and evidence required for huge-context autonomous work
+- [**Capability Evidence Ledger**](production-evidence.md) — executable proof and explicit limits for every current public capability claim
+- [**Enterprise Durability Plan**](architecture/enterprise-durability-plan.md) — authoritative runtime state, backend roles, migration, verification, and rollout
+- [**Durable Execution Injection Boundary**](architecture/durable-execution-injection-decision.md) — what is injected, what the companion owns, and how abandoned work is recovered
 - [**Design Patterns**](patterns.md) — the pattern catalog reviewers enforce
 - [**Module Layout**](modules.md) — where each thing lives
-- [**V3 Release Readiness**](release_v3_readiness.md) — public-release gates, defaults, docs voice, and no-ghost-code checks
-- [**V3 Release Evidence**](release_v3_evidence.md) — requirement-by-requirement proof for the current release candidate
 
 ### Context Engineering (core differentiator)
 - [Context Management](context.md) — Context, ContextPatch, ContextCompiler, TokenBudget

@@ -7,20 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.0.1] - 2026-07-04
+## [3.1.1] - 2026-07-14
 
-**V3 public release on `main`.**
+Durable runtime composition and production-behavior evidence.
 
-This patch release publishes the verified v3 release state after reconciling the
-previous `main` line with the local-first/provider-defaults branch. PyPI already
-contained an earlier `3.0.0` build, so the corrected public package ships as
-`3.0.1`; package indexes are paperwork with a memory, annoyingly.
+**Added:**
+- Native checkpoint and resume through `RuntimeServices`, including conditional
+  route recovery after worker replacement.
+- Runtime validation gates, node-level OpenTelemetry spans, and blueprint
+  harvesting through the composition root.
+- LangGraph and LCEL adapter example, integration test, and comparative benchmark.
+- Live opt-in checks for OpenAI, Gemini, Ollama, and PostgreSQL adapters.
+- Disposable-worker stress and destructive durable-companion harnesses.
 
 **Changed:**
-- Package metadata now targets `3.0.1`.
-- Release evidence now reflects the merged `main` gate: `4117 passed`, no skipped
-  tests, 95 Markdown files checked for public imports, and 331 unique documented
-  `from cemaf...` imports.
+- Long-context RLM calls compile every prompt projection under the supplied token
+  budget, including recursive batches and aggregation.
+- CI now validates pull requests and pushes for both `main` and `development`.
+- Release checks compare package, lockfile, and changelog versions instead of
+  pinning a branch name or historical test count.
+
+**Fixed:**
+- Concurrent runs no longer share session-memory state.
+- Citation and structured validation failures now stop downstream execution.
+- OpenTelemetry node attempts remain children of the DAG run span.
 
 ## [3.0.0] - 2026-07-04
 

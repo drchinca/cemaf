@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
-    branches: [main]
+    branches: [main, development]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -77,9 +77,6 @@ jobs:
 
       - name: Check release package metadata
         run: uv run python docs/architecture/scripts/check_release_package.py
-
-      - name: Check v3 release evidence
-        run: uv run python docs/architecture/scripts/check_release_evidence.py
 
   test:
     name: Tests

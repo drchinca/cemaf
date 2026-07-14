@@ -26,6 +26,7 @@ from cemaf.interceptors import (
     create_interceptor_pipeline,
 )
 from cemaf.interceptors.types import RECOVERY_HINTS_KEY
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 from cemaf.orchestration.dag import DAG, Node
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
@@ -65,8 +66,16 @@ class _LearningWriter:
         self.last_hints = list(hints) if isinstance(hints, list) else []
         # If a length hint arrived, comply.
         if any(h.get("code") == "length" for h in self.last_hints):
-            return AgentResult.ok(output="x" * 200, state=AgentState())
-        return AgentResult.ok(output="too short", state=AgentState())
+            return AgentResult.ok(
+                output="x" * 200,
+                state=AgentState(),
+                metadata={"cost_estimate_usd": 0.02, "tokens_total": 200},
+            )
+        return AgentResult.ok(
+            output="too short",
+            state=AgentState(),
+            metadata={"cost_estimate_usd": 0.01, "tokens_total": 100},
+        )
 
 
 def _executor_with_writer(*, max_recovery_attempts: int) -> tuple[DAGExecutor, _LearningWriter]:
@@ -124,6 +133,44 @@ async def test_recover_injects_hint_and_agent_corrects() -> None:
     assert writer.attempts == 2
     # The hint surfaced in agent_context.global_memory on attempt 2.
     assert any(h.get("code") == "length" for h in writer.last_hints)
+
+
+@pytest.mark.asyncio
+async def test_recovery_charges_every_attempt_to_budget_guard() -> None:
+    """A rejected draft is still paid work and must count toward the run cap."""
+    writer = _LearningWriter()
+    registry = AgentRegistry()
+    registry.register_agent(agent_instance=writer, goal_type=_DraftGoal)
+    pipeline = create_interceptor_pipeline(
+        interceptors=(
+            GateEvalInterceptor(
+                evaluators=(LengthEvaluator(min_length=100),),
+                node_pattern="write",
+                threshold=0.5,
+                on_failure=GateFailureMode.RECOVER,
+            ),
+        )
+    )
+    guard = BudgetGuard(max_cost_usd=1.0, max_total_tokens=10_000)
+    executor = create_executor(
+        agent_registry=registry,
+        config=ExecutorConfig(enable_events=False),
+        services=RuntimeServices(
+            interceptor_pipeline=pipeline,
+            max_recovery_attempts=2,
+            budget_guard=guard,
+        ),
+    )
+
+    run = await executor.run(dag=_dag())
+    write_result = next(r for r in run.node_results if r.node_id == NodeID("write"))
+
+    assert writer.attempts == 2
+    assert write_result.metadata["cost_estimate_usd"] == pytest.approx(0.03)
+    assert write_result.metadata["tokens_total"] == 300
+    assert len(write_result.metadata["attempt_usage"]) == 2
+    assert guard.accumulated_cost_usd == pytest.approx(0.03)
+    assert guard.accumulated_tokens == 300
 
 
 @pytest.mark.asyncio

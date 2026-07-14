@@ -109,6 +109,7 @@ cemaf/
   - `dag.py` — `DAG`, `Node`, `Edge`, `EdgeCondition`
   - `factories.py` — `create_dag_executor` convenience factory
   - `checkpointer.py` — replay checkpoint support
+  - `run_lease.py` — durable run claims, monotonic fencing tokens, stale-writer rejection
 - **Imports**: everything in Layer 1. **Nothing imports from `orchestration/` except Layer 2 and tests/examples.**
 
 ### `scheduler/` — scheduling, gates
@@ -170,6 +171,7 @@ cemaf/
 
 ### `persistence/` — durable run/entity storage
 - **Role**: `RunRecord`, `Project`, persistence protocols.
+- **Contains**: crash-safe atomic file replacement and an idempotent effect-sink protocol/local backend.
 
 ### `cache/` — TTL-bounded caching
 - **Role**: `@cache_result` decorator + caching primitives. Used by retrieval / LLM heavy paths.

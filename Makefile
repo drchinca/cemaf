@@ -7,7 +7,7 @@
 .PHONY: help install test test-unit test-integration coverage lint typecheck format \
         benchmark benchmark-report \
         check audit-links audit-imports audit-graph audit-traces audit-voice audit-release-naming \
-        audit-loop-ops audit-package audit-release-evidence audit-all \
+        audit-loop-ops audit-package audit-all \
         demo demo-step traces showcase docs-search clean
 
 # ---- self-documenting menu -------------------------------------------------
@@ -86,10 +86,7 @@ audit-loop-ops:  ## Verify public loop/operator contracts stay wired
 audit-package:  ## Verify release package metadata and install promises
 	uv run python docs/architecture/scripts/check_release_package.py
 
-audit-release-evidence:  ## Verify v3 evidence page covers release requirements
-	uv run python docs/architecture/scripts/check_release_evidence.py
-
-audit-all: audit-links audit-imports audit-graph audit-traces audit-voice audit-release-naming audit-loop-ops audit-package audit-release-evidence  ## Run every audit (CI-equivalent)
+audit-all: audit-links audit-imports audit-graph audit-traces audit-voice audit-release-naming audit-loop-ops audit-package  ## Run every audit (CI-equivalent)
 	@echo "✓ all audits clean"
 
 check: lint typecheck audit-all  ## Pre-PR: lint + typecheck + every audit
