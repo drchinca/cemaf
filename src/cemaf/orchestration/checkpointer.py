@@ -14,6 +14,7 @@ from typing import Protocol, runtime_checkable
 
 from cemaf.context.context import Context
 from cemaf.core.enums import RunStatus
+from cemaf.core.execution import CancellationToken
 from cemaf.core.storage import InMemoryStorage
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import generate_id
@@ -112,6 +113,7 @@ class CheckpointingDAGExecutor:
         dag: DAG,
         initial_context: Context | None = None,
         run_id: RunID | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
         """Run DAG with checkpointing."""
         dag.validate_structure()
@@ -137,9 +139,15 @@ class CheckpointingDAGExecutor:
             nodes_to_execute=list(order),
             initial_context=context,
             completed_nodes=[],
+            cancellation_token=cancellation_token,
         )
 
-    async def resume(self, run_id: RunID, dag: DAG) -> ExecutionResult:
+    async def resume(
+        self,
+        run_id: RunID,
+        dag: DAG,
+        cancellation_token: CancellationToken | None = None,
+    ) -> ExecutionResult:
         """Resume execution from a checkpoint."""
         checkpoint = await self._checkpointer.load(run_id)
 
@@ -166,6 +174,7 @@ class CheckpointingDAGExecutor:
             nodes_to_execute=pending,
             initial_context=checkpoint.context,  # Pass Context object
             completed_nodes=list(checkpoint.completed_nodes),
+            cancellation_token=cancellation_token,
         )
 
     async def _execute_nodes(
@@ -175,6 +184,7 @@ class CheckpointingDAGExecutor:
         nodes_to_execute: list[NodeID],
         initial_context: Context,
         completed_nodes: list[NodeID],
+        cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
         """
         Core execution loop - shared by run() and resume().
@@ -193,6 +203,25 @@ class CheckpointingDAGExecutor:
 
         try:
             while remaining_nodes:
+                if cancellation_token and cancellation_token.is_cancelled:
+                    error = f"Execution cancelled: {cancellation_token.reason}"
+                    await self._save_checkpoint(
+                        run_id,
+                        dag.name,
+                        RunStatus.CANCELLED,
+                        completed_nodes,
+                        remaining_nodes,
+                        context,
+                        error=error,
+                    )
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.CANCELLED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=error,
+                    )
                 node_id = remaining_nodes.pop(0)
                 node = dag.get_node(node_id)
                 if not node:
