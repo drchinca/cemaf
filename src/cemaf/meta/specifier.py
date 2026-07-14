@@ -101,7 +101,7 @@ def template_proposal(*, goal: SpecGoal) -> ProposalDoc:
             capability=cap,
             added_requirements=(
                 Requirement(
-                    name=f"{cap} placeholder requirement",
+                    name=f"{cap} baseline requirement",
                     statement=(
                         f"The {cap} capability SHALL satisfy the intent described in the feature: "
                         f"{goal.feature_description}."

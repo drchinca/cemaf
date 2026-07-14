@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,7 +14,6 @@ from cemaf.security.mappings import (
     ScopeAccess,
     YAMLMappingProvider,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test data
@@ -216,8 +214,6 @@ def test_yaml_provider_raises_without_pyyaml(tmp_path: Any) -> None:
 
 def test_yaml_provider_loads_if_pyyaml_available(tmp_path: Any) -> None:
     """YAMLMappingProvider delegates to DictMappingProvider after loading YAML."""
-    pytest.importorskip("yaml")
-
     import yaml as _yaml  # noqa: PLC0415
 
     yaml_content = _yaml.dump(_DATA)

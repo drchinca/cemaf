@@ -1,8 +1,8 @@
 """Instrumented LLM client that auto-records every call into RunLogger."""
 
 import time
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable
+from typing import Any, cast
 
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import (
@@ -45,12 +45,19 @@ class InstrumentedLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None,
         config_override: LLMConfig | None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Execute a single completion call against the inner client."""
         return await self._client.complete(
             messages=messages,
             tools=tools,
             config_override=config_override,
+            fidelity=fidelity,
+            token_budget=token_budget,
+            correlation_id=correlation_id,
         )
 
     async def complete(
@@ -58,6 +65,10 @@ class InstrumentedLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Complete and record the LLM call, with optional retry and error telemetry."""
         start_ns = time.perf_counter_ns()
@@ -69,6 +80,9 @@ class InstrumentedLLMClient:
                     messages,
                     tools,
                     config_override,
+                    fidelity=fidelity,
+                    token_budget=token_budget,
+                    correlation_id=correlation_id,
                 )
                 if retry_result.error:
                     raise retry_result.error
@@ -78,6 +92,9 @@ class InstrumentedLLMClient:
                     messages=messages,
                     tools=tools,
                     config_override=config_override,
+                    fidelity=fidelity,
+                    token_budget=token_budget,
+                    correlation_id=correlation_id,
                 )
         except Exception as exc:
             duration_ms = (time.perf_counter_ns() - start_ns) / 1_000_000
@@ -86,6 +103,7 @@ class InstrumentedLLMClient:
                 input_messages=[_message_to_dict(msg=m) for m in messages],
                 output="",
                 duration_ms=duration_ms,
+                correlation_id=correlation_id or "",
                 node_id=self._node_id,
                 agent_id=self._agent_id,
                 error=str(exc),
@@ -105,6 +123,7 @@ class InstrumentedLLMClient:
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             duration_ms=duration_ms,
+            correlation_id=correlation_id or "",
             node_id=self._node_id,
             agent_id=self._agent_id,
             cost_usd=ModelPricingRegistry.compute_cost_usd(model_id, prompt_tokens, completion_tokens),
@@ -127,14 +146,16 @@ class InstrumentedLLMClient:
         completion_tokens = 0
 
         try:
-            stream_result = self._client.stream(
+            stream_result: Any = self._client.stream(
                 messages=messages,
                 tools=tools,
                 config_override=config_override,
             )
             # Handle both async generators and coroutines returning AsyncIterator
             aiter: AsyncIterator[StreamChunk] = (
-                stream_result if hasattr(stream_result, "__aiter__") else await stream_result  # type: ignore[assignment]
+                cast(AsyncIterator[StreamChunk], stream_result)
+                if hasattr(stream_result, "__aiter__")
+                else await cast(Awaitable[AsyncIterator[StreamChunk]], stream_result)
             )
             async for chunk in aiter:
                 accumulated = chunk.accumulated_content or accumulated + chunk.content

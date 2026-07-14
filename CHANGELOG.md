@@ -7,13 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.3.0] - 2026-06-30
+## [3.1.1] - 2026-07-14
 
-**Runnable examples, a self-guarding example harness, and an empirical value eval for the agent-assisted guidance.**
-
-No public `src/cemaf/` API changed; this is additive — new examples, tests, and a benchmark.
+Durable runtime composition and production-behavior evidence.
 
 **Added:**
+- Native checkpoint and resume through `RuntimeServices`, including conditional
+  route recovery after worker replacement.
+- Runtime validation gates, node-level OpenTelemetry spans, and blueprint
+  harvesting through the composition root.
+- LangGraph and LCEL adapter example, integration test, and comparative benchmark.
+- Live opt-in checks for OpenAI, Gemini, Ollama, and PostgreSQL adapters.
+- Disposable-worker stress and destructive durable-companion harnesses.
+
+**Changed:**
+- Long-context RLM calls compile every prompt projection under the supplied token
+  budget, including recursive batches and aggregation.
+- CI now validates pull requests and pushes for both `main` and `development`.
+- Release checks compare package, lockfile, and changelog versions instead of
+  pinning a branch name or historical test count.
+
+**Fixed:**
+- Concurrent runs no longer share session-memory state.
+- Citation and structured validation failures now stop downstream execution.
+- OpenTelemetry node attempts remain children of the DAG run span.
+
+## [3.0.0] - 2026-07-04
+
+**V3 public release for local-first, protocol-first context engineering.**
+
+This release aligns the package, docs, defaults, and verification gates
+around CEMAF as an execution substrate for context-engineered multi-agent
+applications.
+
+**Added:**
+- Local/free-first provider defaults: Ollama for LLMs, hash embeddings for
+  retrieval, and static catalog metadata unless the caller explicitly opts into a
+  hosted provider.
+- OpenAI Responses, OpenAI-compatible, Gemini, Ollama, and local/free model paths
+  with provider tests and integration coverage.
+- `cemaf.session.v1` operator snapshots, loop/operator release checks, package
+  metadata checks, docs voice checks, and release naming checks.
+- Documentation voice guide and v3 release readiness checklist.
+
+**Changed:**
+- Package metadata targeted `3.0.0` and marked the project as stable rather than
+  alpha-era packaging.
+- Optional extras make HTTP-backed local and hosted adapters explicit
+  (`cemaf[ollama]`, `cemaf[openai-compatible]`, `cemaf[gemini]`, etc.).
+- Public README and quickstart paths lead with local/offline defaults before
+  hosted provider integrations.
+
+**Verification:**
+- `make check`
+- `uv run python docs/architecture/scripts/check_doc_imports.py`
+- `uv run --frozen pytest -q -rs`
+- No skipped tests, no paid-provider defaults, no direct comparison/vendor lesson
+  labels.
+
+## [2.5.0] - 2026-06-30
+
+**Reconciliation release: unites the `development` line (examples, evals, context-layer PoCs, collision/operator/security modules) with the `main` line (meta-scheduler, glassbox traceability) — neither feature set is lost.**
+
+The `development` and `main` branches had diverged on 2026-06-11 and evolved in parallel. This release merges both as a union: `main`'s 2.4.0 meta-scheduler/audit/memory work plus `development`'s 2.2.0→2.3.0 examples/eval/context-engineering work now ship together.
+
+**Added (from the `development` line):**
 - **BYO-X examples** (`examples/byo/`) — implement `LLMClient`, `VectorStore`, `MemoryStore` against the real protocols and wire each through its factory.
 - **App-shape examples** (`examples/app_shapes/`) — grounded RAG with citations, and a tool-using agent that self-heals a transient failure via `@with_retry` inside a DAG.
 - **Context-layer examples** (`examples/context_layers/`) — the namesake capability surfaced as focused PoCs: memory scope hierarchy (GLOBAL/TENANT/SESSION), typed `ContextSource` layers dropped by priority under a `TokenBudget`, and the full provenance → `Context` → priority-compile → budgeted-prompt pipeline.
@@ -21,13 +79,41 @@ No public `src/cemaf/` API changed; this is additive — new examples, tests, an
 - **Universal example smoke harness** (`tests/integration/test_examples_smoke.py`) — auto-discovers and runs every `examples/**/*.py` offline; opt-out via `smoke_skip_reason()` (the Ollama examples run when a daemon is reachable, skip with a reason otherwise).
 - **Self-healing integration tests** — citation self-healing, model-fidelity escalation, the self-healing+harvest triad, cooperative quality halting, and a council iterative-remediation loop.
 - **Guidance-value eval** (`benchmarks/guidance_eval/`) + a regression gate (`tests/integration/test_guidance_value.py`) — A/B measures whether the agent-assisted docs shift an LLM from reinventing infrastructure to composing CEMAF.
+- **Collision avoidance** (`cemaf/collision/`, SPEC-12), **operator session snapshots** (`cemaf/operator/`, SPEC-14), **SecurityLevel clearance-gated compilation** (SPEC-11), **project-scoped blueprint harvest + promotion** (SPEC-13), and **OTel observability bridges**.
 
 **Changed:**
 - Example source is now git-tracked (`.gitignore` whitelists `examples/**/*.py` and `*.md` while keeping generated artifacts ignored), so examples render on GitHub and are grep-able by coding agents.
 - `CLAUDE.md` and `AGENTS.md` point at the agent-assisted guidance and the new examples.
+- `pytest.ini` removed; pytest config consolidated into `pyproject.toml [tool.pytest.ini_options]` (from the `main` line).
 
 **Fixed:**
 - `docs/AI_DEVELOPMENT_GUIDE.md` referenced a non-existent `cemaf.guardian` module for content safety; corrected to `cemaf.moderation` wired via `cemaf.interceptors`.
+
+## [2.4.0] - 2026-06-24
+
+**Dog-fooded meta-scheduler, glassbox traceability, and a context-engineering correctness sweep.**
+
+This release lands the self-hosting scheduler (CEMAF running CEMAF), end-to-end glassbox traceability, and fixes several real correctness bugs in the context/RLM/memory core surfaced by adversarial audits of the new end-to-end demos.
+
+**Added:**
+- **Dog-fooded meta-scheduler (SPEC-11)** — `cemaf/scheduler/` durable job primitives (`ManagedScheduler`, `JobStore`, `JobLease`, `JobRunRecord`), worker heartbeats (`HeartbeatStore`/`HeartbeatMonitor`, ACTIVE/STALE/MISSING), and quiet-hours `NightShiftWindow`. `meta.bootstrap_meta_dogfood()` registers self-audit, knowledge-refresh, and dreaming as managed background jobs so an unattended CEMAF deployment maintains itself. Proven by `tests/integration/test_meta_dogfood.py`, including an autonomous `start()`→trigger→`stop()` loop.
+- **Glassbox traceability** — `examples/glassbox_trace.py` reconstructs a complete per-step trace (audit trail + context-patch provenance + real citations + per-node decisions + timing) for one run; `examples/glassbox_dogfood.py` threads scheduler→context-DAG→auction→gate→council→harvest→audit in one run.
+- **Tier-aware retrieval** — `TieredMemoryStore.progressive_search_compacted()` returns results at L2/L1/L0 fidelity by rank, so lower-ranked items cost a fraction of full tokens; wired into `DefaultMemoryContextProvider`.
+
+**Fixed:**
+- **Audit trail records per-node executions and decisions** — the subscriber mapped `AGENT_COMPLETED` (never emitted) instead of `TASK_COMPLETED`/`TASK_FAILED`; per-node events + council/auction/gate verdicts now land in the trail.
+- **DreamAgent actually consolidates memory** — was `consolidated_count = item_count` (merged nothing); now dedups + merges + shrinks the store.
+- **RLM divide-and-conquer no longer returns partial answers as full coverage** — single-query mode now requires `within_budget()` AND zero dropped chunks, else it recurses.
+- **Context compaction never grows output** — small sources whose framing cost exceeded the savings could make context *larger*; now a no-op when it can't shrink.
+- **Compaction no longer drops fittable items** — head-of-line `break` replaced with `continue`.
+- **Council ballots carry member rationale**; context patches carry the agent's reasoning as provenance.
+- **Citations in the trace demo use the real `CitationTracker`** subsystem, not hand-pasted dicts.
+
+**Changed:**
+- Removed the rarely-used, flake-prone TestPyPI publish job from CI.
+- `examples/extensibility_patterns.py` and `examples/generate_etl_blueprint.py` fixed to the current Blueprint API and guarded by a smoke test that runs every example.
+
+**Tests:** 3541 passing, with extensive new integration coverage for the scheduler, traceability, compaction invariants, lifecycle cleanup, and tiered retrieval.
 
 ## [2.2.0] - 2026-06-12
 

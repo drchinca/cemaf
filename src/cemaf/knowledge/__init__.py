@@ -15,12 +15,20 @@ from cemaf.knowledge.hub_spoke import (
 )
 from cemaf.knowledge.models import (
     EntityType,
+    KGBranchDiff,
+    KGBranchRef,
     KGEntity,
+    KGMergeResult,
     KGQueryResult,
     KGRelation,
+    KnowledgeGraphCapabilities,
     RelationType,
 )
-from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.knowledge.protocols import (
+    BranchingKnowledgeGraph,
+    KnowledgeGraph,
+    KnowledgeGraphCapabilitiesProvider,
+)
 
 __all__ = [
     # Enums
@@ -28,14 +36,20 @@ __all__ = [
     "InvalidationKind",
     "RelationType",
     # Data models
+    "KGBranchDiff",
+    "KGBranchRef",
     "KGEntity",
     "KGInvalidationEvent",
+    "KGMergeResult",
     "KGQueryResult",
     "KGRelation",
+    "KnowledgeGraphCapabilities",
     "SpokeCacheConfig",
     "SpokeStats",
     # Protocol
+    "BranchingKnowledgeGraph",
     "KnowledgeGraph",
+    "KnowledgeGraphCapabilitiesProvider",
     # Implementations
     "HubKnowledgeGraph",
     "LocalSpokeCache",

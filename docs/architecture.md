@@ -54,7 +54,7 @@ CEMAF is a **protocol-first, composable framework for running multi-agent LLM wo
 │                                                                      │
 │   Memory & Retrieval   LLM Integration           Quality & Safety    │
 │   • MemoryManager      • LLMClient protocol      • EvalPipeline      │
-│   • SemanticStore      • 6 adapters              • QualityPolice     │
+│   • SemanticStore      • provider adapters       • QualityPolice     │
 │   • EpisodicStore      • ResilientLLMClient      • Moderation        │
 │   • TieredStore        • ModeratingLLMClient     • Citation          │
 │   • VectorStore        • InstrumentedLLMClient   • Validation        │
@@ -265,11 +265,11 @@ DAG(
 executor = create_executor(agent_registry=registry)  # no RuntimeServices → nothing attached
 await executor.run(dag=dag)  # → 4, one tool call, nothing else billed
 
-# LLM work with quality telemetry — judge runs in the background, does not block the hot path.
+# LLM work with quality telemetry — evaluator runs in the background, does not block the hot path.
 pipeline = OnlineEvalPipeline(
     bindings=(NodeEvalBinding(
         node_pattern="generate_sql",
-        evaluators=(LLMJudge(),),
+        evaluators=(LLMJudgeEvaluator(llm_client=my_llm),),
         mode=EvalMode.OBSERVE,   # fire-and-forget; GATE would serialize
     ),),
     event_bus=bus,

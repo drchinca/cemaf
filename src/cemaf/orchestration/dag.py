@@ -205,6 +205,7 @@ class Node:
         config: JSON | None = None,
         input_mapping: JSON | None = None,
         output_key: str = "",
+        structured_output: bool = False,
     ) -> Node:
         """Create an agent node."""
         return cls(
@@ -216,6 +217,7 @@ class Node:
             config=config or {},
             input_mapping=input_mapping or {},
             output_key=output_key,
+            structured_output=structured_output,
         )
 
     @classmethod
@@ -426,6 +428,7 @@ class Node:
             config=self.config,
             input_mapping=self.input_mapping,
             output_key=self.output_key,
+            structured_output=self.structured_output,
             max_retries=self.max_retries,
             retry_on_failure=self.retry_on_failure,
             parallel_nodes=self.parallel_nodes,
@@ -597,6 +600,7 @@ class DAG(BaseModel):
                     "config": n.config,
                     "input_mapping": n.input_mapping,
                     "output_key": n.output_key,
+                    "structured_output": n.structured_output,
                 }
                 for n in self.nodes
             ],

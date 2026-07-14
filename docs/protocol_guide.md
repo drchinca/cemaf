@@ -115,9 +115,8 @@ result = await rlm.execute(
 ### Pattern 1: Replace Default Implementation
 
 ```python
-from cemaf.context.protocols import ContextCompiler
 from cemaf.context.budget import TokenBudget
-from cemaf.context.compiler import CompiledContext
+from cemaf.context.compiler import CompiledContext, ContextCompiler
 
 class MyCustomCompiler:
     """Custom compiler that implements the protocol."""
@@ -248,7 +247,7 @@ CEMAF provides working defaults for everything:
 | Agents | `Agent` (ABC) | `cemaf.agents.base` |
 | Context Compiler | `PriorityContextCompiler` | `cemaf.context.compiler` |
 | LLM Client | `MockLLMClient` (for testing) | `cemaf.llm.mock` |
-| Memory Store | `InMemoryMemoryStore` | `cemaf.memory.base` |
+| Memory Store | `InMemoryStore` | `cemaf.memory.base` |
 | Run Logger | `InMemoryRunLogger` | `cemaf.observability.simple` |
 | Vector Store | `InMemoryVectorStore` | `cemaf.retrieval.memory_store` |
 
@@ -265,11 +264,13 @@ rlm = create_rlm_tool(llm_client)
 
 # Or create manually with your own components
 from cemaf.rlm import DivideAndConquerQueryEngine, FixedSizeChunkingStrategy
-from cemaf.context.compiler import MyCustomCompiler
+from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+
+compiler = PriorityContextCompiler(SimpleTokenEstimator())
 
 engine = DivideAndConquerQueryEngine(
     llm=llm_client,
-    compiler=MyCustomCompiler(),  # Your custom compiler!
+    compiler=compiler,
     max_depth=3,
 )
 ```
@@ -299,7 +300,7 @@ class MyAgent:
 # ❌ Bad: Hard-coded dependency
 class MyAgent:
     def __init__(self):
-        self._memory = InMemoryMemoryStore()  # Can't replace!
+        self._memory = InMemoryStore()  # Can't replace!
 ```
 
 ### 3. Check Protocol Compatibility

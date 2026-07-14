@@ -12,6 +12,22 @@ from cemaf.retrieval.memory_store import (
 from cemaf.retrieval.protocols import Document
 
 
+class _ZeroDimensionProvider:
+    @property
+    def dimension(self) -> int:
+        return 0
+
+    @property
+    def model_name(self) -> str:
+        return "zero-dimension"
+
+    async def embed(self, text: str) -> tuple[float, ...]:
+        return ()
+
+    async def embed_batch(self, texts: list[str]) -> list[tuple[float, ...]]:
+        return [() for _ in texts]
+
+
 class TestCosineSimiliarity:
     """Tests for cosine similarity function."""
 
@@ -76,6 +92,13 @@ class TestMockEmbeddingProvider:
         assert provider.dimension == 256
         assert provider.model_name == "mock-embeddings"
 
+    def test_rejects_non_positive_dimension(self):
+        """Mock provider dimensions must describe a real vector space."""
+        with pytest.raises(ValueError, match="dimension must be positive, got 0"):
+            MockEmbeddingProvider(dimension=0)
+        with pytest.raises(ValueError, match="dimension must be positive, got -1"):
+            MockEmbeddingProvider(dimension=-1)
+
 
 class TestInMemoryVectorStore:
     """Tests for InMemoryVectorStore."""
@@ -85,6 +108,11 @@ class TestInMemoryVectorStore:
         """Fresh vector store for each test."""
         provider = MockEmbeddingProvider(dimension=128)
         return InMemoryVectorStore(embedding_provider=provider)
+
+    def test_constructor_rejects_non_positive_provider_dimension(self):
+        """Vector stores must reject impossible provider dimensions."""
+        with pytest.raises(ValueError, match="embedding provider dimension must be positive, got 0"):
+            InMemoryVectorStore(embedding_provider=_ZeroDimensionProvider())
 
     @pytest.mark.asyncio
     async def test_add_and_get(self, store: InMemoryVectorStore):
@@ -97,6 +125,20 @@ class TestInMemoryVectorStore:
         assert retrieved is not None
         assert retrieved.content == "Test content"
         assert retrieved.has_embedding  # Embedding was generated
+
+    @pytest.mark.asyncio
+    async def test_add_rejects_wrong_dimension_embedding(self, store: InMemoryVectorStore):
+        """User-supplied embeddings must match the store provider dimension."""
+        doc = Document(id="bad", content="Bad embedding", embedding=(0.1, 0.2))
+
+        with pytest.raises(ValueError, match="embedding for document 'bad' has dimension 2; expected 128"):
+            await store.add(doc)
+
+    @pytest.mark.asyncio
+    async def test_search_rejects_wrong_dimension_query(self, store: InMemoryVectorStore):
+        """Search query embeddings must match the store provider dimension."""
+        with pytest.raises(ValueError, match="query embedding has dimension 2; expected 128"):
+            await store.search((0.1, 0.2))
 
     @pytest.mark.asyncio
     async def test_get_nonexistent(self, store: InMemoryVectorStore):

@@ -22,6 +22,9 @@ from cemaf.orchestration.results import NodeResult
 
 if TYPE_CHECKING:
     from cemaf.agents.registry import AgentRegistry
+    from cemaf.knowledge.protocols import KnowledgeGraph
+else:
+    type KnowledgeGraph = Any
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +39,11 @@ class CouncilResolver:
         *,
         registry: AgentRegistry,
         aggregator: VoteAggregator | None = None,
+        knowledge_graph: KnowledgeGraph | None = None,
     ) -> None:
         self._registry = registry
         self._aggregator = aggregator
+        self._knowledge_graph = knowledge_graph
 
     def matches(self, *, node: Node) -> bool:
         return bool(node.config and isinstance(node.config.get("council"), dict))
@@ -88,7 +93,11 @@ class CouncilResolver:
         council = AgentCouncil(members=tuple(members), aggregator=aggregator, config=config)
         question = CouncilQuestion(prompt=str(council_cfg.get("prompt", "")), options=options)
 
-        agent_context = AgentContext(run_id=run_id, agent_id=f"council:{node.id}")
+        agent_context = AgentContext(
+            run_id=run_id,
+            agent_id=f"council:{node.id}",
+            knowledge_graph=self._knowledge_graph,
+        )
         decision = await council.decide(question=question, goal=resolved_inputs, context=agent_context)
         return NodeComplete(
             result=NodeResult(

@@ -14,11 +14,13 @@ from cemaf.retrieval.protocols import EmbeddingProvider
 
 
 class SimpleEmbeddingProvider(EmbeddingProvider):
-    """Simple embedding provider for testing that uses word counts as a 'vector'."""
+    """Simple embedding provider for semantic-cache integration tests."""
+
+    _dimension = 384
 
     @property
     def dimension(self) -> int:
-        return 3
+        return self._dimension
 
     @property
     def model_name(self) -> str:
@@ -37,10 +39,9 @@ class SimpleEmbeddingProvider(EmbeddingProvider):
         except ValueError, TypeError:
             stable_text = text
 
-        dimension = 384
-        embedding = [0.0] * dimension
+        embedding = [0.0] * self._dimension
         for i, char in enumerate(stable_text.lower()):
-            idx = (ord(char) + i) % dimension
+            idx = (ord(char) + i) % self._dimension
             embedding[idx] += 0.1
         norm = math.sqrt(sum(x * x for x in embedding)) or 1.0
         return tuple(x / norm for x in embedding)

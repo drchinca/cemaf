@@ -29,7 +29,7 @@ cemaf/
 │   ├── retrieval/         VectorStore + EmbeddingProvider protocols
 │   ├── rlm/               Recursive LLM — divide-and-conquer long-context
 │   │
-│   ├── llm/               LLMClient protocol + 6 adapters + decorators
+│   ├── llm/               LLMClient protocol + adapters + decorators
 │   ├── generation/        Content generation strategies
 │   ├── streaming/         Streaming response handling
 │   │
@@ -124,18 +124,18 @@ cemaf/
 ### `memory/` — scoped memory, sessions
 - **Role**: `MemoryManager` protocol + `DefaultMemoryManager` composing semantic + episodic + dedup. Session lifecycle (`SessionManager`). Tiered storage. Extraction pipeline.
 - **Contains**: `base.py` (MemoryItem, MemoryStore protocol, InMemoryStore), `manager.py`, `semantic.py`, `episodic.py`, `session.py`, `tiered.py`, `deduplication.py`, `sqlite_store.py`, `extraction.py`, `scope.py`.
-- **Boundary**: Memory is *persistent by nature* (SESSION < PROJECT < BRAND). `context/` is transient per-run state.
+- **Boundary**: Memory is *persistent by nature* (SESSION < PROJECT < TENANT). `context/` is transient per-run state.
 
 ### `retrieval/` — VectorStore + EmbeddingProvider protocols
-- **Role**: the retrieval interface. Protocols + default impls (`InMemoryVectorStore`, `MockEmbeddingProvider`).
+- **Role**: the retrieval interface. Protocols + default impls (`InMemoryVectorStore`, `HashEmbeddingProvider`).
 - **Contains**: `retrieval/protocols.py` (Document, VectorStore, EmbeddingProvider, SearchResult), `retrieval/memory_store.py`.
 
 ### `rlm/` — Recursive LLM
 - **Role**: Divide-and-conquer querying for 1M+ token contexts; the system prompts a sub-LLM to map/reduce over context chunks.
 
 ### `llm/` — LLMClient protocol + adapters
-- **Role**: the LLM integration layer. `LLMClient` protocol + 6 adapters + 3 decorators (moderating, resilient, instrumented).
-- **Contains**: `protocols.py` (LLMClient, Message, ToolDefinition, LLMConfig, CompletionResult, StreamChunk), `anthropic.py`, `openai_compat.py` (OpenAI/Groq/Together/Ollama/vLLM/Qwen/DeepSeek/Llama), `gemini.py`, `mock.py`, `resilient.py`, `moderating.py`, `instrumented.py`.
+- **Role**: the LLM integration layer. `LLMClient` protocol + adapters + 3 decorators (moderating, resilient, instrumented).
+- **Contains**: `protocols.py` (LLMClient, Message, ToolDefinition, LLMConfig, CompletionResult, StreamChunk), `anthropic.py`, `openai_responses.py`, `openai_compat.py` (OpenAI-compatible gateways: Groq/Together/Ollama/vLLM/Qwen/DeepSeek/Llama), `gemini.py`, `bedrock_cli.py`, `mock.py`, `resilient.py`, `moderating.py`, `instrumented.py`.
 - **Invariant**: Every adapter implements the full `LLMClient` protocol including `count_tokens_exact`. Decorators wrap any `LLMClient` and are composable.
 
 ### `generation/`, `streaming/` — content generation + streaming
@@ -202,6 +202,7 @@ Opt-in modules that consume Layer 1. **Layer 1 never imports from Layer 2.**
 - **Role**: entity + relation graph backed by `MemoryManager`. Entities persist as `MemoryItem` at PROJECT scope; relation indexes are per-entity.
 - **Contains**: `graph.py` (`MemoryBackedKnowledgeGraph`), `models.py`, `protocols.py`, `factories.py`.
 - **Extension point**: implement `KnowledgeGraph` and either inject it directly through `RuntimeServices` / `MetaServices` or register a factory with `knowledge_graph_registry.register(...)`.
+- **Optional backend capabilities**: graph database adapters may also implement `BranchingKnowledgeGraph` for backend-owned branch/diff/merge workflows and `KnowledgeGraphCapabilitiesProvider` to expose support for branching, snapshots, hybrid retrieval, or server-side policy. These are adapter contracts only; CEMAF does not own graph storage, query planning, commit history, or cluster operations.
 
 ### `improvement/` + `trust/` — self-improvement feedback
 - **Role**: converts execution summaries into strategy-memory updates and tool/skill trust changes.
@@ -227,7 +228,7 @@ These came up in real PRs. If you hit one, here's how we decided.
 
 **"I need to validate OpenSpec proposals."** → `mcp/bridges/openspec/` — it's a bridge to an external MCP-compatible tool. Not `validation/` (that's input/output contract shapes), not `evals/` (that's quality measurement).
 
-**"I want a graph database backend for the knowledge graph."** → Implement `KnowledgeGraph` protocol from `knowledge/protocols.py`, name it `Neo4jKnowledgeGraph`, place in `knowledge/neo4j.py`. Inject via `RuntimeServices(knowledge_graph=...)` / `meta.bootstrap.MetaServices(knowledge_graph=...)`, or register it with `knowledge_graph_registry.register(...)` for factory construction.
+**"I want a graph database backend for the knowledge graph."** → Implement `KnowledgeGraph` protocol from `knowledge/protocols.py`, name it `DurableGraphKnowledgeGraph`, place in `knowledge/durable_graph.py`. If the backend owns branches, snapshots, hybrid retrieval, or policy, optionally implement `BranchingKnowledgeGraph` / `KnowledgeGraphCapabilitiesProvider` too. Inject via `RuntimeServices(knowledge_graph=...)` / `meta.bootstrap.MetaServices(knowledge_graph=...)`; ordinary agents then read it from `AgentContext.knowledge_graph`. You can also register it with `knowledge_graph_registry.register(...)` for factory construction. Do not add a graph query language, graph storage engine, or cluster control plane to CEMAF.
 
 **"I want to add a new HaltReason: LATENCY_SLO_BREACH."** → New enum value in `orchestration/executor.py::HaltReason`. New optional field on `RuntimeServices`: `slo_tracker: SLOTracker | None = None`. Wire the check into `_halt_signal()`. Add a regression test. **Do not** create a new top-level package for "slo".
 
@@ -238,7 +239,7 @@ These came up in real PRs. If you hit one, here's how we decided.
 - **Client application code.** If you're building an app that *uses* CEMAF, it goes in a separate repo / package. Previously there was a `youtube_research` folder; we removed it. The framework stays framework.
 - **Example notebooks.** Use `examples/*.py` for executable examples. No `.ipynb` in the repo.
 - **Framework-specific integrations** (LangGraph, AutoGen, CrewAI adapters). These live in separate packages that depend on `cemaf` — not in `cemaf/` itself.
-- **Generated artifacts.** `openspec/changes/` is a dogfood directory for MetaSpecifier-generated proposals; agents write here at runtime. It's in the repo because it's the canonical example of CEMAF speccing CEMAF, but runtime writes go to a scratch dir.
+- **Generated artifacts.** Runtime-generated OpenSpec changes belong in the configured `OpenSpecWorkspace` scratch directory. The repo's `openspec/changes/` tree contains authored dogfood specs for CEMAF itself and should not be treated as an agent runtime output directory.
 
 ---
 

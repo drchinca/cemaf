@@ -29,7 +29,12 @@ class LLMProvider(StrEnum):
     BEDROCK = "bedrock"
     ANTHROPIC = "anthropic"
     HUGGINGFACE = "huggingface"
+    GEMINI = "gemini"
+    VERTEX = "vertex"
+    GROQ = "groq"
+    OLLAMA = "ollama"
     OPENAI = "openai"
+    TOGETHER = "together"
     ADAPTER = "adapter"
 
 

@@ -10,7 +10,6 @@ from typing import Any
 from cemaf.audit.models import AuditEntry, AuditEntryType
 from cemaf.audit.subscriber import EventBusAuditLog
 from cemaf.audit.trail import InMemoryAuditTrail
-from cemaf.meta.tools import TraceAnalyzerTool
 
 
 def _run_async_sync[T](factory: Callable[[], Coroutine[Any, Any, T]]) -> T:
@@ -93,6 +92,11 @@ async def build_trace_analysis(
                     },
                 )
             )
+
+    # Deferred import: TraceAnalyzerTool lives in the self-hosting `meta` layer,
+    # which depends on `audit`. Importing it at module scope creates a cycle
+    # (audit -> meta -> audit). Import lazily so the base-layer graph stays acyclic.
+    from cemaf.meta.tools import TraceAnalyzerTool
 
     trail = InMemoryAuditTrail(audit_log=audit_log)
     analyzer = TraceAnalyzerTool(audit_trail=trail)

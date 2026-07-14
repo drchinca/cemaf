@@ -148,7 +148,7 @@ class TestLLMJudgeEvaluator:
         """When LLM call fails, score is 0.0 with error reason."""
 
         class _FailingLLMClient(MockLLMClient):
-            async def complete(self, messages, tools=None, config_override=None):
+            async def complete(self, messages, tools=None, config_override=None, **kwargs):
                 from cemaf.llm.protocols import CompletionResult
 
                 return CompletionResult.fail(

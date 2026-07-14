@@ -1,6 +1,7 @@
 """Tests for execution context and cancellation."""
 
 import asyncio
+import inspect
 
 import pytest
 
@@ -286,3 +287,19 @@ class TestWithExecutionContext:
 
         with pytest.raises(CancelledException):
             await with_execution_context(task(), ctx)
+
+    @pytest.mark.asyncio
+    async def test_cancelled_context_closes_rejected_coroutine(self) -> None:
+        """Pre-flight rejection must not leak an unawaited coroutine."""
+        token = CancellationToken()
+        token.cancel()
+        ctx = ExecutionContext(cancellation_token=token)
+
+        async def task() -> int:
+            return 42
+
+        coro = task()
+        with pytest.raises(CancelledException):
+            await with_execution_context(coro, ctx)
+
+        assert inspect.getcoroutinestate(coro) == inspect.CORO_CLOSED

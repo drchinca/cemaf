@@ -187,8 +187,11 @@ class SimpleMemoryCompactor:
                 remaining_budget -= compacted.compacted_token_count
                 continue
 
-            # Doesn't fit at all — skip
-            break
+            # This item doesn't fit even at metadata level — skip IT, but keep
+            # going: smaller, lower-scored items later in the list may still fit.
+            # (A `break` here would be head-of-line blocking — one oversized item
+            # would silently discard every remaining fittable item.)
+            continue
 
         return tuple(results)
 

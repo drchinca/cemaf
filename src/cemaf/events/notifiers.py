@@ -78,7 +78,8 @@ class WebhookNotifier:
         """
         Send event to webhook.
 
-        If no HTTP client is configured, returns a placeholder result.
+        If no HTTP client is configured, logs the prepared notification and
+        returns a no-client result.
         """
         payload = {
             "id": event.id,
@@ -91,7 +92,6 @@ class WebhookNotifier:
         }
 
         if self._http_client is None:
-            # No HTTP client - log and return placeholder
             logger.info(
                 "Webhook notify (no client): %s -> %s",
                 event.type,

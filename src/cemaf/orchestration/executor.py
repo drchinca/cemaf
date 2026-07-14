@@ -322,6 +322,7 @@ class DAGExecutor:
         if services.checkpoint_interval < 1:
             raise ValueError("RuntimeServices.checkpoint_interval must be >= 1")
         self._checkpoint_interval = services.checkpoint_interval
+        self._knowledge_graph = services.knowledge_graph
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.
@@ -845,6 +846,15 @@ class DAGExecutor:
                     _payload["recovery_attempts"] = _recovery_attempts
                 if _gate_rejected:
                     _payload["gate_rejected"] = True
+                # Surface the node's decision metadata (council verdict + ballots,
+                # auction winner + score, gate verdict) into the audit-feeding
+                # event, so the audit trail's NODE_EXECUTED entry records WHAT was
+                # decided — not just that a node ran. Without this the trail is
+                # blind to the very decisions the glassbox claims to capture.
+                for _decision_key in ("council", "selection", "auction", "gate"):
+                    _decision = result.metadata.get(_decision_key)
+                    if _decision is not None:
+                        _payload[_decision_key] = _decision
                 await self._emit_event(
                     event_type=EventType.TASK_COMPLETED if result.success else EventType.TASK_FAILED,
                     payload=_payload,
@@ -1221,6 +1231,12 @@ class DAGExecutor:
             _ctx_out = (result.metadata or {}).get("_context_output")
             context_value = _ctx_out if (node.structured_output and _ctx_out is not None) else result.output
 
+            # Prefer the agent's own rationale (if it recorded one) as the patch
+            # reason, so context history explains WHY a value was produced — not
+            # just which node emitted it. Falls back to the generic node label.
+            agent_reason = str((result.metadata or {}).get("reasoning", "")).strip()
+            patch_reason = agent_reason or f"Output from node '{node.id}'"
+
             # Create patch for provenance
             patch = ContextPatch(
                 path=node.output_key,
@@ -1228,7 +1244,7 @@ class DAGExecutor:
                 value=context_value,
                 source=self._get_patch_source(node),
                 source_id=str(node.id),
-                reason=f"Output from node '{node.id}'",
+                reason=patch_reason,
                 correlation_id=_correlation_id_var.get(),
             )
 

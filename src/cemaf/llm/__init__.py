@@ -1,21 +1,14 @@
 """
-LLM module — 9 providers out of the box.
+LLM module - free-first factories plus explicit provider adapters.
 
 Quickstart:
     from cemaf.llm import create_llm_client
 
-    # Local (Ollama — Qwen, Gemma, Llama)
-    client = create_llm_client("ollama", model="qwen3.5")
+    # Local/free default path (Ollama - Gemma by default)
+    client = create_llm_client("ollama")
 
-    # Cloud
-    client = create_llm_client("openai", model="gpt-4o")
-    client = create_llm_client("anthropic", model="claude-sonnet-4-20250514")
-    client = create_llm_client("gemini", model="gemini-2.5-flash")
-    client = create_llm_client("ollama-cloud", model="gpt-oss:120b-cloud")
-    client = create_llm_client("groq", model="llama-3.3-70b-versatile")
-    client = create_llm_client("together", model="meta-llama/Llama-3.3-70B-Instruct-Turbo")
-    client = create_llm_client("huggingface", model="google/gemma-2-2b-it")
-    client = create_llm_client("bedrock", model="global.anthropic.claude-sonnet-4-6")
+    # Any cloud or paid provider is explicit opt-in:
+    # client = create_llm_client("openai", api_key="...", model="...")
 """
 
 from cemaf.llm.anthropic import AnthropicLLMClient
@@ -30,6 +23,7 @@ from cemaf.llm.gemini import GeminiClient
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.openai_compat import OpenAICompatClient
+from cemaf.llm.openai_responses import OpenAIResponsesLLMClient
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMClient,
@@ -63,7 +57,8 @@ __all__ = [
     "create_mock_llm_client",
     "create_resilient_llm_client",
     # Adapters
-    "OpenAICompatClient",  # OpenAI, Ollama, vLLM, Groq, Together, LMStudio
+    "OpenAIResponsesLLMClient",  # OpenAI Responses API
+    "OpenAICompatClient",  # OpenAI-compatible Chat Completions gateways
     "AnthropicLLMClient",  # Anthropic Claude
     "BedrockCliLLMClient",  # AWS Bedrock via AWS CLI
     "GeminiClient",  # Google Gemini

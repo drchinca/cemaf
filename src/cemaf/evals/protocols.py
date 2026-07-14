@@ -41,6 +41,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
@@ -178,7 +179,7 @@ class EvalConfig(BaseModel):
     include_reasoning: bool = True  # Generate explanations
 
     # For LLM-based evals
-    llm_model: str = "gpt-4"
+    llm_model: str = DEFAULT_FREE_LLM_MODEL
     max_tokens: int = 1000
     temperature: float = 0.0  # Deterministic
 

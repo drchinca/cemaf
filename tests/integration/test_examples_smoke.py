@@ -1,11 +1,9 @@
-"""Every example runs — examples/ can't silently rot.
+"""Every example has an offline smoke path — examples/ can't silently rot.
 
-Auto-discovers examples/**/*.py, imports each, and runs its async `main()`. An
-example that depends on something not always present (a live Ollama daemon) or
-has a dedicated guard (release_engine) defines `smoke_skip_reason() -> str | None`:
-it returns None when the example can run here, or a human reason when it can't —
-so the ollama examples actually run when Ollama IS up, and skip with a clear
-message when it isn't.
+Auto-discovers examples/**/*.py, imports each, and runs its async `smoke_main()`
+when present, otherwise its async `main()`. Examples that normally need a local
+service use `smoke_main()` to exercise the same CEMAF wiring with deterministic
+in-process adapters.
 
 This is the contract that makes examples trustworthy: if it's in examples/, it
 works by running `uv run python examples/<it>.py`.
@@ -48,16 +46,23 @@ def _load(path: Path) -> ModuleType:
 async def test_example_runs_offline(example_path: Path) -> None:
     module = _load(example_path)
 
-    skip_check = getattr(module, "smoke_skip_reason", None)
-    if callable(skip_check):
-        reason = skip_check()
-        if reason is not None:
-            pytest.skip(reason)
+    main = getattr(module, "smoke_main", None) or getattr(module, "main", None)
+    assert callable(main), f"{example_path.name} must define main() or smoke_main()"
 
-    main = getattr(module, "main", None)
-    assert callable(main), f"{example_path.name} must define a main()"
-    assert inspect.iscoroutinefunction(main), f"{example_path.name} main() must be async"
+    # Some examples parse argv via argparse; under pytest sys.argv is the pytest
+    # command line, so present a clean argv (program name only) while running them.
+    saved_argv = sys.argv
+    sys.argv = [str(example_path)]
+    try:
+        # The example's own in-main() assertions are the behavioral contract; a
+        # clean run (no exception, exit-0 if it returns a code) is the smoke
+        # contract. Examples may be async when they exercise async CEMAF paths.
+        if inspect.iscoroutinefunction(main):
+            result = await main()
+        else:
+            result = main()
+    finally:
+        sys.argv = saved_argv
 
-    # The example's own in-main() assertions are the behavioral contract; a clean
-    # run (no exception) is the smoke contract.
-    await main()
+    if isinstance(result, int):
+        assert result == 0, f"{example_path.name} main() returned non-zero exit {result}"

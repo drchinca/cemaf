@@ -61,6 +61,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 ### Getting Started
 - [Quick Start](quickstart.md) — install, run, first agent
 - [Agent-Assisted Development](agent-assisted-development.md) — CEMAF-first checklist for LLM/coding-agent integrations
+- [Documentation Voice](writing_style.md) — direct public-docs tone, no launch-copy language
 - [AI Integration & Development Guide](AI_DEVELOPMENT_GUIDE.md) — Dense reference of code recipes, standards, and guardrails for AIs
 - [Protocol Guide](protocol_guide.md) — how the protocol layer works
 - [Extension Patterns](extension_patterns.md) — BYO-LLM, BYO-VectorStore, BYO-MemoryBackend
@@ -94,7 +95,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 - [Citation](citation.md) — source tracking and verification
 
 ### LLM Integration
-- [LLM](llm.md) — LLMClient protocol, 6 adapters, decorators (moderating, resilient, instrumented), exact token counting
+- [LLM](llm.md) — LLMClient protocol, provider adapters, decorators (moderating, resilient, instrumented), exact token counting
 
 ### Observability
 - [Observability](observability.md) — structured logger, Prometheus metrics, RunLogger, BudgetGuard, HealthMonitor, glass-box audit
@@ -122,6 +123,9 @@ Full diagram + per-module details: [modules.md](modules.md).
 - [Audit & anomaly detection](self-hosting.md#self_audit) — the `self_audit` meta-DAG over AuditTrail
 - [Knowledge refresh](self-hosting.md#knowledge_refresh) — entities + relations backed by memory
 
+### Analysis Notes
+- [Graph Backend Seams For CEMAF](analysis/GRAPH_BACKEND_SEAMS_FOR_CEMAF.md) — graph database adapter boundaries, branchable KG contracts, and what CEMAF should not reimplement
+
 ---
 
 ## Quick links
@@ -145,5 +149,5 @@ Full diagram + per-module details: [modules.md](modules.md).
 - **Comprehensive test suite** (unit + integration) | **100% passing** | TDD from day one
 - **Python 3.14+** | fully typed | protocol-based design
 - Glass-box audit | provenance tracking | budget enforcement | structured halt signals
-- Six LLM providers supported out-of-box; exact token counting via provider APIs
+- Multiple LLM provider backends supported out-of-box; exact token counting via provider APIs
 - MIT License

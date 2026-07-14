@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -211,6 +212,26 @@ async def test_scaffold_writes_generated_agent_sources(tmp_path: Path) -> None:
     assert result.success
     agents_py = (Path(result.output.project_root) / "src" / "echo_app" / "agents.py").read_text()  # type: ignore[union-attr]
     assert "class EchoAgent" in agents_py
+
+
+@pytest.mark.asyncio
+async def test_scaffold_truncates_project_description_boundary(tmp_path: Path) -> None:
+    """Generated pyproject description is bounded to the renderer contract."""
+    proposal = _proposal().model_copy(update={"why": "x" * 240})
+    agent = MetaScaffolder()
+    result = await agent.run(
+        goal=ScaffoldGoal(
+            proposal=proposal,
+            project_name="bounded_app",
+            target_dir=str(tmp_path),
+        ),
+        context=_ctx(),
+    )
+
+    assert result.success
+    pyproject = Path(result.output.project_root) / "pyproject.toml"  # type: ignore[union-attr]
+    parsed = tomllib.loads(pyproject.read_text())
+    assert parsed["project"]["description"] == "x" * 200
 
 
 @pytest.mark.asyncio

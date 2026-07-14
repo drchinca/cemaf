@@ -105,7 +105,7 @@ Contributing should teach you. Pair with mentors, rotate responsibilities, celeb
 ## Questions?
 
 - **Philosophy unclear?** [Start a discussion](https://github.com/drchinca/cemaf/discussions)
-- **Want to contribute?** See [CONTRIBUTING.md](../CONTRIBUTING.md)
+- **Contributing:** See [CONTRIBUTING.md](../CONTRIBUTING.md)
 - **General questions?** Ask in [Discord](https://discord.gg/C8ZXAbD8)
 
 *This is a living document. Expect it to evolve as we learn.*

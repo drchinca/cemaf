@@ -4,9 +4,9 @@ Status: current, reproducible implementation evidence; not an industry-standard 
 
 Last verified: 2026-07-14
 
-Default-suite result for the recorded tree: **3,918 passed, 19 skipped**. The
-external checks below were then enabled and run separately rather than treating
-their default skips as passes.
+Release-candidate result with LangChain and LangGraph installed: **4,166 passed,
+4 skipped**. The four live-provider cases are opt-in and were run separately
+rather than treating their default skips as passes.
 
 ## What “proven” means here
 

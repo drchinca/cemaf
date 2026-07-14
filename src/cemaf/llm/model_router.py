@@ -6,12 +6,12 @@ complexity score derived from message count, token estimate, and
 tool count. Falls back to next model if the primary's circuit is OPEN.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 from cemaf.agents.selection import FIDELITY_FLOOR, Fidelity
-from cemaf.core.types import TokenCount
+from cemaf.core.types import FinishReason, TokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMClient,
@@ -130,7 +130,6 @@ class ModelRouter:
         token_budget: object | None = None,
         correlation_id: str | None = None,
     ) -> CompletionResult:
-        del token_budget, correlation_id  # forward-compat; ignored by router
         score = self._estimator.estimate(messages, tools)
         score = _apply_fidelity_floor(score=score, fidelity=fidelity)
         candidates = self._select_route(score)
@@ -149,6 +148,9 @@ class ModelRouter:
                     messages=messages,
                     tools=tools,
                     config_override=config_override,
+                    fidelity=fidelity,
+                    token_budget=token_budget,
+                    correlation_id=correlation_id,
                 )
             except CircuitOpenError as exc:
                 last_error = str(exc)
@@ -169,16 +171,57 @@ class ModelRouter:
     ) -> AsyncIterator[StreamChunk]:
         score = self._estimator.estimate(messages, tools)
         candidates = self._select_route(score)
+
+        last_error = "No route available"
         for route in candidates:
+            if self._logger:
+                self._logger.info(
+                    "ModelRouter selected %s",
+                    route.model_name,
+                    complexity_score=score,
+                    model=route.model_name,
+                )
+
+            accumulated = ""
+            emitted = False
             try:
-                return await route.client.stream(
+                stream_result: Any = route.client.stream(
                     messages=messages,
                     tools=tools,
                     config_override=config_override,
                 )
-            except CircuitOpenError:
+                stream = (
+                    cast(AsyncIterator[StreamChunk], stream_result)
+                    if hasattr(stream_result, "__aiter__")
+                    else await cast(Awaitable[AsyncIterator[StreamChunk]], stream_result)
+                )
+                async for chunk in stream:
+                    emitted = True
+                    accumulated = chunk.accumulated_content or accumulated + chunk.content
+                    yield chunk
+                return
+            except CircuitOpenError as exc:
+                last_error = str(exc)
+                if self._logger:
+                    self._logger.warning(
+                        "Circuit open for %s, trying next route",
+                        route.model_name,
+                    )
+                if emitted:
+                    yield StreamChunk(
+                        content=f"Stream interrupted: {last_error}",
+                        finish_reason=FinishReason.PARTIAL_ERROR,
+                        is_final=True,
+                        accumulated_content=accumulated,
+                    )
+                    return
                 continue
-        raise RuntimeError("All routes exhausted for streaming")
+
+        yield StreamChunk(
+            content=f"All routes exhausted: {last_error}",
+            finish_reason=FinishReason.PARTIAL_ERROR,
+            is_final=True,
+        )
 
     def count_tokens(self, text: str) -> TokenCount:
         return self._routes[0].client.count_tokens(text)

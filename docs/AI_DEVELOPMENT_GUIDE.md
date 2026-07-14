@@ -159,7 +159,7 @@ auto_heal.register(error_type="VectorStoreTimeout", strategy=VectorStoreFallback
 
 # 3. Execute recovery when execution fails
 failed_run = Result.fail(
-    error="Connection to Pinecone timed out after 5000ms",
+    error="Connection to vector store timed out after 5000ms",
     metadata={"exception_type": "VectorStoreTimeout"}
 )
 

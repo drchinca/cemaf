@@ -205,7 +205,7 @@ record = logger.get_record(str(result.run_id))
 from cemaf.observability import LLMCall
 
 logger.record_llm_call(LLMCall(
-    model="gpt-4",
+    model="gemma3:4b",
     input_messages=[{"role": "user", "content": "Hello"}],
     output="Hello! How can I help?",
     input_tokens=10,

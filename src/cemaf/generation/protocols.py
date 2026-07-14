@@ -200,7 +200,8 @@ class ImageGenerator(Protocol):
     """
     Protocol for image generation backends.
 
-    Implement for: DALL-E, Stable Diffusion, Midjourney, Flux, etc.
+    Implement this protocol for any image generation service, local model,
+    or application-specific renderer.
     """
 
     async def generate(self, spec: ImageSpec) -> MediaOutput:
@@ -265,7 +266,8 @@ class AudioGenerator(Protocol):
     """
     Protocol for audio generation backends.
 
-    Implement for: ElevenLabs, Bark, XTTS, Suno, etc.
+    Implement this protocol for text-to-speech, voice cloning, music,
+    or application-specific audio generation backends.
     """
 
     async def generate(self, spec: AudioSpec) -> MediaOutput:
@@ -323,7 +325,8 @@ class VideoGenerator(Protocol):
     """
     Protocol for video generation backends.
 
-    Implement for: Runway, Pika, Sora, Kling, etc.
+    Implement this protocol for text-to-video, image animation,
+    video extension, or application-specific video generation backends.
     """
 
     async def generate(self, spec: VideoSpec) -> MediaOutput:
@@ -382,7 +385,8 @@ class DiagramGenerator(Protocol):
     """
     Protocol for diagram generation.
 
-    Implement for: Mermaid, D3, Chart.js, Graphviz, etc.
+    Implement this protocol for diagram renderers, charting engines,
+    or application-specific visualization backends.
     """
 
     async def generate(self, spec: DiagramSpec) -> MediaOutput:
@@ -447,7 +451,8 @@ class UIGenerator(Protocol):
     """
     Protocol for UI/wireframe generation.
 
-    Implement for: v0.dev, Figma AI, Galileo AI, wireframe tools, etc.
+    Implement this protocol for UI code generators, design tools,
+    wireframe engines, or application-specific UI generation backends.
     """
 
     async def generate(self, spec: UISpec) -> MediaOutput:
@@ -512,7 +517,8 @@ class CodeGenerator(Protocol):
     """
     Protocol for code generation.
 
-    Implement for: OpenAI Codex, Claude, specialized code models, etc.
+    Implement this protocol for LLM-backed code generation, template renderers,
+    or application-specific code generation backends.
     """
 
     async def generate(self, spec: CodeSpec) -> MediaOutput:

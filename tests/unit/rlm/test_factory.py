@@ -8,7 +8,7 @@ import pytest
 
 from cemaf.context.compiler import SimpleTokenEstimator
 from cemaf.core.types import ToolID
-from cemaf.llm.protocols import CompletionResult, LLMConfig, Message
+from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, ToolDefinition
 from cemaf.rlm import create_rlm_tool
 from cemaf.rlm.tool import RLMQueryTool
 
@@ -28,10 +28,15 @@ class MockLLMClient:
     async def complete(
         self,
         messages: list[Message],
-        tools: list | None = None,
+        tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Mock completion."""
+        del messages, tools, config_override, fidelity, token_budget, correlation_id
         self.call_count += 1
         return CompletionResult.ok(
             message=Message.assistant("Mock response"),

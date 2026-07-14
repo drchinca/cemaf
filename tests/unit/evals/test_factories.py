@@ -1,7 +1,9 @@
 """Tests for evaluation factory functions."""
 
+from cemaf.config.protocols import EvalsSettings, Settings
 from cemaf.evals.evaluators import ContainsEvaluator, ExactMatchEvaluator
 from cemaf.evals.factories import (
+    create_composite_evaluator_from_config,
     create_evaluator,
     create_node_eval_binding,
     create_online_eval_pipeline,
@@ -48,6 +50,17 @@ def test_create_evaluator_supports_custom_registered_backend() -> None:
 
     assert isinstance(evaluator, CustomEvaluator)
     assert created["args"]["threshold"] == 0.9
+
+
+def test_create_composite_evaluator_from_config_uses_settings(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("CEMAF_EVALS_PASS_THRESHOLD", raising=False)
+    settings = Settings(evals=EvalsSettings(pass_threshold=0.82))
+
+    evaluator = create_composite_evaluator_from_config(settings=settings)
+
+    assert evaluator._config.pass_threshold == 0.82
 
 
 def test_resolve_evaluators_uses_custom_registered_backend() -> None:

@@ -73,6 +73,13 @@ class TestHashEmbeddingProvider:
         """Model name identifies the provider."""
         assert provider.model_name == "hash-embedding"
 
+    def test_rejects_non_positive_dimension(self) -> None:
+        """Embedding providers must not create empty or negative-length vectors."""
+        with pytest.raises(ValueError, match="dimension must be positive, got 0"):
+            HashEmbeddingProvider(dimension=0)
+        with pytest.raises(ValueError, match="dimension must be positive, got -1"):
+            HashEmbeddingProvider(dimension=-1)
+
     @pytest.mark.asyncio
     async def test_empty_string(self, provider: HashEmbeddingProvider) -> None:
         """Empty string produces valid unit vector."""

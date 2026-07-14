@@ -66,6 +66,9 @@ class TestStreamingContextCompiler:
         assert high_priority_ids.issubset(stream_ids), (
             f"Expected high-priority sources {high_priority_ids} in streaming result {stream_ids}"
         )
+        assert high_priority_ids.issubset(priority_ids), (
+            f"Expected high-priority sources {high_priority_ids} in priority result {priority_ids}"
+        )
         assert stream_result.total_tokens <= budget.available_tokens
 
     @pytest.mark.asyncio

@@ -532,4 +532,4 @@ class TestFactory:
 
     def test_unknown_knowledge_graph_backend_mentions_registry(self) -> None:
         with pytest.raises(ValueError, match="knowledge_graph_registry.register"):
-            create_knowledge_graph(memory_manager=FakeMemoryManager(), backend="neo4j")
+            create_knowledge_graph(memory_manager=FakeMemoryManager(), backend="durable_graph")

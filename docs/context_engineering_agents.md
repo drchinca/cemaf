@@ -198,9 +198,9 @@ from cemaf.agents.registry import AgentRegistry
 
 registry = AgentRegistry()
 
-# List available agents
+# List registered agents
 agents = registry.list_agents()
-# ['Librarian', 'Researcher', 'Summarizer', 'Writer']
+# []
 
 # Get agent class
 agent_class = registry.get_agent_class("Librarian")
@@ -216,17 +216,21 @@ librarian = registry.create_agent(
 )
 ```
 
-### Global Toolkit
+### Fresh Registry
 
-A global `AGENT_TOOLKIT` instance is available:
+Create a registry at the composition root and populate it with the agents this
+application needs:
 
 ```python
-from cemaf.agents.registry import AGENT_TOOLKIT
+from cemaf.agents.registry import AgentRegistry
 
-agent = AGENT_TOOLKIT.create_agent(
+registry = AgentRegistry()
+agent = registry.create_agent(
     "Summarizer",
     llm_client=my_llm,
 )
+if agent is not None:
+    registry.register_agent(agent, goal_type=registry.get_goal_type("Summarizer"))
 ```
 
 ### Capabilities Description
@@ -337,7 +341,7 @@ metadata = extract_token_metadata(
 metadata = extract_token_metadata(
     input_text=text,
     output_text=summary,
-    model="gpt-4",
+    model="gemma3:4b",
     agent_name="Summarizer",
 )
 ```
@@ -358,32 +362,37 @@ total = merge_token_metadata(all_metadata)
 
 ```python
 import json
-from cemaf.agents.registry import AGENT_TOOLKIT
+from cemaf.agents.registry import AgentRegistry
+from cemaf.bootstrap import create_executor
 from cemaf.orchestration.planner import Planner
-from cemaf.orchestration.executor import DAGExecutor
 from cemaf.context.context import Context
 
 # Setup
 vector_store = create_vector_store()
 llm_client = create_llm_client()
-executor = DAGExecutor()
+registry = AgentRegistry()
+for agent_name in ("Librarian", "Researcher", "Summarizer", "Writer"):
+    agent = registry.create_agent(
+        agent_name,
+        vector_store=vector_store,
+        llm_client=llm_client,
+    )
+    if agent is not None:
+        registry.register_agent(agent, goal_type=registry.get_goal_type(agent_name))
+
+executor = create_executor(agent_registry=registry)
 
 # Create plan
-planner = Planner(llm_client=llm_client, agent_registry=AGENT_TOOLKIT)
+planner = Planner(llm_client=llm_client, agent_registry=registry)
 dag = await planner.plan("Generate risk assessment for AI deployment")
 
 # Execute with context tracking
 context = Context()
-final_context = await executor.execute_dag(dag, context)
+result = await executor.run(dag=dag, initial_context=context)
 
 # Get workflow output from final context
-output = final_context.get("STEP_3_OUTPUT")  # Writer output
+output = result.final_context.get("STEP_3_OUTPUT")  # Writer output
 print(f"Generated report:\n{output}")
-
-# Track costs
-total_tokens = final_context.get("_total_tokens", 0)
-total_cost = final_context.get("_total_cost", 0)
-print(f"Total tokens: {total_tokens}, Cost: ${total_cost}")
 ```
 
 ## Best Practices

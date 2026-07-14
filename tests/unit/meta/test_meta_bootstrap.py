@@ -109,6 +109,28 @@ class FakeMemoryManager:
 class TestCreateMetaExecutor:
     """Verify create_meta_executor returns a working executor."""
 
+    def test_meta_package_exports_documented_self_hosting_surface(self) -> None:
+        """Package-level imports expose the documented meta-agent surface."""
+        import cemaf.meta as meta
+
+        expected = {
+            "MetaSpecifier",
+            "MetaScaffolder",
+            "SpecGoal",
+            "SpecResult",
+            "ProposalDoc",
+            "ScaffoldGoal",
+            "ScaffoldResult",
+            "create_self_spec_dag",
+            "create_app_synthesis_dag",
+            "register_meta_specifier",
+            "register_meta_scaffolder",
+        }
+
+        assert expected <= set(meta.__all__)
+        for name in expected:
+            assert getattr(meta, name) is not None
+
     def test_returns_dag_executor(self) -> None:
         """Returns a DAGExecutor instance."""
         agent_registry = AgentRegistry()

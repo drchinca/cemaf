@@ -862,8 +862,8 @@ Engine-specific rows apply only when that candidate adapter is selected.
 
 ## 16. Definition Of Done
 
-CEMAF may describe this layer as enterprise-production-ready only when all are
-true:
+CEMAF may describe this layer as validated for enterprise production use only
+when all are true:
 
 - [ ] Runtime authority/UoW protocols are public, runtime-checkable, documented,
       and used by `create_executor` through `RuntimeServices`.

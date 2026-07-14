@@ -390,7 +390,8 @@ async def with_execution_context[T](
         CancelledException: If cancelled
         TimeoutException: If timeout exceeded
     """
-    # Check pre-conditions
+    # Check pre-conditions. If this rejects before the coroutine is wrapped,
+    # close it so callers do not leak an unawaited coroutine object.
     try:
         ctx.raise_if_inactive()
     except Exception:

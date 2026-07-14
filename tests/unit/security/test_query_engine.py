@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.memory.base import MemoryItem
 from cemaf.security.mappings import DictMappingProvider
 from cemaf.security.query_engine import Predicate, PredicateSet, QueryEngine
-
 
 # ---------------------------------------------------------------------------
 # Helpers

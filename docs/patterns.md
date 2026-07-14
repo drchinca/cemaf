@@ -392,12 +392,12 @@ Rule: **if module A would import module B only to notify it, use the EventBus in
 **Cross-cutting LLM concerns (retry, moderation, instrumentation) compose as decorators around a base `LLMClient`.**
 
 ```python
-from cemaf.llm.anthropic import AnthropicLLMClient
+from cemaf.llm import create_llm_client
 from cemaf.llm.moderating import ModeratingLLMClient
 from cemaf.llm.resilient import ResilientLLMClient
 from cemaf.llm.instrumented import InstrumentedLLMClient
 
-base = AnthropicLLMClient(api_key=..., model="claude-sonnet-4")
+base = create_llm_client("ollama", model="gemma3:4b")
 
 # Compose: resilient(moderating(instrumented(base)))
 client = ResilientLLMClient(

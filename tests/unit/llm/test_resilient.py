@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cemaf.core.types import TokenCount
+from cemaf.core.types import FinishReason, TokenCount
 from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, MessageRole, StreamChunk
 from cemaf.llm.resilient import QuerySource, ResilientLLMClient
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
@@ -52,6 +52,34 @@ async def test_successful_call_delegates() -> None:
         messages=messages,
         tools=None,
         config_override=None,
+        fidelity=None,
+        token_budget=None,
+        correlation_id=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_protocol_hints_forward_to_inner_client() -> None:
+    """Resilience must not swallow routing, budget, or provenance hints."""
+    inner = _mock_client()
+    resilient = ResilientLLMClient(client=inner)
+    messages = [Message.user(content="hi")]
+    budget = object()
+
+    await resilient.complete(
+        messages=messages,
+        fidelity="high",
+        token_budget=budget,
+        correlation_id="run-123",
+    )
+
+    inner.complete.assert_awaited_once_with(
+        messages=messages,
+        tools=None,
+        config_override=None,
+        fidelity="high",
+        token_budget=budget,
+        correlation_id="run-123",
     )
 
 
@@ -138,19 +166,42 @@ async def test_stream_no_retry() -> None:
     """Stream delegates directly without retry wrapper."""
     inner = _mock_client()
 
-    async def _fake_stream(**kwargs: object) -> list[StreamChunk]:
-        return [StreamChunk(content="chunk")]
+    async def _fake_stream(**kwargs: object):
+        yield StreamChunk(content="chunk", is_final=True)
 
-    inner.stream = AsyncMock(side_effect=_fake_stream)
+    inner.stream = MagicMock(return_value=_fake_stream())
     retry = RetryPolicy(config=RetryConfig(max_attempts=3))
     resilient = ResilientLLMClient(client=inner, retry=retry)
 
     with patch.object(retry, "execute", new_callable=AsyncMock) as mock_retry_exec:
-        await resilient.stream(messages=[Message.user(content="hi")])
+        chunks = [chunk async for chunk in resilient.stream(messages=[Message.user(content="hi")])]
 
     # Retry.execute should NOT be called for stream
     mock_retry_exec.assert_not_awaited()
-    inner.stream.assert_awaited_once()
+    inner.stream.assert_called_once()
+    assert chunks == [StreamChunk(content="chunk", is_final=True)]
+
+
+@pytest.mark.asyncio
+async def test_stream_open_circuit_yields_partial_error() -> None:
+    inner = _mock_client()
+    cb = CircuitBreaker(config=CircuitConfig(failure_threshold=1, recovery_timeout_seconds=999.0))
+
+    async def _fail() -> None:
+        raise ConnectionError("down")
+
+    with pytest.raises(ConnectionError):
+        await cb.execute(_fail)
+    assert cb.is_open
+
+    resilient = ResilientLLMClient(client=inner, circuit_breaker=cb)
+
+    chunks = [chunk async for chunk in resilient.stream(messages=[Message.user(content="hi")])]
+
+    assert len(chunks) == 1
+    assert chunks[0].is_final
+    assert chunks[0].finish_reason is FinishReason.PARTIAL_ERROR
+    assert "Circuit breaker open" in chunks[0].content
 
 
 @pytest.mark.asyncio

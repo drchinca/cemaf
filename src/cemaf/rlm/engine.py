@@ -78,6 +78,17 @@ class DivideAndConquerQueryEngine:
             RecursiveQueryResult with answer and metadata
         """
         max_depth = max_depth if max_depth is not None else self._max_depth
+        if budget.available_tokens <= 0:
+            # Direct engine callers commonly pass a small context ceiling and
+            # leave TokenBudget's model-output reserve at its large default.
+            # Treat that ceiling as context-only instead of compiling an empty
+            # projection. The RLM tool supplies an explicit output reserve.
+            budget = TokenBudget(
+                max_tokens=budget.max_tokens,
+                reserved_for_output=0,
+                allocations=budget.allocations,
+                metadata=budget.metadata,
+            )
 
         if not chunks:
             logger.warning("RLM query with no chunks", depth=depth, instruction_len=len(instruction))
@@ -87,17 +98,16 @@ class DivideAndConquerQueryEngine:
             )
 
         raw_chunk_tokens = sum(int(chunk.token_count) for chunk in chunks)
-        if raw_chunk_tokens <= budget.available_tokens:
-            # The raw subset fits. Compile it and send only that bounded
-            # projection; never reconstruct the prompt from unbounded originals.
-            chunk_data = tuple((chunk.chunk_id, chunk.content) for chunk in chunks)
-            compiled = await self._compiler.compile(
-                artifacts=chunk_data,
-                memories=(),
-                budget=budget,
-            )
+        chunk_data = tuple((chunk.chunk_id, chunk.content) for chunk in chunks)
+        compiled = await self._compiler.compile(
+            artifacts=chunk_data,
+            memories=(),
+            budget=budget,
+        )
+        excluded_count = int(compiled.metadata.get("excluded_count", 0))
+        if raw_chunk_tokens <= budget.available_tokens and compiled.within_budget() and excluded_count == 0:
             logger.debug(
-                "RLM single query (within budget)",
+                "RLM single query (within budget, full coverage)",
                 depth=depth,
                 num_chunks=len(chunks),
                 compiled_tokens=compiled.total_tokens,
@@ -258,6 +268,12 @@ class DivideAndConquerQueryEngine:
                 "left_chunks": len(left_chunks),
                 "right_chunks": len(right_chunks),
                 "coverage_ratio": coverage,
+                "aggregation_success": aggregated["success"],
+                **(
+                    {"aggregation_error": aggregated["error"]}
+                    if not aggregated["success"] and aggregated.get("error")
+                    else {}
+                ),
             },
         )
 
@@ -308,6 +324,7 @@ context, explicitly state that."""
         batch: list[ContextChunk] = []
         batch_tokens = 0
         answers: list[str] = []
+        errors: list[str] = []
         total_tokens_used = 0
         llm_calls = 0
         examined = 0
@@ -326,6 +343,8 @@ context, explicitly state that."""
                 total_tokens_used += result["tokens_used"]
                 if result["found"]:
                     answers.append(result["answer"])
+                else:
+                    errors.append(result["answer"])
                 batch = []
                 batch_tokens = 0
             batch.append(chunk)
@@ -343,16 +362,25 @@ context, explicitly state that."""
             total_tokens_used += result["tokens_used"]
             if result["found"]:
                 answers.append(result["answer"])
+            else:
+                errors.append(result["answer"])
 
         coverage = examined / len(chunks) if chunks else 0.0
 
         if not answers:
+            error = "Partial coverage query produced no results"
+            if errors:
+                error = f"{error}: {'; '.join(errors)}"
             return RecursiveQueryResult.fail(
-                error="Partial coverage query produced no results",
+                error=error,
                 depth_reached=depth,
                 chunks_examined=examined,
                 llm_calls_made=llm_calls,
-                metadata={"strategy": "partial_coverage", "reason": reason},
+                metadata={
+                    "strategy": "partial_coverage",
+                    "reason": reason,
+                    **({"errors": tuple(errors)} if errors else {}),
+                },
             )
 
         # Aggregate if multiple batches
@@ -474,10 +502,14 @@ Please synthesize these answers into a single, coherent response that addresses 
             partial_info = f"{left_answer}; {right_answer}"
             return {
                 "answer": f"Aggregation failed: {result.error}. Partial results: {partial_info}",
+                "success": False,
+                "error": result.error,
                 "tokens_used": 0,
             }
 
         return {
             "answer": result.content if isinstance(result.content, str) else str(result.content),
+            "success": True,
+            "error": None,
             "tokens_used": int(result.total_tokens),
         }

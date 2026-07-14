@@ -2,6 +2,7 @@
 
 import pytest
 
+from cemaf.config.protocols import Settings
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import ProjectID
 from cemaf.persistence.entities import (
@@ -239,20 +240,20 @@ class TestProtocolCompliance:
 
 
 class TestFactories:
-    def test_project_store_factory_unknown_backend(self):
-        with pytest.raises(ValueError, match="project_store_registry.register"):
+    def test_project_store_factory_requires_registered_backend(self):
+        with pytest.raises(ValueError, match="No project_store backend configured"):
             create_project_store_from_config()
 
-    def test_artifact_store_factory_unknown_backend(self):
-        with pytest.raises(ValueError, match="artifact_store_registry.register"):
+    def test_artifact_store_factory_requires_registered_backend(self):
+        with pytest.raises(ValueError, match="No artifact_store backend configured"):
             create_artifact_store_from_config()
 
-    def test_content_store_factory_unknown_backend(self):
-        with pytest.raises(ValueError, match="content_store_registry.register"):
+    def test_content_store_factory_requires_registered_backend(self):
+        with pytest.raises(ValueError, match="No content_store backend configured"):
             create_content_store_from_config()
 
-    def test_run_store_factory_unknown_backend(self):
-        with pytest.raises(ValueError, match="run_store_registry.register"):
+    def test_run_store_factory_requires_registered_backend(self):
+        with pytest.raises(ValueError, match="No run_store backend configured"):
             create_run_store_from_config()
 
     def test_register_custom_project_store_backend(self):
@@ -309,6 +310,28 @@ class TestFactories:
 
         assert isinstance(store, MyProjectStore)
         assert captured["database_url"] == "postgresql://example/project"
+
+    def test_project_store_from_config_uses_settings_app_name_defaults(self, monkeypatch):
+        captured = {}
+
+        class MyProjectStore:
+            pass
+
+        def factory(**kwargs):
+            captured.update(kwargs)
+            return MyProjectStore()
+
+        project_store_registry.register(backend="settings-project", factory=factory)
+        monkeypatch.setenv("CEMAF_PERSISTENCE_PROJECT_STORE_BACKEND", "settings-project")
+        monkeypatch.delenv("MONGODB_DATABASE", raising=False)
+        monkeypatch.delenv("DYNAMODB_PROJECTS_TABLE", raising=False)
+        settings = Settings(app_name="context_app")
+
+        store = create_project_store_from_config(settings=settings)
+
+        assert isinstance(store, MyProjectStore)
+        assert captured["mongodb_database"] == "context_app"
+        assert captured["dynamodb_projects_table"] == "context_app_projects"
 
     def test_create_registered_artifact_store_from_env(self, monkeypatch):
         captured = {}

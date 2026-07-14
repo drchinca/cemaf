@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
@@ -27,6 +26,7 @@ from cemaf.mcp.bridges.openspec.protocols import OpenSpecRuntime
 from cemaf.mcp.bridges.openspec.workspace import OpenSpecWorkspace
 from cemaf.meta.registry import (
     register_blueprint_selector,
+    register_dream_agent,
     register_meta_agents,
     register_meta_scaffolder,
     register_meta_specifier,
@@ -51,7 +51,6 @@ class MetaServices:
     knowledge_graph: KnowledgeGraph | None = None
     openspec_runtime: OpenSpecRuntime | None = None
     openspec_workspace: OpenSpecWorkspace | None = None
-    scaffold_output_dir: Path | None = None
 
     # Hub-and-spoke KG caching (SPEC-07) — opt-in. When True and an EventBus is
     # present, the resolved KG is wrapped in a HubKnowledgeGraph and meta-agents
@@ -124,6 +123,12 @@ def create_meta_executor(
             tool_registry=tool_reg,
             audit_trail=audit_trail,
             knowledge_graph=kg,
+        )
+
+    if svc.memory_manager is not None:
+        register_dream_agent(
+            agent_registry,
+            memory_manager=svc.memory_manager,
         )
 
     # Register MetaSpecifier when an OpenSpec workspace is available

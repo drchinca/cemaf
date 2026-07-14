@@ -161,24 +161,30 @@ if result.success:
 Use memory storage independently:
 
 ```python
-from cemaf.memory.base import InMemoryMemoryStore
+from cemaf.memory import InMemoryStore, MemoryItem
 from cemaf.core.enums import MemoryScope
 
 # Create memory store
-memory = InMemoryMemoryStore()
+memory = InMemoryStore()
 
 # Store memories
-await memory.store("user_pref", "dark_theme", scope=MemoryScope.USER)
-await memory.store("conversation_1", "User asked about X", scope=MemoryScope.CONVERSATION)
+await memory.set(MemoryItem(scope=MemoryScope.USER, key="user_pref", value="dark_theme"))
+await memory.set(
+    MemoryItem(
+        scope=MemoryScope.SESSION,
+        key="conversation_1",
+        value="User asked about X",
+    )
+)
 
 # Retrieve memories
-pref = await memory.retrieve("user_pref", scope=MemoryScope.USER)
-conv_memories = await memory.retrieve_all(MemoryScope.CONVERSATION)
+pref = await memory.get(MemoryScope.USER, "user_pref")
+session_memories = await memory.list_by_scope(MemoryScope.SESSION)
 
 # Use in your own code
-print(f"User preference: {pref}")
-for key, value in conv_memories:
-    print(f"{key}: {value}")
+print(f"User preference: {pref.value if pref else None}")
+for item in session_memories:
+    print(f"{item.key}: {item.value}")
 ```
 
 **No dependencies**: Memory store works independently.
@@ -340,7 +346,7 @@ When modules do integrate, they use protocols:
 ```python
 # RLM accepts any ContextCompiler (protocol)
 from cemaf.rlm import DivideAndConquerQueryEngine
-from cemaf.context.protocols import ContextCompiler
+from cemaf.context.compiler import ContextCompiler
 
 class MyCompiler:
     async def compile(self, ...):

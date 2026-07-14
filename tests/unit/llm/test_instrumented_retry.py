@@ -104,6 +104,40 @@ class TestCompleteRetriesWithPolicy:
         assert len(run_logger._current.llm_calls) == 1
         assert run_logger._current.llm_calls[0].error is None
 
+    @pytest.mark.asyncio
+    async def test_complete_forwards_hints_and_records_correlation_id(self) -> None:
+        """Instrumentation should preserve protocol hints and telemetry join keys."""
+        success = _success_result()
+        mock_client = _make_mock_client(complete_return=success)
+        run_logger = InMemoryRunLogger()
+        run_logger.start_run(run_id="test-run")
+
+        instrumented = InstrumentedLLMClient(
+            client=mock_client,
+            run_logger=run_logger,
+        )
+        budget = object()
+        messages = [Message.user("Hello")]
+
+        result = await instrumented.complete(
+            messages=messages,
+            fidelity="high",
+            token_budget=budget,
+            correlation_id="run-123",
+        )
+
+        assert result.success
+        mock_client.complete.assert_awaited_once_with(
+            messages=messages,
+            tools=None,
+            config_override=None,
+            fidelity="high",
+            token_budget=budget,
+            correlation_id="run-123",
+        )
+        recorded: LLMCall = run_logger._current.llm_calls[0]
+        assert recorded.correlation_id == "run-123"
+
 
 class TestStreamRecordsOnError:
     """Verify partial telemetry is recorded when stream() fails mid-stream."""

@@ -323,28 +323,30 @@ the `TASK_COMPLETED` event payload. See SPEC-01a for the full contract;
 Register health checks to validate prerequisites before executing DAG nodes:
 
 ```python
-from cemaf.orchestration.executor import DAGExecutor
-from cemaf.orchestration.health import HealthCheckService, HealthStatus
+from cemaf.bootstrap import create_executor
+from cemaf.observability.health import HealthCheckResult, HealthMonitor, HealthStatus
+from cemaf.orchestration.services import RuntimeServices
 
-class APIAvailabilityCheck(HealthCheckService):
-    async def check_health(self) -> HealthStatus:
-        """Check if external API is available."""
-        try:
-            response = await check_api_endpoint()
-            return HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY
-        except Exception as e:
-            return HealthStatus.UNHEALTHY
+def check_api_availability() -> HealthCheckResult:
+    """Check if external API is available."""
+    try:
+        response = check_api_endpoint()
+        status = HealthStatus.HEALTHY if response.ok else HealthStatus.UNHEALTHY
+        return HealthCheckResult("external_api", status)
+    except Exception as exc:
+        return HealthCheckResult("external_api", HealthStatus.UNHEALTHY, message=str(exc))
 
 # Register health check
-health_check = APIAvailabilityCheck()
-executor = DAGExecutor(
-    node_executor=my_executor,
-    health_check_service=health_check
+health_monitor = HealthMonitor()
+health_monitor.register_check("external_api", check_api_availability)
+executor = create_executor(
+    agent_registry=registry,
+    services=RuntimeServices(health_monitor=health_monitor),
 )
 
 # Health check blocks execution if unhealthy
-result = await executor.run(dag, initial_context=context)
-if result.metadata.get("health_check_failed"):
+result = await executor.run(dag=dag, initial_context=context)
+if result.health_check_metadata.get("status") == HealthStatus.UNHEALTHY:
     print("Pre-execution health check failed - DAG not executed")
 ```
 

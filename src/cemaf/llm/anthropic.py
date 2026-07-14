@@ -40,12 +40,17 @@ class AnthropicLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Send messages to Claude and return completion result."""
+        del fidelity, token_budget, correlation_id
         cfg = config_override or self._config
         system_msg, api_messages = _convert_messages(messages=messages)
 
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
@@ -109,7 +114,7 @@ class AnthropicLLMClient:
         cfg = config_override or self._config
         system_msg, api_messages = _convert_messages(messages=messages)
 
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": cfg.model,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
@@ -216,7 +221,7 @@ class AnthropicLLMClient:
         and caches server-side.
         """
         system_msg, api_messages = _convert_messages(messages=messages)
-        kwargs: dict[str, object] = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": api_messages,
         }

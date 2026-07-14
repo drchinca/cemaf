@@ -11,6 +11,8 @@ Tiktoken import happens at runtime to avoid hard dependency.
 from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
+from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL
+
 
 @runtime_checkable
 class TokenEncoding(Protocol):
@@ -27,7 +29,7 @@ class TiktokenEstimator:
     Falls back to character heuristic if tiktoken not available.
 
     Usage:
-        estimator = TiktokenEstimator(model="gpt-4")
+        estimator = TiktokenEstimator(model="gemma3:4b")
         tokens = estimator.estimate("Hello, world!")
     """
 
@@ -46,7 +48,7 @@ class TiktokenEstimator:
 
     def __init__(
         self,
-        model: str = "gpt-4",
+        model: str = DEFAULT_FREE_LLM_MODEL,
         fallback_chars_per_token: float = 4.0,
     ) -> None:
         self._model = model
@@ -137,6 +139,6 @@ class TiktokenEstimator:
 
 
 @lru_cache(maxsize=8)
-def get_estimator(model: str = "gpt-4") -> TiktokenEstimator:
+def get_estimator(model: str = DEFAULT_FREE_LLM_MODEL) -> TiktokenEstimator:
     """Get a cached estimator for a model."""
     return TiktokenEstimator(model=model)

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cemaf.core.types import LLMProvider
 from cemaf.llm.model_router import ModelRoute, ModelRouter
 from cemaf.llm.openai_compat import OpenAICompatClient
 from cemaf.llm.protocols import LLMClient, Message, ToolDefinition
@@ -51,13 +52,14 @@ def create_ollama_client(
     Uses a long default timeout because Ollama cold-loads the model on first
     request. Pass a shorter timeout if you pre-warm models with `ollama run`.
     """
-    return OpenAICompatClient(  # type: ignore[return-value]
+    return OpenAICompatClient(
         base_url=base_url,
         api_key="",
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
         timeout_seconds=timeout_seconds,
+        provider=LLMProvider.OLLAMA,
     )
 
 

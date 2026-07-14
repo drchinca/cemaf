@@ -6,6 +6,7 @@ workloads — batch processing reduces cost by ~50% vs real-time API.
 """
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -183,8 +184,13 @@ class BatchLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         """Submit a single-item batch and return the result synchronously."""
+        del fidelity, token_budget, correlation_id
         batch_req = BatchRequest(
             custom_id="single",
             messages=messages,
@@ -203,7 +209,33 @@ class BatchLLMClient:
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        raise NotImplementedError("BatchLLMClient does not support streaming — use complete()")
+        """Fallback stream: submit a batch request and emit the completed result."""
+        result = await self.complete(
+            messages=messages,
+            tools=tools,
+            config_override=config_override,
+        )
+        if not result.success:
+            yield StreamChunk(
+                content="",
+                accumulated_content="",
+                is_final=True,
+                finish_reason=result.finish_reason,
+            )
+            return
+
+        content = _message_content_to_text(result.content)
+        if content:
+            yield StreamChunk(content=content, accumulated_content=content)
+        yield StreamChunk(
+            content="",
+            accumulated_content=content,
+            tool_calls=result.tool_calls,
+            is_final=True,
+            finish_reason=result.finish_reason,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+        )
 
     def count_tokens(self, text: str) -> TokenCount:
         if not text:
@@ -211,15 +243,10 @@ class BatchLLMClient:
         return TokenCount(max(1, round(len(text) / 3.5)))
 
     def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
-        import json as _json
-
         total = 0
         for msg in messages:
             total += 4
-            if isinstance(msg.content, str):
-                total += self.count_tokens(msg.content)
-            else:
-                total += self.count_tokens(_json.dumps(msg.content))
+            total += self.count_tokens(_message_content_to_text(msg.content))
         return TokenCount(total)
 
     async def count_tokens_exact(
@@ -227,6 +254,15 @@ class BatchLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> TokenCount:
-        raise NotImplementedError(
-            "BatchLLMClient does not implement exact token counting — use AnthropicLLMClient"
-        )
+        total = self.count_messages_tokens(messages)
+        if tools:
+            for tool in tools:
+                tool_text = f"{tool.name}\n{tool.description}\n{json.dumps(tool.parameters, sort_keys=True)}"
+                total = TokenCount(total + self.count_tokens(tool_text))
+        return total
+
+
+def _message_content_to_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    return json.dumps(content, sort_keys=True)

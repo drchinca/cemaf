@@ -105,3 +105,61 @@ class TestStoreWithTiersAndSearch:
         )
 
         assert len(results) <= 3
+
+
+class TestProgressiveSearchCompactedReducesPerItemCost:
+    """The property the audit found untested: tier-aware retrieval returns
+    CHEAPER per-item content for lower-ranked items, not full content for all."""
+
+    @pytest.mark.asyncio
+    async def test_lower_ranked_items_cost_less_than_full(self) -> None:
+        tiered_store = _wire_tiered_store()
+
+        # Store enough distinct items to span all three tiers.
+        for i in range(12):
+            item = MemoryItem(
+                scope=MemoryScope.PROJECT,
+                key=f"doc-{i}",
+                value={"text": f"Distinct document {i} " + ("body " * 200)},
+                confidence=Confidence(1.0),
+            )
+            await tiered_store.store_with_tiers(item=item)
+
+        compacted = await tiered_store.progressive_search_compacted(
+            query=MemoryQuery(text="document", scope=MemoryScope.PROJECT),
+            l0_limit=12,
+            l1_limit=4,
+            l2_limit=2,
+        )
+        assert len(compacted) > 6, "expected breadth across tiers"
+
+        # The full (L2) items must genuinely cost more than the abstract (L0)
+        # ones — proving tiers reduce per-item token cost, not just count.
+        full = [c.compacted_token_count for c in compacted if c.level.value == "full"]
+        abstracts = [c.compacted_token_count for c in compacted if c.level.value == "metadata"]
+        assert full, "expected some full-content (L2) items"
+        assert abstracts, "expected some L0 abstract items"
+        assert max(abstracts) < max(full), "L0 abstracts must be cheaper than L2 full content"
+
+    @pytest.mark.asyncio
+    async def test_total_cost_less_than_loading_all_at_full(self) -> None:
+        tiered_store = _wire_tiered_store()
+        for i in range(10):
+            item = MemoryItem(
+                scope=MemoryScope.PROJECT,
+                key=f"d-{i}",
+                value={"text": f"Distinct content {i} " + ("filler " * 200)},
+                confidence=Confidence(1.0),
+            )
+            await tiered_store.store_with_tiers(item=item)
+
+        compacted = await tiered_store.progressive_search_compacted(
+            query=MemoryQuery(text="content", scope=MemoryScope.PROJECT),
+            l0_limit=10,
+            l1_limit=3,
+            l2_limit=2,
+        )
+        tiered_total = sum(c.compacted_token_count for c in compacted)
+        full_total = sum(c.original_token_count for c in compacted)
+        # Tiering the lower-ranked items saves real tokens vs all-at-full.
+        assert tiered_total < full_total

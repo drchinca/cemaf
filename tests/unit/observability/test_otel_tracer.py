@@ -59,39 +59,28 @@ class TestOTelSpan:
 
     def test_set_status_ok(self):
         """set_status('OK') maps to StatusCode.OK."""
-        try:
-            from opentelemetry.trace import StatusCode
+        from opentelemetry.trace import StatusCode
 
-            mock_span = MagicMock()
-            span = OTelSpan(mock_span)
-            span.set_status("OK")
-            mock_span.set_status.assert_called_once()
-            call_args = mock_span.set_status.call_args[0]
-            assert call_args[0] == StatusCode.OK
-        except ImportError:
-            pytest.skip("opentelemetry-sdk not installed")
+        mock_span = MagicMock()
+        span = OTelSpan(mock_span)
+        span.set_status("OK")
+        mock_span.set_status.assert_called_once()
+        call_args = mock_span.set_status.call_args[0]
+        assert call_args[0] == StatusCode.OK
 
     def test_set_status_error(self):
         """set_status('ERROR') maps to StatusCode.ERROR."""
-        try:
-            from opentelemetry.trace import StatusCode
+        from opentelemetry.trace import StatusCode
 
-            mock_span = MagicMock()
-            span = OTelSpan(mock_span)
-            span.set_status("ERROR", "something went wrong")
-            call_args = mock_span.set_status.call_args[0]
-            assert call_args[0] == StatusCode.ERROR
-        except ImportError:
-            pytest.skip("opentelemetry-sdk not installed")
+        mock_span = MagicMock()
+        span = OTelSpan(mock_span)
+        span.set_status("ERROR", "something went wrong")
+        call_args = mock_span.set_status.call_args[0]
+        assert call_args[0] == StatusCode.ERROR
 
 
 class TestOTelTracer:
     def test_start_span_delegates_to_inner(self):
-        try:
-            import opentelemetry.trace  # noqa: F401
-        except ImportError:
-            pytest.skip("opentelemetry-sdk not installed")
-
         mock_tracer = MagicMock()
         mock_inner_span = MagicMock()
         mock_scope = MagicMock()

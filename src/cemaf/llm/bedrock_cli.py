@@ -63,8 +63,13 @@ class BedrockCliLLMClient:
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
         config_override: LLMConfig | None = None,
+        *,
+        fidelity: object | None = None,
+        token_budget: object | None = None,
+        correlation_id: str | None = None,
     ) -> CompletionResult:
         del tools  # AWS CLI invoke-model path is text-only here.
+        del fidelity, token_budget, correlation_id
         cfg = config_override or self._config
 
         payload = {

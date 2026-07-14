@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 
 from cemaf.core.enums import MemoryScope
@@ -17,7 +15,6 @@ from cemaf.security.masking import (
     PseudonymVault,
     create_masking_hook,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
