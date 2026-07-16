@@ -2,15 +2,16 @@
 LLM module - free-first factories plus explicit provider adapters.
 
 Quickstart:
-    from cemaf.llm import create_llm_client
+    from cemaf.llm import create_llm_client, LLMBackend
 
     # Local/free default path (Ollama - Gemma by default)
-    client = create_llm_client("ollama")
+    client = create_llm_client(LLMBackend.OLLAMA)
 
     # Any cloud or paid provider is explicit opt-in:
-    # client = create_llm_client("openai", api_key="...", model="...")
+    # client = create_llm_client(LLMBackend.OPENAI, api_key="...", model="...")
 """
 
+from cemaf.core.types import LLMBackend
 from cemaf.llm.anthropic import AnthropicLLMClient
 from cemaf.llm.bedrock_cli import BedrockCliLLMClient
 from cemaf.llm.factories import (
@@ -39,6 +40,8 @@ from cemaf.llm.response_utils import ParseResult, ResponseParser, StreamingJSONP
 from cemaf.llm.tiktoken_estimator import TiktokenEstimator
 
 __all__ = [
+    # Backend selection
+    "LLMBackend",
     # Protocols
     "LLMClient",
     "LLMConfig",

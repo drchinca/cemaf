@@ -6,9 +6,10 @@ import pytest
 
 from cemaf.config.protocols import LLMSettings, Settings
 from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL, DEFAULT_FREE_LLM_PROVIDER
-from cemaf.core.types import LLMProvider
+from cemaf.core.types import LLMBackend, LLMProvider
 from cemaf.llm.factories import (
     create_instrumented_client,
+    create_llm_client,
     create_llm_client_from_config,
     create_resilient_llm_client,
     llm_registry,
@@ -24,6 +25,37 @@ def test_configured_llm_providers_are_registered() -> None:
     registered = set(llm_registry.list_backends())
 
     assert configured == registered
+
+
+def test_llm_backend_enum_covers_every_registered_backend() -> None:
+    """LLMBackend is the closed, typed set create_llm_client accepts — it must
+    stay in lockstep with llm_registry so a new registry entry isn't reachable
+    only via a raw string."""
+    assert {b.value for b in LLMBackend} == set(llm_registry.list_backends())
+
+
+class TestLLMBackendEnforcement:
+    """create_llm_client(provider=...) accepts LLMBackend members (or their
+    string value, since LLMBackend is a StrEnum) — proves the enum actually
+    reaches the registry lookup, not just the type hint."""
+
+    def test_enum_member_creates_real_client(self) -> None:
+        client = create_llm_client(LLMBackend.GROQ, api_key="gsk-test")
+        assert isinstance(client, OpenAICompatClient)
+
+    def test_equivalent_string_creates_same_client_type(self) -> None:
+        client = create_llm_client("groq", api_key="gsk-test")
+        assert isinstance(client, OpenAICompatClient)
+
+    def test_unregistered_string_raises_with_available_backends_listed(self) -> None:
+        with pytest.raises(ValueError, match="llm_registry.register"):
+            create_llm_client("not-a-real-backend")
+
+    def test_ollama_tiered_backend_has_no_llm_provider_equivalent(self) -> None:
+        """Confirms LLMBackend is intentionally broader than LLMProvider —
+        routing/testing backends like ollama-tiered are valid LLMBackend
+        members with no corresponding vendor-family LLMProvider entry."""
+        assert LLMBackend.OLLAMA_TIERED.value not in set(LLMProvider)
 
 
 def test_create_instrumented_client_wraps_client() -> None:
