@@ -1,5 +1,6 @@
 """Tests for orchestration factory helpers."""
 
+from cemaf.context.budget import TokenBudget
 from cemaf.datasources.registry import DataSourceRegistry
 from cemaf.interceptors.pull import PullInterceptor
 from cemaf.orchestration.factories import (
@@ -71,3 +72,15 @@ def test_create_pull_interceptor_forwards_extra_kwargs() -> None:
     interceptor = create_pull_interceptor(services=services, pull_tokens=500, node_pattern="specific_node")
 
     assert interceptor._pattern == "specific_node"
+
+
+def test_create_pull_interceptor_wires_token_budget_for_reconciliation() -> None:
+    """Closes the token-budget reconciliation gap: PullInterceptor must read
+    RuntimeServices.token_budget through the composition-root factory, not
+    just knowledge_graph/data_source_registry."""
+    budget = TokenBudget(max_tokens=50_000)
+    services = create_runtime_services(token_budget=budget)
+
+    interceptor = create_pull_interceptor(services=services, pull_tokens=1000)
+
+    assert interceptor._token_budget is budget

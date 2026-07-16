@@ -310,3 +310,70 @@ class TestPullInterceptorEviction:
         assert len(surfaced) == 1
         assert surfaced[0].source_kind == SourceKind.KG
         assert datasource_chunk not in surfaced
+
+
+@pytest.mark.asyncio
+class TestPullInterceptorTokenBudgetReconciliation:
+    async def test_caps_pull_tokens_against_compiled_context_share(self) -> None:
+        """context_node_executor.py stashes compiled_context_tokens alongside
+        compiled_context; with a real token_budget configured, PullInterceptor
+        must shrink its own contribution so surfaced_sources + compiled_context
+        can't together exceed the model window — not just pull_tokens alone."""
+        registry = DataSourceRegistry()
+        chunks = tuple(_chunk(chunk_id=f"c{i}", source_id="fake-crm", token_count=100) for i in range(5))
+        source = _FakeDataSource(chunks=chunks)
+        registry.register(source)
+
+        budget = TokenBudget(max_tokens=300, reserved_for_output=0)
+        interceptor = PullInterceptor(
+            pull_tokens=1000,  # would fit all 5 chunks (500 tokens) on its own
+            data_source_registry=registry,
+            token_budget=budget,
+        )
+        context = AgentContext(
+            run_id="run-1", agent_id="fake-agent", artifacts={"compiled_context_tokens": 250}
+        )
+
+        decision = await interceptor.pre(node=_node(), context=context)
+        surfaced = decision.enriched_context.artifacts["surfaced_sources"]
+
+        # available_tokens=300, compiled_context already spent 250 -> only 50
+        # tokens left for pulled sources, regardless of pull_tokens=1000.
+        assert sum(c.token_count for c in surfaced) <= 50
+
+    async def test_compiled_context_already_over_budget_surfaces_nothing(self) -> None:
+        registry = DataSourceRegistry()
+        source = _FakeDataSource(chunks=(_chunk(chunk_id="c1", source_id="fake-crm", token_count=10),))
+        registry.register(source)
+
+        budget = TokenBudget(max_tokens=100, reserved_for_output=0)
+        interceptor = PullInterceptor(
+            pull_tokens=1000,
+            data_source_registry=registry,
+            token_budget=budget,
+        )
+        context = AgentContext(
+            run_id="run-1", agent_id="fake-agent", artifacts={"compiled_context_tokens": 500}
+        )
+
+        decision = await interceptor.pre(node=_node(), context=context)
+        surfaced = decision.enriched_context.artifacts["surfaced_sources"]
+        assert surfaced == ()
+
+    async def test_no_token_budget_configured_behavior_unchanged(self) -> None:
+        """Without token_budget, pull_tokens alone still governs — proves the
+        reconciliation is opt-in, not a silent behavior change for existing
+        callers that never pass token_budget."""
+        registry = DataSourceRegistry()
+        chunks = tuple(_chunk(chunk_id=f"c{i}", source_id="fake-crm", token_count=100) for i in range(3))
+        source = _FakeDataSource(chunks=chunks)
+        registry.register(source)
+
+        interceptor = PullInterceptor(pull_tokens=1000, data_source_registry=registry)
+        context = AgentContext(
+            run_id="run-1", agent_id="fake-agent", artifacts={"compiled_context_tokens": 999_999}
+        )
+
+        decision = await interceptor.pre(node=_node(), context=context)
+        surfaced = decision.enriched_context.artifacts["surfaced_sources"]
+        assert sum(c.token_count for c in surfaced) == 300

@@ -18,6 +18,17 @@ substitutions:
   - SPEC-02 Inv 13 (meta-recovery patch union via ctx.pending_meta_patches) is
     OUT OF SCOPE — SPEC-06 doesn't exist; there is no patch source to union.
 
+Token-budget reconciliation: ``CompiledContext.to_messages()`` (what
+ContextNodeExecutor puts in ``artifacts["compiled_context"]``) discards
+``total_tokens``, so ContextNodeExecutor separately stashes it under
+``artifacts["compiled_context_tokens"]``. When this interceptor is built with
+a ``token_budget``, it reads that sibling key and caps its own contribution at
+``token_budget.available_tokens - compiled_context_tokens`` (floored at 0) —
+so ``surfaced_sources`` plus the already-compiled context can never together
+exceed the real model window. Without ``token_budget`` configured, behavior is
+unchanged: this interceptor budgets blind against ``pull_tokens`` alone, same
+as before.
+
 Deliberately does NOT pull `context.global_memory` into `surfaced_sources`.
 `ContextNodeExecutor` already recalls memory into `global_memory` before this
 interceptor runs — re-wrapping the same items as CiteableChunks here would
@@ -76,6 +87,7 @@ class PullInterceptor:
         relation_type: RelationType | None = None,
         kg_depth: int = 1,
         timeout_ms: int = 3_000,
+        token_budget: TokenBudget | None = None,
     ) -> None:
         if pull_tokens <= 0:
             raise ValueError("pull_tokens must be positive")
@@ -92,6 +104,16 @@ class PullInterceptor:
         self._relation_type = relation_type
         self._kg_depth = kg_depth
         self._timeout_s = timeout_ms / 1000
+        self._token_budget = token_budget
+
+    def _effective_pull_tokens(self, context: AgentContext) -> int:
+        """Cap pull_tokens against what compiled_context already spent, when a
+        real model-window token_budget is configured. Without it, unchanged."""
+        if self._token_budget is None:
+            return self._pull_tokens
+        compiled_context_tokens = int(context.artifacts.get("compiled_context_tokens", 0))
+        remaining = self._token_budget.available_tokens - compiled_context_tokens
+        return max(0, min(self._pull_tokens, remaining))
 
     @property
     def interceptor_id(self) -> str:
@@ -106,12 +128,17 @@ class PullInterceptor:
 
         goal_text = f"{node.name} {node.description}".strip()
         entities = self._entity_extractor.extract(text=goal_text) if self._entity_extractor else ()
+        effective_pull_tokens = self._effective_pull_tokens(context)
 
         candidates: list[CiteableChunk] = []
         candidates.extend(await self._pull_kg(entities))
-        candidates.extend(await self._pull_data_sources(goal_text=goal_text, entities=entities))
+        candidates.extend(
+            await self._pull_data_sources(
+                goal_text=goal_text, entities=entities, pull_tokens=effective_pull_tokens
+            )
+        )
 
-        surfaced = self._merge_and_evict(candidates)
+        surfaced = self._merge_and_evict(candidates, pull_tokens=effective_pull_tokens)
 
         if not surfaced and str(node.id) in self._grounding_required_nodes:
             return PreflightDecision(
@@ -157,9 +184,9 @@ class PullInterceptor:
         return chunks
 
     async def _pull_data_sources(
-        self, *, goal_text: str, entities: tuple[EntityRef, ...]
+        self, *, goal_text: str, entities: tuple[EntityRef, ...], pull_tokens: int
     ) -> list[CiteableChunk]:
-        if self._registry is None:
+        if self._registry is None or pull_tokens <= 0:
             return []
         capable = self._registry.list_capable(DataSourceCapability.SEARCH)
         if not capable:
@@ -178,7 +205,7 @@ class PullInterceptor:
         if not healthy:
             return []
 
-        sub_budgets = self._compute_sub_budgets(healthy)
+        sub_budgets = self._compute_sub_budgets(healthy, pull_tokens=pull_tokens)
         query = RetrievalQuery(
             text=goal_text, entities=entities, top_k=8, timeout_ms=int(self._timeout_s * 1000)
         )
@@ -207,24 +234,26 @@ class PullInterceptor:
             logger.warning("datasource.retrieve_failed source_id=%s error=%s", source.source_id, exc)
             return ()
 
-    def _compute_sub_budgets(self, sources: list[DataSource]) -> dict[str, TokenBudget]:
+    def _compute_sub_budgets(self, sources: list[DataSource], *, pull_tokens: int) -> dict[str, TokenBudget]:
         ordered = sorted(sources, key=lambda s: s.source_id)
         if self._source_weights:
             return {
                 source.source_id: TokenBudget(
-                    max_tokens=int(self._pull_tokens * self._source_weights.get(source.source_id, 0.0))
+                    max_tokens=int(pull_tokens * self._source_weights.get(source.source_id, 0.0))
                 )
                 for source in ordered
             }
-        base = self._pull_tokens // len(ordered)
-        remainder = self._pull_tokens - base * len(ordered)
+        base = pull_tokens // len(ordered)
+        remainder = pull_tokens - base * len(ordered)
         budgets: dict[str, TokenBudget] = {}
         for index, source in enumerate(ordered):
             tokens = base + (remainder if index == 0 else 0)
             budgets[source.source_id] = TokenBudget(max_tokens=tokens)
         return budgets
 
-    def _merge_and_evict(self, candidates: list[CiteableChunk]) -> tuple[CiteableChunk, ...]:
+    def _merge_and_evict(
+        self, candidates: list[CiteableChunk], *, pull_tokens: int
+    ) -> tuple[CiteableChunk, ...]:
         ordered = sorted(
             candidates,
             key=lambda c: (-c.effective_priority, -c.confidence, c.retrieved_at, c.chunk_id),
@@ -232,7 +261,7 @@ class PullInterceptor:
         surfaced: list[CiteableChunk] = []
         running_total = 0
         for chunk in ordered:
-            if running_total + chunk.token_count > self._pull_tokens:
+            if running_total + chunk.token_count > pull_tokens:
                 logger.info("pull.evicted chunk_id=%s reason=over_budget", chunk.chunk_id)
                 break
             surfaced.append(chunk)

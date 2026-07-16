@@ -209,5 +209,6 @@ def create_pull_interceptor(
         pull_tokens=pull_tokens,
         knowledge_graph=services.knowledge_graph,
         data_source_registry=services.data_source_registry,
+        token_budget=services.token_budget,
         **kwargs,  # type: ignore[arg-type]
     )
