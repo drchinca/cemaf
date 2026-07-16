@@ -3,7 +3,7 @@
 import pytest
 
 from cemaf.citation.models import Citation
-from cemaf.datasources.models import CiteableChunk, EntityRef, RetrievalQuery
+from cemaf.datasources.models import CiteableChunk, EntityRef, RetrievalQuery, SourceKind
 
 
 def _citation(**overrides: object) -> Citation:
@@ -34,7 +34,11 @@ class TestEntityRef:
 class TestCiteableChunk:
     def test_valid_chunk_constructs(self) -> None:
         chunk = CiteableChunk(
-            chunk_id="ch1", content="hi", citation=_citation(), token_count=5, source_kind="datasource"
+            chunk_id="ch1",
+            content="hi",
+            citation=_citation(),
+            token_count=5,
+            source_kind=SourceKind.DATASOURCE,
         )
         assert chunk.priority == 80
         assert chunk.effective_priority == 80
@@ -45,7 +49,7 @@ class TestCiteableChunk:
             content="hi",
             citation=_citation(),
             token_count=5,
-            source_kind="kg",
+            source_kind=SourceKind.KG,
             tenant_offset=5,
         )
         assert chunk.priority == 100
@@ -64,7 +68,7 @@ class TestCiteableChunk:
                 content="hi",
                 citation=_citation(source_id=""),
                 token_count=5,
-                source_kind="datasource",
+                source_kind=SourceKind.DATASOURCE,
             )
 
     def test_missing_locator_raises(self) -> None:
@@ -74,7 +78,7 @@ class TestCiteableChunk:
                 content="hi",
                 citation=_citation(url=None, context_path=None, section=None, page=None),
                 token_count=5,
-                source_kind="datasource",
+                source_kind=SourceKind.DATASOURCE,
             )
 
     def test_tenant_offset_out_of_bound_raises(self) -> None:
@@ -84,7 +88,7 @@ class TestCiteableChunk:
                 content="hi",
                 citation=_citation(),
                 token_count=5,
-                source_kind="datasource",
+                source_kind=SourceKind.DATASOURCE,
                 tenant_offset=11,
             )
 
@@ -94,7 +98,7 @@ class TestCiteableChunk:
             content="hi",
             citation=_citation(),
             token_count=5,
-            source_kind="datasource",
+            source_kind=SourceKind.DATASOURCE,
             tenant_offset=-10,
         )
         assert chunk.effective_priority == 70

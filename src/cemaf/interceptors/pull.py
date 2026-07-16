@@ -41,6 +41,7 @@ from cemaf.datasources.models import (
     EntityRef,
     HealthStatus,
     RetrievalQuery,
+    SourceKind,
 )
 from cemaf.datasources.protocols import DataSource, EntityExtractor
 from cemaf.datasources.registry import DataSourceRegistry
@@ -50,8 +51,6 @@ from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.orchestration.dag import Node
 
 logger = logging.getLogger(__name__)
-
-_KG_SOURCE_ID = "kg"
 
 
 class PullInterceptor:
@@ -141,7 +140,7 @@ class PullInterceptor:
             for relation in result.relations:
                 citation = Citation(
                     id=f"kg:{relation.source_id}:{relation.target_id}",
-                    source_id=_KG_SOURCE_ID,
+                    source_id=SourceKind.KG,
                     source_type="knowledge_graph",
                     section=relation.target_id,
                     quote=relation.type.value,
@@ -152,7 +151,7 @@ class PullInterceptor:
                         content=f"{relation.source_id} {relation.type.value} {relation.target_id}",
                         citation=citation,
                         token_count=max(1, len(relation.type.value) // 4 + len(relation.target_id) // 4),
-                        source_kind="kg",
+                        source_kind=SourceKind.KG,
                     )
                 )
         return chunks

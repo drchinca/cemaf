@@ -41,10 +41,9 @@ from typing import ClassVar
 
 from cemaf.citation.registry import StaticSourceRegistry
 from cemaf.datasources.exceptions import DuplicateSourceError, ReadOnlyViolationError
-from cemaf.datasources.models import DataSourceCapability
+from cemaf.datasources.models import TENANT_OFFSET_BOUND, DataSourceCapability, SourceKind
 from cemaf.datasources.protocols import DataSource
 
-_TENANT_OFFSET_BOUND = 10
 _REQUIRED_MEMBERS = ("source_id", "capabilities", "retrieve", "health")
 
 
@@ -57,9 +56,9 @@ class DataSourceRegistry:
         self._sources: dict[str, DataSource] = {}
         offsets = tenant_priority_offsets or {}
         for source_id, offset in offsets.items():
-            if not (-_TENANT_OFFSET_BOUND <= offset <= _TENANT_OFFSET_BOUND):
+            if not (-TENANT_OFFSET_BOUND <= offset <= TENANT_OFFSET_BOUND):
                 raise ReadOnlyViolationError(
-                    f"priority_offset_overflow: {source_id!r} offset {offset} exceeds ±{_TENANT_OFFSET_BOUND}"
+                    f"priority_offset_overflow: {source_id!r} offset {offset} exceeds ±{TENANT_OFFSET_BOUND}"
                 )
         self._tenant_priority_offsets = dict(offsets)
 
@@ -110,7 +109,7 @@ class DataSourceRegistry:
 
 def source_registry_from_data_sources(registry: DataSourceRegistry) -> StaticSourceRegistry:
     """Build a StaticSourceRegistry over every registered DataSource's source_id,
-    plus PullInterceptor's fixed 'kg'/'memory' source_ids. Composition-root code
-    combines this with any other known source_ids before building a citation
+    plus PullInterceptor's fixed KG source_id. Composition-root code combines
+    this with any other known source_ids before building a citation
     membership check, or unions it into an agent's own known-sources set."""
-    return StaticSourceRegistry.from_iterable(registry.source_ids() | {"kg", "memory"})
+    return StaticSourceRegistry.from_iterable(registry.source_ids() | {SourceKind.KG.value})

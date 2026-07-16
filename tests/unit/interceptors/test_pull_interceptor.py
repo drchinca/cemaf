@@ -10,7 +10,13 @@ from cemaf.agents.base import AgentContext
 from cemaf.citation.models import Citation
 from cemaf.context.budget import TokenBudget
 from cemaf.datasources.entity_extractor import DefaultEntityExtractor
-from cemaf.datasources.models import CiteableChunk, DataSourceCapability, HealthStatus, RetrievalQuery
+from cemaf.datasources.models import (
+    CiteableChunk,
+    DataSourceCapability,
+    HealthStatus,
+    RetrievalQuery,
+    SourceKind,
+)
 from cemaf.datasources.registry import DataSourceRegistry
 from cemaf.interceptors.pull import PullInterceptor
 from cemaf.interceptors.types import DecisionKind
@@ -31,7 +37,7 @@ def _chunk(
     chunk_id: str,
     source_id: str,
     token_count: int = 10,
-    source_kind: str = "datasource",
+    source_kind: SourceKind = SourceKind.DATASOURCE,
     retrieved_at: datetime | None = None,
 ) -> CiteableChunk:
     citation = Citation(id=chunk_id, source_id=source_id, source_type="document", url="https://example.com")
@@ -78,12 +84,16 @@ class _FakeKnowledgeGraph:
 
 
 class _FakeDataSource:
-    source_id: ClassVar[str] = "fake-crm"
     capabilities: ClassVar[frozenset[DataSourceCapability]] = frozenset({DataSourceCapability.SEARCH})
 
     def __init__(
-        self, *, chunks: tuple[CiteableChunk, ...] = (), health: HealthStatus = HealthStatus.HEALTHY
+        self,
+        *,
+        source_id: str = "fake-crm",
+        chunks: tuple[CiteableChunk, ...] = (),
+        health: HealthStatus = HealthStatus.HEALTHY,
     ) -> None:
+        self.source_id = source_id
         self._chunks = chunks
         self._health = health
         self.retrieve_calls = 0
@@ -120,8 +130,8 @@ class TestPullInterceptorKnowledgeGraph:
         assert decision.enriched_context is not None
         surfaced = decision.enriched_context.artifacts["surfaced_sources"]
         assert len(surfaced) == 1
-        assert surfaced[0].source_kind == "kg"
-        assert surfaced[0].citation.source_id == "kg"
+        assert surfaced[0].source_kind == SourceKind.KG
+        assert surfaced[0].citation.source_id == SourceKind.KG
 
     async def test_kg_query_failure_is_contained(self) -> None:
         kg = _FakeKnowledgeGraph(raise_error=True)
@@ -145,10 +155,12 @@ class TestPullInterceptorKnowledgeGraph:
 class TestPullInterceptorDataSources:
     async def test_two_healthy_sources_uniform_split(self) -> None:
         registry = DataSourceRegistry()
-        source_a = _FakeDataSource(chunks=(_chunk(chunk_id="a1", source_id="fake-crm"),))
-        source_b = _FakeDataSource(chunks=(_chunk(chunk_id="b1", source_id="fake-crm"),))
-        source_a.source_id = "source-a"  # type: ignore[misc]
-        source_b.source_id = "source-b"  # type: ignore[misc]
+        source_a = _FakeDataSource(
+            source_id="source-a", chunks=(_chunk(chunk_id="a1", source_id="fake-crm"),)
+        )
+        source_b = _FakeDataSource(
+            source_id="source-b", chunks=(_chunk(chunk_id="b1", source_id="fake-crm"),)
+        )
         registry.register(source_a)
         registry.register(source_b)
 
@@ -162,10 +174,8 @@ class TestPullInterceptorDataSources:
 
     async def test_source_weights_produce_weighted_split(self) -> None:
         registry = DataSourceRegistry()
-        source_a = _FakeDataSource()
-        source_b = _FakeDataSource()
-        source_a.source_id = "source-a"  # type: ignore[misc]
-        source_b.source_id = "source-b"  # type: ignore[misc]
+        source_a = _FakeDataSource(source_id="source-a")
+        source_b = _FakeDataSource(source_id="source-b")
         registry.register(source_a)
         registry.register(source_b)
 
@@ -195,16 +205,13 @@ class TestPullInterceptorDataSources:
         import asyncio
 
         class _SlowSource(_FakeDataSource):
-            source_id: ClassVar[str] = "slow"
-
             async def retrieve(self, *, query, budget):
                 await asyncio.sleep(10)
                 return ()
 
         registry = DataSourceRegistry()
-        slow = _SlowSource()
-        fast = _FakeDataSource(chunks=(_chunk(chunk_id="fast1", source_id="fake-crm"),))
-        fast.source_id = "fast"  # type: ignore[misc]
+        slow = _SlowSource(source_id="slow")
+        fast = _FakeDataSource(source_id="fast", chunks=(_chunk(chunk_id="fast1", source_id="fake-crm"),))
         registry.register(slow)
         registry.register(fast)
 
@@ -272,3 +279,34 @@ class TestPullInterceptorEviction:
             first.enriched_context.artifacts["surfaced_sources"]
             == second.enriched_context.artifacts["surfaced_sources"]
         )
+
+    async def test_kg_priority_band_outranks_datasource_when_over_budget(self) -> None:
+        """SPEC-02 Inv 11/12: kg (priority 100) SHALL evict a datasource chunk
+        (priority 80) when both compete for the same budget — proves the
+        priority band actually governs cross-source-kind eviction, not just
+        within one source_kind."""
+        relation = KGRelation(source_id="order-42", target_id="customer-7", type=RelationType.PRODUCES)
+        kg = _FakeKnowledgeGraph(result=KGQueryResult(relations=(relation,)))
+
+        registry = DataSourceRegistry()
+        datasource_chunk = _chunk(
+            chunk_id="ds1", source_id="fake-crm", token_count=100, retrieved_at=datetime(2026, 1, 1)
+        )
+        source = _FakeDataSource(chunks=(datasource_chunk,))
+        registry.register(source)
+
+        # Budget fits only ONE chunk — kg's real token_count is small (see
+        # _pull_kg's estimate), so this asserts against whichever chunk the
+        # real interceptor actually produces, not a hand-picked number.
+        interceptor = PullInterceptor(
+            pull_tokens=5,
+            knowledge_graph=kg,
+            data_source_registry=registry,
+            entity_extractor=DefaultEntityExtractor(),
+        )
+        decision = await interceptor.pre(node=_node(name="OrderPipeline lookup"), context=_context())
+        surfaced = decision.enriched_context.artifacts["surfaced_sources"]
+
+        assert len(surfaced) == 1
+        assert surfaced[0].source_kind == SourceKind.KG
+        assert datasource_chunk not in surfaced

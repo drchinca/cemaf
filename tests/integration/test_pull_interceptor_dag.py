@@ -20,7 +20,13 @@ from cemaf.citation.models import Citation
 from cemaf.context.budget import TokenBudget
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
-from cemaf.datasources.models import CiteableChunk, DataSourceCapability, HealthStatus, RetrievalQuery
+from cemaf.datasources.models import (
+    CiteableChunk,
+    DataSourceCapability,
+    HealthStatus,
+    RetrievalQuery,
+    SourceKind,
+)
 from cemaf.datasources.registry import DataSourceRegistry, source_registry_from_data_sources
 from cemaf.interceptors import PullInterceptor, create_interceptor_pipeline
 from cemaf.orchestration.dag import DAG, Node
@@ -76,7 +82,11 @@ class _EchoAgent(Agent[_EchoGoal, list]):
 def _chunk(*, chunk_id: str, source_id: str) -> CiteableChunk:
     citation = Citation(id=chunk_id, source_id=source_id, source_type="document", url="https://example.com/x")
     return CiteableChunk(
-        chunk_id=chunk_id, content="crm record", citation=citation, token_count=10, source_kind="datasource"
+        chunk_id=chunk_id,
+        content="crm record",
+        citation=citation,
+        token_count=10,
+        source_kind=SourceKind.DATASOURCE,
     )
 
 

@@ -1,6 +1,12 @@
 """Tests for orchestration factory helpers."""
 
-from cemaf.orchestration.factories import create_executor_config, create_runtime_services
+from cemaf.datasources.registry import DataSourceRegistry
+from cemaf.interceptors.pull import PullInterceptor
+from cemaf.orchestration.factories import (
+    create_executor_config,
+    create_pull_interceptor,
+    create_runtime_services,
+)
 
 
 def test_create_executor_config_preserves_overrides() -> None:
@@ -32,3 +38,36 @@ def test_create_runtime_services_preserves_dependencies() -> None:
     assert services.run_logger is run_logger
     assert services.event_bus is event_bus
     assert services.max_recovery_attempts == 5
+
+
+def test_create_runtime_services_preserves_data_source_registry() -> None:
+    registry = DataSourceRegistry()
+
+    services = create_runtime_services(data_source_registry=registry)
+
+    assert services.data_source_registry is registry
+
+
+def test_create_pull_interceptor_wires_from_runtime_services() -> None:
+    """Closes the gap where RuntimeServices.data_source_registry had no
+    composition-root consumer — proves the factory actually reads it."""
+    registry = DataSourceRegistry()
+    knowledge_graph = object()
+    services = create_runtime_services(
+        data_source_registry=registry,
+        knowledge_graph=knowledge_graph,  # type: ignore[arg-type]
+    )
+
+    interceptor = create_pull_interceptor(services=services, pull_tokens=1000)
+
+    assert isinstance(interceptor, PullInterceptor)
+    assert interceptor._registry is registry
+    assert interceptor._knowledge_graph is knowledge_graph
+
+
+def test_create_pull_interceptor_forwards_extra_kwargs() -> None:
+    services = create_runtime_services()
+
+    interceptor = create_pull_interceptor(services=services, pull_tokens=500, node_pattern="specific_node")
+
+    assert interceptor._pattern == "specific_node"

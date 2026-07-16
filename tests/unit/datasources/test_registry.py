@@ -149,10 +149,13 @@ class TestTenantPriorityOffsets:
 
 class TestSourceRegistryFromDataSources:
     def test_includes_registered_and_fixed_source_ids(self) -> None:
+        """PullInterceptor no longer emits memory-sourced chunks (that pull was
+        removed as a fix for double-surfacing memory content), so 'memory' is
+        NOT in the fixed allow-list — only 'kg' plus every registered source_id."""
         registry = DataSourceRegistry()
         registry.register(_GoodSource())
         source_registry = source_registry_from_data_sources(registry)
         assert source_registry.is_known("good")
         assert source_registry.is_known("kg")
-        assert source_registry.is_known("memory")
+        assert not source_registry.is_known("memory")
         assert not source_registry.is_known("fabricated")

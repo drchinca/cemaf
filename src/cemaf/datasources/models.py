@@ -43,6 +43,15 @@ class HealthStatus(StrEnum):
     UNHEALTHY = "unhealthy"
 
 
+class SourceKind(StrEnum):
+    """Which layer a CiteableChunk originated from — the eviction priority key."""
+
+    KG = "kg"
+    DATASOURCE = "datasource"
+    MEMORY = "memory"
+    VECTOR = "vector"
+
+
 @dataclass(frozen=True, slots=True)
 class EntityRef:
     """A typed reference to a business entity surfaced by extraction or the KG."""
@@ -65,15 +74,16 @@ class RetrievalQuery:
 
 # Sort-key band per originating layer — PullInterceptor's merge+eviction step
 # sorts by (priority desc, confidence desc, retrieved_at asc) per SPEC-02 Inv 11.
-PRIORITY_BY_SOURCE_KIND: Final[Mapping[str, int]] = {
-    "kg": 100,
-    "datasource": 80,
-    "memory": 60,
-    "vector": 40,
+PRIORITY_BY_SOURCE_KIND: Final[Mapping[SourceKind, int]] = {
+    SourceKind.KG: 100,
+    SourceKind.DATASOURCE: 80,
+    SourceKind.MEMORY: 60,
+    SourceKind.VECTOR: 40,
 }
 
-_SOURCE_KINDS: Final[frozenset[str]] = frozenset(PRIORITY_BY_SOURCE_KIND)
-_TENANT_OFFSET_BOUND: Final[int] = 10
+# Single source of truth for the tenant priority-offset bound — DataSourceRegistry
+# validates against this same constant, imported from here, not re-declared.
+TENANT_OFFSET_BOUND: Final[int] = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,23 +99,21 @@ class CiteableChunk:
     content: str
     citation: Citation
     token_count: int
-    source_kind: str
+    source_kind: SourceKind
     confidence: float = 1.0
     tenant_offset: int = 0
     retrieved_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        if self.source_kind not in _SOURCE_KINDS:
-            raise ValueError(f"source_kind must be one of {sorted(_SOURCE_KINDS)}, got {self.source_kind!r}")
+        if self.source_kind not in SourceKind:
+            raise ValueError(f"source_kind must be one of {list(SourceKind)}, got {self.source_kind!r}")
         if not self.citation.source_id:
             raise ValueError("CiteableChunk citation missing source_id")
         locator = (self.citation.url, self.citation.context_path, self.citation.section, self.citation.page)
         if not any(locator):
             raise ValueError("CiteableChunk citation missing a locator (url/context_path/section/page)")
-        if not (-_TENANT_OFFSET_BOUND <= self.tenant_offset <= _TENANT_OFFSET_BOUND):
-            raise ValueError(
-                f"tenant_offset must be within ±{_TENANT_OFFSET_BOUND}, got {self.tenant_offset}"
-            )
+        if not (-TENANT_OFFSET_BOUND <= self.tenant_offset <= TENANT_OFFSET_BOUND):
+            raise ValueError(f"tenant_offset must be within ±{TENANT_OFFSET_BOUND}, got {self.tenant_offset}")
 
     @property
     def priority(self) -> int:
