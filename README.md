@@ -106,6 +106,7 @@ Live-verified at HEAD on every CI run — every name above resolves against `src
 - [Overview](#overview)
 - [The Hard Problems We Solve](#the-hard-problems-we-solve)
 - [Installation](#installation)
+- [Free & Sovereign — no vendor lock-in required](#free--sovereign--no-vendor-lock-in-required)
 - [Quick Start](#quick-start)
 - [Integration Modes](#integration-modes)
 - [Key Features](#key-features)
@@ -255,7 +256,7 @@ See **[docs/self-hosting.md](docs/self-hosting.md)** for the full meta catalog, 
 # Core installation: offline examples, protocols, DAGs, context, memory
 pip install cemaf
 
-# Local/free LLM serving through Ollama's OpenAI-compatible HTTP API
+# Ollama's OpenAI-compatible HTTP API extra (see "Free & Sovereign" below for the zero-cost stack)
 pip install "cemaf[ollama]"
 
 # Hosted providers are explicit opt-in
@@ -276,6 +277,36 @@ make                      # print the full menu
 ```
 
 **Requirements**: Python 3.14+
+
+---
+
+## Free & Sovereign — no vendor lock-in required
+
+CEMAF's LLM layer is **BYO-X by design** (see `LLMClient` Protocol): every provider is an interchangeable adapter behind `llm_registry`, none is privileged in the framework core. That means the entire orchestration stack — DAGs, context compilation, memory, evals, citations — runs the same way whether the model behind it costs $0 or $0.03/1K tokens. You own the model choice; CEMAF never assumes a paid vendor.
+
+A zero-cost stack that works today, no credit card required — a curated subset of the 15 `LLMBackend` members registered in `llm_registry` (paid vendors like OpenAI, Anthropic, and Bedrock are also there, always explicit opt-in):
+
+| Layer | Provider | Cost | `LLMBackend` |
+|---|---|---|---|
+| **Local, unlimited** | Ollama (Llama 3.x, Qwen 3, DeepSeek-R1 Distill, Mistral, Gemma) | Free — your hardware is the only limit | `LLMBackend.OLLAMA` |
+| **High free quota** | Google AI Studio (Gemini Flash) | Free API key, generous request quotas | `LLMBackend.GEMINI` |
+| **High throughput** | Groq | Free tier, hundreds of req/min, excellent latency | `LLMBackend.GROQ` |
+| **Model breadth** | Together AI / Hugging Face routers | Free tiers on many open models | `LLMBackend.TOGETHER` / `LLMBackend.HUGGINGFACE` |
+
+```python
+from cemaf.llm import create_llm_client, LLMBackend
+
+# Local, zero marginal cost — hardware is the only limit
+local = create_llm_client(LLMBackend.OLLAMA, model="qwen3:32b")
+
+# Free-tier cloud fallback when local hardware can't hold the model
+cloud_fallback = create_llm_client(LLMBackend.GEMINI, api_key="...")  # or GEMINI_API_KEY env var
+
+# High-throughput lane
+fast_lane = create_llm_client(LLMBackend.GROQ, api_key="...")  # or GROQ_API_KEY env var
+```
+
+`LLMBackend` is a closed `StrEnum` — `create_llm_client(provider: LLMBackend | str, ...)` — so the provider argument is IDE-autocompletable and mypy-checked, not a hopeful string. Every backend still returns the same `LLMClient` Protocol, so swapping local ↔ free-cloud ↔ paid is a one-line change, never a call-site rewrite. See [`docs/patterns.md`](docs/patterns.md) for the full BYO-X pattern.
 
 ---
 
