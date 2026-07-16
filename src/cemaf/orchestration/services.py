@@ -66,6 +66,7 @@ from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
 from cemaf.core.recovery import AutoHealManager
 from cemaf.council.protocols import VoteAggregator
+from cemaf.datasources.registry import DataSourceRegistry
 from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
@@ -118,6 +119,11 @@ class RuntimeServices:
 
     # Knowledge (SPEC-02 / SPEC-07) — shared KG, optionally hub-and-spoke cached
     knowledge_graph: KnowledgeGraph | None = None
+
+    # DataSources (SPEC-02) — read-only enterprise connector registry. RuntimeServices
+    # never calls this directly; it's the DI slot composition-root code reads when
+    # building a PullInterceptor for interceptor_pipeline.
+    data_source_registry: DataSourceRegistry | None = None
 
     # Agent selection (SPEC-09) — opt-in auction; None → static ref_id only
     agent_selector: AgentSelector | None = None
