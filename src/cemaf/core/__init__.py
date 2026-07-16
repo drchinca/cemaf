@@ -62,6 +62,7 @@ from cemaf.core.types import (
     Confidence,
     DomainID,
     FinishReason,
+    LLMBackend,
     LLMProvider,
     NodeID,
     ProjectID,
@@ -89,6 +90,7 @@ __all__ = [
     "TokenCount",
     "ToolID",
     "FinishReason",
+    "LLMBackend",
     "LLMProvider",
     # Enums
     "AgentStatus",
