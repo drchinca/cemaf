@@ -21,6 +21,7 @@ from cemaf.state.errors import (
 from cemaf.state.factories import create_fsm_store, fsm_store_registry
 from cemaf.state.fsm import StateMachine
 from cemaf.state.persistence import FsmStore, InMemoryFsmStore
+from cemaf.state.sqlite_store import SqliteFsmStore
 from cemaf.state.transitions import FsmState, StateTransition, Transition
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "HandlerFailed",
     "HitlRequired",
     "InMemoryFsmStore",
+    "SqliteFsmStore",
     "StateMachine",
     "StateTransition",
     "Transition",
