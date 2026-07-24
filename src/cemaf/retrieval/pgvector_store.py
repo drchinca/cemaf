@@ -89,6 +89,7 @@ class PgVectorStore:
         dim = self._dimension
         ddl = f"""
             CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE SCHEMA IF NOT EXISTS {s};
             CREATE TABLE IF NOT EXISTS {s}.vector_documents (
                 id TEXT NOT NULL,
                 content TEXT NOT NULL,
@@ -241,7 +242,8 @@ class PgVectorStore:
                 ids,
             )
             await conn.copy_records_to_table(
-                f"{s}.vector_documents",
+                "vector_documents",
+                schema_name=s,
                 records=records,
                 columns=["id", "content", "embedding", "metadata", "created_at", "tenant_id"],
             )
