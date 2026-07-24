@@ -6,13 +6,24 @@ Run with (a `pgvector/pgvector` Postgres reachable at CEMAF_PGVECTOR_DSN):
 This suite exists because the unit suite for PgVectorStore
 (tests/unit/retrieval/test_pgvector_store.py) mocks every asyncpg call, and
 tests/integration/test_postgres_memory_store.py drives a hand-written fake
-pool — neither exercises asyncpg's real identifier quoting. That gap let a
-real bug ship: `add_batch` passed a schema-qualified string
-(f"{schema}.vector_documents") as `copy_records_to_table`'s `table_name`
-positional, which asyncpg treats as one literal identifier (not
-schema.table), raising `UndefinedTableError` against a real database every
-time. Fixed by using the `schema_name=` kwarg instead. This suite proves the
-whole store — schema/extension bootstrap, add, search, delete — against a
+pool — neither exercises asyncpg's real identifier quoting or its real
+pgvector row decoding. That gap let two real bugs ship:
+
+1. `add_batch` passed a schema-qualified string
+   (f"{schema}.vector_documents") as `copy_records_to_table`'s `table_name`
+   positional, which asyncpg treats as one literal identifier (not
+   schema.table), raising `UndefinedTableError` against a real database
+   every time. Fixed by using the `schema_name=` kwarg instead.
+2. `_row_to_document` assumed asyncpg + `pgvector.asyncpg`'s
+   `register_vector` always decodes a `vector` column into something
+   directly iterable (a numpy array on `pgvector-python` 0.4.x). On
+   `pgvector-python` 0.5.0+ it decodes into a `pgvector.Vector` wrapper
+   object instead, which is NOT iterable — every `get`/`search` call
+   raised `TypeError: 'Vector' object is not iterable`. Fixed by unwrapping
+   via `.to_list()` when present.
+
+This suite proves the whole store — schema/extension bootstrap, add,
+search, delete, and the actual embedding values round-tripping — against a
 real connection so this class of bug can't silently reappear.
 """
 
@@ -56,10 +67,15 @@ async def test_add_search_delete_round_trip_against_real_postgres(schema: str) -
         fetched = await store.get("doc-1")
         assert fetched is not None
         assert fetched.content == "hello world"
+        # Regression check for the pgvector.Vector-is-not-iterable bug: the
+        # decoded embedding must actually be usable as a tuple of floats.
+        assert fetched.embedding is not None
+        assert [round(v, 5) for v in fetched.embedding] == [0.1, 0.2, 0.3]
 
         results = await store.search(query_embedding=(0.1, 0.2, 0.3), k=1)
         assert len(results) == 1
         assert results[0].document.id == "doc-1"
+        assert results[0].document.embedding is not None
 
         assert await store.delete("doc-1") is True
         assert await store.count() == 0

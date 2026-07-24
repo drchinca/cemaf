@@ -174,8 +174,11 @@ class PgVectorStore:
         if embedding_raw is None:
             embedding: tuple[float, ...] | None = None
         else:
-            # pgvector returns a numpy-like array or list; normalize to tuple
-            embedding = tuple(float(v) for v in embedding_raw)
+            # asyncpg + pgvector.asyncpg's register_vector decode the vector
+            # column into a pgvector.Vector wrapper, not a plain list/array —
+            # unwrap via .to_list() before normalizing to tuple.
+            values = embedding_raw.to_list() if hasattr(embedding_raw, "to_list") else embedding_raw
+            embedding = tuple(float(v) for v in values)
 
         created_at = row["created_at"]
         if isinstance(created_at, str):
