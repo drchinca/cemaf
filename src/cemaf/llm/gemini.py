@@ -589,6 +589,10 @@ def _generation_config(config: LLMConfig) -> dict[str, Any]:
     }
     if config.stop_sequences:
         generation_config["stopSequences"] = list(config.stop_sequences)
+    if config.response_mime_type:
+        generation_config["responseMimeType"] = config.response_mime_type
+    if config.response_schema is not None:
+        generation_config["responseSchema"] = config.response_schema
     return generation_config
 
 
