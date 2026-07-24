@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-07-24
+
+Edusphere-readiness: durable FSM persistence, Gemini structured-output schema,
+and lighter LLM module imports.
+
+**Added:**
+- `SqliteFsmStore` — durable FSM persistence over aiosqlite (WAL, busy_timeout,
+  optimistic locking). Registered as `create_fsm_store(backend="sqlite")`.
+- `response_schema` on `LLMConfig` — threaded into Gemini's `generationConfig`
+  for server-side JSON schema constrained replies.
+
+**Changed:**
+- Lazy PEP 562 exports in `cemaf.llm` — protocol-only imports no longer eagerly
+  load every vendor adapter.
+
+**Tests:**
+- Ollama local/tiered/cloud resilient-factory variants and full `MockLLMClient`
+  coverage.
+
 ## [3.2.0] - 2026-07-16
 
 Typed provider selection, blueprint-driven structured generation, and
