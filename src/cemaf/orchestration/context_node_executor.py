@@ -261,7 +261,14 @@ class ContextNodeExecutor:
                 warnings=context_warnings,
             )
             if compiled:
-                artifacts = {"compiled_context": compiled.to_messages()}
+                # to_messages() discards CompiledContext.total_tokens — stash it
+                # separately so a later PRE interceptor (e.g. PullInterceptor) can
+                # reconcile its own token cap against what compiled_context already
+                # spent, rather than budgeting blind against the same model window.
+                artifacts = {
+                    "compiled_context": compiled.to_messages(),
+                    "compiled_context_tokens": compiled.total_tokens,
+                }
 
         # Build agent context
         agent_context = AgentContext(

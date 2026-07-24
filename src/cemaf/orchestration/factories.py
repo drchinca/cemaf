@@ -17,10 +17,12 @@ from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
 from cemaf.core.recovery import AutoHealManager
 from cemaf.council.protocols import VoteAggregator
+from cemaf.datasources.registry import DataSourceRegistry
 from cemaf.evals.online import OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
 from cemaf.interceptors.pipeline import InterceptorPipeline
+from cemaf.interceptors.pull import PullInterceptor
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
@@ -53,6 +55,7 @@ def create_runtime_services(
     llm_client: LLMClient | None = None,
     vector_store: VectorStore | None = None,
     knowledge_graph: KnowledgeGraph | None = None,
+    data_source_registry: DataSourceRegistry | None = None,
     agent_selector: AgentSelector | None = None,
     council_aggregator: VoteAggregator | None = None,
     interceptor_pipeline: InterceptorPipeline | None = None,
@@ -79,6 +82,7 @@ def create_runtime_services(
         llm_client=llm_client,
         vector_store=vector_store,
         knowledge_graph=knowledge_graph,
+        data_source_registry=data_source_registry,
         agent_selector=agent_selector,
         council_aggregator=council_aggregator,
         interceptor_pipeline=interceptor_pipeline,
@@ -187,4 +191,24 @@ def create_dag_executor_from_config(
         event_bus=event_bus,
         moderation_pipeline=moderation_pipeline,
         session_manager=session_manager,
+    )
+
+
+def create_pull_interceptor(
+    *, services: RuntimeServices, pull_tokens: int, **kwargs: object
+) -> PullInterceptor:
+    """Build a PullInterceptor wired from RuntimeServices.knowledge_graph and
+    .data_source_registry — the composition-root call that gives
+    RuntimeServices.data_source_registry a real consumer. RuntimeServices
+    itself never calls DataSourceRegistry directly (see services.py); this
+    factory is where a caller turns "I configured a registry" into "there is
+    now a PullInterceptor reading from it." Pass the result into
+    `create_interceptor_pipeline(interceptors=(create_pull_interceptor(...), ...))`.
+    """
+    return PullInterceptor(
+        pull_tokens=pull_tokens,
+        knowledge_graph=services.knowledge_graph,
+        data_source_registry=services.data_source_registry,
+        token_budget=services.token_budget,
+        **kwargs,  # type: ignore[arg-type]
     )

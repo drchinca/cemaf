@@ -16,6 +16,7 @@ from cemaf.interceptors.policy import (
     PolicyInterceptor,
 )
 from cemaf.interceptors.protocols import Interceptor, PostInterceptor, PreInterceptor
+from cemaf.interceptors.pull import PullInterceptor
 from cemaf.interceptors.types import (
     DecisionKind,
     PostflightDecision,
@@ -39,6 +40,7 @@ __all__ = [
     "PostflightDecision",
     "PreInterceptor",
     "PreflightDecision",
+    "PullInterceptor",
     "RecoveryHint",
     "create_interceptor_pipeline",
 ]

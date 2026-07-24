@@ -134,27 +134,43 @@ consumed by `meta/` — SPEC-02's job is to generalize it into a
 **Work**:
 1. `cemaf/datasources/protocols.py` — `DataSource` Protocol (read-only,
    citeable, with health-check and timeout contract per SPEC-02 §2).
-2. `cemaf/datasources/registry.py` — `DataSourceRegistry` (this repo's
-   standard `ProviderRegistry[T]` pattern — reuse `core/provider_registry.py`,
-   don't reinvent a second registry shape).
-3. `cemaf/interceptors/pull.py` — `PullInterceptor` (PRE, position 2 — *before*
-   Phase 4's `BlueprintInterceptor`). Retrieves across KG + vector store +
-   memory + `DataSource`s within `node.budget.pull_tokens`, writes to
-   `ctx.surfaced_sources` — this is the canonical membership set Phase 7's
-   cite-or-fail guardian enforces against, so its correctness gates
-   everything downstream.
+2. `cemaf/datasources/registry.py` — `DataSourceRegistry`. **Deviates from
+   `core/provider_registry.py`'s `ProviderRegistry[T]` pattern** — that class
+   maps a backend name to a factory and instantiates on demand;
+   `DataSourceRegistry.register()` must accept an *already-constructed*
+   instance and reject it by introspecting the concrete class's public
+   surface (SPEC-02 Inv 1's read-only-boundary check) — a shape
+   `ProviderRegistry` has no hook for. A bespoke class is correct here; this
+   is not an oversight.
+3. `cemaf/interceptors/pull.py` — `PullInterceptor` (a `PreInterceptor`).
+   Retrieves across KG + `DataSource`s within a constructor-configured
+   `pull_tokens` cap, writes to `AgentContext.artifacts["surfaced_sources"]`
+   — this is the canonical membership set Phase 7's cite-or-fail guardian
+   would enforce against. Registration order in `InterceptorPipeline` is run
+   order — there is no phase/position enum in the shipped pipeline to
+   declare "before Phase 4," and Phase 4 (SPEC-03) shipped as plain
+   `generation/` objects, not an interceptor, so there is nothing to order
+   against yet.
+   **Deliberately excludes `context.global_memory`** — `ContextNodeExecutor`
+   already recalls memory into `AgentContext.global_memory` before any
+   interceptor runs; re-wrapping those same items as `CiteableChunk`s here
+   would surface identical content twice through two uncoordinated priority
+   systems. Memory stays exactly where it already is.
 4. Eviction policy — deterministic across runs (spec-module-map.md's Phase 5
    gate explicitly calls this out; don't ship an LRU that isn't
    seed-reproducible in tests).
 5. `RuntimeServices.knowledge_graph` is already `landed` per spec-module-map —
-   confirm Phase 5 only *adds* `datasource_registry`, doesn't touch the
+   confirm Phase 5 only *adds* `data_source_registry`, doesn't touch the
    existing KG field.
 
-**§10 test coverage**: L2 — `PullInterceptor` hydrates `ctx.surfaced_sources`
-from a registered `DataSource` within budget; budget-exceeded truncates
-deterministically (same seed → same truncation). Integration — a fake
-`DataSource` with injected latency/failure modes (per `pluggable-scalable.md`
-PS-10 — every port ships a `Fake<Port>` with failure injection).
+**§10 test coverage**: L2 — `PullInterceptor` hydrates
+`artifacts["surfaced_sources"]` from a registered `DataSource` within budget;
+budget-exceeded truncates deterministically (same seed → same truncation).
+Integration — a fake `DataSource` with injected latency/failure modes (per
+`pluggable-scalable.md` PS-10 — every port ships a `Fake<Port>` with failure
+injection), **plus a real consuming agent that reads `surfaced_sources`** —
+without one, this ships as unconsumed infrastructure with no proof the write
+path is reachable end-to-end.
 
 ---
 
