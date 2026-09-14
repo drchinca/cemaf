@@ -18,7 +18,7 @@ Usage:
 import asyncio
 import builtins
 import copy
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
@@ -38,7 +38,7 @@ def with_retry(
     max_delay: float = 60.0,
     exponential: bool = True,
     retry_on_exceptions: tuple[type[BaseException], ...] | None = None,
-) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to add retry behavior to an async function.
 
@@ -67,7 +67,7 @@ def with_retry(
     config = RetryConfig(**kwargs)
     policy = RetryPolicy(config)
 
-    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             result = await policy.execute(func, *args, **kwargs)
@@ -90,7 +90,7 @@ def with_circuit_breaker(
     name: str | None = None,
     failure_threshold: int = 5,
     recovery_timeout: float = 30.0,
-) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to add circuit breaker to an async function.
 
@@ -106,7 +106,7 @@ def with_circuit_breaker(
         recovery_timeout_seconds=recovery_timeout,
     )
 
-    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         breaker_name = name or func.__name__
 
         # Get or create circuit breaker
@@ -133,7 +133,7 @@ class TimeoutError(Exception):
 
 def with_timeout(
     seconds: float,
-) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to add timeout to an async function.
 
@@ -143,7 +143,7 @@ def with_timeout(
             ...
     """
 
-    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             try:
@@ -158,7 +158,7 @@ def with_timeout(
 
 def with_fallback[**P, T](
     fallback_value: T,
-) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to return fallback value on any exception.
 
@@ -168,7 +168,7 @@ def with_fallback[**P, T](
             ...
     """
 
-    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             try:
