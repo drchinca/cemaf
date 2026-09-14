@@ -192,6 +192,7 @@ Each phase ends with: (a) integration tests proving the seam, (b) updates to thi
 
 ## See also
 
+- [`roadmap-plan.md`](roadmap-plan.md) — spec-driven sequencing + §10 test-coverage checklist for Phases 3–8
 - [`docs/self-hosting.md`](../self-hosting.md) — meta-layer catalog and extension pattern
 - [`docs/specs/SPEC-00`..`SPEC-06`](../specs/) — source specs
 - [`CLAUDE.md`](../../CLAUDE.md) — project contract (architecture overview, module map, testing discipline)

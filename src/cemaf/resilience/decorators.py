@@ -18,9 +18,9 @@ Usage:
 import asyncio
 import builtins
 import copy
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from functools import wraps
-from typing import Any, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 from cemaf.observability import get_logger
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
@@ -28,6 +28,7 @@ from cemaf.resilience.retry import RetryConfig, RetryPolicy
 
 logger = get_logger("resilience.decorators")
 
+P = ParamSpec("P")
 T = TypeVar("T")
 
 
@@ -37,7 +38,7 @@ def with_retry(
     max_delay: float = 60.0,
     exponential: bool = True,
     retry_on_exceptions: tuple[type[BaseException], ...] | None = None,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to add retry behavior to an async function.
 
@@ -66,9 +67,9 @@ def with_retry(
     config = RetryConfig(**kwargs)
     policy = RetryPolicy(config)
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             result = await policy.execute(func, *args, **kwargs)
             if result.success and result.result is not None:
                 # Cast to T since we know the result type matches the function return type
@@ -89,7 +90,7 @@ def with_circuit_breaker(
     name: str | None = None,
     failure_threshold: int = 5,
     recovery_timeout: float = 30.0,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to add circuit breaker to an async function.
 
@@ -105,7 +106,7 @@ def with_circuit_breaker(
         recovery_timeout_seconds=recovery_timeout,
     )
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         breaker_name = name or func.__name__
 
         # Get or create circuit breaker
@@ -114,7 +115,7 @@ def with_circuit_breaker(
         breaker = _circuit_breakers[breaker_name]
 
         @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             return await breaker.execute(func, *args, **kwargs)
 
         return wrapper
@@ -132,7 +133,7 @@ class TimeoutError(Exception):
 
 def with_timeout(
     seconds: float,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to add timeout to an async function.
 
@@ -142,9 +143,9 @@ def with_timeout(
             ...
     """
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             try:
                 return await asyncio.wait_for(func(*args, **kwargs), timeout=seconds)
             except builtins.TimeoutError:
@@ -155,9 +156,9 @@ def with_timeout(
     return decorator
 
 
-def with_fallback[T](
+def with_fallback[**P, T](
     fallback_value: T,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Coroutine[Any, Any, T]]]:
     """
     Decorator to return fallback value on any exception.
 
@@ -167,9 +168,9 @@ def with_fallback[T](
             ...
     """
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Coroutine[Any, Any, T]]:
         @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:

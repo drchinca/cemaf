@@ -12,7 +12,7 @@ import pytest
 
 from cemaf.core.types import FinishReason
 from cemaf.llm.mock import MockLLMClient
-from cemaf.llm.protocols import Message
+from cemaf.llm.protocols import Message, MessageRole, ToolCall
 
 
 class TestMockLLMClient:
@@ -104,3 +104,71 @@ class TestMockLLMClient:
 
         # (4 overhead + chars * 0.25) per message
         assert tokens > 0
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_exact_matches_heuristic(self):
+        """count_tokens_exact has no real API — it must equal the heuristic count."""
+        mock = MockLLMClient()
+        messages = [Message.user("Twelve chars")]
+
+        exact = await mock.count_tokens_exact(messages)
+
+        assert exact == mock.count_messages_tokens(messages)
+
+    def test_count_messages_tokens_list_content(self):
+        """Non-string (multimodal) content is estimated via its JSON representation."""
+        mock = MockLLMClient(tokens_per_char=0.25)
+        blocks = [{"type": "text", "text": "hola"}, {"type": "image", "url": "x://y"}]
+        message = Message(role=MessageRole.USER, content=blocks)
+
+        tokens = mock.count_messages_tokens([message])
+
+        import json
+
+        assert tokens == 4 + mock.count_tokens(json.dumps(blocks))
+
+    @pytest.mark.asyncio
+    async def test_add_response_appends_to_cycle(self):
+        mock = MockLLMClient(responses=["first"])
+        mock.add_response("second")
+
+        first = await mock.complete([Message.user("a")])
+        second = await mock.complete([Message.user("b")])
+
+        assert first.content == "first"
+        assert second.content == "second"
+
+    @pytest.mark.asyncio
+    async def test_add_tool_calls_queues_for_next_call(self):
+        mock = MockLLMClient(responses=["with tools"])
+        call = ToolCall(id="tc-1", name="lookup", arguments={"q": "x"})
+        mock.add_tool_calls([call])
+
+        result = await mock.complete([Message.user("go")])
+
+        assert result.message is not None
+        assert result.message.tool_calls == (call,)
+        assert result.finish_reason is FinishReason.TERMINAL_TOOL
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_exhausted_returns_plain_stop(self):
+        """Once queued tool calls run out, later completions are plain stop turns."""
+        call = ToolCall(id="tc-1", name="lookup", arguments={})
+        mock = MockLLMClient(responses=["r"], tool_calls=[[call]])
+
+        first = await mock.complete([Message.user("a")])
+        second = await mock.complete([Message.user("b")])
+
+        assert first.message is not None and first.message.tool_calls == (call,)
+        assert second.message is not None and second.message.tool_calls == ()
+        assert second.finish_reason is FinishReason.TERMINAL_STOP
+
+    @pytest.mark.asyncio
+    async def test_stream_single_word_is_one_final_chunk(self):
+        mock = MockLLMClient(responses=["solo"])
+
+        chunks = [chunk async for chunk in mock.stream([Message.user("hi")])]
+
+        assert len(chunks) == 1
+        assert chunks[0].is_final
+        assert chunks[0].accumulated_content == "solo"

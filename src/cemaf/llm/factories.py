@@ -14,7 +14,7 @@ from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import LLMSettings, Settings
 from cemaf.core.defaults import DEFAULT_FREE_LLM_MODEL, DEFAULT_FREE_LLM_PROVIDER
 from cemaf.core.provider_registry import ProviderRegistry
-from cemaf.core.types import LLMProvider
+from cemaf.core.types import LLMBackend, LLMProvider
 from cemaf.llm.instrumented import InstrumentedLLMClient
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import LLMClient
@@ -252,22 +252,22 @@ def _create_bedrock(**kwargs: Any) -> LLMClient:
 
 
 # Register all providers
-llm_registry.register(backend="mock", factory=_create_mock)
-llm_registry.register(backend="anthropic", factory=_create_anthropic)
-llm_registry.register(backend="openai", factory=_create_openai)
-llm_registry.register(backend="openai-responses", factory=_create_openai)
-llm_registry.register(backend="openai-compatible", factory=_create_openai_compatible)
-llm_registry.register(backend="openai-compat", factory=_create_openai_compatible)
-llm_registry.register(backend="ollama", factory=_create_ollama)
-llm_registry.register(backend="ollama-tiered", factory=_create_ollama_tiered)
-llm_registry.register(backend="ollama-cloud", factory=_create_ollama_cloud)
-llm_registry.register(backend="groq", factory=_create_groq)
-llm_registry.register(backend="together", factory=_create_together)
-llm_registry.register(backend="huggingface", factory=_create_huggingface)
-llm_registry.register(backend="gemini", factory=_create_gemini)
-llm_registry.register(backend="vertex", factory=_create_vertex)
-llm_registry.register(backend="vertex-ai", factory=_create_vertex)
-llm_registry.register(backend="bedrock", factory=_create_bedrock)
+llm_registry.register(backend=LLMBackend.MOCK, factory=_create_mock)
+llm_registry.register(backend=LLMBackend.ANTHROPIC, factory=_create_anthropic)
+llm_registry.register(backend=LLMBackend.OPENAI, factory=_create_openai)
+llm_registry.register(backend=LLMBackend.OPENAI_RESPONSES, factory=_create_openai)
+llm_registry.register(backend=LLMBackend.OPENAI_COMPATIBLE, factory=_create_openai_compatible)
+llm_registry.register(backend=LLMBackend.OPENAI_COMPAT, factory=_create_openai_compatible)
+llm_registry.register(backend=LLMBackend.OLLAMA, factory=_create_ollama)
+llm_registry.register(backend=LLMBackend.OLLAMA_TIERED, factory=_create_ollama_tiered)
+llm_registry.register(backend=LLMBackend.OLLAMA_CLOUD, factory=_create_ollama_cloud)
+llm_registry.register(backend=LLMBackend.GROQ, factory=_create_groq)
+llm_registry.register(backend=LLMBackend.TOGETHER, factory=_create_together)
+llm_registry.register(backend=LLMBackend.HUGGINGFACE, factory=_create_huggingface)
+llm_registry.register(backend=LLMBackend.GEMINI, factory=_create_gemini)
+llm_registry.register(backend=LLMBackend.VERTEX, factory=_create_vertex)
+llm_registry.register(backend=LLMBackend.VERTEX_AI, factory=_create_vertex)
+llm_registry.register(backend=LLMBackend.BEDROCK, factory=_create_bedrock)
 
 
 # ---------------------------------------------------------------------------
@@ -276,21 +276,28 @@ llm_registry.register(backend="bedrock", factory=_create_bedrock)
 
 
 def create_llm_client(
-    provider: str,
+    provider: LLMBackend | str,
     **kwargs: Any,
 ) -> LLMClient:
     """Create an LLM client for any supported provider.
 
     Args:
-        provider: Any backend registered in `llm_registry`.
+        provider: An LLMBackend member, or its string value, registered in
+            `llm_registry`. Plain strings still work — LLMBackend is a
+            StrEnum, so "groq" == LLMBackend.GROQ — but LLMBackend gives
+            autocomplete and a mypy-checked closed set instead of a typo
+            surfacing only at runtime.
         **kwargs: Provider-specific args (api_key, model, base_url, etc.)
 
     Examples:
-        client = create_llm_client("ollama")
-        client = create_llm_client("openai-compatible", base_url="http://localhost:8000/v1", model="qwen")
+        client = create_llm_client(LLMBackend.OLLAMA)
+        client = create_llm_client("ollama")  # equivalent — LLMBackend is a StrEnum
+        client = create_llm_client(
+            LLMBackend.OPENAI_COMPATIBLE, base_url="http://localhost:8000/v1", model="qwen"
+        )
 
         # Cloud/paid adapters are explicit opt-in:
-        client = create_llm_client("openai", api_key="...", model="...")
+        client = create_llm_client(LLMBackend.OPENAI, api_key="...", model="...")
     """
     return llm_registry.create(backend=provider, **kwargs)
 
@@ -303,7 +310,7 @@ def create_mock_llm_client(
 
 
 def create_llm_client_from_config(
-    provider: str | None = None,
+    provider: LLMBackend | str | None = None,
     settings: Settings | None = None,
 ) -> LLMClient:
     """Create LLM client from Settings configuration."""

@@ -276,6 +276,42 @@ class TestComplete:
         }
 
     @pytest.mark.asyncio
+    async def test_response_schema_reaches_generation_config(self) -> None:
+        schema = {
+            "type": "OBJECT",
+            "properties": {"label": {"type": "STRING", "enum": ["a", "b"]}},
+            "required": ["label"],
+        }
+        client = GeminiClient(
+            api_key="test-key",
+            model="gemini-2.0-flash",
+        )
+        cfg = client.config.model_copy(
+            update={"response_mime_type": "application/json", "response_schema": schema}
+        )
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": '{"label": "a"}'}]}, "finishReason": "STOP"}],
+            "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 2},
+        }
+
+        with patch("cemaf.llm.gemini.httpx") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.AsyncClient.return_value = mock_client
+
+            result = await client.complete(messages=[Message.user(content="pick one")], config_override=cfg)
+
+        assert result.success
+        gen_config = mock_client.post.call_args.kwargs["json"]["generationConfig"]
+        assert gen_config["responseMimeType"] == "application/json"
+        assert gen_config["responseSchema"] == schema
+
+    @pytest.mark.asyncio
     async def test_api_error(self) -> None:
         client = GeminiClient(api_key="test-key")
 

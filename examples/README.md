@@ -42,6 +42,12 @@ How CEMAF assembles a prompt from layered, prioritized, budgeted context.
 | [`context_layers/context_type_layers.py`](context_layers/context_type_layers.py) | Typed `ContextSource` layers compiled under a `TokenBudget` — low-priority layers dropped, not truncated. |
 | [`context_layers/layered_compile_pipeline.py`](context_layers/layered_compile_pipeline.py) | Full stack: `ContextPatch` (provenance) → `Context` → priority compile → budgeted prompt. |
 
+## Enterprise connectors (DataSources)
+
+| Example | Proves |
+|---|---|
+| [`pull_interceptor_datasources.py`](pull_interceptor_datasources.py) | A read-only `DataSource` (CRM) surfaced into an agent's context via `PullInterceptor`, with `pull_tokens` reconciled against a real `TokenBudget` so pulled context can't blow past what compiled context already spent. |
+
 ## The whole engine
 
 | Example | Proves |

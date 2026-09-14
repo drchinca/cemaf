@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-07-24
+
+Edusphere-readiness: durable FSM persistence, Gemini structured-output schema,
+and lighter LLM module imports.
+
+**Added:**
+- `SqliteFsmStore` — durable FSM persistence over aiosqlite (WAL, busy_timeout,
+  optimistic locking). Registered as `create_fsm_store(backend="sqlite")`.
+- `response_schema` on `LLMConfig` — threaded into Gemini's `generationConfig`
+  for server-side JSON schema constrained replies.
+
+**Changed:**
+- Lazy PEP 562 exports in `cemaf.llm` — protocol-only imports no longer eagerly
+  load every vendor adapter.
+
+**Tests:**
+- Ollama local/tiered/cloud resilient-factory variants and full `MockLLMClient`
+  coverage.
+
+## [3.2.0] - 2026-07-16
+
+Typed provider selection, blueprint-driven structured generation, and
+citation-checked context agents.
+
+**Added:**
+- `LLMBackend` — a closed enum covering every backend registered in
+  `llm_registry`, so `create_llm_client` accepts a type-checked, autocomplete-
+  friendly choice instead of an unvalidated string; existing string call sites
+  keep working unchanged.
+- `generation.BlueprintRequest`/`StructuredResult` and
+  `DefaultStructuredGenerator` — Blueprint-driven structured generation with
+  schema validation, MUST/MUST_NOT policy enforcement with bounded
+  re-generation, citation-membership filtering, and a token-bounded
+  TERMINAL_TOOL round loop.
+- README section mapping CEMAF's modules onto the standard agentic-stack
+  taxonomy (inference, eval/observability, agent frameworks, vector DBs,
+  ingestion, memory) plus CEMAF's own taxonomy for the modules that don't fit
+  it (coordination, trust & governance, provenance & audit, self-improvement).
+- `docs/architecture/roadmap-plan.md` — spec-driven sequencing and a
+  test-coverage checklist for the framework's remaining unbuilt phases.
+
+**Changed:**
+- `LibrarianAgent` and `ResearcherAgent` now retry transient vector-store
+  failures instead of failing outright, and `LibrarianAgent` validates a
+  retrieved blueprint against the real `Blueprint` model rather than trusting
+  arbitrary JSON.
+- `ResearcherAgent` checks every inline citation in its synthesized output
+  against the sources it actually retrieved, flagging a fabricated citation
+  instead of trusting the model's prose on faith.
+
 ## [3.1.1] - 2026-07-14
 
 Durable runtime composition and production-behavior evidence.

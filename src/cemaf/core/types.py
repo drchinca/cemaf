@@ -38,6 +38,33 @@ class LLMProvider(StrEnum):
     ADAPTER = "adapter"
 
 
+class LLMBackend(StrEnum):
+    """Closed enum of backends registered in llm_registry (create_llm_client).
+
+    Broader than LLMProvider: a backend is a specific call shape against the
+    registry (routing strategy, test double, or vendor), not just a vendor
+    family. E.g. "ollama-tiered" and "mock" are backends with no LLMProvider
+    of their own.
+    """
+
+    MOCK = "mock"
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    OPENAI_RESPONSES = "openai-responses"
+    OPENAI_COMPATIBLE = "openai-compatible"
+    OPENAI_COMPAT = "openai-compat"
+    OLLAMA = "ollama"
+    OLLAMA_TIERED = "ollama-tiered"
+    OLLAMA_CLOUD = "ollama-cloud"
+    GROQ = "groq"
+    TOGETHER = "together"
+    HUGGINGFACE = "huggingface"
+    GEMINI = "gemini"
+    VERTEX = "vertex"
+    VERTEX_AI = "vertex-ai"
+    BEDROCK = "bedrock"
+
+
 # JSON-compatible dict type
 JSON = dict[str, Any]
 

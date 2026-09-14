@@ -35,6 +35,7 @@ TIERS: dict[str, int] = {
     "observability": TIER_FABRIC,
     "resilience": TIER_FABRIC,
     "retrieval": TIER_FABRIC,
+    "datasources": TIER_FABRIC,
     "bootstrap": TIER_ORCHESTRATION,
     "cemaf": TIER_ORCHESTRATION,
     "collision": TIER_ORCHESTRATION,
@@ -237,6 +238,13 @@ HOW: dict[str, str] = {
         "Memory uses these for semantic recall; the eval harness uses "
         "them for citation-membership checks."
     ),
+    "datasources": (
+        "Implement the DataSource Protocol (retrieve/health/source_id/"
+        "capabilities only — the registry rejects extra public surface), "
+        "register it on a DataSourceRegistry, and wire that registry into "
+        "a PullInterceptor. PullInterceptor pulls KG + DataSource context "
+        "before agent.run() and writes it to AgentContext.artifacts."
+    ),
     "rlm": (
         "RecursiveLanguageModel — split a too-large query into a tree, "
         "answer leaves, fold up. Use when context exceeds the model "
@@ -326,6 +334,7 @@ DESCRIPTIONS: dict[str, str] = {
     "replay": "Execution replay and debugging",
     "resilience": "Retry, circuit breaker, rate limiter",
     "retrieval": "VectorStore and EmbeddingProvider protocols",
+    "datasources": "Read-only enterprise connector protocol + registry (SPEC-02)",
     "rlm": "Recursive Language Model — divide-and-conquer context queries",
     "sandbox": "Confined, bounded, env-scrubbed subprocess execution",
     "scheduler": "Task scheduling — triggers, gates, async job executor",

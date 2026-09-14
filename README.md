@@ -106,6 +106,8 @@ Live-verified at HEAD on every CI run — every name above resolves against `src
 - [Overview](#overview)
 - [The Hard Problems We Solve](#the-hard-problems-we-solve)
 - [Installation](#installation)
+- [Free & Sovereign — no vendor lock-in required](#free--sovereign--no-vendor-lock-in-required)
+- [Where CEMAF Sits in the Agentic AI Stack](#where-cemaf-sits-in-the-agentic-ai-stack)
 - [Quick Start](#quick-start)
 - [Integration Modes](#integration-modes)
 - [Key Features](#key-features)
@@ -255,7 +257,7 @@ See **[docs/self-hosting.md](docs/self-hosting.md)** for the full meta catalog, 
 # Core installation: offline examples, protocols, DAGs, context, memory
 pip install cemaf
 
-# Local/free LLM serving through Ollama's OpenAI-compatible HTTP API
+# Ollama's OpenAI-compatible HTTP API extra (see "Free & Sovereign" below for the zero-cost stack)
 pip install "cemaf[ollama]"
 
 # Hosted providers are explicit opt-in
@@ -276,6 +278,74 @@ make                      # print the full menu
 ```
 
 **Requirements**: Python 3.14+
+
+---
+
+## Free & Sovereign — no vendor lock-in required
+
+CEMAF's LLM layer is **BYO-X by design** (see `LLMClient` Protocol): every provider is an interchangeable adapter behind `llm_registry`, none is privileged in the framework core. That means the entire orchestration stack — DAGs, context compilation, memory, evals, citations — runs the same way whether the model behind it costs $0 or $0.03/1K tokens. You own the model choice; CEMAF never assumes a paid vendor.
+
+A zero-cost stack that works today, no credit card required — a curated subset of the 15 `LLMBackend` members registered in `llm_registry` (paid vendors like OpenAI, Anthropic, and Bedrock are also there, always explicit opt-in):
+
+| Layer | Provider | Cost | `LLMBackend` |
+|---|---|---|---|
+| **Local, unlimited** | Ollama (Llama 3.x, Qwen 3, DeepSeek-R1 Distill, Mistral, Gemma) | Free — your hardware is the only limit | `LLMBackend.OLLAMA` |
+| **High free quota** | Google AI Studio (Gemini Flash) | Free API key, generous request quotas | `LLMBackend.GEMINI` |
+| **High throughput** | Groq | Free tier, hundreds of req/min, excellent latency | `LLMBackend.GROQ` |
+| **Model breadth** | Together AI / Hugging Face routers | Free tiers on many open models | `LLMBackend.TOGETHER` / `LLMBackend.HUGGINGFACE` |
+
+```python
+from cemaf.llm import create_llm_client, LLMBackend
+
+# Local, zero marginal cost — hardware is the only limit
+local = create_llm_client(LLMBackend.OLLAMA, model="qwen3:32b")
+
+# Free-tier cloud fallback when local hardware can't hold the model
+cloud_fallback = create_llm_client(LLMBackend.GEMINI, api_key="...")  # or GEMINI_API_KEY env var
+
+# High-throughput lane
+fast_lane = create_llm_client(LLMBackend.GROQ, api_key="...")  # or GROQ_API_KEY env var
+```
+
+`LLMBackend` is a closed `StrEnum` — `create_llm_client(provider: LLMBackend | str, ...)` — so the provider argument is IDE-autocompletable and mypy-checked, not a hopeful string. Every backend still returns the same `LLMClient` Protocol, so swapping local ↔ free-cloud ↔ paid is a one-line change, never a call-site rewrite. See [`docs/patterns.md`](docs/patterns.md) for the full BYO-X pattern.
+
+---
+
+## Where CEMAF Sits in the Agentic AI Stack
+
+The agentic AI ecosystem is commonly described as 8 layers — the same way a web app has cloud/database/backend/frontend layers: inference providers, dev & eval tooling, foundation models, agent frameworks, vector databases, embeddings, ingestion, and memory. CEMAF is a **Layer 4 citizen** (agent framework / orchestration) that also owns real, working modules in three other layers — via Protocols, never a bundled vendor SDK.
+
+### The best matches — where `src/cemaf/` maps directly onto the standard taxonomy
+
+| Stack layer | Standard-taxonomy examples | CEMAF module | What it actually does here |
+|---|---|---|---|
+| **1. Inference providers** | Groq, AWS Bedrock, Together AI, Fireworks | `llm/` | `LLMClient` Protocol + `llm_registry`; adapters for Groq/Bedrock/Together/HuggingFace/Gemini/Ollama behind one `LLMBackend` enum (see above) |
+| **2. AI dev & evaluation** | LangSmith, Arize Phoenix, Ragas, Deepchecks | `evals/`, `observability/`, `citation/` | `HierarchicalJudge` (deterministic → semantic → LLM-judge), `QualityPolice` rolling-window anomaly detection, OTel GenAI-shape spans, `CitationTracker` + `GateEvalInterceptor` enforcing citation-membership (Ragas' faithfulness check, but it actually blocks the DAG node) |
+| **4. Agent frameworks** | LangChain/LangGraph, DSPy, LlamaIndex, AutoGen | `orchestration/`, `agents/` | `DAGExecutor` + `ContextNodeExecutor` — the planner/search/database/LLM loop from the standard diagram, but every step is a typed `Node` with provenance, not an implicit chain |
+| **5. Vector databases** | Pinecone, Qdrant, Weaviate, pgvector | `retrieval/` | `VectorStore` + `EmbeddingProvider` Protocols — CEMAF ships zero vendor SDKs here on purpose; bring Qdrant/pgvector/Pinecone behind the Protocol |
+| **7. Data ingestion** | Firecrawl, LlamaParse, Docling | `ingestion/` | Adapters (`ChunkAdapter` and friends) that turn raw data into token-budgeted `ContextSource` objects — CEMAF's ingestion is about the *context window*, not document parsing; pair it with Firecrawl/Docling upstream for PDF/HTML/OCR |
+| **8. Memory** | mem0, Letta, Zep | `memory/` | Semantic + episodic memory, tiered (L0/L1/L2) storage, dedup, session lifecycle — the same "agent remembers across sessions" job as mem0/Zep, backed by your own store |
+
+Two layers CEMAF deliberately does **not** own, matching the standard diagram's own boundaries:
+- **3. Foundation models** (GPT-4o, Claude, Gemini, Llama) — CEMAF calls them through Layer 1's `LLMClient`, never re-implements them.
+- **6. Embedding models** (Voyage AI, Nomic, OpenAI embeddings) — `EmbeddingProvider` is a Protocol in `retrieval/`; CEMAF ships a `create_embedding_provider` registry, not a proprietary embedder.
+
+### CEMAF's self-coined taxonomy — everything past the standard 8 layers
+
+The standard diagram stops at "agent talks to memory, vector DB, and a model." Production multi-agent systems need more than that, and CEMAF names those layers explicitly instead of leaving them as glue code. The remaining 33 of CEMAF's 42 top-level modules live here — grouped by the concern they solve, each with a pointer to go check the code yourself:
+
+| CEMAF layer | Modules | Go check |
+|---|---|---|
+| **Coordination** — who acts, and in what order | `council/`, `collision/`, `interceptors/`, `scheduler/`, `state/` | Deliberative voting ([SPEC-10](docs/specs/SPEC-10-agent-council.md)), TCAS-style write-conflict avoidance ([SPEC-12](docs/specs/SPEC-12-agent-collision-avoidance.md)), the PRE→execute→POST gate spine ([SPEC-01a](docs/specs/SPEC-01a-interceptor-spine.md)), cron/interval job scheduling, typed `StateMachine[StateT, EventT]` |
+| **Trust & governance** — is this output/tool/agent safe to rely on | `moderation/`, `validation/`, `security/`, `trust/` | Pre/post-flight content moderation gates, business-rule validation with repair suggestions, RBAC/ABAC + data masking + audit signing, `UNTRUSTED → SANDBOXED → TRUSTED` promotion for dynamically generated tools |
+| **Provenance & audit** — prove what happened, after the fact | `audit/`, `context/` (patches), `operator/`, `replay/` | Immutable audit trail with z-score anomaly detection, every context mutation as a typed `ContextPatch` with source+reason, `cemaf.session.v1` read-only run snapshots ([SPEC-14](docs/specs/SPEC-14-session-snapshot-contract.md)), deterministic replay of recorded runs |
+| **Cost & reliability substrate** — the plumbing every call rides on | `resilience/`, `cache/`, `persistence/`, `events/` | Retry/circuit-breaker/rate-limiter, TTL'd response caching, run/entity persistence Protocols, typed `EventBus` pub/sub every other module reports through |
+| **Self-improvement** — the framework gets better from its own runs | `meta/`, `knowledge/`, `improvement/`, `blueprint/`, `iteration/` | Self-hosting meta-agents that spec/scaffold/audit CEMAF itself, entity/relation knowledge graph backed by `MemoryManager`, execution-audit → strategy-memory feedback loop, harvested reusable `Blueprint`s ([SPEC-13](docs/specs/SPEC-13-scoped-blueprint-harvest.md)), failure-feedback re-attempt loop ([SPEC-08](docs/specs/SPEC-08-failure-feedback-loop.md)) |
+| **Capability primitives** — the building blocks agents compose | `tools/`, `skills/`, `sandbox/`, `catalog/`, `generation/`, `streaming/`, `rlm/` | Atomic stateless `Tool`s, stateful composable `Skill`s, confined subprocess execution for generated code, typed model/artifact discovery, generation Protocols (image/audio/video — BYO backend), SSE streaming, divide-and-conquer Recursive Language Model queries for near-infinite context |
+| **Interop & docs** — how the outside world reaches in | `mcp/`, `docs_api/`, `config/` | MCP server + bridges (CEMAF as a tool host for Claude Desktop / any MCP client), CEMAF's own docs exposed as an MCP resource so agents can look up how to use CEMAF, YAML/JSON/env config loading with hot-reload |
+| **Foundation** — everything else imports from here, it imports from nothing | `core/` | Domain types, enums, `Result[T]`, `ProviderRegistry`, `utc_now()` — the bottom of the import graph ([Module Map in `CLAUDE.md`](CLAUDE.md#module-map) has the file-level breakdown) |
+
+Full architecture-fan-in view (not by feature category, by measured import count): [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html).
 
 ---
 

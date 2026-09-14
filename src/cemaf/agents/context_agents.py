@@ -10,18 +10,37 @@ These agents implement the core workflow for semantic blueprint-based content ge
 
 import json
 import logging
+import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.blueprint.core import Blueprint
 from cemaf.core.types import AgentID
 from cemaf.llm.protocols import LLMClient, Message
 from cemaf.observability.token_telemetry import extract_token_metadata
+from cemaf.resilience.retry import RetryConfig, RetryPolicy
 from cemaf.retrieval.protocols import SearchResult, VectorStore
 
 logger = logging.getLogger(__name__)
+
+# Vector-store lookups are I/O — a transient network blip should not fail
+# Librarian/Researcher outright. Deterministic errors (bad filter, auth) are
+# excluded from DEFAULT_TRANSIENT_EXCEPTIONS and still fail on first attempt.
+_RETRIEVAL_RETRY_CONFIG = RetryConfig(max_attempts=3, initial_delay_seconds=0.5, max_delay_seconds=5.0)
+
+# Matches a source_id the synthesis prompt asks the LLM to cite as
+# `[SOURCE: <id>]`. Membership against the retrieved source_ids is the
+# fabrication check — a citation.rules.CitationMembershipRule check operates
+# on typed Citation objects, which free-form LLM prose is not; this is the
+# same membership predicate applied to the shape this agent actually produces.
+_SOURCE_TAG_RE = re.compile(r"\[SOURCE:\s*([^\]]+)\]")
+
+
+def _extract_cited_source_ids(text: str) -> frozenset[str]:
+    """Every `[SOURCE: <id>]` tag the LLM's synthesis actually cited."""
+    return frozenset(match.strip() for match in _SOURCE_TAG_RE.findall(text))
 
 
 # ============================================================================
@@ -67,12 +86,26 @@ class LibrarianResult(BaseModel):
     """Result from Librarian agent."""
 
     blueprint_json: str = Field(description="Blueprint structure as JSON string")
+    blueprint_valid: bool = Field(
+        default=False, description="True iff blueprint_json parses into a real Blueprint model"
+    )
 
 
 class ResearcherResult(BaseModel):
     """Result from Researcher agent."""
 
     facts: str = Field(description="Synthesized factual report")
+    source_ids: tuple[str, ...] = Field(
+        default=(), description="source_ids of every retrieved chunk actually offered to the LLM"
+    )
+    unverifiable_claim_detected: bool = Field(
+        default=False,
+        description=(
+            "True when the synthesized facts reference a source_id not present in "
+            "source_ids — a fabricated citation. Callers SHOULD treat facts as "
+            "untrusted when this is True."
+        ),
+    )
 
 
 class SummarizerResult(BaseModel):
@@ -122,44 +155,75 @@ class LibrarianAgent(Agent[LibrarianGoal, LibrarianResult]):
         return ()
 
     async def run(self, goal: LibrarianGoal, context: AgentContext) -> AgentResult[LibrarianResult]:
-        """Execute blueprint retrieval."""
+        """Execute blueprint retrieval.
+
+        Fault tolerance: vector-store lookups run under RetryPolicy (transient
+        network errors get up to 3 attempts before failing the agent).
+        Standard: the retrieved blueprint JSON is validated against the real
+        Blueprint model — a malformed or half-written blueprint record is
+        NEVER passed downstream silently; blueprint_valid=False signals the
+        caller (Writer, or a human) that the default/fallback is in effect.
+        """
         logger.info("[Librarian] Activated. Analyzing intent...")
         state = AgentState()
 
-        try:
-            # Search for blueprint in vector store
-            # Note: VectorStore.search_by_text handles embedding generation
-            results = await self._vector_store.search_by_text(
-                query_text=goal.intent_query,
-                k=self._top_k,
-                filter={"namespace": self._namespace_context} if self._namespace_context else None,
+        retry_result = await RetryPolicy(_RETRIEVAL_RETRY_CONFIG).execute(
+            self._vector_store.search_by_text,
+            query_text=goal.intent_query,
+            k=self._top_k,
+            filter={"namespace": self._namespace_context} if self._namespace_context else None,
+        )
+        if not retry_result.success:
+            logger.error(f"[Librarian] Retrieval failed after {retry_result.attempts} attempts")
+            return AgentResult.fail(
+                f"Librarian error: vector store unavailable after {retry_result.attempts} attempts "
+                f"({retry_result.error})",
+                state,
             )
 
-            if results:
-                match: SearchResult = results[0]
-                logger.info(f"[Librarian] Found blueprint '{match.document.id}' (Score: {match.score:.2f})")
+        results: list[SearchResult] = retry_result.result or []
 
-                # Extract blueprint JSON from metadata
-                blueprint_json = match.document.metadata.get("blueprint_json", "")
-                if not blueprint_json:
-                    # Try to parse document content as blueprint JSON
-                    try:
-                        blueprint_data = json.loads(match.document.content)
-                        blueprint_json = json.dumps(blueprint_data)
-                    except (json.JSONDecodeError, TypeError):
-                        blueprint_json = json.dumps({"instruction": match.document.content})
+        if not results:
+            logger.warning("[Librarian] No blueprint found. Returning default.")
+            default_blueprint = json.dumps({"instruction": "Generate content neutrally."})
+            result = LibrarianResult(blueprint_json=default_blueprint, blueprint_valid=False)
+            return AgentResult.ok(result, state.next(status=state.status))
 
-                result = LibrarianResult(blueprint_json=blueprint_json)
-                return AgentResult.ok(result, state.next(status=state.status))
-            else:
-                logger.warning("[Librarian] No blueprint found. Returning default.")
-                default_blueprint = json.dumps({"instruction": "Generate content neutrally."})
-                result = LibrarianResult(blueprint_json=default_blueprint)
-                return AgentResult.ok(result, state.next(status=state.status))
+        match: SearchResult = results[0]
+        logger.info(f"[Librarian] Found blueprint '{match.document.id}' (Score: {match.score:.2f})")
 
-        except Exception as e:
-            logger.error(f"[Librarian] Error: {e}", exc_info=True)
-            return AgentResult.fail(f"Librarian error: {str(e)}", state)
+        blueprint_json = match.document.metadata.get("blueprint_json", "")
+        if not blueprint_json:
+            try:
+                blueprint_data = json.loads(match.document.content)
+                blueprint_json = json.dumps(blueprint_data)
+            except (json.JSONDecodeError, TypeError):
+                blueprint_json = json.dumps({"instruction": match.document.content})
+
+        blueprint_valid = self._validate_blueprint(blueprint_json)
+        if not blueprint_valid:
+            logger.warning(
+                f"[Librarian] Retrieved blueprint '{match.document.id}' failed schema validation; "
+                "returning it anyway with blueprint_valid=False — callers must check this flag."
+            )
+
+        result = LibrarianResult(blueprint_json=blueprint_json, blueprint_valid=blueprint_valid)
+        return AgentResult.ok(result, state.next(status=state.status))
+
+    @staticmethod
+    def _validate_blueprint(blueprint_json: str) -> bool:
+        """True iff blueprint_json parses into a real Blueprint model.
+
+        A retrieved record that is merely a free-text `{"instruction": ...}`
+        fallback (this agent's own default shape) is intentionally NOT a
+        valid Blueprint — callers that need a full Blueprint should treat
+        blueprint_valid=False the same as "no blueprint found."
+        """
+        try:
+            Blueprint.model_validate(json.loads(blueprint_json))
+            return True
+        except (json.JSONDecodeError, ValidationError, TypeError):
+            return False
 
 
 class ResearcherAgent(Agent[ResearcherGoal, ResearcherResult]):
@@ -195,62 +259,91 @@ class ResearcherAgent(Agent[ResearcherGoal, ResearcherResult]):
         return ()
 
     async def run(self, goal: ResearcherGoal, context: AgentContext) -> AgentResult[ResearcherResult]:
-        """Execute high-fidelity research."""
+        """Execute high-fidelity research.
+
+        Fault tolerance: vector-store lookups run under RetryPolicy (transient
+        network errors get up to 3 attempts before failing the agent).
+        Standard: the synthesized report is checked for citation membership —
+        every `[SOURCE: <id>]` tag in the LLM's output must name a source_id
+        this agent actually retrieved. A citation to a source_id outside that
+        set is a fabrication; unverifiable_claim_detected=True flags it rather
+        than silently trusting the model's prose.
+        """
         logger.info("[Researcher] Activated. Gathering evidence...")
         state = AgentState()
 
-        try:
-            # High-fidelity retrieval: configurable k ensures all ingested documents are caught
-            results = await self._vector_store.search_by_text(
-                query_text=goal.topic_query,
-                k=self._top_k,
-                filter={"namespace": self._namespace_knowledge} if self._namespace_knowledge else None,
+        retry_result = await RetryPolicy(_RETRIEVAL_RETRY_CONFIG).execute(
+            self._vector_store.search_by_text,
+            query_text=goal.topic_query,
+            k=self._top_k,
+            filter={"namespace": self._namespace_knowledge} if self._namespace_knowledge else None,
+        )
+        if not retry_result.success:
+            logger.error(f"[Researcher] Retrieval failed after {retry_result.attempts} attempts")
+            return AgentResult.fail(
+                f"Researcher error: vector store unavailable after {retry_result.attempts} attempts "
+                f"({retry_result.error})",
+                state,
             )
 
-            if not results:
-                logger.warning("[Researcher] No evidence found.")
-                return AgentResult.ok(ResearcherResult(facts="No evidence found."), state)
+        results: list[SearchResult] = retry_result.result or []
 
-            # Format context text with sources
-            context_parts: list[str] = []
-            for search_result in results:
-                source = search_result.document.metadata.get("source", "Unknown")
-                content = search_result.document.content or search_result.document.metadata.get("text", "")
-                context_parts.append(f"SOURCE: {source}\nCONTENT: {content}")
+        if not results:
+            logger.warning("[Researcher] No evidence found.")
+            return AgentResult.ok(ResearcherResult(facts="No evidence found."), state)
 
-            context_text = "\n\n".join(context_parts)
+        # Format context text with sources — [SOURCE: <id>] is the exact tag
+        # the synthesis prompt instructs the LLM to echo back when citing.
+        source_ids: list[str] = []
+        context_parts: list[str] = []
+        for search_result in results:
+            source = str(search_result.document.metadata.get("source", "Unknown"))
+            content = search_result.document.content or search_result.document.metadata.get("text", "")
+            source_ids.append(source)
+            context_parts.append(f"[SOURCE: {source}]\nCONTENT: {content}")
 
-            # Synthesize evidence using LLM
-            system_prompt = (
-                "Synthesize evidence into a factual report. Cite sources. If data is missing, state it."
-            )
-            user_prompt = f"Objective: {goal.topic_query}\n\nEvidence:\n{context_text}"
+        context_text = "\n\n".join(context_parts)
+        known_source_ids = frozenset(source_ids)
 
-            llm_result = await self._llm_client.complete(
-                [Message.system(system_prompt), Message.user(user_prompt)]
-            )
+        # Synthesize evidence using LLM
+        system_prompt = (
+            "Synthesize evidence into a factual report. For every factual claim, cite its "
+            "source inline using the exact tag [SOURCE: <id>] from the evidence below — never "
+            "invent a source id that doesn't appear in the evidence. If data is missing, state it."
+        )
+        user_prompt = f"Objective: {goal.topic_query}\n\nEvidence:\n{context_text}"
 
-            if not llm_result.success:
-                return AgentResult.fail(f"LLM synthesis failed: {llm_result.error}", state)
+        llm_result = await self._llm_client.complete(
+            [Message.system(system_prompt), Message.user(user_prompt)]
+        )
 
-            facts = llm_result.content if isinstance(llm_result.content, str) else str(llm_result.content)
-            result = ResearcherResult(facts=facts)
+        if not llm_result.success:
+            return AgentResult.fail(f"LLM synthesis failed: {llm_result.error}", state)
 
-            # Extract token telemetry
-            token_metadata = extract_token_metadata(
-                llm_result=llm_result,
-                agent_name="Researcher",
-            )
+        facts = llm_result.content if isinstance(llm_result.content, str) else str(llm_result.content)
 
-            return AgentResult.ok(
-                result,
-                state.next(status=state.status),
-                metadata=token_metadata,
-            )
+        cited_source_ids = _extract_cited_source_ids(facts)
+        fabricated = cited_source_ids - known_source_ids
+        if fabricated:
+            logger.warning(f"[Researcher] Unverifiable citation(s) detected: {sorted(fabricated)}")
 
-        except Exception as e:
-            logger.error(f"[Researcher] Error: {e}", exc_info=True)
-            return AgentResult.fail(f"Researcher error: {str(e)}", state)
+        result = ResearcherResult(
+            facts=facts,
+            source_ids=tuple(source_ids),
+            unverifiable_claim_detected=bool(fabricated),
+        )
+
+        # Extract token telemetry
+        token_metadata = extract_token_metadata(
+            llm_result=llm_result,
+            agent_name="Researcher",
+        )
+
+        return AgentResult.ok(
+            result,
+            state.next(status=state.status),
+            metadata=token_metadata,
+        )
 
 
 class SummarizerAgent(Agent[SummarizerGoal, SummarizerResult]):

@@ -142,6 +142,101 @@ class TestLibrarianAgent:
         assert not result.success
         assert "error" in result.error.lower()
 
+    @pytest.mark.asyncio
+    async def test_transient_failure_retries_then_succeeds(self, mock_vector_store, agent_context):
+        """A transient ConnectionError on the first attempt should not fail the agent."""
+        blueprint_data = {"instruction": "Generate professional content"}
+        mock_doc = MagicMock()
+        mock_doc.id = "blueprint_1"
+        mock_doc.content = json.dumps(blueprint_data)
+        mock_doc.metadata = {"blueprint_json": json.dumps(blueprint_data)}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_result.score = 0.95
+
+        mock_vector_store.search_by_text.side_effect = [ConnectionError("transient blip"), [mock_result]]
+
+        agent = LibrarianAgent(mock_vector_store)
+        goal = LibrarianGoal(intent_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert mock_vector_store.search_by_text.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_transient_failure_fails_after_retry_budget(
+        self, mock_vector_store, agent_context
+    ):
+        """A ConnectionError on every attempt exhausts the retry budget and fails cleanly."""
+        mock_vector_store.search_by_text.side_effect = ConnectionError("store unreachable")
+
+        agent = LibrarianAgent(mock_vector_store)
+        goal = LibrarianGoal(intent_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert not result.success
+        assert "unavailable" in result.error.lower()
+        assert mock_vector_store.search_by_text.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_valid_blueprint_marked_blueprint_valid(self, mock_vector_store, agent_context):
+        """A retrieved record that parses as a real Blueprint sets blueprint_valid=True."""
+        real_blueprint = {
+            "id": "bp-1",
+            "name": "Professional Report",
+            "scene_goal": {"objective": "Write a professional report"},
+        }
+        mock_doc = MagicMock()
+        mock_doc.id = "blueprint_1"
+        mock_doc.content = json.dumps(real_blueprint)
+        mock_doc.metadata = {"blueprint_json": json.dumps(real_blueprint)}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_result.score = 0.9
+        mock_vector_store.search_by_text.return_value = [mock_result]
+
+        agent = LibrarianAgent(mock_vector_store)
+        goal = LibrarianGoal(intent_query="professional style")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert result.output.blueprint_valid is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_blueprint_marked_invalid_but_still_returned(
+        self, mock_vector_store, agent_context
+    ):
+        """A record that isn't a real Blueprint (e.g. the free-text fallback shape) is
+        still returned (never silently dropped) but flagged blueprint_valid=False."""
+        mock_doc = MagicMock()
+        mock_doc.id = "blueprint_bad"
+        mock_doc.content = json.dumps({"instruction": "not a real blueprint schema"})
+        mock_doc.metadata = {"blueprint_json": json.dumps({"instruction": "not a real blueprint schema"})}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_result.score = 0.5
+        mock_vector_store.search_by_text.return_value = [mock_result]
+
+        agent = LibrarianAgent(mock_vector_store)
+        goal = LibrarianGoal(intent_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert result.output.blueprint_valid is False
+        assert result.output.blueprint_json  # still populated, not dropped
+
+    @pytest.mark.asyncio
+    async def test_no_results_default_is_marked_invalid(self, mock_vector_store, agent_context):
+        """The no-results default blueprint is intentionally not a real Blueprint."""
+        mock_vector_store.search_by_text.return_value = []
+
+        agent = LibrarianAgent(mock_vector_store)
+        goal = LibrarianGoal(intent_query="unknown style")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert result.output.blueprint_valid is False
+
 
 class TestResearcherAgent:
     """Tests for ResearcherAgent."""
@@ -242,6 +337,123 @@ class TestResearcherAgent:
 
         assert not result.success
         assert "llm" in result.error.lower() or "synthesis" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_transient_retrieval_failure_retries_then_succeeds(
+        self, mock_vector_store, mock_llm_client, agent_context
+    ):
+        """A transient network error on retrieval retries instead of failing immediately."""
+        mock_doc = MagicMock()
+        mock_doc.content = "Fact about topic"
+        mock_doc.metadata = {"source": "source1", "text": "Fact about topic"}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+
+        mock_vector_store.search_by_text.side_effect = [TimeoutError("transient"), [mock_result]]
+        mock_llm_client.complete.return_value = CompletionResult.ok(
+            Message(role=MessageRole.ASSISTANT, content="[SOURCE: source1] Fact confirmed."),
+            prompt_tokens=50,
+            completion_tokens=10,
+        )
+
+        agent = ResearcherAgent(mock_vector_store, mock_llm_client)
+        goal = ResearcherGoal(topic_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert mock_vector_store.search_by_text.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_retrieval_failure_fails_after_retry_budget(
+        self, mock_vector_store, mock_llm_client, agent_context
+    ):
+        """A ConnectionError on every attempt exhausts the retry budget and fails cleanly."""
+        mock_vector_store.search_by_text.side_effect = ConnectionError("store unreachable")
+
+        agent = ResearcherAgent(mock_vector_store, mock_llm_client)
+        goal = ResearcherGoal(topic_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert not result.success
+        assert "unavailable" in result.error.lower()
+        assert mock_vector_store.search_by_text.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_citation_to_real_source_is_not_flagged(
+        self, mock_vector_store, mock_llm_client, agent_context
+    ):
+        """A [SOURCE: <id>] tag naming a retrieved source_id is not a fabrication."""
+        mock_doc = MagicMock()
+        mock_doc.content = "Fact about topic"
+        mock_doc.metadata = {"source": "source1", "text": "Fact about topic"}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_vector_store.search_by_text.return_value = [mock_result]
+
+        mock_llm_client.complete.return_value = CompletionResult.ok(
+            Message(role=MessageRole.ASSISTANT, content="[SOURCE: source1] The fact is confirmed."),
+            prompt_tokens=50,
+            completion_tokens=10,
+        )
+
+        agent = ResearcherAgent(mock_vector_store, mock_llm_client)
+        goal = ResearcherGoal(topic_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert result.output.unverifiable_claim_detected is False
+        assert result.output.source_ids == ("source1",)
+
+    @pytest.mark.asyncio
+    async def test_fabricated_citation_is_flagged(self, mock_vector_store, mock_llm_client, agent_context):
+        """A [SOURCE: <id>] tag naming a source_id NEVER retrieved is a fabrication."""
+        mock_doc = MagicMock()
+        mock_doc.content = "Fact about topic"
+        mock_doc.metadata = {"source": "source1", "text": "Fact about topic"}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_vector_store.search_by_text.return_value = [mock_result]
+
+        mock_llm_client.complete.return_value = CompletionResult.ok(
+            Message(
+                role=MessageRole.ASSISTANT,
+                content="[SOURCE: source1] Fact one. [SOURCE: fabricated-source-999] Fact two.",
+            ),
+            prompt_tokens=50,
+            completion_tokens=10,
+        )
+
+        agent = ResearcherAgent(mock_vector_store, mock_llm_client)
+        goal = ResearcherGoal(topic_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success  # detection flags, never blocks — caller decides
+        assert result.output.unverifiable_claim_detected is True
+
+    @pytest.mark.asyncio
+    async def test_no_citations_at_all_is_not_flagged(
+        self, mock_vector_store, mock_llm_client, agent_context
+    ):
+        """Text with zero [SOURCE: ...] tags has nothing to fabricate."""
+        mock_doc = MagicMock()
+        mock_doc.content = "Fact about topic"
+        mock_doc.metadata = {"source": "source1", "text": "Fact about topic"}
+        mock_result = MagicMock()
+        mock_result.document = mock_doc
+        mock_vector_store.search_by_text.return_value = [mock_result]
+
+        mock_llm_client.complete.return_value = CompletionResult.ok(
+            Message(role=MessageRole.ASSISTANT, content="A plain answer with no citations."),
+            prompt_tokens=50,
+            completion_tokens=10,
+        )
+
+        agent = ResearcherAgent(mock_vector_store, mock_llm_client)
+        goal = ResearcherGoal(topic_query="test")
+        result = await agent.run(goal, agent_context)
+
+        assert result.success
+        assert result.output.unverifiable_claim_detected is False
 
 
 class TestSummarizerAgent:

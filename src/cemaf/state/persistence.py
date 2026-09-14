@@ -1,7 +1,9 @@
 """FsmStore protocol + InMemoryFsmStore default impl.
 
-A SqliteFsmStore / PostgresFsmStore can be added when persistence across runs is
-needed — InMemory is sufficient for tests and single-process deployments.
+For persistence across runs use `cemaf.state.sqlite_store.SqliteFsmStore`
+(backend="sqlite" via create_fsm_store). A PostgresFsmStore can be added when
+multi-host persistence is needed — InMemory is sufficient for tests and
+single-process deployments.
 """
 
 from __future__ import annotations

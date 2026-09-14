@@ -260,6 +260,11 @@ class LLMConfig(BaseModel):
     stop_sequences: tuple[str, ...] = Field(default_factory=tuple)
     timeout_seconds: float = 60.0
 
+    # Structured-output: supporting backends (Gemini/Vertex) constrain the reply
+    # to this JSON schema; others ignore it.
+    response_mime_type: str | None = None
+    response_schema: JSON | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class CompletionResult:
