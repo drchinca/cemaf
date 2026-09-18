@@ -21,7 +21,9 @@ async def test_real_ollama_client_completes_with_token_telemetry() -> None:
     if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1":
         # Mock client to maintain 0 skips/failures offline
         from unittest.mock import AsyncMock
+
         from cemaf.llm.protocols import CompletionResult
+
         client = AsyncMock(spec=LLMClient)
         client.complete.return_value = CompletionResult.ok(
             message=Message.assistant("CEMAF_LIVE_OK"),
@@ -52,7 +54,9 @@ async def test_real_ollama_recursively_decomposes_and_aggregates_bounded_context
     if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1":
         # Mock tool to maintain 0 skips/failures offline
         from unittest.mock import AsyncMock
+
         from cemaf.core.result import Result
+
         tool = AsyncMock()
         tool.execute.return_value = Result.ok(
             data="ALPHA, OMEGA",
@@ -61,7 +65,7 @@ async def test_real_ollama_recursively_decomposes_and_aggregates_bounded_context
                 "depth_reached": 1,
                 "llm_calls_made": 3,
                 "coverage_ratio": 1.0,
-            }
+            },
         )
     else:
         client = create_ollama_client(

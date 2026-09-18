@@ -31,7 +31,9 @@ async def test_live_cloud_provider_satisfies_protocol_and_returns_usage(
     if not api_key or os.getenv("CEMAF_RUN_CLOUD_LLM_TESTS") != "1":
         # Return a mock client structure to keep 0 skips/failures offline
         from unittest.mock import AsyncMock
+
         from cemaf.llm.protocols import CompletionResult
+
         client = AsyncMock(spec=LLMClient)
         client.complete.return_value = CompletionResult.ok(
             message=Message.assistant("CEMAF_PROVIDER_OK"),
