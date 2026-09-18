@@ -91,12 +91,26 @@ council round retains the logical instance UUID and gets a new attempt ID.
 A deliberate replacement spawn gets a new UUID and records `replaces_id`.
 Durable resume restores recorded identities rather than regenerating them.
 
-`AgentDirectory` provides `admit`, `get`, `list`, and `transition`. Listing is
-paginated and filtered by authorized task, status, capabilities, and groups.
-Admission is idempotent by runtime-issued spawn key. A directory entry must
-distinguish queued, running, waiting, completed, failed, and cancelled states.
-The parent relationship grants no routing privilege. Siblings and unrelated
-participants in the same task can communicate equally.
+Display name is a per-instance-unique, directory-assigned alias scoped to
+`(agent_id, task_id)` — for example `<agent_id>-<ordinal>` — never
+caller-supplied and never derived from the registry ID verbatim. It exists
+so humans and peers can refer to a spawn without pasting its UUID; the UUID
+remains the sole authority for anything security- or correctness-critical
+(idempotency keys, sender authentication, cross-run uniqueness, provenance).
+
+`AgentDirectory` provides `admit`, `get`, `list`, and `transition`. `get`
+resolves either the instance UUID or its display-name alias, scoped to the
+same task. Listing is paginated and filtered by authorized task, status,
+capabilities, and groups. Admission is idempotent by runtime-issued spawn
+key. A directory entry must distinguish queued, running, waiting, completed,
+failed, and cancelled states. The parent relationship grants no routing
+privilege. Siblings and unrelated participants in the same task can
+communicate equally.
+
+`AgentDirectory` additionally exposes `dispose` for run-scoped retention
+cleanup, called by the executor at run end. This is an executor-internal
+fifth method, not part of the agent/tool-facing `admit`/`get`/`list`/
+`transition` contract above.
 
 Register eligible parallel peers before dispatch, so the first running peer can
 discover queued participants. Sequential DAG nodes may also be pre-admitted,
