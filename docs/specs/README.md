@@ -42,6 +42,12 @@ requiring particular storage products.
 | [SPEC-15](SPEC-15-memory-branches.md) | Memory Branches | SPEC-00, SPEC-12 | isolated memory branches and merge-review protocol |
 | [SPEC-16](SPEC-16-engine-manifest.md) | Declarative Engine Manifest | SPEC-00 | declarative lowering to the existing composition root |
 | [SPEC-17](SPEC-17-autonomous-context-substrate.md) | Production-Grade Autonomous Context Substrate | SPEC-00, 04–06, 11, 14–16 | durable coordinator/authority, context manifests, scheduling, profiles, evidence, and claim gates |
+## Peer Collaboration (SPEC-18)
+
+| ID | Title | Status | Owns |
+|---|---|---|---|
+| [SPEC-18](SPEC-18-peer-communication-and-task-board.md) | Peer Communication and Communal Task Board | Draft | UUID spawn identity, peer messaging tools, optional groups/courts, communal initiatives and history |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
