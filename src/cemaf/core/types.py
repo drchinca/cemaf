@@ -75,6 +75,8 @@ SkillID = NewType("SkillID", str)
 NodeID = NewType("NodeID", str)
 RunID = NewType("RunID", str)
 ProjectID = NewType("ProjectID", str)
+TaskID = NewType("TaskID", str)
+AttemptID = NewType("AttemptID", str)
 
 # Token counts
 TokenCount = NewType("TokenCount", int)

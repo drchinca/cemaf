@@ -38,6 +38,7 @@ from cemaf.persistence.idempotency import (
     FileIdempotentEffectSink,
     IdempotencyConflictError,
     IdempotentEffectSink,
+    InMemoryIdempotentEffectSink,
 )
 from cemaf.persistence.protocols import (
     ArtifactStore,
@@ -60,6 +61,7 @@ __all__ = [
     "EffectReceipt",
     "IdempotentEffectSink",
     "FileIdempotentEffectSink",
+    "InMemoryIdempotentEffectSink",
     "IdempotencyConflictError",
     # Factories
     "create_project_store",

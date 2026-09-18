@@ -10,6 +10,7 @@ and avoid circular imports.
 
 import os
 
+from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.agents.selection import AgentSelector
 from cemaf.blueprint.library import BlueprintLibrary
 from cemaf.context.budget import TokenBudget
@@ -64,6 +65,7 @@ def create_runtime_services(
     blueprint_selector: BlueprintSelectorHook | None = None,
     auto_heal_manager: AutoHealManager | None = None,
     tracer: Tracer | None = None,
+    agent_directory: AgentDirectory | None = None,
 ) -> RuntimeServices:
     """Create a RuntimeServices bundle with explicit per-concern dependencies."""
     return RuntimeServices(
@@ -91,6 +93,7 @@ def create_runtime_services(
         blueprint_selector=blueprint_selector,
         auto_heal_manager=auto_heal_manager,
         tracer=tracer,
+        agent_directory=agent_directory,
     )
 
 
