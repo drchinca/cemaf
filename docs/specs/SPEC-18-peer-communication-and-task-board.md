@@ -6,6 +6,7 @@ last_reviewed: 2026-09-18
 depends_on:
   - SPEC-10
   - SPEC-11
+  - SPEC-12
   - SPEC-14
   - SPEC-17
 ---
@@ -67,8 +68,14 @@ implementation PR has a concrete contract to satisfy.
 ### 2.1 Identity and participation
 
 Preserve `Agent.id` and `AgentContext.agent_id` as registry identifiers.
-Add `instance_id: UUID | None`, `parent_instance_id: UUID | None`, and an
-optional bound collaboration session to `AgentContext`. Legacy manually
+`AgentContext` already carries `parent_agent_id: str | None` and `depth: int`
+for DAG-nesting provenance — structural position, not spawn identity. Leave
+both fields unchanged. Add `instance_id: UUID | None`, `parent_instance_id:
+UUID | None`, and an optional bound collaboration session as new fields.
+`parent_instance_id` answers "which spawn admitted this spawn" (identity
+provenance); `parent_agent_id`/`depth` continue to answer "where does this
+agent sit in the DAG" (structural provenance). The two pairs may name
+different agents and must not be derived from each other. Legacy manually
 constructed contexts remain valid; collaboration tools require a session.
 
 `AgentInstance` records:
@@ -115,7 +122,11 @@ Contract:
 - Receive is non-destructive, cursor-based, and bounded. Acknowledgement is
   explicit and idempotent; unacknowledged delivery may repeat.
 - Same sender + idempotency key + same canonical payload returns the original
-  receipt. Reusing a key with a different payload returns a conflict.
+  receipt. Reusing a key with a different payload returns a conflict. Reuse
+  `persistence.idempotency.IdempotentEffectSink` (`EffectReceipt`,
+  `IdempotencyConflictError`) as the backing key/payload/conflict contract;
+  `AgentMessenger.send` composes a mailbox-scoped implementation of it rather
+  than inventing a parallel dedup mechanism.
 - Sequence numbers order accepted messages per mailbox; no global wall-clock
   ordering or exactly-once execution claim.
 - Replies retain conversation ID and reference a message visible to the caller.
@@ -177,6 +188,9 @@ Updates require `expected_revision`; a mismatch returns a conflict with the
 current revision. Commit the new snapshot and its history entry atomically.
 Append-only contributions do not overwrite each other. Read views return an
 `as_of_sequence` and continuation cursor; retention gaps are explicit.
+`expected_revision` is optimistic-concurrency for updates, a distinct concern
+from `BoardEntry.idempotency_key`, which dedups retried appends using the
+same `persistence.idempotency.IdempotentEffectSink` contract as §2.2.
 
 Tools: `create_initiative`, `post_update`, `update_initiative`, `read_board`,
 and `read_initiative_history`. Listing defaults to a compact view of every
@@ -326,8 +340,13 @@ Durable adapters must atomically commit messages/delivery state or board
 snapshot/history with idempotency records and an outbox. Events notify after
 commit; subscriber failures must not undo accepted state or duplicate sends.
 Do not represent MemoryStore get/set or EventBus publication as transactional
-delivery. Reconcile this adapter with SPEC-17 authority/fencing rather than
-creating another authoritative run database.
+delivery. `events.redis_event_bus.RedisEventBus` already exists as a
+distributed `EventBus` adapter — it is a reference for this codebase's Redis
+adapter wiring shape, not a durable backend by itself: it delivers pub/sub
+only and carries none of the mailbox/board transactional or outbox guarantees
+this section requires. Reconcile a durable messaging/board adapter with
+SPEC-17 authority/fencing rather than creating another authoritative run
+database.
 
 ## 3. Invariants (DbC)
 
@@ -430,9 +449,10 @@ the requested deliverable. All three need executable examples before completion.
 
 Compose the existing agent/tool registries, RuntimeServices, DAG execution,
 councils, context compiler, moderation, budget controls, event bus, run logger,
-and replay. SPEC-10 governs decisions; SPEC-11 governs visibility; SPEC-14
-governs operator projections. SPEC-17 is a draft dependency for durable adapters,
-not a prerequisite for the bounded in-process feature.
+and replay. SPEC-10 governs decisions; SPEC-11 governs visibility; SPEC-12
+governs the parallel-branch context-patch conflict resolution §2.5 reuses;
+SPEC-14 governs operator projections. SPEC-17 is a draft dependency for durable
+adapters, not a prerequisite for the bounded in-process feature.
 
 ## 7. Correctness Properties
 
@@ -447,32 +467,107 @@ not a prerequisite for the bounded in-process feature.
 
 ## 8. Eval Criteria
 
-Use deterministic scripted agents as the correctness gate. Test that a peer's
-finding changes another agent's subsequent output and that a late participant
-can reconstruct prior actions and future plans from the board. Assert exact
-message/entry provenance and bounded turns, not just successful tool calls.
+| Evaluator | Node | Mode | Threshold | Method |
+|---|---|---|---|---|
+| PeerInfluenceEvaluator | peer_message_exchange | GATE | score >= 1.0 | Deterministic |
+| BoardReconstructionEvaluator | task_board_read | GATE | score >= 1.0 | Deterministic |
+| ProvenanceIntegrityEvaluator | any communication node | GATE | score >= 1.0 | Deterministic |
+| CommunicationValueEvaluator | communication-enabled run | OBSERVE | score >= 0.7 | LLM judge |
 
-Optional LLM evals compare an isolated baseline with communication enabled on
-the same tasks: useful information transfer, repeated work avoided, unsupported
-claims, token/cost overhead, and task quality. No claim that more conversation
-necessarily improves quality. Existing eval and budget services own these runs.
+The deterministic gates use scripted agents as the correctness floor: a peer's
+finding must change another agent's subsequent output, a late participant must
+reconstruct prior actions and future plans from the board, and every observed
+value must carry exact message/entry provenance and stay within bounded turns
+— not just report a successful tool call.
+
+`CommunicationValueEvaluator` is optional and OBSERVE-mode: an LLM-judge
+comparison between an isolated baseline and the same task with communication
+enabled, scoring useful information transfer, repeated work avoided,
+unsupported claims, token/cost overhead, and task quality. No claim that more
+conversation necessarily improves quality. Existing eval and budget services
+own these runs.
 
 ## 9. Observability Contract
 
-Reuse `AGENT_SPAWNED` with instance identity and add lifecycle, message accepted,
-read, acknowledged, rejected, group changed, and board changed events. Include
-schema version, scope, run/node/attempt, instance/message/initiative IDs,
-sequence/revision, and correlation/causation IDs. Default logs carry references
-and sizes rather than unrestricted message content.
+- **Log events**: reuse `AGENT_SPAWNED` extended with instance identity; add
+  `agent.instance.lifecycle_changed`, `message.accepted`, `message.read`,
+  `message.acknowledged`, `message.rejected`, `group.membership_changed`,
+  `board.initiative_changed`, `context.share_published`, and
+  `context.share_imported`. Each carries schema version, scope, run/node/
+  attempt, instance/message/initiative/share IDs, sequence/revision, and
+  correlation/causation IDs. Default logs carry references and sizes, never
+  unrestricted message or shared-context content.
+- **Attributes**: `cemaf.instance.id`, `cemaf.instance.parent_id`,
+  `cemaf.task.id`, `cemaf.mailbox.sequence` / `cemaf.board.sequence`,
+  `cemaf.share.id`.
+- **Metrics**: `cemaf.mailbox.queue_depth`, `cemaf.message.latency_ms`,
+  `cemaf.message.timeouts_total`, `cemaf.board.conflicts_total`,
+  `cemaf.message.rejected_total`, `cemaf.communication.tokens`. Label by
+  task/run/adapter tier, never by raw UUID — unbounded cardinality.
 
-Extend RunLogger/replay records to retain the actual bounded read results and
-referenced immutable payloads under the configured security/retention policy.
-Events alone are insufficient to prove what an agent observed. Extend operator
-snapshots additively with active participants, groups, unread counts, initiatives,
-and blockers. Metrics include queue depth, message latency, timeouts, conflicts,
-rejected sends, and communication tokens; avoid UUID metric labels.
+Extend `RunLogger`/replay records to retain the actual bounded read results and
+referenced immutable payloads under the configured security/retention policy —
+events alone are insufficient to prove what an agent observed. Extend operator
+snapshots (`cemaf.session.v1`, `operator/snapshot.py`) additively with active
+participants, groups, unread counts, initiatives, and blockers.
 
-## 10. Implementation Plan and Completion Gates
+## 10. Test Coverage Update
+
+Per `rules/spec-driven.md` §10 and this project's own Testing Discipline /
+Integration Testing Rules (see `CLAUDE.md`), extend the existing corpora —
+`tests/unit/`, `tests/integration/`, `examples/` plus
+`tests/integration/test_examples_smoke.py` — never a parallel test tree.
+Tiering follows the L0–L2 convention SPEC-17 §10 established for this repo.
+L3 (destructive integration) and L4 (scale/security/endurance) are deferred
+to phase 7's durable-adapter follow-up: the core deliverable here is
+explicitly in-process only (§5 Out of Scope), so those tiers don't apply yet.
+
+### L0 — Model and protocol surface
+
+- frozen `AgentInstance`, `AgentMessage`, `AgentGroup`, `Initiative`,
+  `BoardEntry`, `ContextShare` construction and canonical JSON round trips;
+- runtime structural checks for `AgentDirectory`, `AgentMessenger`,
+  `TaskBoard`, `ContextExchange`;
+- invalid state-transition, unknown-recipient, and malformed-selector cases.
+
+### L1 — Deterministic component contracts (one contract test per §2 protocol, written before its implementation)
+
+| §2 entry | Contract under test |
+|---|---|
+| 2.1 Identity | admission idempotency by spawn key; UUID uniqueness across repeated spawns; retry vs. replacement identity |
+| 2.2 Messaging | send/receive/ack contract; idempotency-key conflict reusing `persistence.idempotency.IdempotentEffectSink` semantics; expiry; full-mailbox typed failure |
+| 2.3 Groups/courts | membership cycle rejection; fanout/depth bounds; frozen recipient snapshot at send time |
+| 2.4 Task board | `expected_revision` conflict; append-only history; status transition validity |
+| 2.5 Context sharing | deep-detach on publish; partial-share lineage filtering; delta-import against a stale base; import idempotency |
+
+### L2 — Real wiring integration (`tests/integration/`, real implementations, no mocks)
+
+| Feature | Integration test |
+|---|---|
+| Peer messaging over a real DAG | Two parallel `ContextNodeExecutor` participants + real `AgentMessenger` + `AgentDirectory` — A sends, B reads and replies with no supervisor node |
+| Council members with peer context | Real `AgentCouncil` + `ContextExchange` — a member shares a working-Context path mid-deliberation; the peer imports it and it changes its next vote |
+| Task board + concurrent initiatives | Real `TaskBoard` + two concurrent DAG branches — simultaneous `expected_revision` updates: one commits, one conflicts, both append-only histories stay visible |
+| Context share lifecycle | Real `ContextExchange` + `Context`/`ContextPatch` — publish, inspect, import, revoke round-trip; mutate the source after sharing to prove deep-copy isolation |
+| Replay reconstruction | Real `Replayer` + recorded messenger/board/share events — replay reproduces observed reads with no live delivery or new LLM calls |
+| RuntimeServices composition | `create_executor(..., services=RuntimeServices(agent_directory=..., agent_messenger=..., task_board=..., context_exchange=...))` — incomplete wiring (messenger without directory) rejected at composition time |
+| Absent-services compatibility | Existing council/deep-agent integration tests re-run with every SPEC-18 service `None` — behavior is unchanged (invariant 10) |
+| Examples smoke | New offline examples for peer messaging, groups/courts, and context sharing, each run as a subprocess by `test_examples_smoke.py` per this project's examples-must-be-CI-guarded rule |
+
+### Self-verification
+
+Before opening any phase's implementation PR: run `make check`; confirm every
+§2/§3/§4/§8 entry that phase touches has a corresponding new L0/L1/L2 case;
+confirm all suites pass. A green `make check` with no new test cases for that
+phase's contract is not evidence the phase is done.
+
+## 11. Implementation Plan and Completion Gates
+
+This spec is large enough that each phase ships as its own PR against `main`,
+in phase order — an explicit, documented exception to
+`docs/specs/README.md`'s default one-PR-per-spec rule, staying under the
+`rules/pr-templates.md` size ceiling per PR. SPEC-17 sets the same precedent
+in its own §11. Phase 7 is an independent follow-up, not required for
+SPEC-18 itself to be considered delivered.
 
 | Phase | Concrete change | Exit evidence |
 |---|---|---|
