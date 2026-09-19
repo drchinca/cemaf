@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.context.context import Context
 from cemaf.context.merge import MergeConflictError, MergeStrategy
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
@@ -35,6 +36,8 @@ class NodeHandlerContext:
     run_logger: RunLogger | None
     correlation_id: str
     should_halt: Callable[[], bool] | None = None
+    # SPEC-18 phase 1b — pre-dispatch identity admission for parallel peers.
+    agent_directory: AgentDirectory | None = None
 
 
 def execute_router_node(
