@@ -164,6 +164,7 @@ class ContextNodeExecutor:
                 registry=agent_registry,
                 aggregator=council_aggregator,
                 knowledge_graph=knowledge_graph,
+                agent_directory=agent_directory,
             ),
         ]
         if agent_selector is not None:
