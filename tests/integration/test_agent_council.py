@@ -8,12 +8,16 @@ council deliberates, the vote decides, the winning choice becomes NodeResult.out
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
+from cemaf.agents.factories import create_agent_directory
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
-from cemaf.core.types import AgentID
+from cemaf.core.enums import InstanceStatus
+from cemaf.core.types import AgentID, TaskID
 from cemaf.council.types import Opinion
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 from cemaf.orchestration.dag import Node
@@ -429,3 +433,88 @@ async def test_council_iterative_remediation_loop() -> None:
     assert run.final_context.get("code") == "Polished Code"
     assert run.final_context.get("verdict") == "approve"
     assert run.final_context.get("is_approved") == "approved"
+
+
+@pytest.mark.asyncio
+async def test_council_members_get_distinct_identity_retained_across_rounds() -> None:
+    """SPEC-18 §2.1: each council member gets its own real AgentInstance —
+    retained (same instance_id, new attempt_id) across every round — and is
+    marked COMPLETED once deliberation is fully done. Real AgentCouncil +
+    CouncilResolver + ContextNodeExecutor + AgentDirectory mixed together
+    through a real rounds=2 deliberation, no mocks.
+    """
+    directory = create_agent_directory()
+
+    class _IdentityMember:
+        """A real CouncilMember that records what identity it was dispatched
+        with on every round, straight from the AgentContext it receives and
+        from the real directory state visible mid-deliberation.
+        """
+
+        def __init__(self, member_id: str, choice: str) -> None:
+            self._id = AgentID(member_id)
+            self._choice = choice
+            self.seen_instance_ids: list[UUID | None] = []
+            self.seen_attempt_ids: list[str | None] = []
+
+        @property
+        def id(self) -> AgentID:
+            return self._id
+
+        @property
+        def description(self) -> str:
+            return f"votes {self._choice}"
+
+        @property
+        def skills(self) -> tuple[()]:
+            return ()
+
+        async def run(self, goal: object, context: AgentContext) -> AgentResult[str]:
+            return AgentResult.ok(output=self._choice, state=AgentState())
+
+        async def deliberate(self, *, question: object, goal: object, context: AgentContext) -> Opinion:
+            self.seen_instance_ids.append(context.instance_id)
+            instance = (
+                await directory.get(context.instance_id, task_id=TaskID(context.run_id))
+                if context.instance_id is not None
+                else None
+            )
+            self.seen_attempt_ids.append(str(instance.attempt_id) if instance is not None else None)
+            return Opinion(member_id=self._id, choice=self._choice)
+
+    members = [
+        _IdentityMember("m1", "ship"),
+        _IdentityMember("m2", "ship"),
+        _IdentityMember("m3", "hold"),
+    ]
+    registry = AgentRegistry()
+    for member in members:
+        registry.register_instance(item=member)
+
+    executor = ContextNodeExecutor(agent_registry=registry, agent_directory=directory)
+    node = Node.council(
+        id="gate", name="gate", members=("m1", "m2", "m3"), options=("ship", "hold"), rounds=2
+    )
+    run_id_value = "council-identity-run"
+    result = await executor.execute_node(node, Context().set("_run_id", run_id_value))
+
+    assert result.success
+    for member in members:
+        assert len(member.seen_instance_ids) == 2
+        first_id, second_id = member.seen_instance_ids
+        assert first_id is not None
+        assert first_id == second_id  # same logical instance across both rounds
+
+        first_attempt, second_attempt = member.seen_attempt_ids
+        assert first_attempt is not None and second_attempt is not None
+        assert first_attempt != second_attempt  # distinct attempt_id per round
+
+    all_instance_ids = {member.seen_instance_ids[0] for member in members}
+    assert len(all_instance_ids) == 3  # every member is a distinguishable spawn
+
+    task_id = TaskID(run_id_value)
+    for member in members:
+        instance = await directory.get(member.seen_instance_ids[0], task_id=task_id)
+        assert instance is not None
+        assert instance.status is InstanceStatus.COMPLETED
+        assert instance.council_member_slot == str(member.id)
