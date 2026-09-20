@@ -2,7 +2,7 @@
 title: Blueprint as LLM Input
 spec_id: SPEC-03
 status: Reviewed
-last_reviewed: 2026-05-27
+last_reviewed: 2026-09-19
 owner: drchinca
 parent: SPEC-00 — Enterprise Context Brain
 depends_on: SPEC-01, SPEC-02
@@ -92,6 +92,7 @@ class BlueprintRequest(Generic[T]):
     output_schema: type[T] | None                    # see "Grounding annotation policy" below
     grounding_refs: tuple[Citation, ...]            # derived from ctx.surfaced_sources
     policy_retry_budget: int = 2                     # consumed by StructuredGenerator (Inv 7)
+    schema_repair_budget: int = 2                    # bounds the validate/repair loop (Inv 6, Inv 16) — see "Schema validation and repair primitive" below
     tool_loop_budget: int = 5                        # bounds the TERMINAL_TOOL → tool exec → resume loop (Inv 11)
     tool_schemas: tuple[ToolSchema, ...] = ()        # frozen tool surface for this call; folded into canonical serialization (Inv 4)
     metadata: Mapping[str, str] = field(default_factory=dict)   # Mapping per SPEC-00 §2 canonical wrap pattern
@@ -148,6 +149,69 @@ class StructuredGenerator(Protocol):
     ) -> StructuredResult[T]: ...
 ```
 
+### Schema validation and repair primitive (implemented ahead of the full generator)
+
+`cemaf/blueprint/validator.py` implements Invariant 6's schema-conformance
+check and the repair-guidance half of the retry loop, as a standalone
+primitive `StructuredGenerator` (§2 above) will call once built — decoupled
+from `BlueprintRequest`/`StructuredResult` so it's usable, and testable,
+independent of the rest of this spec's (still-unbuilt) machinery.
+
+```python
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+
+from pydantic import BaseModel
+
+@dataclass(frozen=True, slots=True)
+class FieldRepairNote:
+    """One pydantic validation error translated into re-prompt guidance."""
+    field_path: str    # dotted path into the schema, e.g. "items.0.price"
+    error_type: str    # pydantic's error["type"], e.g. "missing", "int_parsing"
+    message: str        # pydantic's own human-readable message
+    guidance: str       # plain-English correction instruction for the field_path
+
+@dataclass(frozen=True, slots=True)
+class SchemaRepairHint:
+    """Every validation failure for one attempt, ready to fold into a re-prompt."""
+    schema_name: str
+    notes: tuple[FieldRepairNote, ...]
+
+    def to_prompt(self) -> str:
+        """Render as a numbered list of corrections for the next generation attempt."""
+        ...
+
+@dataclass(frozen=True, slots=True)
+class ValidationOutcome[T: BaseModel]:
+    """Result of one schema-validation attempt."""
+    valid: bool
+    output: T | None            # non-None iff valid
+    repair_hint: SchemaRepairHint | None   # non-None iff not valid
+    attempts: int                # 1 for a bare validate_structured_output() call
+
+def validate_structured_output[T: BaseModel](*, output_schema: type[T], raw_output: dict) -> ValidationOutcome[T]:
+    """Validate raw_output against output_schema; build a SchemaRepairHint on failure."""
+    ...
+
+async def repair_and_validate[T: BaseModel](
+    *,
+    output_schema: type[T],
+    raw_output: dict,
+    max_attempts: int,
+    regenerate: Callable[[SchemaRepairHint], Awaitable[dict]],
+) -> ValidationOutcome[T]:
+    """Validate; on failure, call `regenerate(repair_hint)` for a corrected raw
+    output and re-validate, up to `max_attempts` total validation attempts."""
+    ...
+```
+
+This is the piece `StructuredGenerator.generate` (§2 above) will call after
+receiving a draft from the LLM: on schema failure it supplies `regenerate` as
+a closure over "re-invoke the LLM with `SchemaRepairHint.to_prompt()` folded
+into the retry request," bounded by a schema-repair budget analogous to
+`BlueprintRequest.policy_retry_budget` (Inv 7) — that wiring lands with the
+rest of `StructuredGenerator`, not here.
+
 ### Grounding annotation policy
 
 `SchemaFieldClaimExtractor` (SPEC-05 §2) treats only Pydantic fields annotated
@@ -201,7 +265,7 @@ should not require grounding) requires an explicit waiver entry in
 3. `BlueprintRequest.grounding_refs SHALL equal tuple(c.citation for c in ctx.surfaced_sources) at the moment BlueprintInterceptor runs. The LLM call carries citation_id only — Citation.locator (which may be a long URL or KG ref) SHALL NOT be inlined into the prompt; this keeps the request size O(citation_id × N) rather than O(locator × N) and preserves enforceability of node.budget.generation_tokens. The generator resolves locator at post-flight from ctx.surfaced_sources for cite-or-fail membership and for user-facing rendering.`
 4. `THE BlueprintRequest SHALL be structurally equal under canonical serialization given the same Blueprint, goal, entities, ctx.surfaced_sources, and tool_schemas (replay-deterministic). Canonical serialization SHALL include tool_schemas in sorted-key form so registry mutations between runs surface as byte-level drift.`
 5. `Every StructuredResult SHALL carry the source blueprint_id and version (provenance).`
-6. `IF blueprint declares output_schema, THEN StructuredResult.output SHALL be an instance of that schema and pass its validators; failure → PostflightDecision determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER).`
+6. `IF blueprint declares output_schema, THEN the generator SHALL validate the draft via validate_structured_output/repair_and_validate (§2 "Schema validation and repair primitive"), retrying with SchemaRepairHint-guided regeneration up to BlueprintRequest.schema_repair_budget before giving up; StructuredResult.output SHALL be an instance of output_schema and pass its validators on success, or None on exhaustion (the generator SHALL NOT raise on schema-validation failure — it returns a StructuredResult with output=None). Downstream disposition of output=None is determined by node.schema_failure_policy (SPEC-00 §2 SchemaFailurePolicy enum, default RECOVER) — not yet built; today output=None is the generator's terminal signal of exhausted repair.`
 7. `Policies in the Blueprint (MUST / MUST_NOT) SHALL be enforced by the StructuredGenerator before returning the result; violations trigger re-generation up to BlueprintRequest.policy_retry_budget (default 2). On exhaustion the generator SHALL raise PolicyExhaustedError; the post-flight chain converts it to REJECT(reason="policy_exhausted").`
 8. `BlueprintLibrary SHALL return immutable Blueprint instances; mutation requires a new version (semver bump).`
 9. `THE generator SHALL filter cited_evidence_refs to ⊆ BlueprintRequest.grounding_refs before returning the StructuredResult — i.e., it SHALL NOT introduce non-member Citations. SPEC-05 cite-or-fail enforces the same membership predicate at post-flight against ctx.surfaced_sources (which equals grounding_refs at the moment BlueprintInterceptor ran, per Inv 3) — the two checks are redundant by design (defense in depth).`
@@ -210,6 +274,10 @@ should not require grounding) requires an explicit waiver entry in
 12. `WHEN a chain-level or per-interceptor timeout fires during agent.run, THE Executor SHALL cancel the upstream LLM stream, charge consumed input+output tokens to task.budget_remaining (already-paid cost), and emit RECOVER(RETRY_WITH_HINTS, reason='agent:timeout'). A cancelled stream SHALL NOT produce a StructuredResult — same path as Inv 11 (no validators, no policy checks, no cited_evidence_ref filtering on partial output). On retry exhaustion per SPEC-05 Inv 15, the chain escalates to HALT(reason='agent:timeout_exhausted'). This aligns with SPEC-05 §10 user-facing copy promising automatic retry on timeout.`
 13. `THE StructuredGenerator SHALL bound the LLM request's effective max_tokens at min(node.budget.generation_tokens, blueprint.style.max_tokens). For multi-round tool loops (Inv 11), the bound is enforced cumulatively across rounds via gen_tokens_consumed — total output across all rounds in one StructuredGenerator.generate SHALL NOT exceed node.budget.generation_tokens. RuntimeServices.eval_budget applies ONLY to guardian-invoked judges (SPEC-05 Inv 17) and SHALL NOT debit task.budget_remaining or override the StructuredGenerator's per-node cap.`
 14. `WHEN StructuredGenerator.generate completes (terminal or partial), THE generator SHALL emit a gen_ai.generate.structured span carrying gen_ai.request.model, gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.response.finish_reason — including on StreamingIncompleteError paths (finish_reason ∈ partial set per Inv 11).`
+15. `validate_structured_output SHALL return valid=True with output being a validated instance of output_schema IFF raw_output passes output_schema's pydantic validators; otherwise valid=False, output=None, and repair_hint populated with exactly one FieldRepairNote per pydantic ValidationError entry (same count, same order).`
+16. `repair_and_validate SHALL call regenerate at most max_attempts - 1 times and perform at most max_attempts total validation attempts; it SHALL return the first valid ValidationOutcome it produces, or the final (still-invalid) ValidationOutcome once max_attempts is exhausted, without calling regenerate again after the last validation attempt.`
+17. `ValidationOutcome.attempts SHALL equal the exact number of validate_structured_output calls performed (1 for a call that succeeds on the first attempt; up to max_attempts for repair_and_validate).`
+18. `SchemaRepairHint.to_prompt() SHALL produce non-empty guidance text naming every FieldRepairNote.field_path, and SHALL NOT be called when repair_hint is None (i.e., ValidationOutcome.valid is True).`
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -374,6 +442,63 @@ Feature: Blueprint-driven generation
     Given a StructuredGenerator raises StreamingIncompleteError(finish_reason=FinishReason.PARTIAL_LENGTH)
     Then the gen_ai.generate.structured span carries non-null gen_ai.usage.input_tokens and gen_ai.usage.output_tokens reflecting the partial token count
     And gen_ai.response.finish_reason == "partial_length"
+
+  Scenario: Schema validation passes on a conforming raw output
+    Given a pydantic schema OrderSummary and a raw_output dict matching it
+    When validate_structured_output runs
+    Then ValidationOutcome.valid is True
+    And ValidationOutcome.output is an OrderSummary instance
+    And ValidationOutcome.repair_hint is None
+    And ValidationOutcome.attempts == 1
+
+  Scenario: Schema validation failure produces one repair note per error
+    Given a pydantic schema requiring fields "total" (int) and "currency" (str)
+    And a raw_output dict missing "total" and with currency=123 (wrong type)
+    When validate_structured_output runs
+    Then ValidationOutcome.valid is False
+    And ValidationOutcome.output is None
+    And ValidationOutcome.repair_hint has exactly 2 FieldRepairNote entries
+    And one note's field_path is "total" and the other's is "currency"
+
+  Scenario: repair_and_validate converges within budget
+    Given a regenerate callback that returns an invalid payload on attempt 1 and a valid one on attempt 2
+    And max_attempts == 3
+    When repair_and_validate runs
+    Then the final ValidationOutcome.valid is True
+    And regenerate was called exactly once
+    And ValidationOutcome.attempts == 2
+
+  Scenario: repair_and_validate exhausts budget without converging
+    Given a regenerate callback that always returns an invalid payload
+    And max_attempts == 3
+    When repair_and_validate runs
+    Then the final ValidationOutcome.valid is False
+    And regenerate was called exactly 2 times
+    And ValidationOutcome.attempts == 3
+    And no further regenerate call is made after the third validation attempt
+
+  Scenario: Repair hint renders actionable prompt text
+    Given a ValidationOutcome with repair_hint containing FieldRepairNote(field_path="total", ...)
+    When SchemaRepairHint.to_prompt() is called
+    Then the returned text mentions "total"
+    And the text is non-empty
+
+  Scenario: DefaultStructuredGenerator repairs a malformed draft within budget
+    Given a Blueprint with output_schema=OrderSummary and schema_repair_budget=2
+    And the LLM client returns a draft missing the required "total" field on round 1
+    And a valid OrderSummary payload on round 2
+    When DefaultStructuredGenerator.generate runs
+    Then it appends the SchemaRepairHint.to_prompt() text to the message history before round 2
+    And StructuredResult.output is a valid OrderSummary instance
+    And no exception is raised
+
+  Scenario: DefaultStructuredGenerator exhausts schema repair budget without raising
+    Given a Blueprint with output_schema=OrderSummary and schema_repair_budget=1
+    And the LLM client always returns a draft that fails OrderSummary validation
+    When DefaultStructuredGenerator.generate runs
+    Then it returns a StructuredResult with output=None
+    And raw_text carries the last (still-invalid) draft
+    And no exception is raised
 ```
 
 ## 5. Out of Scope
@@ -424,6 +549,14 @@ constructions of `BlueprintRequest` are byte-identical under canonical
 serialization (sorted-key JSON).
 
 **Validates: §3 Invariant 4 / §4 "Structural determinism under same inputs"**
+
+### Property 6: Repair loop bounded convergence
+*For any* `repair_and_validate` call, the number of `validate_structured_output`
+attempts never exceeds `max_attempts`, and `regenerate` is called at most
+`max_attempts - 1` times — the loop always terminates by budget, never by
+external interruption.
+
+**Validates: §3 Invariants 16-17 / §4 "repair_and_validate converges within budget", "repair_and_validate exhausts budget without converging"**
 
 ## 8. Eval Criteria
 

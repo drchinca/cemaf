@@ -202,6 +202,59 @@ async def test_tool_loop_exhausts_budget() -> None:
 
 
 @pytest.mark.asyncio
+async def test_schema_repair_regenerates_then_succeeds() -> None:
+    """Inv 6/16: a malformed draft triggers a repair-hint-guided regeneration;
+    the second attempt validates and no exception is raised."""
+    client = MockLLMClient(
+        responses=[
+            json.dumps({"currency": "USD"}),  # missing "total" -> repair round
+            json.dumps({"total": 42.5, "item_count": 3}),
+        ]
+    )
+    registry = ToolRegistry()
+    generator = DefaultStructuredGenerator()
+
+    result = await generator.generate(request=_base_request(), client=client, tool_registry=registry)
+
+    assert client.call_count == 2
+    assert result.output == _OrderSummary(total=42.5, item_count=3)
+
+
+@pytest.mark.asyncio
+async def test_schema_repair_exhausted_returns_none_output_without_raising() -> None:
+    """Inv 6: exhausting schema_repair_budget returns output=None — the
+    generator never raises on schema-validation failure."""
+    client = MockLLMClient(responses=[json.dumps({"currency": "USD"})] * 5)
+    registry = ToolRegistry()
+    generator = DefaultStructuredGenerator()
+
+    result = await generator.generate(
+        request=_base_request(schema_repair_budget=1), client=client, tool_registry=registry
+    )
+
+    assert result.output is None
+    assert client.call_count == 2
+    assert result.raw_text == json.dumps({"currency": "USD"})
+
+
+@pytest.mark.asyncio
+async def test_no_output_schema_skips_validation_entirely() -> None:
+    """Inv 6 only applies when a Blueprint declares output_schema — a request
+    with none returns output=None on the first pass, no repair attempted."""
+    client = MockLLMClient(responses=["a free-form answer"])
+    registry = ToolRegistry()
+    generator = DefaultStructuredGenerator()
+
+    result = await generator.generate(
+        request=_base_request(output_schema=None), client=client, tool_registry=registry
+    )
+
+    assert result.output is None
+    assert result.raw_text == "a free-form answer"
+    assert client.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_unverified_tool_output_blocks_fabrication() -> None:
     """Inv 11: an unverified tool output raises before it's fed back to the LLM."""
     tool_call = ToolCall(id="call-1", name="lookup_order", arguments={"order_id": "42"})
