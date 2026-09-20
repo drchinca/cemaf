@@ -9,10 +9,13 @@ wired selector. No mocks.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 from pydantic import BaseModel
 
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
+from cemaf.agents.factories import create_agent_directory
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
 from cemaf.agents.selection import Capability, DefaultAgentSelector
@@ -35,12 +38,19 @@ class _WriteAgent(Agent[_WriteGoal, _WriteResult]):
     """A WRITE-capable agent that records which agent ran via output + a shared ledger."""
 
     def __init__(
-        self, agent_id: str, load: float, *, ran: list[str] | None = None, fail: bool = False
+        self,
+        agent_id: str,
+        load: float,
+        *,
+        ran: list[str] | None = None,
+        fail: bool = False,
+        contexts: list[AgentContext] | None = None,
     ) -> None:
         self._id = AgentID(agent_id)
         self._load = load
         self._ran = ran
         self._fail = fail
+        self._contexts = contexts
 
     @property
     def id(self) -> AgentID:
@@ -65,6 +75,8 @@ class _WriteAgent(Agent[_WriteGoal, _WriteResult]):
     async def run(self, goal: _WriteGoal, context: AgentContext) -> AgentResult[_WriteResult]:
         if self._ran is not None:
             self._ran.append(str(self._id))
+        if self._contexts is not None:
+            self._contexts.append(context)
         if self._fail:
             return AgentResult.fail(error=f"{self._id} boom", state=AgentState())
         return AgentResult.ok(
@@ -218,3 +230,39 @@ async def test_static_node_unaffected_by_wired_selector() -> None:
     assert result.success
     assert "WriterBusy" in (result.output or "")  # named agent ran, not the auction winner
     assert "selection" not in result.metadata
+
+
+@pytest.mark.asyncio
+async def test_auction_winner_gets_admitted_identity() -> None:
+    """The auction-resolved winner gets a real AgentInstance identity (SPEC-18
+    §2.1) threaded into its AgentContext — admission happens through the same
+    execute_node choke point as static dispatch, regardless of which resolver
+    won.
+    """
+    idle_contexts: list[AgentContext] = []
+    registry = AgentRegistry()
+    registry.register_agent(
+        agent_instance=_WriteAgent("WriterBusy", load=0.9),
+        goal_type=_WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
+    registry.register_agent(
+        agent_instance=_WriteAgent("WriterIdle", load=0.1, contexts=idle_contexts),
+        goal_type=_WriteGoal,
+        capabilities=frozenset({Capability.WRITE}),
+    )
+    directory = create_agent_directory()
+    executor = ContextNodeExecutor(
+        agent_registry=registry,
+        agent_selector=DefaultAgentSelector(),
+        budget_guard=BudgetGuard(max_cost_usd=10.0, max_total_tokens=100_000),
+        agent_directory=directory,
+    )
+    node = Node.auction(id="w", name="write", capability=Capability.WRITE.value)
+
+    result = await executor.execute_node(node, Context())
+
+    assert result.success
+    assert len(idle_contexts) == 1
+    assert idle_contexts[0].instance_id is not None
+    assert isinstance(idle_contexts[0].instance_id, UUID)

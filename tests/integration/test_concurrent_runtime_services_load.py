@@ -10,12 +10,13 @@ import pytest
 from pydantic import BaseModel
 
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
+from cemaf.agents.factories import create_agent_directory
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.core.enums import MemoryBackend, MemoryScope, RunStatus
-from cemaf.core.types import AgentID, NodeID, RunID
+from cemaf.core.types import AgentID, NodeID, RunID, TaskID
 from cemaf.memory.factories import MemoryRuntime, create_memory_runtime
 from cemaf.memory.semantic import MemoryQuery
 from cemaf.moderation.factories import create_keyword_moderation_pipeline
@@ -210,3 +211,38 @@ async def test_three_runtime_roots_keep_identical_session_keys_isolated_under_lo
         for runtime in runtimes:
             await runtime.vector_store.close()  # type: ignore[attr-defined]
             await runtime.memory_store.close()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_runs_sharing_one_agent_directory_stay_isolated() -> None:
+    """Two concurrent DAGExecutor.run() calls sharing ONE
+    RuntimeServices(agent_directory=...) bundle (SPEC-18 §2.1) get distinct
+    instance identities — no cross-run contamination in the shared directory —
+    and each run's automatic dispose() cleans up only its own entries.
+    """
+    directory = create_agent_directory()
+    agents = [_LoadAgent(), _LoadAgent()]
+    registries = [AgentRegistry() for _ in agents]
+    for registry, agent in zip(registries, agents, strict=True):
+        registry.register_agent(agent_instance=agent, goal_type=_LoadGoal)
+
+    executors = [
+        create_executor(agent_registry=registry, services=RuntimeServices(agent_directory=directory))
+        for registry in registries
+    ]
+
+    results = await asyncio.gather(
+        *(
+            executor.run(dag=_dag(tag=f"pipeline-{i}"), run_id=RunID(f"concurrent-run-{i}"))
+            for i, executor in enumerate(executors)
+        )
+    )
+
+    assert all(result.status == RunStatus.COMPLETED for result in results)
+    instance_ids = [agent.contexts[-1].instance_id for agent in agents]
+    assert all(instance_id is not None for instance_id in instance_ids)
+    assert len(set(instance_ids)) == 2  # distinct across concurrent runs sharing one directory
+
+    # Each run's own dispose() cleaned up only its own entries.
+    for i in range(2):
+        assert await directory.list(task_id=TaskID(f"concurrent-run-{i}")) == ()
