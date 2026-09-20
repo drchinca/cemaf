@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from cemaf.agents.base import AgentContext, AgentResult
+from cemaf.agents.directory_protocols import AgentDirectory
+from cemaf.agents.identity import AgentInstance
 from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
 from cemaf.agents.selection import AgentSelector
@@ -19,9 +21,9 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
 from cemaf.core.domain import DomainContext
-from cemaf.core.enums import MemoryScope
+from cemaf.core.enums import InstanceStatus, MemoryScope
 from cemaf.core.provenance import ProvenanceLink, SourceReference
-from cemaf.core.types import JSON, AgentID, NodeID, ProvenanceID
+from cemaf.core.types import JSON, AgentID, AttemptID, NodeID, ProvenanceID, RunID, TaskID
 from cemaf.core.utils import utc_now
 from cemaf.council.protocols import VoteAggregator
 from cemaf.interceptors.pipeline import InterceptorPipeline
@@ -122,6 +124,7 @@ class ContextNodeExecutor:
         council_aggregator: VoteAggregator | None = None,
         interceptor_pipeline: InterceptorPipeline | None = None,
         knowledge_graph: KnowledgeGraph | None = None,
+        agent_directory: AgentDirectory | None = None,
         max_recovery_attempts: int = 2,
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation.
@@ -148,6 +151,7 @@ class ContextNodeExecutor:
         self._council_aggregator = council_aggregator
         self._interceptor_pipeline = interceptor_pipeline
         self._knowledge_graph = knowledge_graph
+        self._agent_directory = agent_directory
         self._max_recovery_attempts = max_recovery_attempts
 
         # NodeResolver chain — first match wins, registered most-specific first.
@@ -270,10 +274,19 @@ class ContextNodeExecutor:
                     "compiled_context_tokens": compiled.total_tokens,
                 }
 
+        # Admit an AgentInstance for this dispatch (SPEC-18 §2.1) — real,
+        # collision-safe identity distinct from the registry's agent_id, so
+        # peers can address this specific spawn. No-op without a directory.
+        task_id_value = str(context.get("_task_id", default=run_id))
+        instance = await self._admit_instance(
+            node=node, agent_id=agent_name, run_id=run_id, task_id=task_id_value, warnings=context_warnings
+        )
+
         # Build agent context
         agent_context = AgentContext(
             run_id=run_id,
             agent_id=agent_name,
+            instance_id=instance.instance_id if instance is not None else None,
             domain_context=self._domain_context,
             global_memory=global_memory,
             artifacts=artifacts,
@@ -287,6 +300,8 @@ class ContextNodeExecutor:
                 node=node, context=agent_context
             )
             if pre_reject is not None:
+                # Admitted but never got to run — auditable as FAILED, not silently absent.
+                await self._transition_instance(instance, task_id=task_id_value, status=InstanceStatus.FAILED)
                 return NodeResult(
                     node_id=node.id,
                     success=False,
@@ -306,15 +321,58 @@ class ContextNodeExecutor:
         # Compute context hash for provenance
         context_hash = self._compute_context_hash(inputs=resolved_inputs)
 
-        # Recovery loop (SPEC-01a + RECOVER): a POST interceptor may ask the
-        # executor to re-run the agent with a feedback hint. Bounded by
-        # max_recovery_attempts; hints accumulate across attempts so the agent
-        # sees prior failures.
+        result, terminal_status = await self._run_agent_with_recovery(
+            node=node,
+            agent=agent,
+            goal=goal,
+            agent_context=agent_context,
+            agent_name=agent_name,
+            bid_metadata=bid_metadata,
+            context_hash=context_hash,
+            global_memory=global_memory,
+            resolved_inputs=resolved_inputs,
+            context_warnings=context_warnings,
+            start=start,
+            instance=instance,
+            task_id_value=task_id_value,
+        )
+        await self._transition_instance(instance, task_id=task_id_value, status=terminal_status)
+        return result
+
+    async def _run_agent_with_recovery(
+        self,
+        *,
+        node: Node,
+        agent: Agent[Any, Any],
+        goal: BaseModel,
+        agent_context: AgentContext,
+        agent_name: str,
+        bid_metadata: JSON | None,
+        context_hash: str,
+        global_memory: JSON,
+        resolved_inputs: dict[str, Any] | Any,
+        context_warnings: list[dict[str, str]],
+        start: float,
+        instance: AgentInstance | None,
+        task_id_value: str,
+    ) -> tuple[NodeResult, InstanceStatus]:
+        """Run the agent through the POST-interceptor recovery loop (SPEC-01a + RECOVER).
+
+        Bounded by ``max_recovery_attempts``; hints accumulate across attempts
+        so the agent sees prior failures. Returns the final NodeResult
+        alongside the terminal identity status (SPEC-18 §2.1) it corresponds
+        to — the caller makes exactly one ``_transition_instance()`` call with
+        this status, instead of a directory call scattered at every exit
+        point here. The one exception is the per-attempt RUNNING transition
+        below: it must fire from inside the loop, since a new attempt_id is
+        minted on every RECOVER retry.
+        """
         recovery_hints: list[RecoveryHint] = []
         attempts_remaining = self._max_recovery_attempts
         attempt_usage: list[dict[str, float | int]] = []
         accumulated_cost_usd = 0.0
         accumulated_tokens = 0
+        attempt_number = 0
 
         try:
             while True:
@@ -336,6 +394,16 @@ class ContextNodeExecutor:
                     else agent_context
                 )
 
+                # QUEUED->RUNNING on the first attempt, RUNNING->RUNNING (new
+                # attempt_id) on each RECOVER retry — same logical instance,
+                # never re-admitted.
+                attempt_number += 1
+                await self._transition_instance(
+                    instance,
+                    task_id=task_id_value,
+                    status=InstanceStatus.RUNNING,
+                    attempt_id=AttemptID(f"{node.id}-attempt-{attempt_number}"),
+                )
                 result = await agent.run(goal=goal, context=attempt_context)
                 duration_ms = (perf_counter() - start) * 1000
 
@@ -395,12 +463,15 @@ class ContextNodeExecutor:
                                 "attempt_usage": attempt_usage,
                             }
                         )
-                    return NodeResult(
-                        node_id=node.id,
-                        success=False,
-                        error=result.error or f"Agent '{agent_name}' failed",
-                        duration_ms=duration_ms,
-                        metadata=failure_metadata,
+                    return (
+                        NodeResult(
+                            node_id=node.id,
+                            success=False,
+                            error=result.error or f"Agent '{agent_name}' failed",
+                            duration_ms=duration_ms,
+                            metadata=failure_metadata,
+                        ),
+                        InstanceStatus.FAILED,
                     )
 
                 output = self._extract_output(result=result)
@@ -438,7 +509,7 @@ class ContextNodeExecutor:
                 # NodeResult; may REJECT (flip to failure + gate_rejected) or
                 # RECOVER (re-run the agent with a hint). Empty/None = no-op.
                 if self._interceptor_pipeline is None or self._interceptor_pipeline.is_empty:
-                    return success_result
+                    return success_result, InstanceStatus.COMPLETED
 
                 success_result, post_decision = await self._interceptor_pipeline.run_post(
                     node=node, context=attempt_context, result=success_result
@@ -464,13 +535,16 @@ class ContextNodeExecutor:
                 if post_decision is not None and post_decision.kind is DecisionKind.RECOVER:
                     # RECOVER requested but budget exhausted (or recovery disabled) —
                     # downgrade to REJECT so downstream blocks and gate_rejected stamps.
-                    return _apply_recovery_exhausted(
-                        result=success_result,
-                        decision=post_decision,
-                        attempts=len(recovery_hints),
+                    return (
+                        _apply_recovery_exhausted(
+                            result=success_result,
+                            decision=post_decision,
+                            attempts=len(recovery_hints),
+                        ),
+                        InstanceStatus.FAILED,
                     )
 
-                return success_result
+                return success_result, InstanceStatus.COMPLETED
 
         except Exception as e:
             duration_ms = (perf_counter() - start) * 1000
@@ -490,13 +564,66 @@ class ContextNodeExecutor:
                         "attempt_usage": attempt_usage,
                     }
                 )
-            return NodeResult(
-                node_id=node.id,
-                success=False,
-                error=str(e),
-                duration_ms=duration_ms,
-                metadata=crash_metadata,
+            return (
+                NodeResult(
+                    node_id=node.id,
+                    success=False,
+                    error=str(e),
+                    duration_ms=duration_ms,
+                    metadata=crash_metadata,
+                ),
+                InstanceStatus.FAILED,
             )
+
+    async def _admit_instance(
+        self,
+        *,
+        node: Node,
+        agent_id: str,
+        run_id: str,
+        task_id: str,
+        warnings: list[dict[str, str]],
+    ) -> AgentInstance | None:
+        """Admit an AgentInstance for this dispatch (SPEC-18 §2.1), or None if no directory is wired.
+
+        Failures are swallowed and logged as a context warning, exactly like
+        the existing memory-recall/context-compile failure handling above —
+        identity tracking is a side-channel here, not yet a correctness
+        dependency for anything (that starts with SPEC-18 phase 2 messaging).
+        A broken or conflicting directory must never break real agent execution.
+        """
+        if self._agent_directory is None:
+            return None
+        try:
+            return await self._agent_directory.admit(
+                spawn_key=f"{run_id}:{node.id}",
+                agent_id=AgentID(agent_id),
+                task_id=TaskID(task_id),
+                run_id=RunID(run_id),
+                node_id=NodeID(str(node.id)),
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory admit failed for node %s: %s", node.id, e)
+            warnings.append({"stage": "agent_directory_admit", "error": str(e)})
+            return None
+
+    async def _transition_instance(
+        self,
+        instance: AgentInstance | None,
+        *,
+        task_id: str,
+        status: InstanceStatus,
+        attempt_id: AttemptID | None = None,
+    ) -> None:
+        """Best-effort lifecycle transition — no-op without a directory or instance."""
+        if instance is None or self._agent_directory is None:
+            return
+        try:
+            await self._agent_directory.transition(
+                instance.instance_id, task_id=TaskID(task_id), status=status, attempt_id=attempt_id
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory transition failed for instance %s: %s", instance.instance_id, e)
 
     def _build_goal(self, *, agent_name: str, inputs: dict[str, Any] | Any) -> BaseModel | None:
         """Build a goal model from resolved inputs.
