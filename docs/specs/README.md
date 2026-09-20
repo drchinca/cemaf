@@ -42,6 +42,16 @@ requiring particular storage products.
 | [SPEC-15](SPEC-15-memory-branches.md) | Memory Branches | SPEC-00, SPEC-12 | isolated memory branches and merge-review protocol |
 | [SPEC-16](SPEC-16-engine-manifest.md) | Declarative Engine Manifest | SPEC-00 | declarative lowering to the existing composition root |
 | [SPEC-17](SPEC-17-autonomous-context-substrate.md) | Production-Grade Autonomous Context Substrate | SPEC-00, 04–06, 11, 14–16 | durable coordinator/authority, context manifests, scheduling, profiles, evidence, and claim gates |
+
+## Testing Infrastructure (SPEC-19)
+
+Standalone, dependency-free testing primitives — not part of any numbered
+dependency chain above.
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
