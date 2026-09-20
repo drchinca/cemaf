@@ -27,6 +27,21 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class InstanceStatus(StrEnum):
+    """Lifecycle state of an admitted AgentInstance spawn (SPEC-18 §2.1).
+
+    Distinct from AgentStatus (no queued/cancelled) and RunStatus (no
+    waiting/queued) — spawn identity needs all six states.
+    """
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    WAITING = "waiting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class NodeType(StrEnum):
     """Type of node in a DAG."""
 

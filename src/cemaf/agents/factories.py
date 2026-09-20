@@ -18,11 +18,13 @@ Extension Point:
 import os
 from typing import TYPE_CHECKING, Any
 
+from cemaf.agents.directory import InMemoryAgentDirectory
 from cemaf.agents.protocols import AgentContext
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import Settings
 from cemaf.core.types import JSON, AgentID
 from cemaf.core.utils import generate_id
+from cemaf.persistence.idempotency import IdempotentEffectSink, InMemoryIdempotentEffectSink
 
 if TYPE_CHECKING:
     from cemaf.knowledge.protocols import KnowledgeGraph
@@ -119,3 +121,11 @@ def create_agent_context_from_config(
         parent_agent_id=parent_agent_id,
         depth=depth,
     )
+
+
+def create_agent_directory(
+    *,
+    effect_sink: IdempotentEffectSink | None = None,
+) -> InMemoryAgentDirectory:
+    """Factory for the default in-memory AgentDirectory (SPEC-18 §2.1)."""
+    return InMemoryAgentDirectory(effect_sink=effect_sink or InMemoryIdempotentEffectSink())
