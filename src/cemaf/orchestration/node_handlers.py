@@ -9,7 +9,7 @@ from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.context.context import Context
 from cemaf.context.merge import MergeConflictError, MergeStrategy
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
-from cemaf.core.types import NodeID
+from cemaf.core.types import AgentID, NodeID, RunID, TaskID
 from cemaf.observability import get_logger
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Node
@@ -326,6 +326,47 @@ async def execute_parallel_node(
     )
 
 
+async def _preadmit_parallel_peers(
+    nodes: tuple[Node, ...], context: Context, *, handler_ctx: NodeHandlerContext
+) -> None:
+    """Register every parallel peer's identity before dispatch (SPEC-18 §2.1).
+
+    So the first running peer can discover queued siblings via
+    `AgentDirectory.list()` rather than only ones that happened to start
+    first. Uses the identical spawn-key formula as the real per-node
+    admission each sibling's own dispatch performs later
+    (`f"{run_id}:{node.id}"`), so that call idempotently replays instead of
+    double-admitting. Best-effort: a directory error here never blocks
+    dispatch, same policy as the real admission in `ContextNodeExecutor`.
+
+    Known, deliberately deferred edge case: this uses `sibling.ref_id` as
+    the admitted `agent_id`. If a sibling is ALSO auction-resolved to a
+    *different* agent name, the later real admission call hits an
+    `agent_id` mismatch on the same spawn key and raises
+    `IdempotencyConflictError` there instead of replaying — caught and
+    logged the same way, so dispatch is unaffected, but that node's real
+    identity tracking is skipped. No current test combines PARALLEL nodes
+    with auction resolution; fixing this properly needs either dropping
+    `agent_id` from the idempotency payload or giving this function
+    visibility into auction outcomes before dispatch.
+    """
+    if handler_ctx.agent_directory is None:
+        return
+    run_id = handler_ctx.correlation_id
+    task_id = str(context.get("_task_id", default=run_id))
+    for sibling in nodes:
+        try:
+            await handler_ctx.agent_directory.admit(
+                spawn_key=f"{run_id}:{sibling.id}",
+                agent_id=AgentID(sibling.ref_id),
+                task_id=TaskID(task_id),
+                run_id=RunID(run_id),
+                node_id=NodeID(str(sibling.id)),
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory pre-dispatch admit failed for node %s: %s", sibling.id, e)
+
+
 async def run_parallel_nodes(
     nodes: tuple[Node, ...],
     context: Context,
@@ -334,6 +375,8 @@ async def run_parallel_nodes(
 ) -> tuple[tuple[Any, ...], Context]:
     """Execute multiple nodes in parallel with context merging."""
     from cemaf.orchestration.executor import NodeResult
+
+    await _preadmit_parallel_peers(nodes, context, handler_ctx=handler_ctx)
 
     semaphore = asyncio.Semaphore(handler_ctx.max_parallel)
 
