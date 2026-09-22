@@ -55,9 +55,9 @@
 
 CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
 
-### Patterns CEMAF Standardizes
+### What Makes CEMAF the Industry Standard
 
-Most agent stacks grow glue code around the same runtime concerns. CEMAF packages those concerns as protocols, services, and DAG primitives. Less ceremony, fewer private assumptions, and yes, fewer places for future-you to mutter at a constructor.
+The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has been re-implementing.
 
 | Hard problem the field keeps re-solving | CEMAF's standard | Spec |
 |---|---|---|
@@ -74,6 +74,19 @@ Most agent stacks grow glue code around the same runtime concerns. CEMAF package
 | "How do I stop one project's learned blueprints from polluting another's?" | Harvested blueprints carry `project_id` + `scope`; `ProjectScopedRecipeDistiller` namespaces entries per project (no cross-project clobber), and `evaluate_promotion` only lifts a blueprint to `GLOBAL` once it's proven in ≥2 distinct projects at mean confidence ≥0.8. | [SPEC-13](docs/specs/SPEC-13-scoped-blueprint-harvest.md) |
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
 | "How do I expose run state to a dashboard / CLI / MCP without coupling to internals?" | `cemaf.session.v1` — a versioned, read-only `SessionSnapshot` projected deterministically from a `RunRecord` or `ExecutionResult` via `snapshot_from_run_record` / `snapshot_from_execution_result`. The stable operator-plane contract every surface renders from; absent services show as `"absent"`, never errors. | [SPEC-14](docs/specs/SPEC-14-session-snapshot-contract.md) |
+
+### The 8 Pillars of the Industry Standard
+
+CEMAF cannot honestly claim “industry standard” without these pillars:
+
+- **Durable execution**: disposable workers, automatic takeover, fencing, replay, healing.
+- **Huge-context management**: versioned context manifests, compaction, retrieval, provenance, and bounded prompt projection.
+- **Big-data separation**: never place huge datasets inside checkpoints. Store references to obj storage, tables, indexes, and artifacts.
+- **Distributed scheduling**: partitioning, backpressure, priorities, quotas, data locality, and fair task claiming.
+- **Deterministic auditability**: every decision, context mutation, recovery, citation, and effect traceable.
+- **Safe autonomy**: budgets, authorization, moderation, evaluation, retry limits, and human intervention.
+- **Backend portability**: PostgreSQL/Mongo authority; object storage for large payloads; Elastic vector stores for retrieval; DuckDB/warehouses for analytics.
+- **Evidence**: multi-day runs, terabyte-scale referenced datasets, worker kills, backend failover, replay parity, and adversarial benchmarks.
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 
