@@ -57,7 +57,6 @@ dependency chain above.
 | ID | Title | Depends on | Owns |
 |---|---|---|---|
 | [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
-
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
