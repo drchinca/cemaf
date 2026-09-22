@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from cemaf.persistence.idempotency import FileIdempotentEffectSink, IdempotencyConflictError
+from cemaf.persistence.idempotency import (
+    FileIdempotentEffectSink,
+    IdempotencyConflictError,
+    InMemoryIdempotentEffectSink,
+)
 
 
 @pytest.mark.asyncio
@@ -28,3 +32,32 @@ async def test_idempotency_key_rejects_different_payload(tmp_path: Path) -> None
 
     with pytest.raises(IdempotencyConflictError):
         await sink.publish(key="run:publish", payload={"value": "different"})
+
+
+@pytest.mark.asyncio
+async def test_in_memory_sink_concurrent_duplicate_effect_is_created_once() -> None:
+    sink = InMemoryIdempotentEffectSink()
+    receipts = await asyncio.gather(
+        *(sink.publish(key="run:publish", payload={"value": "done"}) for _ in range(20))
+    )
+
+    assert sum(receipt.created for receipt in receipts) == 1
+
+
+@pytest.mark.asyncio
+async def test_in_memory_sink_rejects_different_payload_for_same_key() -> None:
+    sink = InMemoryIdempotentEffectSink()
+    await sink.publish(key="run:publish", payload={"value": "first"})
+
+    with pytest.raises(IdempotencyConflictError):
+        await sink.publish(key="run:publish", payload={"value": "different"})
+
+
+@pytest.mark.asyncio
+async def test_in_memory_sink_replays_same_payload_without_conflict() -> None:
+    sink = InMemoryIdempotentEffectSink()
+    first = await sink.publish(key="run:publish", payload={"value": "same"})
+    second = await sink.publish(key="run:publish", payload={"value": "same"})
+
+    assert first.created is True
+    assert second.created is False

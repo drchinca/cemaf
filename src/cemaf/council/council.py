@@ -8,8 +8,11 @@ from collections.abc import Callable
 from typing import Any
 
 from cemaf.agents.base import AgentContext
+from cemaf.agents.directory_protocols import AgentDirectory
+from cemaf.agents.identity import AgentInstance
 from cemaf.agents.protocols import Agent
-from cemaf.core.types import AgentID
+from cemaf.core.enums import InstanceStatus
+from cemaf.core.types import AgentID, AttemptID, RunID, TaskID
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.protocols import CouncilMember, VoteAggregator
 from cemaf.council.types import CouncilConfig, CouncilDecision, CouncilQuestion, Opinion
@@ -27,10 +30,12 @@ class AgentCouncil:
         members: tuple[CouncilMember, ...],
         aggregator: VoteAggregator,
         config: CouncilConfig | None = None,
+        agent_directory: AgentDirectory | None = None,
     ) -> None:
         self._members = members
         self._aggregator = aggregator
         self._config = config or CouncilConfig()
+        self._agent_directory = agent_directory
 
     async def decide[GoalT](
         self, *, question: CouncilQuestion, goal: GoalT, context: AgentContext
@@ -54,7 +59,9 @@ class AgentCouncil:
                 if round_index == 0
                 else self._broadcast_context(context=context, prior_opinions=prior_opinions)
             )
-            opinions = await self._run_round(question=question, goal=goal, context=round_context)
+            opinions = await self._run_round(
+                question=question, goal=goal, context=round_context, round_index=round_index
+            )
             decision = self._aggregator.aggregate(question=question, opinions=opinions)
 
             # Early-stop: if the tally is unchanged from the prior round, more
@@ -71,10 +78,16 @@ class AgentCouncil:
 
         if decision is None:  # pragma: no cover — CouncilConfig enforces rounds >= 1
             raise RuntimeError("AgentCouncil.decide produced no decision (rounds=0?)")
+
+        # Every member participated across every round regardless of an
+        # individual round's outcome (SPEC-18 §2.1) — no per-round terminal
+        # state, since decide() can't know a round was "the last" until
+        # after early-stop/exhaustion is decided right here.
+        await self._complete_members(context=context)
         return decision
 
     async def _run_round[GoalT](
-        self, *, question: CouncilQuestion, goal: GoalT, context: AgentContext
+        self, *, question: CouncilQuestion, goal: GoalT, context: AgentContext, round_index: int
     ) -> tuple[Opinion, ...]:
         """One round of concurrent deliberation. Bounded + timed; raises become abstentions."""
         semaphore = asyncio.Semaphore(self._config.max_concurrency)
@@ -82,9 +95,26 @@ class AgentCouncil:
 
         async def run_member(member: CouncilMember) -> Opinion:
             async with semaphore:
+                # Admission is idempotent across rounds (round-independent
+                # spawn key) — same instance_id every round, new attempt_id
+                # per round. Each member gets its own context copy carrying
+                # its own instance_id; today's shared `context` object is
+                # the base every member's copy derives from.
+                instance = await self._admit_member(member=member, context=context)
+                member_context = (
+                    context.model_copy(update={"instance_id": instance.instance_id})
+                    if instance is not None
+                    else context
+                )
+                await self._transition_member(
+                    instance,
+                    context=context,
+                    status=InstanceStatus.RUNNING,
+                    attempt_id=AttemptID(f"{member.id}-round-{round_index}"),
+                )
                 try:
                     return await asyncio.wait_for(
-                        member.deliberate(question=question, goal=goal, context=context),
+                        member.deliberate(question=question, goal=goal, context=member_context),
                         timeout=timeout_s,
                     )
                 except asyncio.CancelledError:
@@ -148,6 +178,62 @@ class AgentCouncil:
                 }
             }
         )
+
+    async def _admit_member(self, *, member: CouncilMember, context: AgentContext) -> AgentInstance | None:
+        """Admit a per-member AgentInstance (SPEC-18 §2.1), or None if no directory is wired.
+
+        Idempotent across rounds — the spawn key doesn't include round_index,
+        so round 2+ replays the same instance rather than minting a new one.
+        Failures are swallowed and logged; a broken directory must never
+        break real deliberation.
+        """
+        if self._agent_directory is None:
+            return None
+        try:
+            return await self._agent_directory.admit(
+                spawn_key=f"{context.run_id}:{context.agent_id}:{member.id}",
+                agent_id=AgentID(str(member.id)),
+                task_id=TaskID(context.run_id),
+                run_id=RunID(context.run_id),
+                council_member_slot=str(member.id),
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory admit failed for council member %s: %s", member.id, e)
+            return None
+
+    async def _transition_member(
+        self,
+        instance: AgentInstance | None,
+        *,
+        context: AgentContext,
+        status: InstanceStatus,
+        attempt_id: AttemptID | None = None,
+    ) -> None:
+        """Best-effort lifecycle transition — no-op without a directory or instance."""
+        if instance is None or self._agent_directory is None:
+            return
+        try:
+            await self._agent_directory.transition(
+                instance.instance_id, task_id=TaskID(context.run_id), status=status, attempt_id=attempt_id
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory transition failed for instance %s: %s", instance.instance_id, e)
+
+    async def _complete_members(self, *, context: AgentContext) -> None:
+        """Mark every member COMPLETED once deliberation is fully done (all rounds).
+
+        No distinction between "abstained via timeout/exception" and
+        "abstained on the merits" — every member that participated in the
+        full decide() call gets COMPLETED, mirroring the council's own
+        "no-decision is a legitimate outcome, not a failure" stance. The
+        abstention reason stays visible in Opinion.rationale; this only
+        affects the identity-lifecycle label.
+        """
+        if self._agent_directory is None:
+            return
+        for member in self._members:
+            instance = await self._admit_member(member=member, context=context)
+            await self._transition_member(instance, context=context, status=InstanceStatus.COMPLETED)
 
 
 class _AgentMemberAdapter:

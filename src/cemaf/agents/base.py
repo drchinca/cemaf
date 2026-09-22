@@ -78,6 +78,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeVar
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -146,6 +147,11 @@ class AgentContext(BaseModel):
     agent_id: str
     parent_agent_id: str | None = None
     depth: int = 0
+    # Spawn-identity provenance (SPEC-18 §2.1) — distinct from the DAG-structural
+    # parent_agent_id/depth pair above; the two pairs may name different agents
+    # and must never be derived from each other.
+    instance_id: UUID | None = None
+    parent_instance_id: UUID | None = None
     global_memory: JSON = Field(default_factory=dict)
     artifacts: JSON = Field(default_factory=dict)
     domain_context: DomainContext | None = None

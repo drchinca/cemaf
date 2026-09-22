@@ -43,6 +43,12 @@ requiring particular storage products.
 | [SPEC-16](SPEC-16-engine-manifest.md) | Declarative Engine Manifest | SPEC-00 | declarative lowering to the existing composition root |
 | [SPEC-17](SPEC-17-autonomous-context-substrate.md) | Production-Grade Autonomous Context Substrate | SPEC-00, 04–06, 11, 14–16 | durable coordinator/authority, context manifests, scheduling, profiles, evidence, and claim gates |
 
+## Peer Collaboration (SPEC-18)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-18](SPEC-18-peer-communication-and-task-board.md) | Peer Communication and Communal Task Board | SPEC-10, 11, 12, 14, 17 | UUID spawn identity, peer messaging tools, optional groups/courts, communal initiatives and history |
+
 ## Testing Infrastructure (SPEC-19)
 
 Standalone, dependency-free testing primitives — not part of any numbered
@@ -55,7 +61,10 @@ dependency chain above.
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
-`rules/pr-templates.md` and `rules/git-workflow.md`.
+`rules/pr-templates.md` and `rules/git-workflow.md`. Exception: a spec whose
+own final section defines implementation phases with independent exit
+evidence (SPEC-17 §11, SPEC-18 §11) ships one PR per phase, in phase order,
+each still under the `rules/pr-templates.md` size ceiling.
 
 ## Standards
 
