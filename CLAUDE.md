@@ -292,6 +292,7 @@ return Result.fail(error="Rate limit exceeded")
 | `moderation` | Content safety pipeline | `pipeline.py`, `protocols.py` |
 | `validation` | Input/output validation | `base.py`, `protocols.py` |
 | `citation` | Source citation tracking | `base.py`, `tracker.py` |
+| `properties` (SPEC-19) | Sticky `always`/`sometimes`/`reachable`/`unreachable` test properties — accumulate by message, checked at teardown via the `property_tracker` pytest fixture; closes vacuous-coverage gaps in concurrency tests | `tracker.py` |
 
 ### Infrastructure (operational concerns)
 

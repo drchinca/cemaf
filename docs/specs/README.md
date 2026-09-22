@@ -49,6 +49,14 @@ requiring particular storage products.
 |---|---|---|---|
 | [SPEC-18](SPEC-18-peer-communication-and-task-board.md) | Peer Communication and Communal Task Board | SPEC-10, 11, 12, 14, 17 | UUID spawn identity, peer messaging tools, optional groups/courts, communal initiatives and history |
 
+## Testing Infrastructure (SPEC-19)
+
+Standalone, dependency-free testing primitives — not part of any numbered
+dependency chain above.
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see

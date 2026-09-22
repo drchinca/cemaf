@@ -725,3 +725,21 @@ def token_budget() -> TokenBudget:
 def context_compiler(token_estimator: SimpleTokenEstimator) -> PriorityContextCompiler:
     """Context compiler for tests."""
     return PriorityContextCompiler(token_estimator)
+
+
+# =============================================================================
+# PROPERTY ASSERTION FIXTURES (SPEC-19)
+# =============================================================================
+
+from cemaf.properties import PropertyTracker
+
+
+@pytest.fixture
+def property_tracker():
+    """A PropertyTracker whose always/sometimes/reachable/unreachable
+    properties are asserted at teardown — a test using this fixture fails if
+    any tracked property went unsatisfied, even if the test body itself never
+    calls assert_all_satisfied()."""
+    tracker = PropertyTracker()
+    yield tracker
+    tracker.assert_all_satisfied()

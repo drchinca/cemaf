@@ -25,6 +25,7 @@ from cemaf.observability.run_logger import InMemoryRunLogger
 from cemaf.orchestration.dag import DAG, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.properties import PropertyTracker
 
 
 class _LoadGoal(BaseModel):
@@ -66,8 +67,10 @@ class _IngestBarrier:
         self._arrivals = 0
         self._release = asyncio.Event()
         self.observed_counts: list[int] = []
+        self.arrival_order: list[int] = []
 
-    async def arrive(self) -> None:
+    async def arrive(self, *, pipeline_index: int) -> None:
+        self.arrival_order.append(pipeline_index)
         self._arrivals += 1
         if self._arrivals == self._parties:
             results = await self._inspector.memory_manager.recall(
@@ -79,9 +82,10 @@ class _IngestBarrier:
 
 
 class _BarrierSessionManager:
-    def __init__(self, *, delegate: Any, barrier: _IngestBarrier) -> None:
+    def __init__(self, *, delegate: Any, barrier: _IngestBarrier, pipeline_index: int) -> None:
         self._delegate = delegate
         self._barrier = barrier
+        self._pipeline_index = pipeline_index
         self.ingested: list[tuple[str, str, Any]] = []
 
     async def bootstrap(self, session_id: str, **kwargs: Any) -> Any:
@@ -95,7 +99,7 @@ class _BarrierSessionManager:
             **kwargs,
         )
         self.ingested.append((session_id, key, value))
-        await self._barrier.arrive()
+        await self._barrier.arrive(pipeline_index=self._pipeline_index)
         return item
 
     async def dispose(self, session_id: str, **kwargs: Any) -> Any:
@@ -116,6 +120,7 @@ def _dag(tag: str) -> DAG:
 @pytest.mark.asyncio
 async def test_three_runtime_roots_keep_identical_session_keys_isolated_under_load(
     tmp_path: Path,
+    property_tracker: PropertyTracker,
 ) -> None:
     db_path = str(tmp_path / "shared-authority.sqlite3")
     runtimes = [
@@ -142,13 +147,16 @@ async def test_three_runtime_roots_keep_identical_session_keys_isolated_under_lo
 
     guards = [BudgetGuard(max_cost_usd=1.0, max_total_tokens=10_000) for _ in runtimes]
     all_ingests: list[_BarrierSessionManager] = []
+    wave_arrival_orders: list[tuple[int, ...]] = []
 
     try:
         for wave in range(10):
             barrier = _IngestBarrier(parties=3, inspector=runtimes[0])
             sessions = [
-                _BarrierSessionManager(delegate=runtime.session_manager, barrier=barrier)
-                for runtime in runtimes
+                _BarrierSessionManager(
+                    delegate=runtime.session_manager, barrier=barrier, pipeline_index=index
+                )
+                for index, runtime in enumerate(runtimes)
             ]
             all_ingests.extend(sessions)
             executors = []
@@ -190,6 +198,7 @@ async def test_three_runtime_roots_keep_identical_session_keys_isolated_under_lo
             )
 
             assert barrier.observed_counts == [3]
+            wave_arrival_orders.append(tuple(barrier.arrival_order))
             assert all(result.status == RunStatus.COMPLETED for result in results)
             for index, result in enumerate(results):
                 expected = f"accepted:wave-{wave}-pipeline-{index}"
@@ -207,6 +216,17 @@ async def test_three_runtime_roots_keep_identical_session_keys_isolated_under_lo
             query=MemoryQuery(scope=MemoryScope.SESSION, limit=100)
         )
         assert remaining_session == ()
+
+        # SPEC-19: the barrier proves 3-way overlap every wave (observed_counts
+        # == [3] above), but not that the overlap was genuinely nondeterministic
+        # rather than an artifact of asyncio always scheduling these three
+        # coroutines in the same fixed order. Naming it explicitly turns "this
+        # stress test claims real concurrency" into a checked property.
+        property_tracker.sometimes(
+            len(set(wave_arrival_orders)) > 1,
+            message="pipeline arrival order at the ingest barrier varied across waves",
+            details={"distinct_orders_seen": len(set(wave_arrival_orders))},
+        )
     finally:
         for runtime in runtimes:
             await runtime.vector_store.close()  # type: ignore[attr-defined]
