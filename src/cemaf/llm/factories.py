@@ -469,6 +469,9 @@ def create_resilient_client(
     fallback_model: str | None = None,
     enable_caching: bool = False,
     cache_threshold_tokens: int = 1_000,
+    cache_ttl: str | None = None,
+    automatic_caching: bool = True,
+    cache_tools: bool = True,
 ) -> LLMClient:
     """Create ResilientLLMClient with sensible defaults.
 
@@ -478,6 +481,9 @@ def create_resilient_client(
         fallback_model: Model name to fall back to after repeated failures.
         enable_caching: Wrap with CachedAnthropicLLMClient for prompt caching.
         cache_threshold_tokens: Minimum token count to mark a block cacheable.
+        cache_ttl: Optional TTL ('5m' or '1h') for cached blocks and automatic caching.
+        automatic_caching: Enable top-level automatic prompt caching.
+        cache_tools: Enable caching tool definitions on the last tool in tools array.
 
     Returns:
         LLMClient (ResilientLLMClient, optionally wrapped in CachedAnthropicLLMClient).
@@ -495,6 +501,9 @@ def create_resilient_client(
             client=inner,
             cache_threshold_tokens=cache_threshold_tokens,
             metrics=metrics,
+            ttl=cache_ttl,
+            automatic_caching=automatic_caching,
+            cache_tools=cache_tools,
         )
 
     return ResilientLLMClient(

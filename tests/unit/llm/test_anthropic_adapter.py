@@ -257,6 +257,49 @@ class TestComplete:
         assert "tools" in call_kwargs
         assert call_kwargs["tools"][0]["name"] == "search"
 
+    @pytest.mark.asyncio
+    async def test_complete_with_cache_control_and_extracts_cache_tokens(self) -> None:
+        """Config cache_control is forwarded and response cache usage is stored in metadata."""
+        with patch.dict("sys.modules", {"anthropic": MagicMock()}):
+            client = AnthropicLLMClient(api_key="test-key")
+
+        mock_response = _make_response(input_tokens=10, output_tokens=20)
+        mock_response.usage.cache_read_input_tokens = 500
+        mock_response.usage.cache_creation_input_tokens = 150
+        client._client.messages.create = AsyncMock(return_value=mock_response)
+
+        from cemaf.llm.protocols import LLMConfig
+
+        cfg = LLMConfig(cache_control={"type": "ephemeral", "ttl": "1h"})
+        result = await client.complete(
+            messages=[Message.user("Hello")],
+            config_override=cfg,
+        )
+
+        assert result.success is True
+        call_kwargs = client._client.messages.create.call_args[1]
+        assert call_kwargs["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert result.metadata["cache_read_input_tokens"] == 500
+        assert result.metadata["cache_creation_input_tokens"] == 150
+
+    @pytest.mark.asyncio
+    async def test_tool_definition_cache_control_serialized(self) -> None:
+        """ToolDefinition with cache_control is forwarded to Anthropic tools array."""
+        with patch.dict("sys.modules", {"anthropic": MagicMock()}):
+            client = AnthropicLLMClient(api_key="test-key")
+
+        client._client.messages.create = AsyncMock(return_value=_make_response())
+
+        tool = ToolDefinition(
+            name="search",
+            description="Search the web",
+            cache_control={"type": "ephemeral"},
+        )
+        await client.complete(messages=[Message.user("Hi")], tools=[tool])
+
+        call_kwargs = client._client.messages.create.call_args[1]
+        assert call_kwargs["tools"][0]["cache_control"] == {"type": "ephemeral"}
+
 
 class TestStream:
     @pytest.mark.asyncio
