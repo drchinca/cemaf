@@ -97,6 +97,7 @@ class BlueprintRequest[T: BaseModel]:
     output_schema: type[T] | None
     grounding_refs: tuple[Citation, ...]
     policy_retry_budget: int = 2
+    schema_repair_budget: int = 2
     tool_loop_budget: int = 5
     tool_schemas: tuple[ToolSchema, ...] = ()
     metadata: Mapping[str, str] = field(default_factory=dict)

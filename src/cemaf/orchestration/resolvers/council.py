@@ -12,6 +12,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from cemaf.agents.base import AgentContext
+from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.council import AgentCouncil
 from cemaf.council.protocols import CouncilMember, VoteAggregator
@@ -40,10 +41,12 @@ class CouncilResolver:
         registry: AgentRegistry,
         aggregator: VoteAggregator | None = None,
         knowledge_graph: KnowledgeGraph | None = None,
+        agent_directory: AgentDirectory | None = None,
     ) -> None:
         self._registry = registry
         self._aggregator = aggregator
         self._knowledge_graph = knowledge_graph
+        self._agent_directory = agent_directory
 
     def matches(self, *, node: Node) -> bool:
         return bool(node.config and isinstance(node.config.get("council"), dict))
@@ -90,7 +93,12 @@ class CouncilResolver:
         # the node's `method` only configures the default aggregator. (The shared config
         # still bounds member concurrency/timeout in either case.)
         aggregator = self._aggregator or DefaultVoteAggregator(config=config)
-        council = AgentCouncil(members=tuple(members), aggregator=aggregator, config=config)
+        council = AgentCouncil(
+            members=tuple(members),
+            aggregator=aggregator,
+            config=config,
+            agent_directory=self._agent_directory,
+        )
         question = CouncilQuestion(prompt=str(council_cfg.get("prompt", "")), options=options)
 
         agent_context = AgentContext(

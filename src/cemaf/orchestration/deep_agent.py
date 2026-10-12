@@ -10,24 +10,30 @@ DeepAgent pattern:
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, TypeVar
+from uuid import UUID
 
 from pydantic import BaseModel
 
 from cemaf.agents.base import Agent, AgentContext, AgentResult
+from cemaf.agents.directory_protocols import AgentDirectory
+from cemaf.agents.identity import AgentInstance
 from cemaf.core.constants import (
     DEFAULT_DEEP_AGENT_MAX_CHILDREN,
     DEFAULT_DEEP_AGENT_MAX_DEPTH,
     DEFAULT_DEEP_AGENT_MAX_TOTAL,
     DEFAULT_DEEP_AGENT_TIMEOUT_SECONDS,
 )
-from cemaf.core.enums import RunStatus
-from cemaf.core.types import JSON, AgentID, RunID
+from cemaf.core.enums import InstanceStatus, RunStatus
+from cemaf.core.types import JSON, AgentID, RunID, TaskID
 from cemaf.core.utils import generate_id, utc_now
 from cemaf.orchestration.dag import DAG
 from cemaf.orchestration.executor import DAGExecutor, ExecutionResult
+
+logger = logging.getLogger(__name__)
 
 GoalT = TypeVar("GoalT", bound=BaseModel)
 ResultT = TypeVar("ResultT", bound=BaseModel)
@@ -120,10 +126,12 @@ class DeepAgentOrchestrator:
         agents: dict[AgentID, Agent[Any, Any]],
         dag_executor: DAGExecutor,
         config: DeepAgentConfig | None = None,
+        agent_directory: AgentDirectory | None = None,
     ) -> None:
         self._agents = agents
         self._dag_executor = dag_executor
         self._config = config or DeepAgentConfig()
+        self._agent_directory = agent_directory
 
         # Runtime state (reset each run)
         self._spawns: list[ChildSpawn] = []
@@ -131,6 +139,7 @@ class DeepAgentOrchestrator:
         self._dag_executions: list[ExecutionResult] = []
         self._children_per_agent: dict[AgentID, int] = {}
         self._start_time: datetime | None = None
+        self._task_id: str = ""
 
     async def run(
         self,
@@ -138,6 +147,7 @@ class DeepAgentOrchestrator:
         goal: GoalT,
         initial_context: JSON | None = None,
         run_id: RunID | None = None,
+        task_id: TaskID | None = None,
     ) -> DeepAgentResult[ResultT]:
         """
         Execute the DeepAgent orchestration.
@@ -147,6 +157,9 @@ class DeepAgentOrchestrator:
             goal: What to accomplish
             initial_context: Starting context
             run_id: Optional run ID
+            task_id: Optional task scope for identity admission (SPEC-18 §2.1);
+                defaults to run_id — a task spanning several runs is a caller
+                composition choice, not inferred here.
 
         Returns:
             DeepAgentResult with full execution trace
@@ -159,7 +172,9 @@ class DeepAgentOrchestrator:
         self._start_time = utc_now()
 
         run_id = run_id or RunID(generate_id("deep"))
+        self._task_id = str(task_id) if task_id is not None else str(run_id)
         started_at = self._start_time
+        root_instance: AgentInstance | None = None
 
         try:
             # Get root agent
@@ -173,13 +188,20 @@ class DeepAgentOrchestrator:
                     completed_at=utc_now(),
                 )
 
+            root_instance = await self._admit_instance(
+                spawn_key=f"{run_id}:root:{root_agent_id}", agent_id=root_agent_id, run_id=str(run_id)
+            )
+
             # Create root context
             context = AgentContext(
                 run_id=str(run_id),
                 agent_id=str(root_agent_id),
                 depth=0,
+                instance_id=root_instance.instance_id if root_instance is not None else None,
                 global_memory=initial_context or {},
             )
+
+            await self._transition_instance(root_instance, status=InstanceStatus.RUNNING)
 
             # Execute root agent with timeout
             result = await asyncio.wait_for(
@@ -193,6 +215,9 @@ class DeepAgentOrchestrator:
                 timeout=self._config.timeout_seconds,
             )
 
+            await self._transition_instance(
+                root_instance, status=InstanceStatus.COMPLETED if result.success else InstanceStatus.FAILED
+            )
             self._agent_results.append(result)
 
             return DeepAgentResult(
@@ -208,6 +233,7 @@ class DeepAgentOrchestrator:
             )
 
         except TimeoutError:
+            await self._transition_instance(root_instance, status=InstanceStatus.FAILED)
             return DeepAgentResult(
                 success=False,
                 error=f"Timeout exceeded: {self._config.timeout_seconds}s",
@@ -220,6 +246,7 @@ class DeepAgentOrchestrator:
             )
 
         except Exception as e:
+            await self._transition_instance(root_instance, status=InstanceStatus.FAILED)
             return DeepAgentResult(
                 success=False,
                 error=str(e),
@@ -314,12 +341,25 @@ class DeepAgentOrchestrator:
         if not child_agent:
             return AgentResult.fail(f"Child agent {child_agent_id} not found")
 
+        # Admit before building child_context so instance_id can thread
+        # through it. parent_instance_id is the parent's OWN spawn identity
+        # (SPEC-18 §2.1) — deliberately distinct from the unchanged
+        # parent_agent_id/depth below, which stay DAG-structural provenance.
+        child_instance = await self._admit_instance(
+            spawn_key=f"{parent_context.run_id}:child:{parent_id}:{child_agent_id}:{current_children}",
+            agent_id=child_agent_id,
+            run_id=parent_context.run_id,
+            parent_instance_id=parent_context.instance_id,
+        )
+
         # Create isolated context for child
         child_context = AgentContext(
             run_id=parent_context.run_id,
             agent_id=str(child_agent_id),
             parent_agent_id=str(parent_id),
             depth=parent_context.depth + 1,
+            instance_id=child_instance.instance_id if child_instance is not None else None,
+            parent_instance_id=parent_context.instance_id,
             global_memory=parent_context.global_memory,  # Read-only global
             artifacts=parent_context.artifacts,
             knowledge_graph=parent_context.knowledge_graph,
@@ -337,6 +377,8 @@ class DeepAgentOrchestrator:
         # Track children count
         self._children_per_agent[parent_id] = current_children + 1
 
+        await self._transition_instance(child_instance, status=InstanceStatus.RUNNING)
+
         # Execute child
         try:
             result = await self._execute_agent(
@@ -347,6 +389,9 @@ class DeepAgentOrchestrator:
                 parent_id=parent_id,
             )
 
+            await self._transition_instance(
+                child_instance, status=InstanceStatus.COMPLETED if result.success else InstanceStatus.FAILED
+            )
             self._agent_results.append(result)
 
             # Propagate errors if configured
@@ -356,9 +401,49 @@ class DeepAgentOrchestrator:
             return result
 
         except Exception as e:
+            await self._transition_instance(child_instance, status=InstanceStatus.FAILED)
             if self._config.propagate_errors:
                 raise
             return AgentResult.fail(str(e))
+
+    async def _admit_instance(
+        self,
+        *,
+        spawn_key: str,
+        agent_id: AgentID,
+        run_id: str,
+        parent_instance_id: UUID | None = None,
+    ) -> AgentInstance | None:
+        """Admit an AgentInstance for this spawn (SPEC-18 §2.1), or None if no directory is wired.
+
+        Failures are swallowed and logged — a broken directory must never
+        break real agent execution, same graceful-degradation policy as the
+        DAG dispatch path.
+        """
+        if self._agent_directory is None:
+            return None
+        try:
+            return await self._agent_directory.admit(
+                spawn_key=spawn_key,
+                agent_id=agent_id,
+                task_id=TaskID(self._task_id),
+                run_id=RunID(run_id),
+                parent_instance_id=parent_instance_id,
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory admit failed for spawn_key %s: %s", spawn_key, e)
+            return None
+
+    async def _transition_instance(self, instance: AgentInstance | None, *, status: InstanceStatus) -> None:
+        """Best-effort lifecycle transition — no-op without a directory or instance."""
+        if instance is None or self._agent_directory is None:
+            return
+        try:
+            await self._agent_directory.transition(
+                instance.instance_id, task_id=TaskID(self._task_id), status=status
+            )
+        except Exception as e:
+            logger.warning("AgentDirectory transition failed for instance %s: %s", instance.instance_id, e)
 
     async def run_dynamic_dag(
         self,
@@ -371,6 +456,13 @@ class DeepAgentOrchestrator:
 
         Agents can create DAGs at runtime and execute them.
         Respects timeout guardrail.
+
+        Identity admission (SPEC-18 §2.1) for nodes in this inner DAG is
+        handled entirely by the DAGExecutor's own phase-1b wiring — no code
+        here — provided the caller built `self._dag_executor` with the SAME
+        `AgentDirectory` instance as this orchestrator's `agent_directory`.
+        That's a composition responsibility for whoever wires both together,
+        not something this method can enforce.
 
         Args:
             dag: The DAG to execute

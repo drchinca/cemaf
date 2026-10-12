@@ -69,7 +69,14 @@ from cemaf.agents.context_agents import (
     WriterGoal,
     WriterResult,
 )
-from cemaf.agents.factories import create_agent_context, create_agent_context_from_config
+from cemaf.agents.directory import InMemoryAgentDirectory
+from cemaf.agents.directory_protocols import AgentDirectory
+from cemaf.agents.factories import (
+    create_agent_context,
+    create_agent_context_from_config,
+    create_agent_directory,
+)
+from cemaf.agents.identity import AgentInstance, format_display_name
 from cemaf.agents.protocols import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry, agent_factory_registry, create_default_registry
 from cemaf.core.domain import DomainContext
@@ -101,4 +108,10 @@ __all__ = [
     # Factories
     "create_agent_context",
     "create_agent_context_from_config",
+    "create_agent_directory",
+    # Identity (SPEC-18 phase 1)
+    "AgentInstance",
+    "AgentDirectory",
+    "InMemoryAgentDirectory",
+    "format_display_name",
 ]

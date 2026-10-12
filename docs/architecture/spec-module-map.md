@@ -52,11 +52,12 @@
 
 | Spec concept | Source spec | Target module | Status |
 |---|---|---|---|
-| `BlueprintRequest[T]` (typed structured-output request) | SPEC-03 §2 | `cemaf/blueprint/request.py` | scaffold pending |
-| `StructuredGenerator` Protocol | SPEC-03 §2 | `cemaf/blueprint/generator.py` | scaffold pending |
-| `BlueprintInterceptor` (POST-phase, validates structured output) | SPEC-03 §2 | `cemaf/blueprint/interceptor.py` | scaffold pending |
-| Blueprint → JSON Schema compilation | SPEC-03 §2 | `cemaf/blueprint/schema.py` | partial |
-| Blueprint validation / repair loop | SPEC-03 §2 | `cemaf/blueprint/validator.py` | scaffold pending |
+| `BlueprintRequest[T]` / `StructuredResult[T]` (typed structured-output request/result) | SPEC-03 §2 | `cemaf/generation/blueprint_request.py` | landed (adapted to landed Citation/goal types — see file docstring) |
+| `StructuredGenerator` Protocol + `DefaultStructuredGenerator` | SPEC-03 §2 | `cemaf/generation/structured_generator.py` | landed (Inv 6/7/9/11/13) |
+| `BlueprintInterceptor` (PRE-phase, position 3, after PullInterceptor) | SPEC-03 §2 | `cemaf/interceptors/blueprint.py` | scaffold pending |
+| `BlueprintLibrary.resolve_for_node()` / `.list_all()` | SPEC-03 §2 | `cemaf/blueprint/library.py` | scaffold pending |
+| Blueprint → JSON Schema compilation | SPEC-03 §2 | `cemaf/blueprint/schema.py` | partial — inline via `output_schema.model_json_schema()` in `structured_generator.py`, no dedicated module |
+| Blueprint validation / repair loop | SPEC-03 §2 | `cemaf/blueprint/validator.py` | landed (Inv 6/15-18) — standalone primitive, wired into `DefaultStructuredGenerator` |
 
 ## Task state machine (SPEC-04)
 

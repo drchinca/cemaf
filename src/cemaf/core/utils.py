@@ -12,7 +12,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 
 def utc_now() -> datetime:
@@ -45,6 +45,18 @@ def generate_id(prefix: str = "") -> str:
     if prefix:
         return f"{prefix}_{uid[:8]}"
     return uid
+
+
+def generate_instance_id() -> UUID:
+    """
+    Generate a real UUID4 for agent-instance spawn identity (SPEC-18 §2.1).
+
+    Distinct from generate_id(): every other ID in this codebase is a
+    truncated-hex NewType(str). Spawn identity is security-relevant
+    (spoofing prevention, cross-run uniqueness) and is the first caller
+    that needs full UUID collision resistance and the stdlib UUID type.
+    """
+    return uuid4()
 
 
 def safe_json(obj: Any) -> Any:

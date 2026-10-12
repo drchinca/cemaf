@@ -58,6 +58,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.agents.selection import AgentSelector
 from cemaf.blueprint.harvest import BlueprintHarvesterEngine
 from cemaf.blueprint.library import BlueprintLibrary
@@ -155,3 +156,10 @@ class RuntimeServices:
 
     # Distributed tracing
     tracer: Tracer | None = None
+
+    # Identity (SPEC-18 phase 1) — per-spawn AgentInstance admission/lifecycle
+    agent_directory: AgentDirectory | None = None
+
+    def __post_init__(self) -> None:
+        if self.agent_directory is not None and not isinstance(self.agent_directory, AgentDirectory):
+            raise ValueError("RuntimeServices.agent_directory must implement the AgentDirectory protocol")

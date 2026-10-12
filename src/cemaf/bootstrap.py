@@ -32,6 +32,7 @@ def create_executor(
         council_aggregator=svc.council_aggregator,
         interceptor_pipeline=svc.interceptor_pipeline,
         knowledge_graph=svc.knowledge_graph,
+        agent_directory=svc.agent_directory,
         max_recovery_attempts=svc.max_recovery_attempts,
     )
 

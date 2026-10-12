@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
@@ -55,3 +56,24 @@ class FileIdempotentEffectSink:
     def _path_for(self, key: str) -> Path:
         digest = hashlib.sha256(key.encode()).hexdigest()
         return self._root / f"{digest}.effect.json"
+
+
+class InMemoryIdempotentEffectSink:
+    """Store each effect once in-process — same conflict semantics as
+    `FileIdempotentEffectSink`, no disk I/O. For single-process callers
+    (e.g. `InMemoryAgentDirectory`) that don't need crash-safety.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._effects: dict[str, JSON] = {}
+
+    async def publish(self, *, key: str, payload: JSON) -> EffectReceipt:
+        async with self._lock:
+            existing = self._effects.get(key)
+            if existing is not None:
+                if existing != payload:
+                    raise IdempotencyConflictError(f"payload conflict for idempotency key {key!r}")
+                return EffectReceipt(key=key, created=False, payload=payload)
+            self._effects[key] = payload
+            return EffectReceipt(key=key, created=True, payload=payload)

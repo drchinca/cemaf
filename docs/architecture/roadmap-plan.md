@@ -86,14 +86,16 @@ is the most spec-complete of the six phases; implementation is translation,
 not design.
 
 **Current state**: `blueprint/Blueprint` exists with `to_prompt()`.
-`generation/` has `protocols.py` (image/audio/video generator Protocols) but
-no `BlueprintRequest`/`StructuredGenerator` — SPEC-03's shapes are entirely
-new additions to `generation/`, not a rework of what's there.
+`generation/blueprint_request.py` (`GoalSpec`/`StyleSpec`/`PolicySpec`/
+`BlueprintRequest[T]`/`StructuredResult[T]`) and
+`generation/structured_generator.py` (`StructuredGenerator` Protocol +
+`DefaultStructuredGenerator`, Inv 6/7/9/11/13) are **landed** — items 1 and 4
+below shipped (PR #238, plus the schema validation/repair loop wired in
+separately as `cemaf/blueprint/validator.py`, Inv 6/15-18). Remaining: 2, 3,
+5 below.
 
 **Work** (ordered by SPEC-03 §2's own type dependency chain):
-1. `generation/blueprint_request.py` — `GoalSpec`, `StyleSpec`, `PolicySpec`,
-   `BlueprintRequest[T]`, `StructuredResult[T]`, the three new exception types
-   (`StreamingIncompleteError`, `PolicyExhaustedError`, `ToolLoopExhaustedError`).
+1. ~~`generation/blueprint_request.py`~~ — landed.
 2. `blueprint/library.py` extension — `BlueprintLibrary.resolve_for_node()`
    (explicit `node.blueprint_id` > capability match > `None`) and
    `list_all()` with the ≤200 cardinality cap (Inv 8, startup error on
@@ -101,13 +103,16 @@ new additions to `generation/`, not a rework of what's there.
 3. `interceptors/blueprint.py` — `BlueprintInterceptor` (PRE, position 3,
    *after* Phase 5's `PullInterceptor` — chain order is canonical per SPEC-03
    §6 Dependencies). Implements Inv 1–3.
-4. `generation/structured_generator.py` — `StructuredGenerator` Protocol +
-   default impl. This is the biggest single piece: Inv 11's tool-call loop
-   (parallel dispatch, `tool_output_verifier` check before feeding results
-   back, round-vs-call budget accounting) and Inv 13's cumulative token
-   bound across rounds are the two invariants most likely to hide subtle
-   bugs — write the Gherkin scenarios for "Tool-loop generation budget is
-   bounded across rounds" and "Parallel tool calls" as tests *first*.
+4. ~~`generation/structured_generator.py`~~ — landed, including the Inv
+   6 schema validation/repair loop (`cemaf/blueprint/validator.py`:
+   `validate_structured_output`/`repair_and_validate`, bounded by
+   `BlueprintRequest.schema_repair_budget`). Inv 11's tool-call loop and Inv
+   13's cumulative token bound also landed; `gen_tokens_consumed` is **not**
+   currently threaded across policy/schema-repair rounds within one
+   `generate()` call (each round's `_run_tool_loop` starts back at the
+   call's initial budget) — a real gap in Inv 13's cross-round accounting,
+   flagged here rather than fixed silently; pick up before claiming Inv 13
+   fully closed.
 5. Grounding annotation policy (§2 "Grounding annotation policy",
    `STRUCTURAL_METADATA_ALLOW_LIST`) + the SPEC-00 §6 spec-audit rule (Inv
    10) — this can land as its own PR since it's independently testable

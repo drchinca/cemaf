@@ -1,7 +1,9 @@
 """StructuredGenerator — drives a BlueprintRequest to a validated StructuredResult.
 
 Implements SPEC-03 §2 StructuredGenerator + the load-bearing invariants:
-  - Inv 6: output_schema validation
+  - Inv 6: output_schema validation + bounded, hint-guided repair loop
+    (cemaf.blueprint.validator) — never raises on schema failure, returns
+    output=None once schema_repair_budget is exhausted
   - Inv 7: MUST/MUST_NOT policy enforcement with bounded re-generation
   - Inv 9: cited_evidence_refs filtered to grounding_refs membership
   - Inv 11: TERMINAL_TOOL loop — dispatch every tool_use block, verify each
@@ -20,10 +22,11 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
+from cemaf.blueprint.validator import SchemaRepairHint, repair_and_validate
 from cemaf.citation.models import Citation
-from cemaf.core.types import FinishReason
+from cemaf.core.types import JSON, FinishReason
 from cemaf.generation.blueprint_request import (
     BlueprintRequest,
     PolicyExhaustedError,
@@ -115,13 +118,11 @@ def _check_policy_violations(*, text: str, policies: tuple[Any, ...]) -> tuple[s
     return tuple(violations)
 
 
-def _validate_output[T: BaseModel](*, text: str, schema: type[T] | None) -> T | None:
-    if schema is None:
-        return None
+def _parse_json_or_empty(text: str) -> JSON:
     try:
-        return schema.model_validate_json(text)
-    except ValidationError:
-        return schema.model_validate(json.loads(text))
+        return dict(json.loads(text))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
 
 
 class DefaultStructuredGenerator:
@@ -185,11 +186,42 @@ class DefaultStructuredGenerator:
                 )
                 continue
 
-            output = _validate_output(text=raw_text, schema=request.output_schema)
+            if request.output_schema is None:
+                grounded_cited = _filter_to_grounding_refs(cited, request.grounding_refs)
+                return StructuredResult(
+                    output=None,
+                    raw_text=raw_text,
+                    cited_evidence_refs=grounded_cited,
+                    blueprint_id=request.blueprint_id,
+                    blueprint_version=request.blueprint_version,
+                )
+
+            final_text = raw_text
+
+            async def _regenerate(hint: SchemaRepairHint) -> JSON:
+                nonlocal final_text, cited
+                messages.append(Message(role=MessageRole.ASSISTANT, content=final_text))
+                messages.append(Message(role=MessageRole.USER, content=hint.to_prompt()))
+                final_text, cited = await self._run_tool_loop(
+                    request=request,
+                    client=client,
+                    tool_registry=tool_registry,
+                    messages=messages,
+                    tool_definitions=tool_definitions,
+                    gen_tokens_consumed_start=gen_tokens_consumed,
+                )
+                return _parse_json_or_empty(final_text)
+
+            outcome = await repair_and_validate(
+                output_schema=request.output_schema,
+                raw_output=_parse_json_or_empty(raw_text),
+                max_attempts=1 + request.schema_repair_budget,
+                regenerate=_regenerate,
+            )
             grounded_cited = _filter_to_grounding_refs(cited, request.grounding_refs)
             return StructuredResult(
-                output=output,
-                raw_text=raw_text,
+                output=outcome.output,
+                raw_text=final_text,
                 cited_evidence_refs=grounded_cited,
                 blueprint_id=request.blueprint_id,
                 blueprint_version=request.blueprint_version,

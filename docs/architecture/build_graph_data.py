@@ -223,6 +223,12 @@ HOW: dict[str, str] = {
         "Run/entity persistence — durable state for resumable executions "
         "and replay. Pluggable backend; in-memory default for tests."
     ),
+    "properties": (
+        "PropertyTracker.always(cond, message=)/.sometimes(...)/.reachable(...)"
+        "/.unreachable(...) accumulate by message; assert_all_satisfied() at "
+        "teardown catches vacuous concurrency tests that never hit the race "
+        "they claim to prove. Use the `property_tracker` pytest fixture."
+    ),
     "replay": (
         "Record an execution; replay it deterministically against the "
         "same registry to debug why a node took the path it did. "
@@ -331,6 +337,7 @@ DESCRIPTIONS: dict[str, str] = {
     "observability": "Structured logging, Prometheus metrics, health, tracing",
     "orchestration": "DAGExecutor, node executors, RuntimeServices, resolvers",
     "persistence": "Run and entity persistence",
+    "properties": "Sticky always/sometimes/reachable/unreachable test properties",
     "replay": "Execution replay and debugging",
     "resilience": "Retry, circuit breaker, rate limiter",
     "retrieval": "VectorStore and EmbeddingProvider protocols",

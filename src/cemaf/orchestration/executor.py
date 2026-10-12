@@ -323,6 +323,7 @@ class DAGExecutor:
             raise ValueError("RuntimeServices.checkpoint_interval must be >= 1")
         self._checkpoint_interval = services.checkpoint_interval
         self._knowledge_graph = services.knowledge_graph
+        self._agent_directory = services.agent_directory
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.
@@ -662,6 +663,7 @@ class DAGExecutor:
                 run_logger=self._run_logger,
                 correlation_id=_correlation_id_var.get(),
                 should_halt=self._should_halt,
+                agent_directory=self._agent_directory,
             )
 
             for node_id in order:
@@ -1147,6 +1149,14 @@ class DAGExecutor:
                 except Exception as e:
                     logger.warning("Memory session dispose failed: %s", e)
 
+            # Run-scoped identity retention cleanup (SPEC-18 §2.1) — same
+            # unconditional, swallow-and-log shape as session dispose above.
+            if self._agent_directory is not None:
+                try:
+                    await self._agent_directory.dispose(run_id=RunID(str(run_id)))
+                except Exception as e:
+                    logger.warning("Agent directory dispose failed: %s", e)
+
     def _should_execute_node(
         self,
         node: Node,
@@ -1542,6 +1552,7 @@ class DAGExecutor:
             max_parallel=self._max_parallel,
             run_logger=self._run_logger,
             correlation_id=_correlation_id_var.get(),
+            agent_directory=self._agent_directory,
         )
         return await _run_parallel_nodes(
             nodes=nodes,
