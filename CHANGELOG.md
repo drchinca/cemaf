@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-22
+
+MessageBoard foundation (agent identity substrate), Blueprint schema
+validation with a repair loop, and a sticky test-property primitive for
+catching vacuous concurrency coverage.
+
+**Added:**
+- `AgentInstance` / `AgentDirectory` (SPEC-18 phase 1) — every spawned agent
+  gets a real `uuid.UUID` instance identity plus a human-readable alias
+  (`Researcher-2`), collision-safe across concurrent duplicate admission,
+  scoped per `(agent_id, task_id)`. Wired into static/auction DAG dispatch,
+  parallel pre-registration, council deliberation, and deep-agent recursion —
+  the identity foundation MessageBoard (SPEC-18's peer messaging and
+  communal task board, still to come) is built on.
+- `cemaf.blueprint.validator` — `validate_structured_output`/
+  `repair_and_validate`: schema-conformance checking with a bounded,
+  hint-guided repair loop. Wired into `DefaultStructuredGenerator`
+  (`BlueprintRequest.schema_repair_budget`), replacing a schema-validation
+  path that could raise uncaught on a second malformed draft.
+- `cemaf.properties` — sticky `always`/`sometimes`/`reachable`/`unreachable`
+  test-property assertions (message-keyed, accumulate across a run) plus a
+  `property_tracker` pytest fixture. Closes a class of bug where a
+  concurrency test passes green forever without ever exercising the race it
+  claims to test.
+
+**Tests:**
+- Holistic concurrent-load proof for the identity substrate across multiple
+  agents/tasks/runs at once; real-DAG proofs for parallel pre-admission and
+  RECOVER-retry identity; council and deep-agent identity chains.
+- Real-behavior repair-loop tests against `DefaultStructuredGenerator` +
+  `MockLLMClient` (no mocks of the validator itself).
+- Retrofitted `test_concurrent_runtime_services_load.py`'s 3-way ingest
+  barrier with a `sometimes()` property proving genuine nondeterministic
+  interleaving, not just overlap.
+
 ## [3.2.1] - 2026-07-24
 
 Edusphere-readiness: durable FSM persistence, Gemini structured-output schema,

@@ -221,6 +221,7 @@ class ToolDefinition:
     description: str
     parameters: JSON = field(default_factory=lambda: {"type": "object", "properties": {}})
     required: tuple[str, ...] = field(default_factory=tuple)
+    cache_control: JSON | None = None
 
     def to_openai_format(self) -> JSON:
         """Convert to OpenAI tool format."""
@@ -236,9 +237,9 @@ class ToolDefinition:
             },
         }
 
-    def to_anthropic_format(self) -> JSON:
-        """Convert to Anthropic tool format."""
-        return {
+    def to_anthropic_format(self, *, cache_control: JSON | None = None) -> JSON:
+        """Convert to Anthropic tool format with optional cache_control breakpoint."""
+        tool_dict: dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": {
@@ -246,6 +247,10 @@ class ToolDefinition:
                 "required": list(self.required),
             },
         }
+        cc = cache_control or self.cache_control
+        if cc is not None:
+            tool_dict["cache_control"] = cc
+        return tool_dict
 
 
 class LLMConfig(BaseModel):
@@ -264,6 +269,9 @@ class LLMConfig(BaseModel):
     # to this JSON schema; others ignore it.
     response_mime_type: str | None = None
     response_schema: JSON | None = None
+
+    # Prompt-caching: top-level cache_control for automatic caching or default TTL breakpoint.
+    cache_control: JSON | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,6 +359,7 @@ class StreamChunk:
     accumulated_content: str = ""
     prompt_tokens: TokenCount = TokenCount(0)
     completion_tokens: TokenCount = TokenCount(0)
+    metadata: JSON = field(default_factory=dict)
 
 
 @runtime_checkable

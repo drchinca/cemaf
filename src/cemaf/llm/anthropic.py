@@ -60,6 +60,10 @@ class AnthropicLLMClient:
             kwargs["system"] = system_msg
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
+        if cfg.cache_control:
+            kwargs["cache_control"] = cfg.cache_control
+        if cfg.stop_sequences:
+            kwargs["stop_sequences"] = list(cfg.stop_sequences)
 
         start = time.monotonic()
         try:
@@ -93,7 +97,15 @@ class AnthropicLLMClient:
         )
 
         native = response.stop_reason or "end_turn"
-        return CompletionResult.ok(
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        cache_created = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+        cache_metadata: dict[str, Any] = {}
+        if cache_read:
+            cache_metadata["cache_read_input_tokens"] = cache_read
+        if cache_created:
+            cache_metadata["cache_creation_input_tokens"] = cache_created
+
+        result = CompletionResult.ok(
             message=message,
             prompt_tokens=response.usage.input_tokens,
             completion_tokens=response.usage.output_tokens,
@@ -103,6 +115,11 @@ class AnthropicLLMClient:
             provider=LLMProvider.ANTHROPIC,
             latency_ms=latency_ms,
         )
+        if cache_metadata:
+            import dataclasses
+
+            result = dataclasses.replace(result, metadata={**result.metadata, **cache_metadata})
+        return result
 
     async def stream(
         self,
@@ -124,6 +141,10 @@ class AnthropicLLMClient:
             kwargs["system"] = system_msg
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
+        if cfg.cache_control:
+            kwargs["cache_control"] = cfg.cache_control
+        if cfg.stop_sequences:
+            kwargs["stop_sequences"] = list(cfg.stop_sequences)
 
         stream_message = cast(Any, self._client.messages.stream)
         async with stream_message(**kwargs) as stream:
@@ -166,6 +187,14 @@ class AnthropicLLMClient:
                     current_tool_id = ""
 
             final_message = await stream.get_final_message()
+            cache_read = getattr(final_message.usage, "cache_read_input_tokens", 0) or 0
+            cache_created = getattr(final_message.usage, "cache_creation_input_tokens", 0) or 0
+            final_metadata: dict[str, Any] = {}
+            if cache_read:
+                final_metadata["cache_read_input_tokens"] = cache_read
+            if cache_created:
+                final_metadata["cache_creation_input_tokens"] = cache_created
+
             yield StreamChunk(
                 content="",
                 accumulated_content=accumulated_text,
@@ -174,6 +203,7 @@ class AnthropicLLMClient:
                 finish_reason=coerce_finish_reason(final_message.stop_reason or "end_turn"),
                 prompt_tokens=TokenCount(final_message.usage.input_tokens),
                 completion_tokens=TokenCount(final_message.usage.output_tokens),
+                metadata=final_metadata,
             )
 
     def count_tokens(self, text: str) -> TokenCount:
@@ -244,30 +274,38 @@ class AnthropicLLMClient:
 def _convert_messages(
     *,
     messages: list[Message],
-) -> tuple[str | None, list[dict[str, object]]]:
-    """Extract system message and convert CEMAF messages to Anthropic format."""
-    system_msg: str | None = None
-    api_messages: list[dict[str, object]] = []
+) -> tuple[str | list[dict[str, Any]] | None, list[dict[str, Any]]]:
+    """Extract system message and convert CEMAF messages to Anthropic format.
+
+    Preserves explicit prompt caching breakpoints from `Message.metadata["cache_control"]`.
+    """
+    system_msg: str | list[dict[str, Any]] | None = None
+    api_messages: list[dict[str, Any]] = []
 
     for msg in messages:
+        cc = msg.metadata.get("cache_control")
         if msg.role == MessageRole.SYSTEM:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            system_msg = content
+            if cc:
+                system_msg = [{"type": "text", "text": content, "cache_control": cc}]
+            else:
+                system_msg = content
         elif msg.role == MessageRole.TOOL:
+            block: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": msg.tool_call_id,
+                "content": msg.content if isinstance(msg.content, str) else str(msg.content),
+            }
+            if cc:
+                block["cache_control"] = cc
             api_messages.append(
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": msg.tool_call_id,
-                            "content": msg.content if isinstance(msg.content, str) else str(msg.content),
-                        }
-                    ],
+                    "content": [block],
                 }
             )
         elif msg.role == MessageRole.ASSISTANT and msg.tool_calls:
-            content_blocks: list[dict[str, object]] = []
+            content_blocks: list[dict[str, Any]] = []
             if msg.content:
                 content_blocks.append({"type": "text", "text": str(msg.content)})
             for tc in msg.tool_calls:
@@ -279,9 +317,31 @@ def _convert_messages(
                         "input": tc.arguments,
                     }
                 )
+            if cc and content_blocks:
+                content_blocks[-1]["cache_control"] = cc
             api_messages.append({"role": "assistant", "content": content_blocks})
         else:
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            api_messages.append({"role": msg.role.value, "content": content})
+            if cc:
+                if isinstance(msg.content, list):
+                    blocks = [dict(b) for b in msg.content]
+                    if blocks:
+                        blocks[-1]["cache_control"] = cc
+                    api_messages.append({"role": msg.role.value, "content": blocks})
+                else:
+                    api_messages.append(
+                        {
+                            "role": msg.role.value,
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": msg.content if isinstance(msg.content, str) else str(msg.content),
+                                    "cache_control": cc,
+                                }
+                            ],
+                        }
+                    )
+            else:
+                content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                api_messages.append({"role": msg.role.value, "content": content})
 
     return system_msg, api_messages
