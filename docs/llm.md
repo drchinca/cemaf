@@ -192,6 +192,83 @@ CEMAF_LLM_PROVIDER=ollama
 CEMAF_LLM_DEFAULT_MODEL=gemma3:4b
 ```
 
+## Anthropic Prompt Caching
+
+Enable prompt caching through the resilient factory, then supply the client
+through `RuntimeServices` at your composition root:
+
+```python
+from cemaf.llm.factories import create_resilient_llm_client
+from cemaf.orchestration.services import RuntimeServices
+
+# Reads ANTHROPIC_API_KEY. Hosted provider use is explicit.
+client = create_resilient_llm_client(
+    provider="anthropic",
+    model="claude-sonnet-4-6",
+    enable_caching=True,
+    cache_ttl="1h",              # None uses the default five-minute TTL
+    automatic_caching=True,
+    cache_tools=True,
+    cache_system=True,
+    cache_messages=True,
+    cache_threshold_tokens=1_000,
+)
+services = RuntimeServices(llm_client=client)
+```
+
+Automatic caching places a moving breakpoint at the end of eligible content.
+The decorator can also mark the final tool definition and the end of system
+instructions. With `automatic_caching=False`, it can mark the previous message
+turn as a reusable prefix when it meets `cache_threshold_tokens`.
+`cache_messages` controls that previous-turn marker. The local threshold applies
+to generated system and previous-turn markers; the provider's model-specific
+minimum prompt lengths apply to every cache write.
+
+Use explicit breakpoints when a stable reference precedes a changing question:
+
+```python
+from cemaf.llm.protocols import Message, ToolDefinition
+
+messages = [
+    Message.user(
+        "Reusable reference material...",
+        metadata={"cache_control": {"type": "ephemeral", "ttl": "1h"}},
+    ),
+    Message.user("Answer this question using the reference."),
+]
+tools = [ToolDefinition(
+    name="lookup",
+    description="Look up a reference",
+    cache_control={"type": "ephemeral", "ttl": "1h"},
+)]
+result = await client.complete(messages, tools=tools)
+```
+
+Caller-supplied markers take precedence: the decorator adds no further explicit
+markers when any already exist. Automatic caching is omitted when four explicit
+markers consume the available slots, when a longer TTL would follow a shorter
+one, or when the final explicit marker has a different TTL. Caller-supplied
+markers must themselves obey the provider's ordering and four-slot limit.
+Messages and tool definitions are copied when markers are added.
+
+For the base `AnthropicLLMClient`, set
+`LLMConfig(cache_control={"type": "ephemeral", "ttl": "1h"})` in
+`config_override` to enable automatic caching without the decorator. A per-call
+`cache_control` also takes precedence over the decorator's configured TTL.
+Other provider adapters ignore this Anthropic-specific option.
+
+Both `CompletionResult.metadata` and the final `StreamChunk.metadata` expose
+`input_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`
+when cache usage is reported. `prompt_tokens` includes all three categories;
+`total_tokens` on completion results also includes output tokens. Generic cost
+estimates use the existing model pricing; cache-specific billing requires the
+provider usage breakdown. With a metrics collector, the decorator emits
+`cemaf.llm.cache.hit`, `cemaf.llm.tokens_saved`, and `cemaf.llm.cache.created`
+as token counters.
+
+See the [Anthropic prompt caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+for provider limits and cache behavior.
+
 ## Gemini and Vertex
 
 Use `gemini` for Google AI Studio API-key access:

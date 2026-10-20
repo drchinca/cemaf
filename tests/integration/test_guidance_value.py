@@ -11,6 +11,8 @@ The full live benchmark remains available through `benchmarks/guidance_eval`.
 
 from __future__ import annotations
 
+import pytest
+
 from benchmarks.guidance_eval.engine import (
     COMPOSE_PATTERNS,
     REINVENT_PATTERNS,
@@ -33,7 +35,8 @@ def _cheapest_model() -> str:
     for prefer in ("qwen2.5-coder:7b", "gemma3:4b", "qwen2.5:14b"):
         if prefer in models:
             return prefer
-    assert models, "Ollama is up but has no models installed"
+    if not models:
+        raise RuntimeError("No Ollama models found, but tried to get cheapest model")
     return models[0]
 
 
@@ -87,7 +90,8 @@ retry = RetryPolicy()
 
 def test_guidance_increases_composition_over_cold() -> None:
     """GUIDED output composes strictly more CEMAF primitives than COLD output."""
-    if ollama_available():
+    import os
+    if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") == "1" and ollama_available() and installed_models():
         comparison = run_task(_FLAGSHIP, model=_cheapest_model(), judge_model=None)
     else:
         comparison = _offline_comparison()
