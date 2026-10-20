@@ -334,6 +334,11 @@ def create_resilient_llm_client(
     fallback_model: str | None = None,
     enable_caching: bool = False,
     cache_threshold_tokens: int = 1_000,
+    cache_ttl: str | None = None,
+    automatic_caching: bool = True,
+    cache_tools: bool = True,
+    cache_system: bool = True,
+    cache_messages: bool = True,
     metrics: Any | None = None,
 ) -> LLMClient:
     """Create a resilient text LLM client with provider auto-selection.
@@ -438,6 +443,11 @@ def create_resilient_llm_client(
         fallback_model=fallback_model,
         enable_caching=enable_caching,
         cache_threshold_tokens=cache_threshold_tokens,
+        cache_ttl=cache_ttl,
+        automatic_caching=automatic_caching,
+        cache_tools=cache_tools,
+        cache_system=cache_system,
+        cache_messages=cache_messages,
     )
 
 
@@ -472,6 +482,8 @@ def create_resilient_client(
     cache_ttl: str | None = None,
     automatic_caching: bool = True,
     cache_tools: bool = True,
+    cache_system: bool = True,
+    cache_messages: bool = True,
 ) -> LLMClient:
     """Create ResilientLLMClient with sensible defaults.
 
@@ -484,9 +496,11 @@ def create_resilient_client(
         cache_ttl: Optional TTL ('5m' or '1h') for cached blocks and automatic caching.
         automatic_caching: Enable top-level automatic prompt caching.
         cache_tools: Enable caching tool definitions on the last tool in tools array.
+        cache_system: Mark the end of system instructions when they meet the threshold.
+        cache_messages: Mark the previous turn when automatic caching is disabled.
 
     Returns:
-        LLMClient (ResilientLLMClient, optionally wrapped in CachedAnthropicLLMClient).
+        ResilientLLMClient wrapping the optionally cached inner client.
     """
     from cemaf.llm.resilient import ResilientLLMClient
     from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
@@ -504,6 +518,8 @@ def create_resilient_client(
             ttl=cache_ttl,
             automatic_caching=automatic_caching,
             cache_tools=cache_tools,
+            cache_system=cache_system,
+            cache_messages=cache_messages,
         )
 
     return ResilientLLMClient(

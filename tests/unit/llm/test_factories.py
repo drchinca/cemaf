@@ -114,6 +114,11 @@ def test_create_resilient_llm_client_auto_prefers_free_local_default(
         "fallback_model": None,
         "enable_caching": False,
         "cache_threshold_tokens": 1000,
+        "cache_ttl": None,
+        "automatic_caching": True,
+        "cache_tools": True,
+        "cache_system": True,
+        "cache_messages": True,
     }
 
 

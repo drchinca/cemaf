@@ -278,9 +278,12 @@ class TestComplete:
 
         assert result.success is True
         call_kwargs = client._client.messages.create.call_args[1]
-        assert call_kwargs["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert call_kwargs["extra_body"]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
         assert result.metadata["cache_read_input_tokens"] == 500
         assert result.metadata["cache_creation_input_tokens"] == 150
+        assert result.metadata["input_tokens"] == 10
+        assert result.prompt_tokens == 660
+        assert result.total_tokens == 680
 
     @pytest.mark.asyncio
     async def test_tool_definition_cache_control_serialized(self) -> None:
@@ -444,3 +447,65 @@ class TestFactory:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         with pytest.raises(ValueError, match="api_key required"):
             llm_registry.create(backend="anthropic")
+
+
+class TestStructuredCachingMessages:
+    def test_preserves_system_blocks_and_all_system_messages(self):
+        first = [{"type": "text", "text": "First", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+        system, _ = _convert_messages(messages=[Message.system(first), Message.system("Second")])
+        assert system == [*first, {"type": "text", "text": "Second"}]
+        assert first[0]["cache_control"]["ttl"] == "1h"
+
+    def test_preserves_multimodal_content_with_and_without_cache_marker(self):
+        blocks = [
+            {"type": "text", "text": "Reference"},
+            {"type": "image", "source": {"type": "url", "url": "https://example.test/image.png"}},
+        ]
+        _, plain = _convert_messages(messages=[Message.user(blocks)])
+        _, cached = _convert_messages(
+            messages=[
+                Message.user(blocks, metadata={"cache_control": {"type": "ephemeral"}}),
+            ]
+        )
+        assert plain[0]["content"] == blocks
+        assert cached[0]["content"][-1]["type"] == "image"
+        assert cached[0]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in blocks[-1]
+
+    def test_metadata_marks_last_cacheable_block_without_marking_thinking_or_empty_text(self):
+        blocks = [
+            {"type": "text", "text": "Reference"},
+            {"type": "thinking", "thinking": "Reasoning", "signature": "sig"},
+            {"type": "text", "text": ""},
+        ]
+        _, messages = _convert_messages(
+            messages=[
+                Message.assistant(blocks, metadata={"cache_control": {"type": "ephemeral"}}),
+            ]
+        )
+        assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in messages[0]["content"][1]
+        assert "cache_control" not in messages[0]["content"][2]
+        assert "cache_control" not in blocks[0]
+
+    def test_tool_exchange_preserves_blocks_and_marks_tool_use_and_result(self):
+        blocks = [{"type": "text", "text": "Searching"}]
+        _, messages = _convert_messages(
+            messages=[
+                Message.assistant(
+                    blocks,
+                    tool_calls=(ToolCall(id="call_1", name="search"),),
+                    metadata={"cache_control": {"type": "ephemeral"}},
+                ),
+                Message.tool_result(
+                    "call_1",
+                    [{"type": "text", "text": "Result"}],
+                    metadata={"cache_control": {"type": "ephemeral"}},
+                ),
+            ]
+        )
+        assert messages[0]["content"][0] == blocks[0]
+        assert messages[0]["content"][-1]["type"] == "tool_use"
+        assert messages[0]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert messages[1]["content"][0]["content"] == [{"type": "text", "text": "Result"}]
+        assert messages[1]["content"][0]["cache_control"] == {"type": "ephemeral"}

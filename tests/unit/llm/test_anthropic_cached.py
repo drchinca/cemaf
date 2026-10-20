@@ -122,7 +122,7 @@ class TestCachedAnthropicLLMClient:
 
         assert result.success is True
         call_kwargs = inner._client.messages.create.call_args[1]
-        assert call_kwargs["cache_control"] == {"type": "ephemeral"}
+        assert call_kwargs["extra_body"]["cache_control"] == {"type": "ephemeral"}
 
     @pytest.mark.asyncio
     async def test_automatic_caching_with_1h_ttl(self):
@@ -135,7 +135,7 @@ class TestCachedAnthropicLLMClient:
 
         assert result.success is True
         call_kwargs = inner._client.messages.create.call_args[1]
-        assert call_kwargs["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert call_kwargs["extra_body"]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
     @pytest.mark.asyncio
     async def test_system_prompt_cached_when_above_threshold(self):
@@ -231,6 +231,8 @@ class TestCachedAnthropicLLMClient:
 
         assert result.metadata["cache_read_input_tokens"] == 1200
         assert result.metadata["cache_creation_input_tokens"] == 450
+        assert result.prompt_tokens == 1700
+        assert result.total_tokens == 1725
 
         metrics.counter.assert_any_call("cemaf.llm.cache.hit", 1200)
         metrics.counter.assert_any_call("cemaf.llm.tokens_saved", 1200)
@@ -272,7 +274,113 @@ class TestCachedAnthropicLLMClient:
         assert final_chunk.is_final is True
         assert final_chunk.metadata["cache_read_input_tokens"] == 800
         assert final_chunk.metadata["cache_creation_input_tokens"] == 100
+        assert final_chunk.prompt_tokens == 920
+        assert final_chunk.completion_tokens == 10
+        assert inner._client.messages.stream.call_args.kwargs["extra_body"] == {
+            "cache_control": {"type": "ephemeral", "ttl": "1h"},
+        }
 
         metrics.counter.assert_any_call("cemaf.llm.cache.hit", 800)
         metrics.counter.assert_any_call("cemaf.llm.tokens_saved", 800)
         metrics.counter.assert_any_call("cemaf.llm.cache.created", 100)
+
+
+@pytest.mark.parametrize("ttl", ["", "10m", "2h"])
+def test_invalid_cache_ttl_rejected(ttl):
+    with pytest.raises(ValueError, match="TTL"):
+        CachedAnthropicLLMClient(client=MockLLMClient(), ttl=ttl)
+
+
+def test_negative_cache_threshold_rejected():
+    with pytest.raises(ValueError, match="nonnegative"):
+        CachedAnthropicLLMClient(client=MockLLMClient(), cache_threshold_tokens=-1)
+
+
+@pytest.mark.asyncio
+async def test_explicit_mode_caches_structured_prefix_without_mutating_messages():
+    inner = _create_mock_anthropic_client()
+    cached = CachedAnthropicLLMClient(
+        client=inner, automatic_caching=False, cache_threshold_tokens=0, ttl="1h"
+    )
+    blocks = [{"type": "text", "text": "Static reference"}]
+    messages = [Message.system("Instructions"), Message.user(blocks), Message.user("Question")]
+    tools = [ToolDefinition(name="search", description="Search")]
+
+    await cached.complete(messages, tools=tools)
+
+    request = inner._client.messages.create.call_args.kwargs
+    assert "extra_body" not in request
+    assert request["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert request["messages"][0]["content"][0]["cache_control"]["ttl"] == "1h"
+    assert request["messages"][-1]["content"] == "Question"
+    assert blocks == [{"type": "text", "text": "Static reference"}]
+    assert all(not message.metadata for message in messages)
+    assert tools[0].cache_control is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_explicit_cache_sections_and_config_override():
+    from cemaf.llm.protocols import LLMConfig
+
+    inner = _create_mock_anthropic_client()
+    cached = CachedAnthropicLLMClient(client=inner, cache_system=False, cache_tools=False, ttl="5m")
+    cfg = LLMConfig(
+        model="claude-override",
+        max_tokens=33,
+        stop_sequences=("STOP",),
+        cache_control={"type": "ephemeral", "ttl": "1h"},
+    )
+    await cached.complete(
+        [Message.system("Instructions"), Message.user("Question")],
+        tools=[ToolDefinition(name="search", description="Search")],
+        config_override=cfg,
+    )
+    request = inner._client.messages.create.call_args.kwargs
+    assert request["system"] == "Instructions"
+    assert "cache_control" not in request["tools"][0]
+    assert request["extra_body"]["cache_control"]["ttl"] == "1h"
+    assert request["model"] == "claude-override"
+    assert request["max_tokens"] == 33
+    assert request["stop_sequences"] == ["STOP"]
+    assert cached.cache_control["ttl"] == "5m"
+
+
+@pytest.mark.asyncio
+async def test_caller_breakpoints_preserved_at_four_slot_limit():
+    inner = _create_mock_anthropic_client()
+    cached = CachedAnthropicLLMClient(client=inner, cache_threshold_tokens=0)
+    blocks = [{"type": "text", "text": str(i), "cache_control": {"type": "ephemeral"}} for i in range(4)]
+    await cached.complete(
+        [Message.system("Instructions"), Message.user(blocks), Message.user("Question")],
+        tools=[ToolDefinition(name="search", description="Search")],
+    )
+    request = inner._client.messages.create.call_args.kwargs
+    assert "extra_body" not in request
+    assert request["system"] == "Instructions"
+    assert "cache_control" not in request["tools"][0]
+    assert request["messages"][0]["content"] == blocks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_ttl,automatic_ttl", [("5m", "1h"), ("1h", "5m")])
+async def test_automatic_caching_yields_to_conflicting_explicit_ttl(explicit_ttl, automatic_ttl):
+    inner = _create_mock_anthropic_client()
+    cached = CachedAnthropicLLMClient(client=inner, ttl=automatic_ttl)
+    message = Message.user(
+        "Reference", metadata={"cache_control": {"type": "ephemeral", "ttl": explicit_ttl}}
+    )
+    await cached.complete([message])
+    request = inner._client.messages.create.call_args.kwargs
+    assert "extra_body" not in request
+    assert request["messages"][0]["content"][0]["cache_control"]["ttl"] == explicit_ttl
+
+
+@pytest.mark.asyncio
+async def test_failed_completion_does_not_emit_cache_metrics():
+    inner = _create_mock_anthropic_client()
+    inner._client.messages.create = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+    metrics = MagicMock()
+    result = await CachedAnthropicLLMClient(client=inner, metrics=metrics).complete([Message.user("Hi")])
+    assert not result.success
+    assert "provider unavailable" in result.error
+    metrics.counter.assert_not_called()
