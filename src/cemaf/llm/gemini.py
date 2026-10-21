@@ -257,7 +257,17 @@ class GeminiClient:
             data = response.json()
             candidates = data.get("candidates", [])
             if not candidates:
-                return CompletionResult.fail(error="No candidates in Gemini response")
+                prompt_tokens, completion_tokens = _gemini_usage(data.get("usageMetadata", {}))
+                return CompletionResult(
+                    success=False,
+                    error="No candidates in Gemini response",
+                    prompt_tokens=TokenCount(prompt_tokens),
+                    completion_tokens=TokenCount(completion_tokens),
+                    total_tokens=TokenCount(prompt_tokens + completion_tokens),
+                    model=str(data.get("modelVersion") or cfg.model),
+                    provider=self._provider_family(),
+                    metadata={"provider_usage": data.get("usageMetadata", {})},
+                )
 
             parts = candidates[0].get("content", {}).get("parts", [])
             text_parts = [p.get("text", "") for p in parts if "text" in p]
@@ -270,6 +280,7 @@ class GeminiClient:
             )
 
             usage = data.get("usageMetadata", {})
+            prompt_tokens, completion_tokens = _gemini_usage(usage)
 
             native_finish_reason = str(candidates[0].get("finishReason", "") or "")
 
@@ -278,10 +289,11 @@ class GeminiClient:
                     role=MessageRole.ASSISTANT,
                     content=content,
                     tool_calls=tool_calls,
+                    metadata={"provider_usage": usage},
                 ),
-                prompt_tokens=usage.get("promptTokenCount", 0),
-                completion_tokens=usage.get("candidatesTokenCount", 0),
-                model=cfg.model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                model=str(data.get("modelVersion") or cfg.model),
                 finish_reason=_gemini_finish_reason(
                     native_finish_reason,
                     has_tool_calls=bool(tool_calls),
@@ -327,6 +339,7 @@ class GeminiClient:
         native_finish_reason = ""
         prompt_tokens = 0
         completion_tokens = 0
+        cumulative_usage: dict[str, Any] = {}
 
         try:
             async with (
@@ -350,12 +363,8 @@ class GeminiClient:
                             continue
                         data = json.loads(payload_line)
                         usage = data.get("usageMetadata", {})
-                        prompt_tokens = _usage_int(usage, "promptTokenCount", prompt_tokens)
-                        completion_tokens = _usage_int(
-                            usage,
-                            "candidatesTokenCount",
-                            completion_tokens,
-                        )
+                        cumulative_usage.update(usage)
+                        prompt_tokens, completion_tokens = _gemini_usage(cumulative_usage)
                         candidate = data.get("candidates", [{}])[0]
                         native_finish_reason = str(candidate.get("finishReason") or native_finish_reason)
                         parts = candidate.get("content", {}).get("parts", [])
@@ -399,6 +408,7 @@ class GeminiClient:
             accumulated_content=accumulated,
             prompt_tokens=TokenCount(prompt_tokens),
             completion_tokens=TokenCount(completion_tokens),
+            metadata={"provider_usage": cumulative_usage},
         )
 
     def count_tokens(self, text: str) -> TokenCount:
@@ -695,6 +705,15 @@ def _content_to_text(content: object) -> str:
     if isinstance(content, str):
         return content
     return json.dumps(content, ensure_ascii=False)
+
+
+def _gemini_usage(usage: dict[str, Any]) -> tuple[int, int]:
+    """Provider output totals include hidden thinking and any remaining reported usage."""
+    prompt = max(0, _usage_int(usage, "promptTokenCount", 0))
+    visible = max(0, _usage_int(usage, "candidatesTokenCount", 0))
+    thoughts = max(0, _usage_int(usage, "thoughtsTokenCount", 0))
+    total = max(0, _usage_int(usage, "totalTokenCount", 0))
+    return prompt, max(visible + thoughts, total - prompt)
 
 
 def _usage_int(usage: dict[str, Any], key: str, default: int) -> int:

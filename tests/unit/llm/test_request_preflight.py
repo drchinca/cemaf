@@ -145,3 +145,23 @@ async def test_run_logging_snapshots_mutable_request_fields_before_adapter_execu
     assert call.input_messages[0]["content"][0]["text"] == "Original question"
     assert call.input_messages[0]["metadata"]["tag"] == "original"
     assert "changed" not in call.input_tools[0]["parameters"]
+
+
+async def test_gemini_candidate_failure_preserves_reported_usage(monkeypatch):
+    original_client = httpx.AsyncClient
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "candidates": [],
+                "usageMetadata": {"promptTokenCount": 20, "thoughtsTokenCount": 5, "totalTokenCount": 25},
+            },
+        )
+    )
+    monkeypatch.setattr(
+        "cemaf.llm.gemini.httpx.AsyncClient", lambda **kwargs: original_client(transport=transport, **kwargs)
+    )
+    result = await GeminiClient(api_key="test-key", use_vertex=False).complete([Message.user("Question")])
+    assert not result.success
+    assert result.prompt_tokens == 20 and result.completion_tokens == 5
+    assert result.total_tokens == 25

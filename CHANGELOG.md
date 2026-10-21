@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compacted summaries and additional source types survive message rendering.
 - Gemini separates trusted system instructions and keeps API keys out of URLs.
   Opt-in live tests report missing prerequisites as skips instead of mock success.
+- Gemini token totals include thinking tokens and retain billed usage when no
+  answer candidate is returned; records preserve the provider's served model version.
 - Automatic caching uses the SDK's supported `extra_body` transport field,
   including SDK versions without a named `cache_control` argument.
 - Prompt token totals include uncached input, cache reads, and cache writes so

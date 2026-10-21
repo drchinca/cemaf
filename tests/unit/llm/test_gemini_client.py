@@ -245,9 +245,12 @@ class TestComplete:
                     "finishReason": "STOP",
                 }
             ],
+            "modelVersion": "gemini-pinned-version",
             "usageMetadata": {
                 "promptTokenCount": 8,
                 "candidatesTokenCount": 4,
+                "thoughtsTokenCount": 6,
+                "totalTokenCount": 18,
             },
         }
 
@@ -263,7 +266,10 @@ class TestComplete:
         assert result.success
         assert result.content == "Hello from Gemini!"
         assert result.prompt_tokens == TokenCount(8)
-        assert result.completion_tokens == TokenCount(4)
+        assert result.completion_tokens == TokenCount(10)
+        assert result.total_tokens == TokenCount(18)
+        assert result.model == "gemini-pinned-version"
+        assert result.message.metadata["provider_usage"]["thoughtsTokenCount"] == 6
         assert result.finish_reason is FinishReason.TERMINAL_STOP
         assert result.finish_reason_native == "STOP"
         assert result.provider is LLMProvider.GEMINI
@@ -498,7 +504,7 @@ class TestStreamingAndCounting:
             + json.dumps(
                 {
                     "candidates": [{"content": {"parts": [{"text": "Hel"}]}}],
-                    "usageMetadata": {"promptTokenCount": 3},
+                    "usageMetadata": {"promptTokenCount": 3, "thoughtsTokenCount": 4},
                 }
             ),
             "data: "
@@ -541,7 +547,8 @@ class TestStreamingAndCounting:
         assert final.accumulated_content == "Hello"
         assert final.finish_reason is FinishReason.TERMINAL_TOOL
         assert final.prompt_tokens == TokenCount(3)
-        assert final.completion_tokens == TokenCount(2)
+        assert final.completion_tokens == TokenCount(6)
+        assert final.metadata["provider_usage"]["thoughtsTokenCount"] == 4
         assert final.tool_calls[0].name == "search"
         assert final.tool_calls[0].arguments == {"q": "CEMAF"}
 
