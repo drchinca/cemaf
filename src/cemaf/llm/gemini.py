@@ -434,7 +434,12 @@ class GeminiClient:
         except ValueError as e:
             raise RuntimeError(f"Failed to resolve request details: {e}") from e
 
-        payload = _count_tokens_payload(messages=messages, tools=tools, config=self._config)
+        payload = _count_tokens_payload(
+            messages=messages,
+            tools=tools,
+            config=self._config,
+            use_vertex="Authorization" in headers,
+        )
         async with httpx.AsyncClient(timeout=self._config.timeout_seconds) as http_client:
             response = await http_client.post(
                 url,
@@ -469,7 +474,12 @@ class GeminiClient:
         if httpx is None:
             raise RuntimeError("httpx required for Gemini request preflight")
         url, headers = self._get_request_details(action="countTokens", cfg=config)
-        payload = _count_tokens_payload(messages=messages, tools=tools or None, config=config)
+        payload = _count_tokens_payload(
+            messages=messages,
+            tools=tools or None,
+            config=config,
+            use_vertex="Authorization" in headers,
+        )
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
                 response = await client.post(url, headers=headers, json=payload)
@@ -611,9 +621,12 @@ def _count_tokens_payload(
     messages: list[Message],
     tools: list[ToolDefinition] | None,
     config: LLMConfig,
+    use_vertex: bool = False,
 ) -> dict[str, Any]:
     """Count the same native system/content/schema framing used by generation."""
     request = _generate_content_payload(messages=messages, tools=tools, config=config)
+    if use_vertex:
+        return request
     request["model"] = f"models/{config.model}"
     return {"generateContentRequest": request}
 

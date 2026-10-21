@@ -502,8 +502,9 @@ uncertified counters fail the default exact-preflight mode.
 
 OpenAI preflight uses the [input token endpoint](https://developers.openai.com/api/docs/guides/token-counting);
 Gemini uses [countTokens with the complete generateContentRequest](https://ai.google.dev/api/tokens).
-Gemini keeps trusted instructions in `systemInstruction` and credentials in a
-header. Strict counting errors cannot silently fall back to estimates.
+The shared Vertex adapter uses its [native count request fields](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1/projects.locations.publishers.models/countTokens).
+Both public counting methods preserve provider-specific framing. Gemini keeps
+trusted instructions in `systemInstruction` and credentials in a header. Strict counting errors cannot silently fall back to estimates.
 
 `security.evidence.export_evidence_view` rechecks current access, including summary
 parents. Default export masks free-form request, response, and source content.

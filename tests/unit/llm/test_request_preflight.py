@@ -167,7 +167,8 @@ async def test_gemini_candidate_failure_preserves_reported_usage(monkeypatch):
     assert result.total_tokens == 25
 
 
-async def test_gemini_legacy_and_request_counters_share_native_system_framing(monkeypatch):
+@pytest.mark.parametrize("use_vertex", [False, True])
+async def test_gemini_legacy_and_request_counters_share_native_system_framing(monkeypatch, use_vertex):
     import json
 
     requests = []
@@ -181,10 +182,18 @@ async def test_gemini_legacy_and_request_counters_share_native_system_framing(mo
         "cemaf.llm.gemini.httpx.AsyncClient",
         lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs),
     )
-    client = GeminiClient(api_key="test-key", use_vertex=False)
+    client = GeminiClient(
+        api_key="test-key",
+        use_vertex=use_vertex,
+        gcp_project="fixture-project",
+        location="us-central1",
+        access_token="fixture-token",
+    )
     messages = [Message.system("Trusted policy"), Message.user("Untrusted evidence")]
     assert await client.count_tokens_exact(messages) == 42
     assert (await client.count_request(messages=messages, tools=[], config=client.config)).input_tokens == 42
     assert requests[0] == requests[1]
-    assert requests[0]["generateContentRequest"]["systemInstruction"]["parts"] == [{"text": "Trusted policy"}]
-    assert requests[0]["generateContentRequest"]["contents"][0]["parts"] == [{"text": "Untrusted evidence"}]
+    body = requests[0] if use_vertex else requests[0]["generateContentRequest"]
+    assert body["systemInstruction"]["parts"] == [{"text": "Trusted policy"}]
+    assert body["contents"][0]["parts"] == [{"text": "Untrusted evidence"}]
+    assert ("generateContentRequest" not in requests[0]) is use_vertex
