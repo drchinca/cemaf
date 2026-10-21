@@ -469,11 +469,10 @@ class GeminiClient:
         if httpx is None:
             raise RuntimeError("httpx required for Gemini request preflight")
         url, headers = self._get_request_details(action="countTokens", cfg=config)
-        request = _generate_content_payload(messages=messages, tools=tools or None, config=config)
-        request["model"] = f"models/{config.model}"
+        payload = _count_tokens_payload(messages=messages, tools=tools or None, config=config)
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
-                response = await client.post(url, headers=headers, json={"generateContentRequest": request})
+                response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 tokens = response.json().get("totalTokens")
         except Exception as exc:
@@ -613,16 +612,10 @@ def _count_tokens_payload(
     tools: list[ToolDefinition] | None,
     config: LLMConfig,
 ) -> dict[str, Any]:
-    """Build a countTokens request body, preserving tool schemas when present."""
-    if not tools:
-        return {"contents": _messages_to_gemini(messages=messages)}
-    return {
-        "generateContentRequest": _generate_content_payload(
-            messages=messages,
-            tools=tools,
-            config=config,
-        )
-    }
+    """Count the same native system/content/schema framing used by generation."""
+    request = _generate_content_payload(messages=messages, tools=tools, config=config)
+    request["model"] = f"models/{config.model}"
+    return {"generateContentRequest": request}
 
 
 def _generation_config(config: LLMConfig) -> dict[str, Any]:

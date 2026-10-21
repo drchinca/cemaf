@@ -165,3 +165,26 @@ async def test_gemini_candidate_failure_preserves_reported_usage(monkeypatch):
     assert not result.success
     assert result.prompt_tokens == 20 and result.completion_tokens == 5
     assert result.total_tokens == 25
+
+
+async def test_gemini_legacy_and_request_counters_share_native_system_framing(monkeypatch):
+    import json
+
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"totalTokens": 42})
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "cemaf.llm.gemini.httpx.AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    client = GeminiClient(api_key="test-key", use_vertex=False)
+    messages = [Message.system("Trusted policy"), Message.user("Untrusted evidence")]
+    assert await client.count_tokens_exact(messages) == 42
+    assert (await client.count_request(messages=messages, tools=[], config=client.config)).input_tokens == 42
+    assert requests[0] == requests[1]
+    assert requests[0]["generateContentRequest"]["systemInstruction"]["parts"] == [{"text": "Trusted policy"}]
+    assert requests[0]["generateContentRequest"]["contents"][0]["parts"] == [{"text": "Untrusted evidence"}]
