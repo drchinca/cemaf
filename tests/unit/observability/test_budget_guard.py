@@ -2,7 +2,38 @@
 
 import pytest
 
-from cemaf.observability.budget_guard import AlertLevel, BudgetAlert, BudgetGuard
+from cemaf.observability.budget_guard import (
+    AlertLevel,
+    BudgetAlert,
+    BudgetExhaustedError,
+    BudgetGuard,
+    check_runtime_budget,
+    record_runtime_usage,
+    track_runtime_usage,
+)
+
+
+@pytest.mark.parametrize("child_scope", ["same_guard", "separate_guard", "no_guard"])
+def test_nested_executors_preserve_parent_usage_and_halt(child_scope):
+    parent = BudgetGuard(max_total_tokens=5)
+    child = (
+        parent
+        if child_scope == "same_guard"
+        else (BudgetGuard(max_total_tokens=20) if child_scope == "separate_guard" else None)
+    )
+    with track_runtime_usage(parent) as outer:
+        with track_runtime_usage(child) as inner:
+            record_runtime_usage(tokens=7, cost_usd=0.01)
+            assert inner.tokens == outer.tokens == 7
+            assert parent.accumulated_tokens == 7
+            if child is not None:
+                assert child.accumulated_tokens == 7
+            with pytest.raises(BudgetExhaustedError):
+                check_runtime_budget()
+        with pytest.raises(BudgetExhaustedError):
+            check_runtime_budget()
+    # The task-local scope ends; unrelated runs do not inherit this guard.
+    check_runtime_budget()
 
 
 class TestBudgetAlert:

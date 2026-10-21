@@ -73,6 +73,7 @@ from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
 from cemaf.interceptors.pipeline import InterceptorPipeline
 from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.llm.preflight import RequestTokenCounter
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.session import SessionManager
@@ -82,6 +83,8 @@ from cemaf.observability.health import HealthMonitor
 from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
+from cemaf.persistence.artifacts import ArtifactResolver
+from cemaf.persistence.evidence import EvidenceStore
 from cemaf.retrieval.protocols import VectorStore
 
 if TYPE_CHECKING:
@@ -113,6 +116,9 @@ class RuntimeServices:
     context_compiler: ContextCompiler | None = None
     token_budget: TokenBudget | None = None
     domain_context: DomainContext | None = None
+    artifact_registry: ArtifactResolver | None = None
+    evidence_store: EvidenceStore | None = None
+    request_token_counter: RequestTokenCounter | None = None
 
     # LLM + Retrieval
     llm_client: LLMClient | None = None

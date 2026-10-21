@@ -55,11 +55,12 @@
 
 CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
 
-### What Makes CEMAF the Industry Standard
+### Framework contracts and specifications
 
-The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has been re-implementing.
+These contracts guide CEMAF's implementation and acceptance work. Production
+readiness and wider adoption require measured evidence.
 
-| Hard problem the field keeps re-solving | CEMAF's standard | Spec |
+| Requirement | CEMAF contract | Spec |
 |---|---|---|
 | "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) |
 | "How do I keep confidential context out of a low-clearance prompt?" | Every `ContextPatch` carries a `SecurityLevel` (PUBLIC/INTERNAL/CONFIDENTIAL); `PriorityContextCompiler` gates sources above the caller's clearance *before* selection, recording each drop in `metadata["security_excluded"]`. Default INTERNAL → backward-compatible. | [SPEC-11](docs/specs/SPEC-11-context-security-classification.md) |
@@ -75,7 +76,7 @@ The agentic-AI ecosystem ships glue code; CEMAF ships the rails the industry has
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
 | "How do I expose run state to a dashboard / CLI / MCP without coupling to internals?" | `cemaf.session.v1` — a versioned, read-only `SessionSnapshot` projected deterministically from a `RunRecord` or `ExecutionResult` via `snapshot_from_run_record` / `snapshot_from_execution_result`. The stable operator-plane contract every surface renders from; absent services show as `"absent"`, never errors. | [SPEC-14](docs/specs/SPEC-14-session-snapshot-contract.md) |
 
-### The 8 Pillars of the Industry Standard
+### Requirements for industry-standard adoption
 
 CEMAF cannot honestly claim “industry standard” without these pillars:
 
@@ -87,6 +88,11 @@ CEMAF cannot honestly claim “industry standard” without these pillars:
 - **Safe autonomy**: budgets, authorization, moderation, evaluation, retry limits, and human intervention.
 - **Backend portability**: PostgreSQL/Mongo authority; object storage for large payloads; Elastic vector stores for retrieval; DuckDB/warehouses for analytics.
 - **Evidence**: multi-day runs, terabyte-scale referenced datasets, worker kills, backend failover, replay parity, and adversarial benchmarks.
+
+The [context and provenance acceptance slice](docs/architecture/context-provenance-acceptance.md)
+currently verifies 25 engineering cases offline. Live-provider portability and
+independently measured pilot value remain unverified. This bounded local evidence
+path does not close the distributed-production requirements above.
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 

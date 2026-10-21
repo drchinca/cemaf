@@ -1,7 +1,9 @@
 """Resilient LLM client wrapper composing retry, circuit breaker, and rate limiter."""
 
 import logging
+import re
 from collections.abc import AsyncIterator, Awaitable
+from dataclasses import replace
 from enum import StrEnum
 from time import perf_counter
 from typing import Any, cast
@@ -22,6 +24,29 @@ from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiter, RateLimi
 from cemaf.resilience.retry import BackoffStrategy, RetryConfig, RetryPolicy
 
 logger = logging.getLogger(__name__)
+
+
+class _CompletionFailure(RuntimeError):
+    def __init__(self, result: CompletionResult) -> None:
+        super().__init__(result.error or "Completion failed")
+        self.result = result
+
+
+class _TransientCompletionFailure(_CompletionFailure, ConnectionError):
+    """Adapt returned transient failures to the existing retry/circuit protocols."""
+
+
+def _completion_failure(result: CompletionResult) -> _CompletionFailure:
+    error = (result.error or "").lower()
+    if re.search(r"\b(400|401|403|404|422)\b", error) or any(
+        marker in error
+        for marker in ("invalid api key", "authentication", "permission denied", "content filter")
+    ):
+        return _CompletionFailure(result)
+    transient = re.search(r"\b(408|429|500|502|503|504|529)\b", error) or any(
+        marker in error for marker in ("timeout", "timed out", "connection", "temporarily unavailable")
+    )
+    return _TransientCompletionFailure(result) if transient else _CompletionFailure(result)
 
 
 class QuerySource(StrEnum):
@@ -81,9 +106,12 @@ class ResilientLLMClient:
             return CompletionResult.fail(error=f"Rate limit exceeded: {exc}")
 
         effective_config = self._resolve_config_override(config_override=config_override)
+        prompt_tokens, completion_tokens = 0, 0
+        last_failure: CompletionResult | None = None
 
         async def _inner_complete() -> CompletionResult:
-            return await self._client.complete(
+            nonlocal prompt_tokens, completion_tokens, last_failure
+            completion = await self._client.complete(
                 messages=messages,
                 tools=tools,
                 config_override=effective_config,
@@ -91,6 +119,12 @@ class ResilientLLMClient:
                 token_budget=token_budget,
                 correlation_id=correlation_id,
             )
+            prompt_tokens += int(completion.prompt_tokens)
+            completion_tokens += int(completion.completion_tokens)
+            if not completion.success:
+                last_failure = completion
+                raise _completion_failure(completion)
+            return completion
 
         async def _with_circuit_breaker() -> CompletionResult:
             if self._circuit_breaker is not None:
@@ -105,15 +139,24 @@ class ResilientLLMClient:
                     result = retry_result.result
                 else:
                     error_msg = str(retry_result.error) if retry_result.error else "All retry attempts failed"
-                    result = CompletionResult.fail(error=error_msg)
+                    result = last_failure or CompletionResult.fail(error=error_msg)
             else:
                 result = await _with_circuit_breaker()
+        except _CompletionFailure as exc:
+            result = exc.result
         except CircuitOpenError as exc:
             self._record_error(operation="llm.complete", error=exc)
-            return CompletionResult.fail(error=f"Circuit breaker open: {exc}")
+            result = last_failure or CompletionResult.fail(error=f"Circuit breaker open: {exc}")
         except Exception as exc:
             self._record_error(operation="llm.complete", error=exc)
-            return CompletionResult.fail(error=f"LLM call failed: {exc}")
+            result = last_failure or CompletionResult.fail(error=f"LLM call failed: {exc}")
+
+        result = replace(
+            result,
+            prompt_tokens=TokenCount(prompt_tokens),
+            completion_tokens=TokenCount(completion_tokens),
+            total_tokens=TokenCount(prompt_tokens + completion_tokens),
+        )
 
         self._track_consecutive_failures(success=result.success)
 

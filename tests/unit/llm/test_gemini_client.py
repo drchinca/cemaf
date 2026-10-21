@@ -694,7 +694,8 @@ class TestGeminiFactory:
         url, headers = client._get_request_details(action="generateContent", cfg=client.config)
 
         assert "generativelanguage.googleapis.com" in url
-        assert "key=google-key" in url
+        assert "google-key" not in url
+        assert headers["x-goog-api-key"] == "google-key"
         assert "Authorization" not in headers
 
     def test_missing_api_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:

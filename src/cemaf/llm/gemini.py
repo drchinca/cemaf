@@ -21,6 +21,7 @@ except ImportError:
     httpx = None  # type: ignore[assignment,unused-ignore]
 
 from cemaf.core.types import FinishReason, LLMProvider, TokenCount
+from cemaf.llm.preflight import ProviderPreflightError, RequestTokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -211,10 +212,10 @@ class GeminiClient:
                 raise ValueError(
                     "api_key required for Google AI Studio Gemini (or set GEMINI_API_KEY or GOOGLE_API_KEY)"
                 )
-            headers = {"Content-Type": "application/json"}
-            url = f"{_GEMINI_API_BASE}/models/{cfg.model}:{action}?key={api_key}"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+            url = f"{_GEMINI_API_BASE}/models/{cfg.model}:{action}"
             if action == "streamGenerateContent":
-                url += "&alt=sse"
+                url += "?alt=sse"
             return url, headers
 
     async def complete(
@@ -447,6 +448,36 @@ class GeminiClient:
         has_gemini_key = bool(self._api_key)
         return LLMProvider.VERTEX if has_gcp_env and not has_gemini_key else LLMProvider.GEMINI
 
+    async def count_request(
+        self,
+        *,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        config: LLMConfig,
+    ) -> RequestTokenCount:
+        """Count the full generateContent request, including system instructions and schema."""
+        if httpx is None:
+            raise RuntimeError("httpx required for Gemini request preflight")
+        url, headers = self._get_request_details(action="countTokens", cfg=config)
+        request = _generate_content_payload(messages=messages, tools=tools or None, config=config)
+        request["model"] = f"models/{config.model}"
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json={"generateContentRequest": request})
+                response.raise_for_status()
+                tokens = response.json().get("totalTokens")
+        except Exception as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            raise ProviderPreflightError(provider="gemini", status_code=status_code) from None
+        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
+            raise ValueError("Gemini returned an invalid input token count")
+        return RequestTokenCount(
+            input_tokens=tokens,
+            exact=True,
+            method="gemini.countTokens",
+            counter_version="v1beta",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Gemini format converters
@@ -555,9 +586,12 @@ def _generate_content_payload(
 ) -> dict[str, Any]:
     """Build a Gemini generateContent-compatible request body."""
     payload: dict[str, Any] = {
-        "contents": _messages_to_gemini(messages=messages),
+        "contents": _messages_to_gemini(messages=[m for m in messages if m.role != MessageRole.SYSTEM]),
         "generationConfig": _generation_config(config),
     }
+    system_parts = [{"text": _content_to_text(m.content)} for m in messages if m.role == MessageRole.SYSTEM]
+    if system_parts:
+        payload["systemInstruction"] = {"parts": system_parts}
     if tools:
         payload["tools"] = [{"functionDeclarations": [_tool_to_gemini(t) for t in tools]}]
     return payload

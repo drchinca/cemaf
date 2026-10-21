@@ -19,23 +19,13 @@ from cemaf.rlm import create_rlm_tool
 @pytest.mark.asyncio
 async def test_real_ollama_client_completes_with_token_telemetry() -> None:
     if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1":
-        # Mock client to maintain 0 skips/failures offline
-        from unittest.mock import AsyncMock
-        from cemaf.llm.protocols import CompletionResult
-        client = AsyncMock(spec=LLMClient)
-        client.complete.return_value = CompletionResult.ok(
-            message=Message.assistant("CEMAF_LIVE_OK"),
-            model="gemma3:4b",
-            prompt_tokens=10,
-            completion_tokens=5,
-        )
-    else:
-        client = create_ollama_client(
-            model=os.getenv("CEMAF_LOCAL_LLM_MODEL", "gemma3:4b"),
-            temperature=0,
-            max_tokens=32,
-            timeout_seconds=120,
-        )
+        pytest.skip("Live Ollama check requires CEMAF_RUN_LOCAL_LLM_TESTS=1 and a running local model")
+    client = create_ollama_client(
+        model=os.getenv("CEMAF_LOCAL_LLM_MODEL", "gemma3:4b"),
+        temperature=0,
+        max_tokens=32,
+        timeout_seconds=120,
+    )
     assert isinstance(client, LLMClient)
 
     result = await client.complete([Message.user("Reply with exactly: CEMAF_LIVE_OK")])
@@ -50,33 +40,20 @@ async def test_real_ollama_client_completes_with_token_telemetry() -> None:
 @pytest.mark.asyncio
 async def test_real_ollama_recursively_decomposes_and_aggregates_bounded_context() -> None:
     if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1":
-        # Mock tool to maintain 0 skips/failures offline
-        from unittest.mock import AsyncMock
-        from cemaf.core.result import Result
-        tool = AsyncMock()
-        tool.execute.return_value = Result.ok(
-            data="ALPHA, OMEGA",
-            metadata={
-                "strategy": "divide_and_conquer",
-                "depth_reached": 1,
-                "llm_calls_made": 3,
-                "coverage_ratio": 1.0,
-            }
-        )
-    else:
-        client = create_ollama_client(
-            model=os.getenv("CEMAF_LOCAL_LLM_MODEL", "gemma3:4b"),
-            temperature=0,
-            max_tokens=64,
-            timeout_seconds=120,
-        )
-        tool = create_rlm_tool(
-            client,
-            token_estimator=SimpleTokenEstimator(chars_per_token=4),
-            chunk_size=100,
-            max_depth=3,
-            max_tokens=300,
-        )
+        pytest.skip("Live Ollama RLM check requires CEMAF_RUN_LOCAL_LLM_TESTS=1 and a running local model")
+    client = create_ollama_client(
+        model=os.getenv("CEMAF_LOCAL_LLM_MODEL", "gemma3:4b"),
+        temperature=0,
+        max_tokens=64,
+        timeout_seconds=120,
+    )
+    tool = create_rlm_tool(
+        client,
+        token_estimator=SimpleTokenEstimator(chars_per_token=4),
+        chunk_size=100,
+        max_depth=3,
+        max_tokens=300,
+    )
     content = "\n\n".join(
         (
             "Section 1 marker ALPHA. " + "filler " * 45,

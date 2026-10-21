@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 **Added:**
+- Context and provenance acceptance cases for a support-policy evidence pilot,
+  with a versioned case catalog, adversarial policy fixtures, public-path tests,
+  a required test matrix, an engineering gate, and a strict adoption gate that
+  rejects missing live or human evidence.
+- Immutable text snapshots, context/request manifests, provider-specific token
+  preflight, durable evidence records, and transitive answer dependencies through
+  public protocols and `RuntimeServices`.
+- Current-authorization evidence export with explicit redaction/view identity,
+  separate claim-support verdicts and publication gates, and an offline policy
+  example with matched baselines and blinded pilot-review tooling.
 - Anthropic automatic prompt caching with a five-minute default TTL or an
   optional one-hour TTL. Explicit breakpoints are supported on tools, system
   instructions, structured message blocks, and tool exchanges.
@@ -19,6 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   factory, and run logger.
 
 **Fixed:**
+- Scoped memory access now checks the item's path; list filtering respects grant
+  actions, attribute conditions, and unrestricted roles without widening access.
+- Concurrent runs keep separate active logger records, and instrumented usage
+  charges runtime budgets without relying on optional agent metadata or counting
+  the same usage twice. Further instrumented calls stop after budget exhaustion.
+- Structured generation carries its output allowance through schema and policy
+  repair rounds; exhausted or exceeded allowances fail explicitly.
+- Retryable failed completion results count toward retries and circuit failures;
+  permanent failures are not retried, and billed failed attempts retain usage.
+- Compiled context fingerprints preserve evidence order. Run records retain
+  complete message metadata, tools, configuration, failure details, and evidence IDs.
+- Compacted summaries and additional source types survive message rendering.
+- Gemini separates trusted system instructions and keeps API keys out of URLs.
+  Opt-in live tests report missing prerequisites as skips instead of mock success.
 - Automatic caching uses the SDK's supported `extra_body` transport field,
   including SDK versions without a named `cache_control` argument.
 - Prompt token totals include uncached input, cache reads, and cache writes so

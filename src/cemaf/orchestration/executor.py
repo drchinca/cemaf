@@ -42,7 +42,7 @@ from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
-from cemaf.observability.budget_guard import BudgetGuard
+from cemaf.observability.budget_guard import BudgetGuard, RuntimeUsage, track_runtime_usage
 from cemaf.observability.health import HealthMonitor
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
@@ -1391,10 +1391,11 @@ class DAGExecutor:
 
         try:
             try:
-                result = await asyncio.wait_for(
-                    self._node_executor.execute_node(node, resolved_context),
-                    timeout=self._node_timeout,
-                )
+                with track_runtime_usage(self._budget_guard) as usage:
+                    result = await asyncio.wait_for(
+                        self._node_executor.execute_node(node, resolved_context),
+                        timeout=self._node_timeout,
+                    )
             except TimeoutError:
                 result = NodeResult(
                     node_id=node.id,
@@ -1402,7 +1403,7 @@ class DAGExecutor:
                     error=f"Node timed out after {self._node_timeout}s",
                 )
 
-            self._record_budget_usage(result=result)
+            self._record_budget_usage(result=result, accounted=usage)
             result = await self._moderate_result(result=result, context=context)
             if result.success:
                 result = await self._ingest_accepted_result(
@@ -1444,7 +1445,7 @@ class DAGExecutor:
             if node_span is not None:
                 node_span.end()
 
-    def _record_budget_usage(self, *, result: NodeResult) -> None:
+    def _record_budget_usage(self, *, result: NodeResult, accounted: RuntimeUsage | None = None) -> None:
         """Record per-node cost against BudgetGuard, NaN-safe.
 
         Failed-but-billed calls count — the runaway-spend scenario the guard
@@ -1462,6 +1463,9 @@ class DAGExecutor:
 
         if math.isnan(cost) or math.isinf(cost):
             cost = 0.0
+        if accounted is not None:
+            cost = max(0.0, cost - accounted.cost_usd)
+            tokens = max(0, tokens - accounted.tokens)
         if cost > 0 or tokens > 0:
             self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
 
