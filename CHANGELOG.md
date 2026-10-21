@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   factory, and run logger.
 
 **Fixed:**
+- Worker-kill assurance tests use an injected, shared lease clock to exercise
+  expiry and fencing without a half-second startup race. Worker exits are
+  reported immediately with diagnostics, and real process-kill assertions remain.
 - Scoped memory access now checks the item's path; list filtering respects grant
   actions, attribute conditions, and unrestricted roles without widening access.
 - Concurrent runs keep separate active logger records, and instrumented usage

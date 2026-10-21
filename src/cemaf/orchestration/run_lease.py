@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -48,9 +49,10 @@ class RunLeaseStore(Protocol):
 class FileRunLeaseStore:
     """Cross-process file lease store with monotonic fencing tokens."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, clock: Callable[[], datetime] | None = None) -> None:
         self._root = Path(root).resolve()
         self._root.mkdir(parents=True, exist_ok=True)
+        self._clock = clock if clock is not None else utc_now
 
     async def acquire(
         self,
@@ -61,7 +63,7 @@ class FileRunLeaseStore:
     ) -> RunLease | None:
         if ttl.total_seconds() <= 0:
             raise ValueError("lease ttl must be positive")
-        now = utc_now()
+        now = self._clock()
         with process_file_lock(self._lock_path(run_id)):
             state = self._load_state(run_id)
             current_holder = state.get("holder_id")
@@ -86,7 +88,7 @@ class FileRunLeaseStore:
                 state.get("holder_id") == lease.holder_id
                 and _parse_token(state.get("fencing_token")) == lease.fencing_token
                 and expires_at is not None
-                and expires_at > utc_now()
+                and expires_at > self._clock()
             )
 
     async def release(self, lease: RunLease) -> None:
