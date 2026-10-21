@@ -76,6 +76,10 @@ uv run python benchmarks/stress_disposable_workers.py --runs 300
 uv run python benchmarks/red_team_durable_companion.py
 ```
 
+The process-kill harness shares a controlled clock for lease expiration. Process
+kills, file locks, fencing, checkpoint writes, effects, and replay remain real.
+This verifies ownership semantics; takeover latency requires a wall-clock profile.
+
 The 300-pipeline run killed and replaced every worker, healed and replayed every
 run, preserved 1,200 unique patches, and committed one idempotent effect per
 pipeline at 86.32 pipelines/second. The red-team harness also survived SIGKILL,

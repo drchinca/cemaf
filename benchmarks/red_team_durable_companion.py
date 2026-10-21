@@ -17,7 +17,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -29,6 +29,7 @@ from cemaf.context.context import Context
 from cemaf.context.patch import ContextPatch, PatchSource
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import RunID
+from cemaf.core.utils import utc_now
 from cemaf.observability.run_logger import FileRunLogger, RunRecord
 from cemaf.orchestration.checkpointer import CheckpointingDAGExecutor, DAGCheckpoint
 from cemaf.orchestration.executor import DAGExecutor
@@ -41,6 +42,7 @@ from cemaf.orchestration.run_lease import (
     RunLeaseStore,
 )
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.persistence.atomic_file import atomic_write_text
 from cemaf.persistence.idempotency import FileIdempotentEffectSink
 from cemaf.replay.replayer import Replayer, ReplayMode
 from examples.app_shapes.disposable_workers_durable_companion import build_pipeline
@@ -109,7 +111,7 @@ class ProcessNodeExecutor:
 async def _worker_main(args: argparse.Namespace) -> None:
     root = Path(args.root).resolve()
     run_id = RunID(args.run_id)
-    lease_store = FileRunLeaseStore(root / "leases")
+    lease_store = FileRunLeaseStore(root / "leases", clock=lambda: _fixture_now(root))
     lease = await lease_store.acquire(
         run_id,
         args.worker_id,
@@ -208,11 +210,19 @@ def _spawn_worker(
     )
 
 
-def _wait_for(path: Path, *, timeout: float = 10.0) -> None:
+def _wait_for(
+    path: Path,
+    *,
+    timeout: float = 10.0,
+    process: subprocess.Popen[str] | None = None,
+) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if path.exists():
             return
+        if process is not None and process.poll() is not None:
+            stdout, stderr = process.communicate()
+            raise RuntimeError(f"worker exited before {path.name}: {process.returncode}\n{stdout}\n{stderr}")
         time.sleep(0.01)
     raise TimeoutError(f"timed out waiting for {path}")
 
@@ -222,7 +232,20 @@ def _communicate(process: subprocess.Popen[str], *, timeout: float = 15.0) -> tu
     return stdout, stderr
 
 
+def _fixture_now(root: Path) -> datetime:
+    """Shared deterministic lease time; normal worker invocation retains wall time."""
+    path = root / "lease-clock.txt"
+    return datetime.fromisoformat(path.read_text()) if path.exists() else utc_now()
+
+
+def _advance_fixture_clock(root: Path, *, seconds: float = 0.0) -> None:
+    # The parent is the sole clock writer, after the killed process has exited.
+    value = _fixture_now(root) + timedelta(seconds=seconds)
+    atomic_write_text(root / "lease-clock.txt", value.isoformat(), keep_backup=False)
+
+
 def _kill_after_checkpoint(*, root: Path, run_id: str, worker_id: str) -> dict[str, Any]:
+    _advance_fixture_clock(root)
     process = _spawn_worker(
         root=root,
         run_id=run_id,
@@ -230,22 +253,30 @@ def _kill_after_checkpoint(*, root: Path, run_id: str, worker_id: str) -> dict[s
         action="run",
         mode="block_for_kill",
     )
-    _wait_for(root / "transform-started")
-    checkpoint_path = root / "checkpoints" / f"{run_id}.json"
-    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-    process.send_signal(signal.SIGKILL)
-    _communicate(process)
-    time.sleep(0.55)
+    try:
+        _wait_for(root / "transform-started", process=process)
+        checkpoint_path = root / "checkpoints" / f"{run_id}.json"
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        process.send_signal(signal.SIGKILL)
+        _communicate(process)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            _communicate(process)
+    _advance_fixture_clock(root, seconds=1.0)
     return {
         "exit_code": process.returncode,
         "checkpoint_status": checkpoint["status"],
         "completed_nodes": checkpoint["completed_nodes"],
         "checkpoint_parseable": True,
+        "lease_clock": "controlled; advanced after confirmed process exit",
     }
 
 
 def _load_trace_replay(*, root: Path, run_id: str, worker_id: str) -> bool:
     trace_path = root / "traces" / f"live__{run_id}__{worker_id}" / "run_record.json"
+    if not trace_path.exists():
+        return False
     payload = json.loads(trace_path.read_text(encoding="utf-8"))
     record = RunRecord.from_dict(payload)
     replay = asyncio.run(Replayer(record).replay(mode=ReplayMode.PATCH_ONLY))
