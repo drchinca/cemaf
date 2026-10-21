@@ -29,18 +29,8 @@ async def test_live_cloud_provider_satisfies_protocol_and_returns_usage(
 ) -> None:
     api_key = os.getenv(credential)
     if not api_key or os.getenv("CEMAF_RUN_CLOUD_LLM_TESTS") != "1":
-        # Return a mock client structure to keep 0 skips/failures offline
-        from unittest.mock import AsyncMock
-        from cemaf.llm.protocols import CompletionResult
-        client = AsyncMock(spec=LLMClient)
-        client.complete.return_value = CompletionResult.ok(
-            message=Message.assistant("CEMAF_PROVIDER_OK"),
-            model=model,
-            prompt_tokens=10,
-            completion_tokens=5,
-        )
-    else:
-        client = create_llm_client(provider, api_key=api_key, model=model)
+        pytest.skip(f"Live {provider} check requires CEMAF_RUN_CLOUD_LLM_TESTS=1 and {credential}")
+    client = create_llm_client(provider, api_key=api_key, model=model)
 
     assert isinstance(client, LLMClient)
 

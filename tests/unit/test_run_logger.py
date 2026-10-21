@@ -313,3 +313,16 @@ class TestNoOpRunLogger:
         assert record.success is False
         assert record.error == "not-started"
         assert record.completed_at is not None
+
+
+@pytest.mark.parametrize("logger_type", [InMemoryRunLogger, NoOpRunLogger])
+def test_nested_runs_restore_the_parent_record(logger_type):
+    logger = logger_type()
+    logger.start_run(run_id="parent")
+    parent = logger.get_current_record()
+    logger.start_run(run_id="child")
+    assert logger.get_current_record().run_id == "child"
+    assert logger.end_run().run_id == "child"
+    assert logger.get_current_record() is parent
+    assert logger.end_run().run_id == "parent"
+    assert logger.get_current_record() is None

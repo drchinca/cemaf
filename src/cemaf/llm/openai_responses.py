@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import Any
 
 from cemaf.core.types import LLMProvider, TokenCount
+from cemaf.llm.preflight import ProviderPreflightError, RequestTokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -250,6 +251,40 @@ class OpenAIResponsesLLMClient:
         except Exception:
             return self._count_tokens_local(messages=messages, tools=tools)
         return TokenCount(int(_get(response, "input_tokens", 0) or 0))
+
+    async def count_request(
+        self,
+        *,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        config: LLMConfig,
+    ) -> RequestTokenCount:
+        """Provider preflight without the legacy counter's local fallback."""
+        counter = getattr(getattr(self._client.responses, "input_tokens", None), "count", None)
+        if counter is None:
+            raise RuntimeError("OpenAI input token endpoint is unavailable in this SDK/client")
+        request = _build_responses_request(
+            messages=messages,
+            tools=tools or None,
+            config=config,
+            include_generation_options=False,
+            correlation_id=None,
+        )
+        try:
+            response = await counter(**request)
+        except Exception as exc:
+            raise ProviderPreflightError(
+                provider="openai", status_code=getattr(exc, "status_code", None)
+            ) from None
+        tokens = _get(response, "input_tokens", None)
+        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
+            raise ValueError("OpenAI returned an invalid input token count")
+        return RequestTokenCount(
+            input_tokens=tokens,
+            exact=True,
+            method="openai.responses.input_tokens",
+            counter_version="v1",
+        )
 
     async def _stream_via_complete(
         self,

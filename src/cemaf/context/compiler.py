@@ -50,10 +50,8 @@ class CompiledContext:
 
         Same inputs always produce same hash.
         """
-        # Sort sources by key for determinism
-        sorted_sources = sorted(self.sources, key=lambda s: (s.type, s.key))
         content = json.dumps(
-            [(s.type, s.key, s.content) for s in sorted_sources],
+            [(s.type, s.key, s.content) for s in self.sources],
             sort_keys=True,
         )
         return hashlib.sha256(content.encode()).hexdigest()[:16]
@@ -70,6 +68,8 @@ class CompiledContext:
                 system_parts.append(f"[{source.key}]\n{source.content}")
             elif source.type == "memory":
                 system_parts.append(f"[Memory: {source.key}]\n{source.content}")
+            else:
+                system_parts.append(f"[{source.type}: {source.key}]\n{source.content}")
 
         if system_parts:
             messages.append(

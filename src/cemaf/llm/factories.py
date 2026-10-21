@@ -8,7 +8,7 @@ credentials, and model choices.
 """
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import LLMSettings, Settings
@@ -20,6 +20,56 @@ from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.observability.run_logger import RunLogger
 from cemaf.resilience.retry import RetryPolicy
+
+if TYPE_CHECKING:
+    from cemaf.context.compiler import CompiledContext
+    from cemaf.context.manifest import ContextManifest
+    from cemaf.context.patch import SecurityLevel
+    from cemaf.llm.evidence import EvidenceLLMClient
+    from cemaf.orchestration.services import RuntimeServices
+
+
+def create_evidence_client(
+    *,
+    services: RuntimeServices,
+    context: ContextManifest,
+    compiled: CompiledContext,
+    principal_id: str,
+    clearance: SecurityLevel,
+    policy_version: str,
+    context_window: int,
+    compiler_version: str = "1",
+    node_id: str = "",
+    require_exact: bool = True,
+) -> EvidenceLLMClient:
+    """Compose an evidence boundary from the runtime's public service ports."""
+    from cemaf.llm.evidence import EvidenceLLMClient
+
+    if (
+        services.llm_client is None
+        or services.artifact_registry is None
+        or services.evidence_store is None
+        or services.request_token_counter is None
+    ):
+        raise ValueError(
+            "Evidence calls require llm_client, artifact_registry, evidence_store, and request_token_counter"
+        )
+    return EvidenceLLMClient(
+        client=services.llm_client,
+        registry=services.artifact_registry,
+        store=services.evidence_store,
+        counter=services.request_token_counter,
+        context=context,
+        compiled=compiled,
+        principal_id=principal_id,
+        clearance=clearance,
+        policy_version=policy_version,
+        context_window=context_window,
+        compiler_version=compiler_version,
+        node_id=node_id,
+        require_exact=require_exact,
+    )
+
 
 # Global LLM provider registry — extend with your own providers
 llm_registry: ProviderRegistry[LLMClient] = ProviderRegistry(name="llm")

@@ -15,6 +15,7 @@ and avoid circular imports with cemaf.context.
 import json
 import shutil
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -103,6 +104,10 @@ class LLMCall:
 
     # Auto-generated
     id: str = field(default_factory=lambda: generate_id("llm"))
+    input_tools: tuple[JSON, ...] = ()
+    model_config: JSON = field(default_factory=dict)
+    evidence_id: str | None = None
+    request_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -131,6 +136,16 @@ class LLMCall:
             result["cost_usd"] = self.cost_usd
         if self.provenance_link_id is not None:
             result["provenance_link_id"] = self.provenance_link_id
+        if self.error is not None:
+            result["error"] = self.error
+        if self.input_tools:
+            result["input_tools"] = list(self.input_tools)
+        if self.model_config:
+            result["model_config"] = self.model_config
+        if self.evidence_id is not None:
+            result["evidence_id"] = self.evidence_id
+        if self.request_id is not None:
+            result["request_id"] = self.request_id
         return result
 
     @classmethod
@@ -153,6 +168,11 @@ class LLMCall:
             budget_utilization=data.get("budget_utilization", 0.0),
             cost_usd=data.get("cost_usd", 0.0),
             provenance_link_id=data.get("provenance_link_id"),
+            error=data.get("error"),
+            input_tools=tuple(data.get("input_tools", ())),
+            model_config=data.get("model_config", {}),
+            evidence_id=data.get("evidence_id"),
+            request_id=data.get("request_id"),
         )
 
 
@@ -329,8 +349,17 @@ class InMemoryRunLogger:
     """
 
     def __init__(self) -> None:
-        self._current: RunRecord | None = None
+        self._current_record: ContextVar[RunRecord | None] = ContextVar("cemaf_run_record", default=None)
+        self._parents: ContextVar[tuple[RunRecord | None, ...]] = ContextVar("cemaf_run_parents", default=())
         self._history: list[RunRecord] = []
+
+    @property
+    def _current(self) -> RunRecord | None:
+        return self._current_record.get()
+
+    @_current.setter
+    def _current(self, record: RunRecord | None) -> None:
+        self._current_record.set(record)
 
     def start_run(
         self,
@@ -339,6 +368,7 @@ class InMemoryRunLogger:
         initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """Start recording a new run."""
+        self._parents.set((*self._parents.get(), self._current))
         self._current = RunRecord(
             run_id=run_id,
             dag_name=dag_name,
@@ -390,7 +420,9 @@ class InMemoryRunLogger:
 
         record = self._current
         self._history.append(record)
-        self._current = None
+        parents = self._parents.get()
+        self._current = parents[-1] if parents else None
+        self._parents.set(parents[:-1])
         return record
 
     def get_current_record(self) -> RunRecord | None:
@@ -422,7 +454,16 @@ class NoOpRunLogger:
     """
 
     def __init__(self) -> None:
-        self._current: RunRecord | None = None
+        self._current_record: ContextVar[RunRecord | None] = ContextVar("cemaf_noop_record", default=None)
+        self._parents: ContextVar[tuple[RunRecord | None, ...]] = ContextVar("cemaf_noop_parents", default=())
+
+    @property
+    def _current(self) -> RunRecord | None:
+        return self._current_record.get()
+
+    @_current.setter
+    def _current(self, record: RunRecord | None) -> None:
+        self._current_record.set(record)
 
     def start_run(
         self,
@@ -431,6 +472,7 @@ class NoOpRunLogger:
         initial_context: Context | None = None,  # type: ignore[name-defined]  # noqa: F821
     ) -> None:
         """Start a disposable run envelope."""
+        self._parents.set((*self._parents.get(), self._current))
         self._current = RunRecord(run_id=run_id, dag_name=dag_name, initial_context=initial_context)
 
     def record_tool_call(self, call: ToolCall) -> None:
@@ -461,7 +503,9 @@ class NoOpRunLogger:
         record.completed_at = utc_now()
         record.success = success
         record.error = error
-        self._current = None
+        parents = self._parents.get()
+        self._current = parents[-1] if parents else None
+        self._parents.set(parents[:-1])
         return record
 
     def get_current_record(self) -> RunRecord | None:

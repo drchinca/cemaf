@@ -155,7 +155,7 @@ class RBACEnforcer:
         # Scope-path prefix check — only enforced for item-level actions
         if (
             grant.scope_path_prefix is not None
-            and action in _ITEM_LEVEL_ACTIONS
+            and (action in _ITEM_LEVEL_ACTIONS or scope_path is not None)
             and (scope_path is None or not scope_path.startswith(grant.scope_path_prefix))
         ):
             return False
@@ -215,16 +215,20 @@ class RBACMemoryStore(MemoryStore):
     # ------------------------------------------------------------------
 
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
-        self._check("read", scope, key)
         item = await self._inner.get(scope, key)
+        self._check("read", scope, key, item.scope_path if item is not None else None)
         return self._apply_redaction(item)
 
     async def set(self, item: MemoryItem) -> None:
-        self._check("write", item.scope, item.key)
+        existing = await self._inner.get(item.scope, item.key)
+        if existing is not None:
+            self._check("write", existing.scope, existing.key, existing.scope_path)
+        self._check("write", item.scope, item.key, item.scope_path)
         await self._inner.set(item)
 
     async def delete(self, scope: MemoryScope, key: str) -> bool:
-        self._check("delete", scope, key)
+        item = await self._inner.get(scope, key)
+        self._check("delete", scope, key, item.scope_path if item is not None else None)
         return await self._inner.delete(scope, key)
 
     async def list_by_scope(self, scope: MemoryScope) -> tuple[MemoryItem, ...]:
@@ -235,16 +239,14 @@ class RBACMemoryStore(MemoryStore):
         # Apply redaction to every item
         redacted: list[MemoryItem] = []
         for item in items:
+            if not self._enforcer.can(self._principal_id, "list", scope, item.scope_path):
+                continue
+            # A path-restricted grant cannot expose an unscoped item.
+            if item.scope_path is None and not self._has_unscoped_list(scope):
+                continue
             r = self._apply_redaction(item)
             if r is not None:
                 redacted.append(r)
-
-        # Scope-path prefix filtering: if principal has any direct_access
-        # grant with a scope_path_prefix for this scope, exclude items
-        # whose scope_path does not start with that prefix.
-        allowed_prefixes = self._collect_path_prefixes(scope)
-        if allowed_prefixes:
-            redacted = [item for item in redacted if self._item_within_prefixes(item, allowed_prefixes)]
 
         return tuple(redacted)
 
@@ -256,9 +258,9 @@ class RBACMemoryStore(MemoryStore):
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _check(self, action: str, scope: MemoryScope, key: str = "") -> None:
+    def _check(self, action: str, scope: MemoryScope, key: str = "", scope_path: str | None = None) -> None:
         """Raise PermissionDeniedError (and log to audit) if access is denied."""
-        if not self._enforcer.can(self._principal_id, action, scope):
+        if not self._enforcer.can(self._principal_id, action, scope, scope_path):
             self._record_denial(action, scope, key)
             raise PermissionDeniedError(
                 principal_id=self._principal_id,
@@ -307,19 +309,16 @@ class RBACMemoryStore(MemoryStore):
             t.start()
             t.join(timeout=2.0)
 
-    def _collect_path_prefixes(self, scope: MemoryScope) -> list[str]:
-        """Return scope_path_prefix values from direct_access grants for *scope*."""
-        prefixes: list[str] = []
+    def _has_unscoped_list(self, scope: MemoryScope) -> bool:
+        """Check unrestricted list grants without widening a path-bound grant."""
+        roles = self._enforcer._provider.get_roles(self._principal_id)
+        if any("list" in _ROLE_PERMISSIONS.get(role, ()) for role in roles):
+            return True
+        principal = self._enforcer._provider.get_principal(self._principal_id)
+        attributes = principal.attributes if principal is not None else {}
         for grant in self._enforcer._provider.get_direct_access(self._principal_id):
-            if grant.scope_path_prefix is None:
-                continue
-            if grant.scope is None or grant.scope == scope:
-                prefixes.append(grant.scope_path_prefix)
-        return prefixes
-
-    @staticmethod
-    def _item_within_prefixes(item: MemoryItem, prefixes: list[str]) -> bool:
-        """Return True if item.scope_path starts with any of *prefixes*."""
-        if item.scope_path is None:
-            return False
-        return any(item.scope_path.startswith(p) for p in prefixes)
+            if grant.scope_path_prefix is None and self._enforcer._grant_matches(
+                grant, "list", scope, None, attributes
+            ):
+                return True
+        return False

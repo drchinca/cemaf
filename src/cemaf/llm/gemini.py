@@ -21,6 +21,7 @@ except ImportError:
     httpx = None  # type: ignore[assignment,unused-ignore]
 
 from cemaf.core.types import FinishReason, LLMProvider, TokenCount
+from cemaf.llm.preflight import ProviderPreflightError, RequestTokenCount
 from cemaf.llm.protocols import (
     CompletionResult,
     LLMConfig,
@@ -211,10 +212,10 @@ class GeminiClient:
                 raise ValueError(
                     "api_key required for Google AI Studio Gemini (or set GEMINI_API_KEY or GOOGLE_API_KEY)"
                 )
-            headers = {"Content-Type": "application/json"}
-            url = f"{_GEMINI_API_BASE}/models/{cfg.model}:{action}?key={api_key}"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+            url = f"{_GEMINI_API_BASE}/models/{cfg.model}:{action}"
             if action == "streamGenerateContent":
-                url += "&alt=sse"
+                url += "?alt=sse"
             return url, headers
 
     async def complete(
@@ -256,7 +257,17 @@ class GeminiClient:
             data = response.json()
             candidates = data.get("candidates", [])
             if not candidates:
-                return CompletionResult.fail(error="No candidates in Gemini response")
+                prompt_tokens, completion_tokens = _gemini_usage(data.get("usageMetadata", {}))
+                return CompletionResult(
+                    success=False,
+                    error="No candidates in Gemini response",
+                    prompt_tokens=TokenCount(prompt_tokens),
+                    completion_tokens=TokenCount(completion_tokens),
+                    total_tokens=TokenCount(prompt_tokens + completion_tokens),
+                    model=str(data.get("modelVersion") or cfg.model),
+                    provider=self._provider_family(),
+                    metadata={"provider_usage": data.get("usageMetadata", {})},
+                )
 
             parts = candidates[0].get("content", {}).get("parts", [])
             text_parts = [p.get("text", "") for p in parts if "text" in p]
@@ -269,6 +280,7 @@ class GeminiClient:
             )
 
             usage = data.get("usageMetadata", {})
+            prompt_tokens, completion_tokens = _gemini_usage(usage)
 
             native_finish_reason = str(candidates[0].get("finishReason", "") or "")
 
@@ -277,10 +289,11 @@ class GeminiClient:
                     role=MessageRole.ASSISTANT,
                     content=content,
                     tool_calls=tool_calls,
+                    metadata={"provider_usage": usage},
                 ),
-                prompt_tokens=usage.get("promptTokenCount", 0),
-                completion_tokens=usage.get("candidatesTokenCount", 0),
-                model=cfg.model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                model=str(data.get("modelVersion") or cfg.model),
                 finish_reason=_gemini_finish_reason(
                     native_finish_reason,
                     has_tool_calls=bool(tool_calls),
@@ -326,6 +339,7 @@ class GeminiClient:
         native_finish_reason = ""
         prompt_tokens = 0
         completion_tokens = 0
+        cumulative_usage: dict[str, Any] = {}
 
         try:
             async with (
@@ -349,12 +363,8 @@ class GeminiClient:
                             continue
                         data = json.loads(payload_line)
                         usage = data.get("usageMetadata", {})
-                        prompt_tokens = _usage_int(usage, "promptTokenCount", prompt_tokens)
-                        completion_tokens = _usage_int(
-                            usage,
-                            "candidatesTokenCount",
-                            completion_tokens,
-                        )
+                        cumulative_usage.update(usage)
+                        prompt_tokens, completion_tokens = _gemini_usage(cumulative_usage)
                         candidate = data.get("candidates", [{}])[0]
                         native_finish_reason = str(candidate.get("finishReason") or native_finish_reason)
                         parts = candidate.get("content", {}).get("parts", [])
@@ -398,6 +408,7 @@ class GeminiClient:
             accumulated_content=accumulated,
             prompt_tokens=TokenCount(prompt_tokens),
             completion_tokens=TokenCount(completion_tokens),
+            metadata={"provider_usage": cumulative_usage},
         )
 
     def count_tokens(self, text: str) -> TokenCount:
@@ -423,7 +434,12 @@ class GeminiClient:
         except ValueError as e:
             raise RuntimeError(f"Failed to resolve request details: {e}") from e
 
-        payload = _count_tokens_payload(messages=messages, tools=tools, config=self._config)
+        payload = _count_tokens_payload(
+            messages=messages,
+            tools=tools,
+            config=self._config,
+            use_vertex="Authorization" in headers,
+        )
         async with httpx.AsyncClient(timeout=self._config.timeout_seconds) as http_client:
             response = await http_client.post(
                 url,
@@ -446,6 +462,40 @@ class GeminiClient:
         has_gcp_env = any(os.getenv(v) for v in ["VERTEX_PROJECT", "GCP_PROJECT", "GOOGLE_CLOUD_PROJECT"])
         has_gemini_key = bool(self._api_key)
         return LLMProvider.VERTEX if has_gcp_env and not has_gemini_key else LLMProvider.GEMINI
+
+    async def count_request(
+        self,
+        *,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        config: LLMConfig,
+    ) -> RequestTokenCount:
+        """Count the full generateContent request, including system instructions and schema."""
+        if httpx is None:
+            raise RuntimeError("httpx required for Gemini request preflight")
+        url, headers = self._get_request_details(action="countTokens", cfg=config)
+        payload = _count_tokens_payload(
+            messages=messages,
+            tools=tools or None,
+            config=config,
+            use_vertex="Authorization" in headers,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                tokens = response.json().get("totalTokens")
+        except Exception as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            raise ProviderPreflightError(provider="gemini", status_code=status_code) from None
+        if not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0:
+            raise ValueError("Gemini returned an invalid input token count")
+        return RequestTokenCount(
+            input_tokens=tokens,
+            exact=True,
+            method="gemini.countTokens",
+            counter_version="v1beta",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -555,9 +605,12 @@ def _generate_content_payload(
 ) -> dict[str, Any]:
     """Build a Gemini generateContent-compatible request body."""
     payload: dict[str, Any] = {
-        "contents": _messages_to_gemini(messages=messages),
+        "contents": _messages_to_gemini(messages=[m for m in messages if m.role != MessageRole.SYSTEM]),
         "generationConfig": _generation_config(config),
     }
+    system_parts = [{"text": _content_to_text(m.content)} for m in messages if m.role == MessageRole.SYSTEM]
+    if system_parts:
+        payload["systemInstruction"] = {"parts": system_parts}
     if tools:
         payload["tools"] = [{"functionDeclarations": [_tool_to_gemini(t) for t in tools]}]
     return payload
@@ -568,17 +621,14 @@ def _count_tokens_payload(
     messages: list[Message],
     tools: list[ToolDefinition] | None,
     config: LLMConfig,
+    use_vertex: bool = False,
 ) -> dict[str, Any]:
-    """Build a countTokens request body, preserving tool schemas when present."""
-    if not tools:
-        return {"contents": _messages_to_gemini(messages=messages)}
-    return {
-        "generateContentRequest": _generate_content_payload(
-            messages=messages,
-            tools=tools,
-            config=config,
-        )
-    }
+    """Count the same native system/content/schema framing used by generation."""
+    request = _generate_content_payload(messages=messages, tools=tools, config=config)
+    if use_vertex:
+        return request
+    request["model"] = f"models/{config.model}"
+    return {"generateContentRequest": request}
 
 
 def _generation_config(config: LLMConfig) -> dict[str, Any]:
@@ -661,6 +711,15 @@ def _content_to_text(content: object) -> str:
     if isinstance(content, str):
         return content
     return json.dumps(content, ensure_ascii=False)
+
+
+def _gemini_usage(usage: dict[str, Any]) -> tuple[int, int]:
+    """Provider output totals include hidden thinking and any remaining reported usage."""
+    prompt = max(0, _usage_int(usage, "promptTokenCount", 0))
+    visible = max(0, _usage_int(usage, "candidatesTokenCount", 0))
+    thoughts = max(0, _usage_int(usage, "thoughtsTokenCount", 0))
+    total = max(0, _usage_int(usage, "totalTokenCount", 0))
+    return prompt, max(visible + thoughts, total - prompt)
 
 
 def _usage_int(usage: dict[str, Any], key: str, default: int) -> int:

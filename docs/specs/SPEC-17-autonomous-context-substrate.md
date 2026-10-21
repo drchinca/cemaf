@@ -820,6 +820,13 @@ change.
 
 ## 4. Acceptance Criteria (BDD)
 
+The [context and provenance acceptance cases](../architecture/context-provenance-acceptance.md)
+define a bounded support-policy pilot against the context, authorization,
+provenance, and evidence invariants below. Its executable progress suite and
+strict adoption gate distinguish implemented behavior, reproduced defects,
+missing capabilities, and real-provider/human-review evidence. Passing that
+slice does not graduate the full production substrate.
+
 ```gherkin
 Feature: Durable autonomous context substrate
 
