@@ -70,6 +70,14 @@ class PgVectorStore:
 
         import pgvector.asyncpg as pgv_asyncpg
 
+        # Pool initializers register codecs before _ensure_schema runs. Bootstrap
+        # the extension on a plain connection so a fresh database has the type.
+        bootstrap_conn = await asyncpg.connect(self._dsn, command_timeout=30)
+        try:
+            await bootstrap_conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        finally:
+            await bootstrap_conn.close()
+
         async def _init_conn(conn: Any) -> None:
             await pgv_asyncpg.register_vector(conn)
 
@@ -88,7 +96,6 @@ class PgVectorStore:
         s = self._schema
         dim = self._dimension
         ddl = f"""
-            CREATE EXTENSION IF NOT EXISTS vector;
             CREATE SCHEMA IF NOT EXISTS {s};
             CREATE TABLE IF NOT EXISTS {s}.vector_documents (
                 id TEXT NOT NULL,

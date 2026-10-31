@@ -1,22 +1,27 @@
-# CEMAF Engine — The Best-in-Class Context-Engineered Multi-Agent Substrate
+# CEMAF Engine Showcase
 
-> High-level engine anatomy. No code — *what* the top-tier shell components are, *how* a
-> request flows through them, and *why* this is the framework a serious team picks for 2027+.
-> For where each concept lands in the codebase, see [`spec-module-map.md`](spec-module-map.md).
+This design overview maps eight execution concerns onto CEMAF's modules and a
+flagship request flow. The diagram preserves the July 2026 design proposal;
+it includes proposed compositions and is not a promise that every service runs
+by default. Module names describe ownership, not a request to replace existing
+public protocols.
 
-## 1. The one-line thesis
+For the implemented execution path, read [Deep Architecture](deep-architecture.md).
+For executable claims and their limits, use the
+[Capability Evidence Ledger](../production-evidence.md). The
+[spec-to-module map](spec-module-map.md) connects the design to its contracts.
 
-**CEMAF is a deterministic, auditable control plane for multi-agent AI that spends tokens
-like money** — it wraps stochastic models inside a predictable, replayable execution spine
-where context is priority-selected against a budget, agents are chosen by market or council,
-and a quality gate genuinely *blocks* bad output before it ships.
+## 1. Execution model
 
-The frontier problem has moved from "can a model do the task?" to "can you run models at
-enterprise scale — cost-bounded, provenance-native, quality-gated, multi-tenant-safe —
-through *one* composition root you can reproduce and audit?" CEMAF is that substrate: an
-engine that owns control flow and invokes your agents, not a library your agents call.
+CEMAF runs a typed DAG through `create_executor` and `RuntimeServices`. Context,
+budgets, gates, events, and memory compose at those public interfaces. The
+executor controls dispatch and records outcomes; model responses and external
+systems can still vary. Replay and provenance make those differences inspectable.
 
-## 2. The flagship diagram
+## 2. Flagship design diagram
+
+The flow below describes the intended composition. Enable and configure the
+relevant services explicitly; consult section 5 for implementation boundaries.
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
@@ -175,206 +180,110 @@ LEGEND   ─▶ data/control flow    ═▶ per-node loop back    ┄▶ async e
    └───────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 3. The top-tier shell components
+## 3. Component map
 
-Eight components, each owning one industry-scale failure mode of production LLM systems.
-Together they form the execution substrate, not a toolkit. Stage numbers map to the diagram.
+The eight components group related responsibilities. They do not introduce new
+packages or a second orchestration loop. Stage numbers refer to the diagram.
 
-| # | Shell component | Owns the pain of… | Diagram | CEMAF modules |
-|---|---|---|---|---|
-| 1 | **Context Economics Engine** | rolling-prompt state layers that blow windows & pay for redundant tokens | (3) | `context/`, `memory/`, `retrieval/`, `rlm/` |
-| 2 | **Deterministic Orchestration Spine** | agent loops nobody can reproduce; god-function of `if`-branches | (0)(1)(6) | `orchestration/`, `collision/`, `state/` |
-| 3 | **Agent Decision Market** | brittle single-model answers; hardcoded "use model-X here" | (4) | `agents/selection.py`, `council/`, `llm/model_router.py` |
-| 4 | **Quality Gate Mesh** | hallucinations/schema-breakers shipping; evals that only *report* | (2)(5) | `interceptors/`, `evals/`, `moderation/`, `blueprint/` |
-| 5 | **Provenance & Audit Ledger** | AI you can't explain; no forensics, no compliance trail | (7)(9) | `audit/`, `citation/`, `observability/`, `operator/`, `replay/` |
-| 6 | **Cost Governance & Resilience Envelope** | unbounded cost blast radius; one flaky provider cascading to outage | rails+(4) | `observability/` (BudgetGuard), `resilience/`, `cache/` |
-| 7 | **Multi-Tenant Isolation & Access Control** | cross-tenant leakage (P0 deal-killer); PII into prompts/logs | rails+(2) | `context/` (SecurityLevel), `memory/` (scope), security decorators |
-| 8 | **Self-Hosting Improvement Flywheel** | static systems that never improve; good runs never captured | (8)+meta | `meta/`, `blueprint/harvest.py`, `iteration/`, `knowledge/` |
+| Component | Responsibility | Stages | Existing modules |
+|---|---|---|---|
+| Context selection | Select relevant evidence within a token budget | 3 | `context`, `memory`, `retrieval`, `rlm` |
+| Orchestration | Dispatch DAG nodes, coordinate writes, checkpoint execution | 0, 1, 6 | `orchestration`, `collision`, `state` |
+| Agent selection | Select candidates or aggregate council decisions | 4 | `agents`, `council`, `llm` |
+| Quality gates | Validate outputs and block or recover failed steps | 2, 5 | `interceptors`, `evals`, `moderation`, `validation` |
+| Provenance and audit | Record sources, patches, events, and run outcomes | 7, 9 | `audit`, `citation`, `observability`, `operator`, `replay` |
+| Budget and resilience | Account for usage and bound retries or spending | 4 and shared services | `observability`, `resilience`, `cache` |
+| Access control | Apply principal, scope, attribute, and clearance policies | 2 and shared services | `security`, `memory`, `context` |
+| Self-hosting | Inspect the framework and reuse reviewed run artifacts | 8 and meta layer | `meta`, `blueprint`, `iteration`, `knowledge` |
 
-### 3.1 Context Economics Engine — stage (3)
+### Context selection
 
-- **Problem it owns:** teams use rolling prompt strings as their state layer — they blow
-  context windows, pay for redundant tokens, and watch quality degrade as prompts bloat.
-- **What it does:** turns a pile of candidate context (memory, vectors, datasource pulls,
-  prior turns, domain facts) into a budget-fitting `CompiledContext` slice.
-- **How:** `ContextCompiler` selects against a declared `TokenBudget` by priority tier — hard
-  invariants first, nice-to-haves dropped bottom-up — over tiered `MemoryManager.recall`,
-  `VectorStore` retrieval, and SPEC-02 `PullInterceptor` hydration; dedup + PII masking
-  applied; every source carries a `ContextPatch` provenance stamp; `rlm/` handles oversized
-  context by divide-and-conquer.
-- **Why best-in-class 2027+:** as windows grow to millions of tokens, the constraint stops
-  being *capacity* and becomes *economics* — cost, latency, signal-to-noise. A principled,
-  provenance-aware, budget-first selection layer scales context instead of drowning in it.
+`ContextCompiler` assembles `ContextSource` inputs under a `TokenBudget`.
+Memory and retrieval supply candidates; policies determine priority and
+clearance. Oversized research can use the existing RLM decomposition path.
+A token budget controls input size; evidence quality still needs separate evals.
 
-### 3.2 Deterministic Orchestration Spine — stages (0)(1)(6)
+### Orchestration
 
-- **Problem it owns:** stochastic models produce nondeterministic control flow no one can
-  reproduce, replay, or audit; every new step means editing a god-function of `if`-branches.
-- **What it does:** executes a typed DAG over an initial context, producing a
-  topologically-ordered, checkpointed, resumable trace.
-- **How:** `DAGExecutor.run` topologically sorts and dispatches each node through the
-  `NodeResolver` chain (council/auction/static, first-match-wins) — adding a node kind is
-  *registering a resolver*, never a branch; `RuntimeServices` injects deps at one composition
-  root; `ContextVars` isolate route choices + correlation IDs so concurrent runs never bleed;
-  the collision coordinator (TCAS-style risk math) deterministically resolves overlapping
-  parallel writes; `run_lease` + `file_checkpointer` make runs resumable.
-- **Why best-in-class 2027+:** the industry is converging on *auditable* control planes. A
-  resolver-dispatched, deterministic, replayable spine — where model output can steer edges
-  but never the mechanics of execution — satisfies both flexibility and compliance.
+`DAGExecutor` delegates through resolvers and node handlers. `RuntimeServices`
+holds shared dependencies, while run-scoped state isolates concurrent calls.
+Checkpoint and lease implementations determine recovery guarantees. A local
+executor alone does not establish distributed durability.
 
-### 3.3 Agent Decision Market — stage (4)
+### Agent selection
 
-- **Problem it owns:** single-model, single-agent answers are brittle and opaque — no
-  consensus, no right-fidelity/right-cost selection per task, no record of *why*.
-- **What it does:** resolves a node either by auctioning it to the best-fit agent or convening
-  a council that deliberates and votes.
-- **How:** Auction (SPEC-09) — agents submit `Bid`s against a `BidContext` (load/cost/
-  fidelity), `DefaultAgentSelector` picks deterministic max-bid, provenance stamped. Council
-  (SPEC-10) — N members deliberate over multi-round `CouncilConfig`, `DefaultVoteAggregator`
-  (majority/weighted/quorum/unanimous) tallies a full `Ballot`, `CouncilDecision` steers
-  edges; `model_router.py` cost-routes on complexity with a fidelity floor.
-- **Why best-in-class 2027+:** with dozens of specialized models and price/quality tiers,
-  static model assignment is malpractice. A deterministic, accountable *market* — every
-  selection explainable, every dissent recorded — earns trust at enterprise scale.
+Auction selection ranks registered candidates; council nodes collect and
+aggregate votes. These are alternative dispatch policies over the same agent
+contracts. Record the selection and evaluate the result: consensus alone does
+not establish correctness.
 
-### 3.4 Quality Gate Mesh — stages (2)(5)
+### Quality gates
 
-- **Problem it owns:** unvalidated stochastic output ships straight to users; bolt-on eval
-  scripts run *after* the fact without actually blocking anything.
-- **What it does:** runs every agent node's output through a PRE→POST interceptor chain that
-  can genuinely block bad output from flowing downstream.
-- **How:** `InterceptorPipeline` (SPEC-01a) wraps execution; `GateEvalInterceptor` runs the
-  `HierarchicalJudge` (deterministic → semantic → LLM judge) against declared SLO thresholds;
-  six guardians (CiteOrFail, UngroundedClaim, Schema, Policy, Hallucination, Calibration —
-  SPEC-05), moderation, and structured-output repair (SPEC-03) run POST. Verdict is `ACCEPT`,
-  `REJECT` (downstream never runs, retries not burned), or `RECOVER` (bounded re-attempt).
-- **Why best-in-class 2027+:** the cost of shipped hallucination is only rising. A gate that
-  *blocks in the execution path* — not a dashboard after the fact — is the enforcement
-  primitive every serious AI product needs; as interceptors, quality is a station, not an
-  afterthought.
+The interceptor pipeline supports ACCEPT, REJECT, and bounded RECOVER decisions.
+Applications choose evaluators, thresholds, validation, and moderation policies.
+The six-guardian composition in the diagram is a design target, not an implicit
+service enabled for every run.
 
-### 3.5 Provenance & Audit Ledger — stages (7)(9)
+### Provenance and audit
 
-- **Problem it owns:** enterprises can't ship AI they can't explain — why did the model say
-  this, from what sources, which tool ran, is that tool reliable?
-- **What it does:** turns the event stream of a run into an append-only, queryable record of
-  what happened, what it was grounded on, and how trustworthy each participant is.
-- **How:** `audit/` projects events into `AuditEntry` records with z-score anomaly detection;
-  `citation/` enforces `cited_evidence_refs ⊆ surfaced sources`; the `TrustLedger` promotes/
-  demotes tools by observed outcomes; everything exports via OTel GenAI spans and projects
-  into the versioned `cemaf.session.v1` `SessionSnapshot` (SPEC-14) — the one read-only
-  contract every surface reads, plus `replay/` traces.
-- **Why best-in-class 2027+:** AI governance regimes demand provenance as a shipping
-  requirement. An immutable citation graph plus a behavior-earned trust ledger — through one
-  stable public contract — is exactly the forensics surface auditors ask for.
+Context patches, citations, events, run logs, replay records, and operator
+snapshots expose what a run consumed and produced. Audit storage and retention
+are deployment choices. In-memory records last for the process lifetime;
+external publication requires the application's evidence and authorization gates.
 
-### 3.6 Cost Governance & Resilience Envelope — side rails + stage (4)
+### Budget and resilience
 
-- **Problem it owns:** unbounded cost blast radius — one runaway loop burns thousands of
-  dollars, one flaky provider cascades into an outage.
-- **What it does:** enforces hard per-run/per-workspace spend limits and keeps calls alive
-  through transient failures while routing each task to the cheapest viable model.
-- **How:** `BudgetGuard` caps spend, raises typed `BudgetExceeded` (never silent truncation),
-  emits `cost_usd` + tokens tagged by workspace/adapter/tier; `resilience/` wraps every call
-  in retry + circuit breaker + rate limiter; `model_router.py` picks the cheapest model that
-  clears complexity + fidelity floor; `cache/` TTL-dedupes repeated work.
-- **Why best-in-class 2027+:** as agents run longer and fan out wider, cost is the dominant
-  operational risk. First-class per-tenant budgets that *stop* overspend, paired with
-  resilience and complexity-aware routing, make autonomous agents financially safe to deploy.
+Budget guards and instrumented clients account for observed usage. Retry,
+circuit-breaker, rate-limiter, and cache protocols govern provider calls.
+Configure these at the composition root and include repair or retry usage in
+the budget. An uninjected service cannot enforce a policy.
 
-### 3.7 Multi-Tenant Isolation & Access Control — side rails + stage (2)
+### Access control
 
-- **Problem it owns:** cross-tenant data leakage is a P0 that kills enterprise deals — shared
-  memory/context/caches, PII into prompts and logs, no scope-level access control.
-- **What it does:** returns only the scoped, PII-masked context a principal is cleared to see
-  — or denies the request — recording every decision.
-- **How:** RBAC + ABAC via memory-store decorators and PII redaction; `MemoryScope` (SESSION/
-  PROJECT/GLOBAL) with hierarchical `ScopePath` namespacing state per workspace;
-  `SecurityLevel` clearance-gated compilation (SPEC-11) drops any over-classified source
-  before it reaches the prompt; every access decision lands in the audit ledger.
-- **Why best-in-class 2027+:** enterprise AI buying is gated on isolation guarantees.
-  Clearance-gated *context compilation* — where over-classified data is structurally incapable
-  of reaching a prompt — is stronger than perimeter access control, and unlocks regulated
-  deals.
+RBAC/ABAC memory decorators evaluate principals, actions, scopes, and attributes;
+context compilation can filter sources by clearance. The application must
+provide identities, policies, and trusted scope bindings. Files exported as OKF
+need destination access controls too: importing a policy description grants no
+runtime permissions.
 
-### 3.8 Self-Hosting Improvement Flywheel — stage (8) + meta layer
+### Self-hosting
 
-- **Problem it owns:** static AI systems never get better — pipelines are hand-designed,
-  failures don't feed back, high-scoring runs aren't captured.
-- **What it does:** uses the engine's own execution to distill high-scoring runs into reusable
-  blueprints and update strategy/trust from outcomes and verifier failures.
-- **How:** `meta/` agents run as ordinary Agent/Tool/DAG citizens through
-  `create_meta_executor` — the *same* executor, no special path; `create_blueprint_harvester()`
-  (SPEC-13) learns blueprints from high-scoring runs with PROJECT→GLOBAL promotion;
-  `SelfImprovementLoop` scores runs into `StrategyMemory` + `TrustLedger`; `iteration/`
-  (SPEC-08) parses pytest/ruff/mypy failures into `FailureSignal`s for bounded re-attempts;
-  the hub-and-spoke KG (SPEC-07) stays refreshed.
-- **Why best-in-class 2027+:** the frontier is self-improving systems. An engine that improves
-  *through its own primitives* — no bespoke ML pipeline, every improvement step itself audited,
-  budgeted, gated — is a compounding asset where competitors ship a static artifact.
+`create_meta_executor` composes framework-aware agents through the same DAG
+execution path. Blueprint harvesting and improvement services can propose
+reusable artifacts; promotion remains subject to policy and review.
+[OKF self-hosting](../okf.md#cemaf-describing-itself) exports modules, contracts,
+registered capabilities, and governed descriptions for agents to inspect through
+the existing documentation and knowledge-graph interfaces.
 
-### Why this is an engine, not a library
+## 4. Composition and verification
 
-A library is helpers you call from control flow *you* own; an engine owns the control flow and
-invokes *you*. There is exactly one composition root (`bootstrap.create_executor`) and one
-path (`DAGExecutor.run`) through which every request flows. Every capability above is a
-**station on that path**, not an optional import: context is compiled against a budget before a
-prompt exists, spend and clearance are checked before a call fires, output is gated before it
-flows downstream, provenance is emitted as it happens, the run improves itself on completion.
-Adding a capability is registering a resolver or interceptor, never editing a god-function;
-even the self-hosting meta layer wraps this exact same flow with no privileged path. That
-inversion of control — correctness, cost, safety, and auditability as structural invariants of
-the substrate rather than conventions a caller must remember — is what makes it an engine.
+Start with the [composed engine example](../../examples/composed_engine.py) or
+[release engine example](../../examples/release_engine.py). Supply protocol
+implementations through `RuntimeServices`, register domain agents and tools,
+and express the flow as a DAG. Extend a resolver, interceptor, or event
+subscriber when that interface owns the behavior.
 
-## 4. Why this wins in 2027+
+Use integration evidence to assess the composition:
 
-Five compounding advantages no incumbent holds *together*:
+- [Composed engine](../../tests/integration/test_composed_engine.py) checks the
+  shared execution path across subsystems.
+- [Durable resume](../../tests/integration/test_runtime_services_durable_resume.py)
+  checks the configured checkpoint and recovery path.
+- [OKF self-hosting](../../tests/integration/test_okf_self_hosting.py) checks
+  exported framework knowledge, runtime contracts, and governed access.
 
-1. **Deterministic orchestration over stochastic models** — LLM output steers edges (votes,
-   bids, routes) but never the mechanics; the path is sorted, dispatched, checkpointed,
-   replayable *before a token is spent*. LangGraph leaves determinism/replay/audit to you;
-   CrewAI/AutoGen lean into the free-form chatter that *is* the unreproducible loop.
-2. **Provenance-native context economics** — context as a budgeted asset, priority-dropped
-   bottom-up, every source stamped, PII masked on the way in. DSPy optimizes prompts but has
-   no runtime context-economics; the others use rolling strings.
-3. **Eval-as-a-gate, not eval-as-a-report** — REJECT means downstream never runs and retries
-   aren't burned. Agents-SDK/CrewAI offer advisory guardrails; CEMAF makes them load-bearing.
-4. **Self-hosting flywheel** — meta-agents run through the *same* executor to introspect,
-   audit, harvest blueprints, regenerate underperformers — each step itself audited, budgeted,
-   gated. Competitors ship a static artifact.
-5. **Collision-free multi-tenant concurrency** — TCAS-style deterministic write coordination +
-   clearance-gated compilation that makes over-classified data *structurally unable* to reach a
-   prompt.
+These tests support specific configurations. They do not establish universal
+production suitability or comparative performance against other frameworks.
 
-**The synthesis:** LangGraph, CrewAI, AutoGen, DSPy, and the Agents-SDK each solve a *slice* —
-graph wiring, role-play ergonomics, conversational agents, prompt optimization, a hosted loop.
-None owns the whole governed control plane: deterministic and replayable, provenance-native and
-budgeted, gated in-path, self-improving, multi-tenant-safe — through one composition root. That
-is not a feature you add to a library later; it is an architecture you commit to on day one.
-For any organization that must run AI it can *explain, afford, trust, and improve* at enterprise
-scale, that is the durable moat.
+## 5. Implementation boundaries
 
-## 5. Honesty layer — shipped today vs. CEMAF-V2 target
-
-The diagram paints the *target* engine. Some stations are genuinely wired and verified; a few
-are named but not yet built. A redo is honest about the difference.
-
-| Element | Status | Note |
-|---|---|---|
-| Interceptor spine (PRE→execute→POST, ACCEPT/REJECT/RECOVER) | 🟢 shipped, verified-wired | The keystone; `GateEvalInterceptor` genuinely blocks downstream. |
-| DAG kernel + NodeResolver chain + immutable Context | 🟢 shipped | Concurrency-tested; resolver chain replaces `if`-branches. |
-| Context compiler (priority + token budget + provenance) | 🟢 shipped | `surfaced_sources` should graduate to a first-class `Context` field. |
-| Auction / council / blueprint | 🟡 shipped as packages | Should collapse into resolvers/stations, not top-level packages. |
-| Cost governance + resilience + model router | 🟢 shipped | `BudgetGuard`, retry/breaker/limiter, complexity routing all real. |
-| Multi-tenant clearance-gated compilation (SPEC-11) | 🟢 shipped | RBAC/ABAC decorators + `SecurityLevel` gate. |
-| **Guardian Mesh** (auto-inject six guardians in order) | ⚪ **new** | Primitives exist; nothing composes them by default yet. |
-| **Durable Task aggregate** (state machine + step ledger + lease) | ⚪ **new** | FSM/lease/checkpointer substrate ships; `cemaf/task/` coordination does not. |
-| `DistributedDAGExecutor` | 🔴 **rename/replace** | Single-process behind an unused `redis_url`; ship a real `QueuePort` adapter *or* name it honestly. |
-| `InMemoryAuditTrail` as shipped default | 🔴 **replace** | A process-lifetime audit trail is not an audit trail; fold into a durable Replay & Audit Vault. |
-| Regex-only "moderation" / template-fill "synthesis" | 🔴 **rename/fold** | Ship a BYO LLM-moderation adapter; demote mechanical "synthesis" to an honestly-named scaffolder. |
-| 20-field `RuntimeServices` | 🟡 **regroup** | Split into intent-named sub-bundles (observability / quality / knowledge / governance). |
-
-**The V2 north star, in one line:** *CEMAF-V2 is the provenance-native, durable-execution
-substrate for auditable multi-agent systems — a run is a resumable Task, every token the model
-saw is a ledgered fact, every claim it emits is checked against a membership set, and every
-cross-cutting concern is one ordered station on a single interceptor spine.*
+| Design element | Boundary |
+|---|---|
+| DAG, resolver, and interceptor execution | Implemented; behavior depends on registered handlers and injected services. |
+| Context compilation, auction, council, and blueprint harvesting | Available through public protocols; configure each required path explicitly. |
+| Six-guardian default composition | Proposed composition; do not assume automatic injection. |
+| Durable task ownership and distributed recovery | Use the [durability plan](enterprise-durability-plan.md) and its acceptance evidence for the current boundary. |
+| Audit retention | In-memory and durable backends have different lifetimes and failure guarantees. |
+| Regrouping `RuntimeServices` into smaller bundles | Design suggestion, not a required API migration. |
+| Peer messaging and communal task board | [SPEC-18](../specs/SPEC-18-peer-communication-and-task-board.md) defines the phased design; the phase-one identity substrate does not imply the whole board is implemented. |
+| OKF ontology and policy descriptions | The CEMAF vocabulary profile versions local terms; Git tracks content history. Runtime policy enforcement remains separate. |

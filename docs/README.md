@@ -73,6 +73,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 - [**Industry-Standard Goals**](architecture/industry-standard-goals.md) — the eight product pillars and evidence required for huge-context autonomous work
 - [**Context and Provenance Acceptance**](architecture/context-provenance-acceptance.md) — support-policy pilot cases, executable progress checks, and strict adoption gate
 - [**Capability Evidence Ledger**](production-evidence.md) — executable proof and explicit limits for every current public capability claim
+- [**Engine Showcase**](architecture/cemaf-engine-showcase.md) — component map and flagship design flow, with implementation boundaries
 - [**Enterprise Durability Plan**](architecture/enterprise-durability-plan.md) — authoritative runtime state, backend roles, migration, verification, and rollout
 - [**Durable Execution Injection Boundary**](architecture/durable-execution-injection-decision.md) — what is injected, what the companion owns, and how abandoned work is recovered
 - [**Design Patterns**](patterns.md) — the pattern catalog reviewers enforce
