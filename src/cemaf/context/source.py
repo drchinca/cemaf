@@ -60,6 +60,8 @@ class ContextSource:
         compressible: Whether this source can be summarized if needed
         min_tokens: Minimum tokens to preserve even when compressed
         metadata: Additional source-specific metadata
+        context_type: Optional classification of the content kind
+        security_level: Data classification; unlabeled sources default to INTERNAL
 
     Legacy compatibility:
         - `type` field maps to `source_type`
@@ -318,6 +320,7 @@ class ContextSource:
             min_tokens=self.min_tokens,
             metadata=self.metadata,
             context_type=self.context_type,
+            security_level=self.security_level,
         )
 
     def with_token_count(self, token_count: TokenCount) -> ContextSource:
@@ -333,6 +336,7 @@ class ContextSource:
             min_tokens=self.min_tokens,
             metadata=self.metadata,
             context_type=self.context_type,
+            security_level=self.security_level,
         )
 
     def age_seconds(self, reference_time: datetime | None = None) -> float:

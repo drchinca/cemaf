@@ -3,6 +3,7 @@ Advanced Context Compiler - Extends PriorityContextCompiler with summarization.
 """
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from cemaf.context.algorithm import (
@@ -80,14 +81,18 @@ class AdvancedContextCompiler:
             source_levels=source_levels,
         )
         all_sources = [source for source in gathered if source.security_level.rank <= clearance.rank]
+        security_excluded = [
+            source.source_id for source in gathered if source.security_level.rank > clearance.rank
+        ]
 
         # MODE SELECTION: Check if algorithm should be used
         if self._algorithm is not None:
             # MODE 2: Two-stage (algorithm + summarization)
-            return await self._compile_two_stage(all_sources, budget)
+            result = await self._compile_two_stage(all_sources, budget)
         else:
             # MODE 1: Pure summarization (current behavior)
-            return await self._compile_pure_summarization(all_sources, budget)
+            result = await self._compile_pure_summarization(all_sources, budget)
+        return replace(result, metadata={**result.metadata, "security_excluded": security_excluded})
 
     async def _compile_pure_summarization(
         self,

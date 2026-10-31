@@ -127,9 +127,11 @@ class StreamingContextCompiler:
         heap_cap = max(_MIN_HEAP_SIZE, available // _DEFAULT_AVG_SOURCE_TOKENS)
 
         heap: list[_HeapItem] = []
+        security_excluded: list[str] = []
 
         async for source in sources:
             if source.security_level.rank > clearance.rank:
+                security_excluded.append(source.source_id)
                 continue
             item = _HeapItem(
                 neg_priority=-source.priority,
@@ -174,6 +176,7 @@ class StreamingContextCompiler:
             compiled_at=utc_now(),
             metadata={
                 "compiler": "streaming",
+                "security_excluded": security_excluded,
                 "heap_capacity": heap_cap,
                 "selected_count": len(selected),
             },

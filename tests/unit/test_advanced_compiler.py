@@ -229,3 +229,22 @@ class TestAdvancedContextCompiler:
         )  # Ensure failed content is not present
 
         assert failing_llm_client.completion_calls  # LLM calls should have been made
+
+
+class TestAdvancedClearanceGate:
+    """SPEC-11 — the advanced compiler excludes sources above clearance and records them."""
+
+    @pytest.mark.asyncio
+    async def test_excludes_and_records_above_clearance(
+        self, mock_llm_client: MockLLMClient, mock_token_estimator: MockTokenEstimator
+    ) -> None:
+        compiler = AdvancedContextCompiler(llm_client=mock_llm_client, token_estimator=mock_token_estimator)
+        compiled = await compiler.compile(
+            artifacts=(("payroll", "salaries"), ("brief", "public note")),
+            memories=(),
+            budget=TokenBudget(max_tokens=10000, reserved_for_output=0),
+            source_levels={"payroll": SecurityLevel.CONFIDENTIAL, "brief": SecurityLevel.PUBLIC},
+            clearance=SecurityLevel.INTERNAL,
+        )
+        assert [s.source_id for s in compiled.sources] == ["brief"]
+        assert compiled.metadata["security_excluded"] == ["payroll"]

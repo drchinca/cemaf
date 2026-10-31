@@ -28,7 +28,7 @@ def _write_path(*, data: JSON, key: str, value: Any) -> JSON:
     current_level: Any = new_data
     for i, k in enumerate(keys):
         if i == len(keys) - 1:
-            current_level[k] = value
+            current_level[k] = copy.deepcopy(value)
             break
         if not isinstance(current_level, dict):
             raise ValueError(
@@ -127,7 +127,10 @@ class Context(BaseModel):
         return self.apply(ContextPatch.set(path=key, value=value))
 
     def merge(self, other: Context) -> Context:
-        """Return a new Context with other's top-level keys set, each recorded as a SET patch."""
+        """Return a new Context with other's top-level keys set, each recorded as a SET patch.
+
+        other's own patch history is not carried over; its values are re-recorded here.
+        """
         result = self
         for key, value in other.data.items():
             result = result.set(key, value)

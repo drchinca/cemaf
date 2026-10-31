@@ -161,6 +161,9 @@ class ContextCompiler(Protocol):
                 memories: tuple[tuple[str, str], ...],
                 budget: TokenBudget,
                 priorities: dict[str, int] | None = None,
+                *,
+                clearance: SecurityLevel,
+                source_levels: dict[str, SecurityLevel] | None = None,
             ) -> CompiledContext:
                 sources = []
                 # Gather artifacts
@@ -335,8 +338,9 @@ class PriorityContextCompiler:
             # Nothing meaningful to compact
             return compiled
 
-        to_summarize = candidates[:-preserve_recent]
-        to_preserve.extend(candidates[-preserve_recent:])
+        split_at = len(candidates) - preserve_recent
+        to_summarize = candidates[:split_at]
+        to_preserve.extend(candidates[split_at:])
 
         # Build combined text from sources that will be summarized
         combined_text = "\n\n".join(f"[{s.source_type}:{s.source_id}] {s.content}" for s in to_summarize)
@@ -363,6 +367,7 @@ class PriorityContextCompiler:
         if summary_tokens >= original_summarized_tokens:
             return compiled
 
+        summary_level = max((s.security_level for s in to_summarize), key=lambda level: level.rank)
         summary_source = ContextSource(
             content=summary_content,
             token_count=TokenCount(summary_tokens),
@@ -370,6 +375,7 @@ class PriorityContextCompiler:
             source_type="compacted_summary",
             source_id="compacted_context",
             compressible=True,
+            security_level=summary_level,
             metadata={
                 "compacted_from": [s.source_id for s in to_summarize],
                 "original_source_count": len(to_summarize),

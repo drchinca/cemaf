@@ -74,7 +74,7 @@ Gate rule: a source whose level `.rank > clearance.rank` is excluded
 
 1. `WHEN a ContextPatch is created WITHOUT security_level, THE System SHALL default it to INTERNAL.`
 2. `WHEN from_dict reads a record lacking "security_level", THE System SHALL default to INTERNAL` (back-compat with all existing checkpoints).
-3. `WHEN clearance is None, THE compiler SHALL behave identically to the pre-SPEC-11 compiler` (zero excluded by classification).
+3. `WHEN clearance admits every level present, THE compiler SHALL select the identical set it selects with no classification` (zero excluded by classification).
 4. `IF a source level rank exceeds the caller clearance rank, THEN THE compiler SHALL exclude that source AND record its key under metadata["security_excluded"].`
 5. `security_level SHALL NOT alter content_hash determinism` — same content ⇒ same hash regardless of classification.
 
