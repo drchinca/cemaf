@@ -52,6 +52,9 @@ dependencies = [
 # OPTIONAL DEPENDENCIES - Install only what you need
 # =============================================================================
 [project.optional-dependencies]
+# Open Knowledge Format bundles (YAML metadata and CommonMark links)
+okf = ["pyyaml>=6.0", "markdown-it-py>=3.0"]
+
 # Development tools
 dev = [
     "pytest>=8.0",
@@ -71,6 +74,7 @@ dev = [
     "redis>=5.0",
     "cryptography>=42.0",
     "pyyaml>=6.0",
+    "markdown-it-py>=3.0",
 ]
 
 # HTTP client for OpenAI-compat, Gemini, Groq, Together adapters
@@ -178,6 +182,7 @@ enterprise = ["cemaf[postgres,redis,security]"]
 
 # All optional integrations
 all = [
+    "markdown-it-py>=3.0",
     "httpx>=0.27",
     "tiktoken>=0.5",
     "openai~=2.14",
@@ -281,6 +286,8 @@ module = [
     "cryptography",
     "cryptography.*",
     "yaml",
+    "markdown_it",
+    "markdown_it.*",
     "pydantic",
     "pydantic.*",
     "pydantic_core",
@@ -349,6 +356,7 @@ tests = [
 
 [dependency-groups]
 dev = [
+    "markdown-it-py>=3.0",
     "anthropic~=0.40",
     "cryptography>=42.0",
     "fakeredis>=2.0",

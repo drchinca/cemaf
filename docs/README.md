@@ -82,6 +82,7 @@ Full diagram + per-module details: [modules.md](modules.md).
 - [Context Management](context.md) — Context, ContextPatch, ContextCompiler, TokenBudget
 - [Replay & Recording](replay.md) — RunLogger, RunRecord, deterministic replay
 - [Memory](memory.md) — MemoryManager, scopes, TTL, tiered storage, sessions
+- [Open Knowledge Format](okf.md) — portable project knowledge, compact catalogs, citations, and reviewable updates
 
 ### Execution Layer
 - [Tools](tools.md) — atomic, stateless functions with recording

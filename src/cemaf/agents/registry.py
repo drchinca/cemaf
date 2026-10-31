@@ -95,7 +95,7 @@ def _create_quality_guard_agent(**kwargs: Any) -> Agent[Any, Any]:
     from cemaf.evals.agents import QualityGuardAgent
     from cemaf.evals.police import QualityPolice
 
-    return QualityGuardAgent(quality_police=QualityPolice())  # type: ignore[return-value]
+    return QualityGuardAgent(quality_police=QualityPolice())
 
 
 agent_factory_registry.register(backend="Librarian", factory=_create_librarian_agent)
@@ -175,7 +175,7 @@ class AgentRegistry(BaseRegistry[Agent[Any, Any]]):
         if result is None and agent_name == "QualityGuard":
             from cemaf.evals.agents import QualityGuardAgent
 
-            return QualityGuardAgent  # type: ignore[return-value]
+            return QualityGuardAgent
         return result
 
     def get_goal_type(self, agent_name: str) -> type[BaseModel] | None:
