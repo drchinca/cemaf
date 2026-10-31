@@ -28,6 +28,9 @@ Minimal product slices, not feature tours.
 | Example | Proves |
 |---|---|
 | [`app_shapes/rag_with_citations.py`](app_shapes/rag_with_citations.py) | Grounded RAG — every answer traces to a retrieved source (the membership invariant). |
+| [`app_shapes/okf_research.py`](app_shapes/okf_research.py) | OKF research memory: compact discovery, budgeted context, citations, eval gate, and a reviewable draft bundle. |
+| [`app_shapes/okf_project_memory.py`](app_shapes/okf_project_memory.py) | Two research sessions reopen SQLite retrieval, index only changed concepts, and retain citation evidence. |
+| [`app_shapes/okf_self_hosting.py`](app_shapes/okf_self_hosting.py) | CEMAF exports its own registered capabilities and governed policy descriptions, then queries the OKF concepts with docs tools and a meta-agent DAG. |
 | [`app_shapes/policy_evidence.py`](app_shapes/policy_evidence.py) | Versioned policy evidence, current authorization, token preflight, durable records, claim-publication gates, and matched baselines. |
 | [`app_shapes/tool_using_agent.py`](app_shapes/tool_using_agent.py) | An agent calls a flaky tool that self-heals via `@with_retry`, all inside a DAG. |
 | [`app_shapes/disposable_workers_durable_companion.py`](app_shapes/disposable_workers_durable_companion.py) | Two or three disposable workers die after checkpointing; replacements resume, heal, trace, and replay through a shared durable companion service plane. |

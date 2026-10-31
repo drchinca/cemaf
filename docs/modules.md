@@ -181,6 +181,7 @@ cemaf/
 
 ### `ingestion/` — batch data loading
 - **Role**: Ingestion pipelines for populating memory from external sources.
+- **OKF**: `OKFAdapter` converts selected Markdown concepts to budgeted context without truncating evidence; available through `create_adapter("okf", bundle_id=...)`. Its `adapt_catalog` method returns token-budgeted discovery pages with continuation offsets.
 
 ### `mcp/` — Model Context Protocol
 - **Role**: MCP adapter (CEMAF as MCP server), bridges (Tool ↔ MCP tool, Resource ↔ MCP resource, Prompt ↔ MCP prompt), transport layer.
@@ -201,6 +202,8 @@ Opt-in modules that consume Layer 1. **Layer 1 never imports from Layer 2.**
 ### `knowledge/` — knowledge graph
 - **Role**: entity + relation graph backed by `MemoryManager`. Entities persist as `MemoryItem` at PROJECT scope; relation indexes are per-entity.
 - **Contains**: `graph.py` (`MemoryBackedKnowledgeGraph`), `models.py`, `protocols.py`, `factories.py`.
+- **Portable knowledge**: `okf.py` loads/exports Open Knowledge Format bundles, compact catalogs, snapshot diffs, and proposal base checks; `okf_graph.py` projects concepts through `KnowledgeGraph`. See [OKF](okf.md).
+- **Self-description adapters**: `docs_api/okf.py` exchanges any `DocSource`; `docs_api/contracts.py` describes static modules/protocols; `meta/okf.py` describes registered capabilities; `security/okf.py` describes mapping-provider policies and checks source disclosure through `ScopeAuthorizer`.
 - **Extension point**: implement `KnowledgeGraph` and either inject it directly through `RuntimeServices` / `MetaServices` or register a factory with `knowledge_graph_registry.register(...)`.
 - **Optional backend capabilities**: graph database adapters may also implement `BranchingKnowledgeGraph` for backend-owned branch/diff/merge workflows and `KnowledgeGraphCapabilitiesProvider` to expose support for branching, snapshots, hybrid retrieval, or server-side policy. These are adapter contracts only; CEMAF does not own graph storage, query planning, commit history, or cluster operations.
 

@@ -30,6 +30,11 @@
 
 **Open source** context engineering infrastructure for multi-agent systems. Use CEMAF as the execution substrate, or compose its modules into an existing stack without inheriting a second application framework.
 
+[Open Knowledge Format support](docs/okf.md) connects portable Markdown knowledge
+to budgeted context, graph queries, citations, and reviewable agent proposals.
+For long-running research and project memory, agents discover concepts through
+compact directory catalogs and load selected documents into each turn.
+
 > **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
 > - **Module graph** — every module in `src/cemaf/` as a node, every `import` as an edge, AST-exact (regenerate with [`docs/architecture/build_graph_data.py`](docs/architecture/build_graph_data.py)).
 > - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Generate fresh traces with [`uv run python docs/architecture/scripts/produce_dag_trace.py`](docs/architecture/scripts/produce_dag_trace.py).

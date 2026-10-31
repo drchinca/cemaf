@@ -47,6 +47,7 @@ from cemaf.core.types import SkillID
 
 # Re-export data classes from base (these are not changed)
 from cemaf.skills.base import SkillContext, SkillOutput, SkillResult
+from cemaf.tools.base import Tool
 
 __all__ = [
     "Skill",
@@ -187,7 +188,7 @@ class Skill[InputT, OutputT](Protocol):
         ...
 
     @property
-    def tools(self) -> tuple[()]:
+    def tools(self) -> tuple[Tool, ...]:
         """
         Tools used by this skill.
 

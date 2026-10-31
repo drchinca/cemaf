@@ -17,8 +17,41 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from cemaf.context.patch import ContextPatch
+from cemaf.context.patch import ContextPatch, PatchOperation
 from cemaf.core.types import JSON
+
+
+def _write_path(*, data: JSON, key: str, value: Any) -> JSON:
+    """Return a deep copy of data with the dot-notation key set to value."""
+    keys = key.split(".")
+    new_data = copy.deepcopy(data)
+    current_level: Any = new_data
+    for i, k in enumerate(keys):
+        if i == len(keys) - 1:
+            current_level[k] = value
+            break
+        if not isinstance(current_level, dict):
+            raise ValueError(
+                f"Cannot set nested key '{key}': '{'.'.join(keys[: i + 1])}' is not a dictionary."
+            )
+        if k not in current_level or not isinstance(current_level[k], dict):
+            current_level[k] = {}
+        current_level = current_level[k]
+    return new_data
+
+
+def _remove_path(*, data: JSON, key: str) -> JSON:
+    """Return a deep copy of data with the dot-notation key removed, if present."""
+    keys = key.split(".")
+    new_data = copy.deepcopy(data)
+    parent: Any = new_data
+    for k in keys[:-1]:
+        if not isinstance(parent, dict) or k not in parent:
+            return new_data
+        parent = parent[k]
+    if isinstance(parent, dict):
+        parent.pop(keys[-1], None)
+    return new_data
 
 
 class Context(BaseModel):
@@ -90,42 +123,15 @@ class Context(BaseModel):
         return current_data
 
     def set(self, key: str, value: Any) -> Context:
-        """
-        Return a new Context with the specified key set to the new value.
-        Supports dot notation for nested keys.
-        """
-        keys = key.split(".")
-        new_data = copy.deepcopy(self.data)
-
-        current_level = new_data
-        for i, k in enumerate(keys):
-            if i == len(keys) - 1:  # Last key
-                current_level[k] = value
-            else:
-                if not isinstance(current_level, dict):
-                    # If an intermediate key is not a dict, we can't set nested
-                    raise ValueError(
-                        f"Cannot set nested key '{key}': '{'.'.join(keys[: i + 1])}' is not a dictionary."
-                    )
-                if k not in current_level or not isinstance(current_level[k], dict):
-                    current_level[k] = {}  # Create dict if it doesn't exist or is not a dict
-                current_level = current_level[k]
-
-        return Context(data=new_data, patch_history=self.patch_history)
+        """Return a new Context with key set, recording a SET patch."""
+        return self.apply(ContextPatch.set(path=key, value=value))
 
     def merge(self, other: Context) -> Context:
-        """
-        Return a new Context by merging another Context into this one.
-        Values from 'other' will overwrite values in 'self'.
-        Performs a shallow merge for top-level keys.
-
-        For more control over merge behavior (e.g., conflict detection),
-        use merge_branches() with a MergeStrategy.
-        """
-        merged_data = {**self.data, **other.data}
-        # Note: merge() doesn't currently track combined history.
-        # This is a limitation of the shallow merge.
-        return Context(data=merged_data, patch_history=self.patch_history)
+        """Return a new Context with other's top-level keys set, each recorded as a SET patch."""
+        result = self
+        for key, value in other.data.items():
+            result = result.set(key, value)
+        return result
 
     def merge_branches(
         self,
@@ -161,8 +167,8 @@ class Context(BaseModel):
         return merge_strategy.merge(self, branches)
 
     def to_dict(self) -> JSON:
-        """Return the underlying data as a dictionary."""
-        return self.data
+        """Return a deep copy of the underlying data, so callers cannot mutate this context."""
+        return copy.deepcopy(self.data)
 
     def to_checkpoint_dict(self) -> JSON:
         """Serialize data and patch history for durable checkpoint storage."""
@@ -185,50 +191,16 @@ class Context(BaseModel):
         return cls(data=payload.get("data", payload))
 
     def delete(self, key: str) -> Context:
-        """
-        Return a new Context with the specified key removed.
-        Supports dot notation for nested keys.
-        """
-        keys = key.split(".")
-        new_data = copy.deepcopy(self.data)
-
-        if len(keys) == 1:
-            new_data.pop(keys[0], None)
-            return Context(data=new_data, patch_history=self.patch_history)
-
-        # Navigate to parent of the key to delete
-        current_level = new_data
-        for k in keys[:-1]:
-            if k not in current_level or not isinstance(current_level[k], dict):
-                return self  # Key path doesn't exist, return unchanged
-            if k == keys[-2]:
-                # Make a copy of this level before modifying
-                current_level[k] = dict(current_level[k])
-            current_level = current_level[k]
-
-        current_level.pop(keys[-1], None)
-        return Context(data=new_data, patch_history=self.patch_history)
+        """Return a new Context with key removed, recording a DELETE patch."""
+        return self.apply(ContextPatch.delete(path=key))
 
     def append(self, key: str, value: Any) -> Context:
-        """
-        Return a new Context with the value appended to the list at key.
-        Creates the list if it doesn't exist.
-        """
-        existing = self.get(key, [])
-        if not isinstance(existing, list):
-            existing = [existing]
-        return self.set(key, existing + [value])
+        """Return a new Context with value appended to the list at key, recording an APPEND patch."""
+        return self.apply(ContextPatch(path=key, operation=PatchOperation.APPEND, value=value))
 
     def deep_merge(self, key: str, value: dict[str, Any]) -> Context:
-        """
-        Return a new Context with the value deep-merged into the dict at key.
-        Creates the dict if it doesn't exist.
-        """
-        existing = self.get(key, {})
-        if not isinstance(existing, dict):
-            existing = {}
-        merged = self._deep_merge_dicts(dict(existing), value)
-        return self.set(key, merged)
+        """Return a new Context with value deep-merged into the dict at key, recording a MERGE patch."""
+        return self.apply(ContextPatch(path=key, operation=PatchOperation.MERGE, value=value))
 
     @staticmethod
     def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -245,28 +217,33 @@ class Context(BaseModel):
         """
         Apply a ContextPatch and return a new Context.
 
+        Every state change goes through here, so patch_history always replays to the same state.
+
         Args:
             patch: The patch to apply
 
         Returns:
             New Context with the patch applied
         """
-        from cemaf.context.patch import PatchOperation
-
         new_history = self.patch_history + (patch,)
 
         if patch.operation == PatchOperation.SET:
-            new_ctx = self.set(patch.path, patch.value)
+            new_data = _write_path(data=self.data, key=patch.path, value=patch.value)
         elif patch.operation == PatchOperation.DELETE:
-            new_ctx = self.delete(patch.path)
+            new_data = _remove_path(data=self.data, key=patch.path)
         elif patch.operation == PatchOperation.MERGE:
-            new_ctx = self.deep_merge(patch.path, patch.value)
+            existing = self.get(patch.path, {})
+            base = dict(existing) if isinstance(existing, dict) else {}
+            merged = self._deep_merge_dicts(base, patch.value)
+            new_data = _write_path(data=self.data, key=patch.path, value=merged)
         elif patch.operation == PatchOperation.APPEND:
-            new_ctx = self.append(patch.path, patch.value)
+            existing = self.get(patch.path, [])
+            items = existing if isinstance(existing, list) else [existing]
+            new_data = _write_path(data=self.data, key=patch.path, value=[*items, patch.value])
         else:
-            new_ctx = self
+            new_data = copy.deepcopy(self.data)
 
-        return Context(data=new_ctx.data, patch_history=new_history)
+        return Context(data=new_data, patch_history=new_history)
 
     def diff(self, other: Context) -> tuple[ContextPatch, ...]:
         """
