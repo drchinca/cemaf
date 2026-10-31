@@ -11,8 +11,6 @@ The full live benchmark remains available through `benchmarks/guidance_eval`.
 
 from __future__ import annotations
 
-import pytest
-
 from benchmarks.guidance_eval.engine import (
     COMPOSE_PATTERNS,
     REINVENT_PATTERNS,
@@ -91,6 +89,7 @@ retry = RetryPolicy()
 def test_guidance_increases_composition_over_cold() -> None:
     """GUIDED output composes strictly more CEMAF primitives than COLD output."""
     import os
+
     if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") == "1" and ollama_available() and installed_models():
         comparison = run_task(_FLAGSHIP, model=_cheapest_model(), judge_model=None)
     else:
