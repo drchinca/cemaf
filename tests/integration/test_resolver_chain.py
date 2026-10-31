@@ -18,6 +18,7 @@ from cemaf.agents.factories import create_agent_directory
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID, TaskID
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
@@ -52,7 +53,7 @@ async def test_static_ref_dispatch_unchanged() -> None:
     """The canonical Node.agent path still works through the resolver chain."""
     registry = AgentRegistry()
     registry.register_agent(agent_instance=_Ping(), goal_type=_PingGoal)
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
     dag = DAG(
         name="d",
@@ -75,7 +76,7 @@ async def test_custom_resolver_wins_over_static() -> None:
     """
     registry = AgentRegistry()
     registry.register_agent(agent_instance=_Ping(), goal_type=_PingGoal)
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     # Reach into the node executor and inject a custom resolver at the head.
     node_executor: ContextNodeExecutor = executor._node_executor  # type: ignore[attr-defined]
 
@@ -152,7 +153,11 @@ async def test_static_ref_dispatch_admits_distinct_identity_per_node() -> None:
     registry = AgentRegistry()
     registry.register_agent(agent_instance=ping, goal_type=_PingGoal)
     directory = create_agent_directory()
-    executor = create_executor(agent_registry=registry, services=RuntimeServices(agent_directory=directory))
+    executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        services=RuntimeServices(agent_directory=directory),
+    )
 
     dag = DAG(
         name="d",

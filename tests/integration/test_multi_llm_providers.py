@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from cemaf import DAG, AgentRegistry, Node, create_executor
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID, LLMProvider
 from cemaf.llm.factories import create_llm_client, llm_registry
 from cemaf.llm.gemini import GeminiClient
@@ -156,7 +157,9 @@ class TestRuntimeServicesWiring:
             )
         )
 
-        executor = create_executor(agent_registry=registry, services=services)
+        executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, services=services
+        )
         result = await executor.run(dag=dag)
 
         assert result.success

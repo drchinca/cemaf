@@ -43,6 +43,7 @@ from cemaf.context.compiler import (
     SimpleTokenEstimator,
 )
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, SkillID, ToolID
 from cemaf.llm.protocols import LLMClient, Message
@@ -117,9 +118,9 @@ class MassiveDataAsset:
         for i in range(top_k):
             # Simulate finding records with "hello" in them
             record = DataRecord(
-                id=f"record_{i+1}",
+                id=f"record_{i + 1}",
                 metrics={f"metric_{j}": float(j) for j in range(self.METRICS_PER_RECORD)},
-                text_content=f"Record {i+1} contains '{query}' with relevant context. "
+                text_content=f"Record {i + 1} contains '{query}' with relevant context. "
                 f"This is one of {self.TOTAL_RECORDS:,} total records. "
                 f"Metric values: {', '.join([f'm{j}=v{j}' for j in range(10)])}...",
                 metadata={
@@ -205,8 +206,7 @@ class LargeScaleRetrievalSkill(Skill[LargeScaleRetrievalInput, dict[str, Any]]):
         """
         try:
             print(
-                f"\n[Retrieval] Searching {self._data_asset.TOTAL_RECORDS:,} "
-                f"records for '{input.query}'..."
+                f"\n[Retrieval] Searching {self._data_asset.TOTAL_RECORDS:,} records for '{input.query}'..."
             )
             print("  Strategy: Hybrid search (vector + keyword)")
             print(f"  Top-k: {input.top_k} results")
@@ -260,9 +260,9 @@ class LargeScaleRetrievalSkill(Skill[LargeScaleRetrievalInput, dict[str, Any]]):
                         }
                     )
                     total_tokens += tokens
-                    print(f"    Result {i+1}: {tokens} tokens (within per-result limit)")
+                    print(f"    Result {i + 1}: {tokens} tokens (within per-result limit)")
                 else:
-                    print(f"    Result {i+1}: {tokens} tokens (EXCEEDS per-result limit, excluded)")
+                    print(f"    Result {i + 1}: {tokens} tokens (EXCEEDS per-result limit, excluded)")
 
             print(f"  Total tokens for all results: {total_tokens:,}")
 
@@ -356,6 +356,7 @@ class ContextCompilationTool(Tool):
 
         # Compile context within budget
         compiled = await self._compiler.compile(
+            clearance=SecurityLevel.CONFIDENTIAL,
             artifacts=artifacts,
             memories=(),  # No memories in this example
             budget=self._budget,
@@ -471,7 +472,7 @@ class AnalysisTool(Tool):
         # Add user query
         query = kwargs.get("query", "hello")
         messages.append(
-            Message.user(f"Analyze the retrieved results focusing on: {focus}. " f"Query was: '{query}'")
+            Message.user(f"Analyze the retrieved results focusing on: {focus}. Query was: '{query}'")
         )
 
         print("\n[LLM Analysis] Calling LLM with compiled context:")

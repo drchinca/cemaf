@@ -13,6 +13,7 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.knowledge.factories import create_knowledge_graph
@@ -47,6 +48,7 @@ async def test_bootstrap_meta_dogfood_registers_three_default_jobs() -> None:
             audit_trail=audit_trail,
             knowledge_graph=kg,
         ),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     scheduler = create_managed_scheduler(worker_id="dogfood_worker")
@@ -81,6 +83,7 @@ async def test_dogfood_self_audit_runs_under_scheduler() -> None:
         agent_registry=agent_registry,
         services=services,
         meta_services=MetaServices(audit_log=audit_log, audit_trail=audit_trail, knowledge_graph=kg),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     scheduler = create_managed_scheduler(worker_id="audit_worker")
@@ -113,6 +116,7 @@ async def test_dogfood_knowledge_refresh_runs_under_scheduler() -> None:
         agent_registry=agent_registry,
         services=services,
         meta_services=MetaServices(audit_log=audit_log, audit_trail=audit_trail, knowledge_graph=kg),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     scheduler = create_managed_scheduler(worker_id="kg_worker")
@@ -164,6 +168,7 @@ async def test_dogfood_dreaming_runs_and_consolidates_memory() -> None:
         agent_registry=agent_registry,
         services=services,
         meta_services=MetaServices(audit_log=audit_log, audit_trail=audit_trail, knowledge_graph=kg),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     scheduler = create_managed_scheduler(worker_id="dream_worker")
@@ -213,6 +218,7 @@ async def test_dogfood_singleton_lease_prevents_double_run() -> None:
         agent_registry=agent_registry,
         services=services,
         meta_services=MetaServices(audit_log=audit_log, audit_trail=audit_trail, knowledge_graph=kg),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     scheduler_a = create_managed_scheduler(
@@ -274,6 +280,7 @@ async def test_dogfood_live_loop_fires_self_audit_autonomously() -> None:
         agent_registry=agent_registry,
         services=services,
         meta_services=MetaServices(audit_log=audit_log, audit_trail=audit_trail, knowledge_graph=kg),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Fast check interval so the loop fires within the test's patience window.

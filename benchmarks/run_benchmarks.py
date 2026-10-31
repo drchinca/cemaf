@@ -35,7 +35,7 @@ from cemaf.citation.tracker import CitationTracker
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
-from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
+from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource, SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.core.enums import NodeType
 from cemaf.core.result import Result
@@ -531,6 +531,7 @@ def _create_agent_executor(
     registry = AgentRegistry()
     registry.register_agent(agent_instance=agent, goal_type=BenchGoal)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=services,
         config=ExecutorConfig(enable_logging=False, enable_events=services is not None),
@@ -786,7 +787,9 @@ async def bench_context_compilation(scale: int) -> BenchmarkResult:
     memories = tuple((f"mem_{i}", f"Memory item {i} " * 10) for i in range(20))
 
     async def compile_once() -> None:
-        compiled = await compiler.compile(artifacts=artifacts, memories=memories, budget=budget)
+        compiled = await compiler.compile(
+            clearance=SecurityLevel.CONFIDENTIAL, artifacts=artifacts, memories=memories, budget=budget
+        )
         if not compiled.sources:
             raise AssertionError("No context sources selected")
 
@@ -930,7 +933,7 @@ async def check_agent_dag_check() -> VeracityCheck:
         check_id="agent-dag-units-of-work",
         statement="Typed agent DAG nodes execute as isolated units of work and propagate outputs.",
         source="README.md: Overview / A different shape of agent system",
-        evidence="Ran one registered Agent through create_executor() 25 times with distinct inputs.",
+        evidence="Ran one Agent through create_executor(clearance=...) 25 times, distinct inputs.",
         passed=passed,
         metrics={
             "runs": runs,
@@ -976,7 +979,13 @@ async def check_context_budget_check() -> VeracityCheck:
     budget = TokenBudget(max_tokens=500, reserved_for_output=100)
     artifacts = tuple((f"doc_{i}", f"important document {i} " * 60) for i in range(30))
     priorities = {f"doc_{i}": 100 - i for i in range(30)}
-    compiled = await compiler.compile(artifacts=artifacts, memories=(), budget=budget, priorities=priorities)
+    compiled = await compiler.compile(
+        clearance=SecurityLevel.CONFIDENTIAL,
+        artifacts=artifacts,
+        memories=(),
+        budget=budget,
+        priorities=priorities,
+    )
     passed = compiled.within_budget() and len(compiled.sources) < len(artifacts)
     return VeracityCheck(
         check_id="context-budget-selection",
@@ -1080,6 +1089,7 @@ async def check_concurrency_check() -> VeracityCheck:
 
     bus.subscribe_all(capture)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(event_bus=bus),
         config=ExecutorConfig(enable_logging=False, enable_events=True),
@@ -1160,6 +1170,7 @@ async def check_auction_selection_check() -> VeracityCheck:
         capabilities=frozenset({Capability.WRITE}),
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(
             agent_selector=DefaultAgentSelector(),
@@ -1246,6 +1257,7 @@ async def check_council_vote_check() -> VeracityCheck:
         entry_node=NodeID("gate"),
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_logging=False, enable_events=False),
     )
@@ -1303,6 +1315,7 @@ async def check_gate_interceptor_check() -> VeracityCheck:
             )
         )
         return create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             services=RuntimeServices(interceptor_pipeline=pipeline),
             config=ExecutorConfig(enable_logging=False, enable_events=False),
@@ -1475,6 +1488,7 @@ async def check_rlm_concurrency_check() -> VeracityCheck:
     llm = CorpusLLMClient(answers=answers)
     max_tokens = 2200
     tool = create_rlm_tool(
+        clearance=SecurityLevel.CONFIDENTIAL,
         llm_client=llm,
         token_estimator=SimpleTokenEstimator(chars_per_token=4.0),
         chunk_size=180,
@@ -1545,6 +1559,7 @@ async def check_rlm_check() -> VeracityCheck:
     reserved_output_tokens = 1000
     available_tokens = max_tokens - reserved_output_tokens
     tool = create_rlm_tool(
+        clearance=SecurityLevel.CONFIDENTIAL,
         llm_client=llm,
         token_estimator=SimpleTokenEstimator(chars_per_token=4.0),
         chunk_size=180,

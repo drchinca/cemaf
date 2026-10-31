@@ -14,6 +14,7 @@ from cemaf.citation.models import Citation
 from cemaf.citation.registry import StaticSourceRegistry
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.generation.blueprint_request import (
@@ -129,7 +130,13 @@ def _policy_runtime(source_id, *, budget_guard=None):
         edges=(Edge(source=NodeID("answer"), target=NodeID("publish"), condition=EdgeCondition.ON_SUCCESS),),
         entry_node=NodeID("answer"),
     )
-    return create_executor(agent_registry=registry, services=services), dag, logger, inner, publish
+    return (
+        create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, services=services),
+        dag,
+        logger,
+        inner,
+        publish,
+    )
 
 
 @pytest.mark.context_acceptance("citation_membership")
@@ -253,7 +260,11 @@ class _BarrierAgent:
 async def test_concurrent_policy_runs_have_separate_complete_records():
     registry, logger = AgentRegistry(), InMemoryRunLogger()
     registry.register_agent(agent_instance=_BarrierAgent(), goal_type=_EmptyGoal)
-    executor = create_executor(agent_registry=registry, services=RuntimeServices(run_logger=logger))
+    executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        services=RuntimeServices(run_logger=logger),
+    )
     dag = DAG(name="concurrent-policy").add_node(
         node=Node.agent(id="barrier", name="Barrier", agent_id="barrier", output_key="answer")
     )
@@ -304,6 +315,7 @@ async def test_budget_stops_another_call_inside_one_agent_without_double_chargin
     agent, registry = TwiceAgent(), AgentRegistry()
     registry.register_agent(agent_instance=agent, goal_type=_EmptyGoal)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(
             llm_client=client,

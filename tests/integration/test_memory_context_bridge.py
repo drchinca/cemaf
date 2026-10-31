@@ -8,6 +8,7 @@ import pytest
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.memory.base import InMemoryStore
 from cemaf.memory.compaction import SimpleMemoryCompactor
@@ -54,6 +55,7 @@ def _wire_full_stack() -> tuple[
     )
 
     context_provider = DefaultMemoryContextProvider(
+        clearance=SecurityLevel.CONFIDENTIAL,
         memory_manager=memory_manager,
         compactor=compactor,
         compiler=compiler,

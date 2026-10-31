@@ -8,6 +8,7 @@ import pytest
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import TokenCount
 from cemaf.llm.mock import MockLLMClient
 from cemaf.rlm import create_rlm_tool
@@ -47,6 +48,7 @@ class TestRLMLargeContext:
             chunk_size=500,  # 500 tokens per chunk
             max_depth=5,  # Deep recursion
             max_tokens=4000,  # Budget per query
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
     def test_simulate_1m_token_context(self, rlm_tool: object, estimator: SimpleTokenEstimator) -> None:
@@ -103,7 +105,9 @@ class TestRLMLargeContext:
         from cemaf.context.compiler import PriorityContextCompiler
 
         compiler = PriorityContextCompiler(estimator)
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=3)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=3, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         # Create chunks that will require recursion
         chunks = tuple(
@@ -175,7 +179,9 @@ class TestRLMLargeContext:
         from cemaf.context.compiler import PriorityContextCompiler
 
         compiler = PriorityContextCompiler(estimator)
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=2, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         # Create many large chunks
         chunks = tuple(
@@ -207,7 +213,9 @@ class TestRLMLargeContext:
         from cemaf.context.compiler import PriorityContextCompiler
 
         compiler = PriorityContextCompiler(estimator)
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=1)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=1, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         # Single very large chunk that doesn't fit in budget
         chunk = ContextChunk(

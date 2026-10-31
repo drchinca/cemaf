@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.events.bus import InMemoryEventBus
@@ -86,6 +87,7 @@ async def test_concurrent_runs_on_shared_executor_do_not_clobber_state() -> None
     bus.subscribe(event_type=EventType.DAG_COMPLETED, handler=capture)
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(event_bus=bus),
@@ -115,6 +117,7 @@ async def test_concurrent_runs_on_shared_executor_do_not_clobber_state() -> None
 async def test_shared_executor_handles_interleaved_runs() -> None:
     """Concurrent runs produce the right output for each input tag."""
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),

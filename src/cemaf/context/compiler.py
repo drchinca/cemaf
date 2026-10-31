@@ -175,6 +175,9 @@ class ContextCompiler(Protocol):
         memories: tuple[tuple[str, str], ...],  # (key, content) pairs
         budget: TokenBudget,
         priorities: dict[str, int] | None = None,
+        *,
+        clearance: SecurityLevel,
+        source_levels: dict[str, SecurityLevel] | None = None,
     ) -> CompiledContext:
         """
         Compile context from sources.
@@ -233,7 +236,7 @@ class PriorityContextCompiler:
         priorities: dict[str, int] | None = None,
         *,
         source_levels: dict[str, SecurityLevel] | None = None,
-        clearance: SecurityLevel | None = None,
+        clearance: SecurityLevel,
     ) -> CompiledContext:
         """
         Compile context using priority ordering and selection algorithm.
@@ -244,12 +247,13 @@ class PriorityContextCompiler:
             budget: Token budget constraints
             priorities: Optional priority overrides by key
             source_levels: Optional security level per key (absent ⇒ INTERNAL)
-            clearance: Caller clearance; None ⇒ no security gating (SPEC-11)
+            clearance: Caller clearance; sources above it are excluded (SPEC-11)
 
         Returns:
             CompiledContext ready for LLM
         """
         priorities = priorities or {}
+        levels = source_levels or {}
         sources: list[ContextSource] = []
 
         # Create sources from artifacts and memories
@@ -261,6 +265,7 @@ class PriorityContextCompiler:
                     type="artifact",
                     key=key,
                     content=content,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                     token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
@@ -274,24 +279,14 @@ class PriorityContextCompiler:
                     type="memory",
                     key=key,
                     content=content,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                     token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
             )
 
-        # SPEC-11 security gate — drop sources above the caller's clearance BEFORE
-        # the priority sort. clearance=None preserves the pre-SPEC-11 behavior exactly.
-        security_excluded: list[str] = []
-        if clearance is not None:
-            levels = source_levels or {}
-            kept: list[ContextSource] = []
-            for source in sources:
-                level = levels.get(source.key, SecurityLevel.INTERNAL)
-                if level.rank > clearance.rank:
-                    security_excluded.append(source.key)
-                else:
-                    kept.append(source)
-            sources = kept
+        security_excluded = [s.key for s in sources if s.security_level.rank > clearance.rank]
+        sources = [s for s in sources if s.security_level.rank <= clearance.rank]
 
         # Sort by priority (descending) - most algorithms expect this
         sources.sort(key=lambda s: s.priority, reverse=True)

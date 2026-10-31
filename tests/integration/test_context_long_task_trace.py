@@ -14,6 +14,7 @@ from cemaf.audit.models import AuditEntryType
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope, NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.events.bus import InMemoryEventBus
@@ -53,6 +54,7 @@ def _wire_memory_stack() -> tuple[
     compactor = SimpleMemoryCompactor(scorer=scorer)
     compiler = PriorityContextCompiler(token_estimator=SimpleTokenEstimator(chars_per_token=3.5))
     provider = DefaultMemoryContextProvider(
+        clearance=SecurityLevel.CONFIDENTIAL,
         memory_manager=memory_manager,
         compactor=compactor,
         compiler=compiler,
@@ -448,6 +450,7 @@ async def test_long_dag_preserves_context_flow_and_traceability() -> None:
     compiler = PriorityContextCompiler(token_estimator=SimpleTokenEstimator(chars_per_token=3.5))
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(
@@ -595,6 +598,7 @@ async def test_priority_budget_keeps_high_value_context_across_artifacts_and_mem
         token_budget=500,
     )
     compiled = await compiler.compile(
+        clearance=SecurityLevel.CONFIDENTIAL,
         artifacts=(
             ("directive", "Directive: lead with risks, then decisions, then owners."),
             ("background", ("Background context: " + "history " * 70).strip()),
@@ -627,6 +631,7 @@ async def test_reused_executor_does_not_leak_session_memory_between_runs() -> No
     _register_trace_pipeline(registry)
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(
@@ -689,6 +694,7 @@ async def test_promoted_session_memory_carries_into_future_runs_with_durable_lev
     _register_trace_pipeline(registry)
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(
@@ -825,6 +831,7 @@ async def test_parallel_fanout_then_router_carries_context_into_only_selected_br
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(
@@ -919,6 +926,7 @@ async def test_memory_evolution_across_many_runs_accumulates_high_confidence_dur
     _register_trace_pipeline(registry)
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(
@@ -958,6 +966,7 @@ async def test_real_framework_run_replays_exact_final_context_from_patches() -> 
     _register_trace_pipeline(registry)
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(
@@ -1010,6 +1019,7 @@ async def test_real_framework_event_stream_tracks_long_dag_nodes_with_single_cor
     _register_trace_pipeline(registry)
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(

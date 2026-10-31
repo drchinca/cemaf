@@ -21,6 +21,7 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryBackend, MemoryScope, RunStatus
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.evals.evaluators import LengthEvaluator
@@ -153,6 +154,7 @@ async def test_real_runtime_root_crosses_memory_context_recovery_safety_audit_an
         moderation_pipeline=create_keyword_moderation_pipeline(blocked_words=("FORBIDDEN",), event_bus=bus),
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True, enable_logging=True, enable_moderation=True),
         services=services,

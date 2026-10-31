@@ -16,6 +16,7 @@ from cemaf.agents.base import AgentContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence, NodeID
 from cemaf.events.bus import InMemoryEventBus
@@ -198,6 +199,7 @@ async def test_self_audit_dag_execution() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Run the self-audit DAG
@@ -247,6 +249,7 @@ async def test_feature_synthesis_agent_chaining() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Build a custom DAG with input_mapping for required goal fields
@@ -325,6 +328,7 @@ async def test_knowledge_refresh_dag_execution() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Run the knowledge refresh DAG
@@ -376,6 +380,7 @@ async def test_quality_degradation_detection() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Run the self-audit DAG
@@ -424,6 +429,7 @@ async def test_registry_introspection_round_trip() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Run ArchitectAgent directly — executor created for registration side effect

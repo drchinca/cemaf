@@ -14,6 +14,7 @@ from cemaf.context.compiler import (
     CompiledContext,
     TokenEstimator,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import LLMClient
@@ -58,6 +59,9 @@ class AdvancedContextCompiler:
         memories: tuple[tuple[str, str], ...],
         budget: TokenBudget,
         priorities: dict[str, int] | None = None,
+        *,
+        clearance: SecurityLevel,
+        source_levels: dict[str, SecurityLevel] | None = None,
     ) -> CompiledContext:
         """
         Compiles context with dual-mode behavior:
@@ -69,7 +73,13 @@ class AdvancedContextCompiler:
           Uses algorithm to select best sources, then summarization fallback
         """
         # Gather all sources (sorted by priority)
-        all_sources = self._gather_all_sources(artifacts, memories, priorities)
+        gathered = self._gather_all_sources(
+            artifacts=artifacts,
+            memories=memories,
+            priorities=priorities,
+            source_levels=source_levels,
+        )
+        all_sources = [source for source in gathered if source.security_level.rank <= clearance.rank]
 
         # MODE SELECTION: Check if algorithm should be used
         if self._algorithm is not None:
@@ -164,9 +174,11 @@ class AdvancedContextCompiler:
         artifacts: tuple[tuple[str, str], ...],
         memories: tuple[tuple[str, str], ...],
         priorities: dict[str, int] | None,
+        source_levels: dict[str, SecurityLevel] | None,
     ) -> list[ContextSource]:
         """Gather all sources without filtering by budget."""
         priorities = priorities or {}
+        levels = source_levels or {}
         sources: list[ContextSource] = []
 
         # Create sources from artifacts and memories
@@ -178,6 +190,7 @@ class AdvancedContextCompiler:
                     type="artifact",
                     key=key,
                     content=content,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                     token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
@@ -191,6 +204,7 @@ class AdvancedContextCompiler:
                     type="memory",
                     key=key,
                     content=content,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                     token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )

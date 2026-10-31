@@ -5,7 +5,7 @@ Quickstart:
     from cemaf import create_executor, AgentRegistry, DAG, Context
 
     registry = AgentRegistry()
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(agent_registry=registry, clearance=SecurityLevel.CONFIDENTIAL)
     result = await executor.run(dag=my_dag)
 """
 

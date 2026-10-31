@@ -10,6 +10,7 @@ import pytest
 from cemaf.context.advanced_compiler import AdvancedContextCompiler
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import TokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.llm.protocols import CompletionResult, LLMClient, LLMConfig, Message, ToolDefinition
 
 
@@ -97,7 +98,9 @@ class TestAdvancedContextCompiler:
         )
         budget = TokenBudget(max_tokens=10, reserved_for_output=0)  # Ensure a positive available_tokens
 
-        compiled_context = await compiler.compile(artifacts, memories, budget)
+        compiled_context = await compiler.compile(
+            artifacts, memories, budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         assert compiled_context.within_budget()
         assert len(compiled_context.sources) == 2
@@ -119,7 +122,11 @@ class TestAdvancedContextCompiler:
         budget = TokenBudget(max_tokens=10, reserved_for_output=0)
 
         compiled_context = await compiler.compile(
-            artifacts, memories, budget, priorities={"brief": 10, "long_mem": 0}
+            artifacts,
+            memories,
+            budget,
+            priorities={"brief": 10, "long_mem": 0},
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert compiled_context.total_tokens <= budget.available_tokens
         assert len(compiled_context.sources) == 2  # brief + summarized long_mem
@@ -147,6 +154,7 @@ class TestAdvancedContextCompiler:
             memories=(("very_low_prio_mem", "important but lengthy memory, summarize this first"),),
             budget=budget,
             priorities={"high_prio_art": 100, "low_prio_art": 0, "very_low_prio_mem": -10},
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert compiled_context.total_tokens <= budget.available_tokens
 
@@ -204,7 +212,9 @@ class TestAdvancedContextCompiler:
         # Total: 3 + 7 + 3 = 13 tokens, but budget is only 5, so summarization needed
         budget = TokenBudget(max_tokens=5, reserved_for_output=0)
 
-        compiled_context = await compiler.compile(artifacts, memories, budget)
+        compiled_context = await compiler.compile(
+            artifacts, memories, budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         assert compiled_context.total_tokens <= budget.available_tokens
         # 'brief' should be there, 'other_mem' summarized, 'long_mem' skipped

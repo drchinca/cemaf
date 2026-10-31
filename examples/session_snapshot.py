@@ -15,6 +15,7 @@ import asyncio
 from pydantic import BaseModel
 
 from cemaf import DAG, Agent, AgentContext, AgentRegistry, AgentResult, AgentState, Node, create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID
 from cemaf.operator import snapshot_from_execution_result
 
@@ -49,11 +50,9 @@ async def main() -> None:
     registry.register_agent(agent_instance=GreeterAgent(), goal_type=GreetGoal)
 
     dag = DAG(name="greet-pipeline", description="one-node demo")
-    dag = dag.add_node(
-        node=Node.agent(id="greet", name="Greeter", agent_id="Greeter", output_key="greeting")
-    )
+    dag = dag.add_node(node=Node.agent(id="greet", name="Greeter", agent_id="Greeter", output_key="greeting"))
 
-    result = await create_executor(agent_registry=registry).run(dag=dag)
+    result = await create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry).run(dag=dag)
 
     # Project the real ExecutionResult into the cemaf.session.v1 contract.
     snapshot = snapshot_from_execution_result(result, services_present=("run_logger",))

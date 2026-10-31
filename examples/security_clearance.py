@@ -27,22 +27,34 @@ async def main() -> None:
 
     # Caller with full clearance sees everything.
     full = await compiler.compile(
-        artifacts=artifacts, memories=(), budget=budget, priorities=priorities,
-        source_levels=source_levels, clearance=SecurityLevel.CONFIDENTIAL,
+        artifacts=artifacts,
+        memories=(),
+        budget=budget,
+        priorities=priorities,
+        source_levels=source_levels,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     print(f"CONFIDENTIAL clearance → sources: {sorted(s.key for s in full.sources)}")
 
     # Caller with only INTERNAL clearance: the CONFIDENTIAL source is gated out.
     limited = await compiler.compile(
-        artifacts=artifacts, memories=(), budget=budget, priorities=priorities,
-        source_levels=source_levels, clearance=SecurityLevel.INTERNAL,
+        artifacts=artifacts,
+        memories=(),
+        budget=budget,
+        priorities=priorities,
+        source_levels=source_levels,
+        clearance=SecurityLevel.INTERNAL,
     )
     print(f"INTERNAL clearance    → sources: {sorted(s.key for s in limited.sources)}")
     print(f"  excluded by classification: {limited.metadata['security_excluded']}")
 
     # No clearance set → ungated, exactly the pre-SPEC-11 behavior.
     ungated = await compiler.compile(
-        artifacts=artifacts, memories=(), budget=budget, priorities=priorities,
+        artifacts=artifacts,
+        memories=(),
+        budget=budget,
+        priorities=priorities,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     print(f"no clearance (ungated)→ sources: {sorted(s.key for s in ungated.sources)}")
 

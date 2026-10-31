@@ -4,6 +4,7 @@ from typing import Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler, TokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.memory.compaction import MemoryCompactor
 from cemaf.memory.manager import MemoryManager
@@ -49,6 +50,7 @@ class DefaultMemoryContextProvider:
         compactor: MemoryCompactor,
         compiler: ContextCompiler,
         token_estimator: TokenEstimator,
+        clearance: SecurityLevel,
         tiered_store: TieredMemoryStore | None = None,
     ) -> None:
         self._memory_manager = memory_manager
@@ -56,6 +58,7 @@ class DefaultMemoryContextProvider:
         self._compiler = compiler
         self._token_estimator = token_estimator
         self._tiered_store = tiered_store
+        self._clearance = clearance
 
     async def provide_context_sources(
         self,
@@ -101,6 +104,7 @@ class DefaultMemoryContextProvider:
         )
 
         return await self._compiler.compile(
+            clearance=self._clearance,
             artifacts=artifacts,
             memories=memories,
             budget=budget,

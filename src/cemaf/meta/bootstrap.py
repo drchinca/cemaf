@@ -15,6 +15,7 @@ from cemaf.blueprint.harvest import (
 )
 from cemaf.blueprint.library import WritableBlueprintSource
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.hub_spoke import (
     SpokeCacheConfig,
@@ -73,6 +74,7 @@ class MetaServices:
 def create_meta_executor(
     *,
     agent_registry: AgentRegistry,
+    clearance: SecurityLevel,
     tool_registry: ToolRegistry | None = None,
     config: ExecutorConfig | None = None,
     services: RuntimeServices | None = None,
@@ -177,6 +179,7 @@ def create_meta_executor(
     # Delegate to standard bootstrap
     return create_executor(
         agent_registry=agent_registry,
+        clearance=clearance,
         config=config,
         services=svc,
     )

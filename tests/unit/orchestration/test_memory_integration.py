@@ -4,6 +4,7 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope, NodeType
 from cemaf.core.types import NodeID, RunID
 from cemaf.memory.factories import create_memory_manager, create_session_manager
@@ -33,7 +34,7 @@ class TestContextNodeExecutorWithoutMemory:
 
     @pytest.mark.asyncio
     async def test_executor_without_memory_works(self, registry: AgentRegistry) -> None:
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         node = Node(
             id=NodeID("step_1"),
             type=NodeType.AGENT,
@@ -67,6 +68,7 @@ class TestContextNodeExecutorWithMemory:
         registry.register_agent(agent_instance=agent)
 
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             memory_manager=memory_manager,
         )
@@ -96,6 +98,7 @@ class TestContextNodeExecutorWithMemory:
                 raise RuntimeError("Memory store unavailable")
 
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             memory_manager=BrokenMemoryManager(),  # type: ignore[arg-type]
         )
@@ -170,7 +173,7 @@ class TestContextNodeExecutorWithMemory:
             async def dispose(self, session_id, **kwargs):
                 return await session_manager.dispose(session_id=session_id, **kwargs)
 
-        node_executor = ContextNodeExecutor(agent_registry=registry)
+        node_executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         executor = DAGExecutor(
             node_executor=node_executor,
             session_manager=RecordingSessionManager(),  # type: ignore[arg-type]
@@ -247,7 +250,7 @@ class TestDAGExecutorSessionLifecycle:
     @pytest.mark.asyncio
     async def test_session_bootstrapped_and_disposed(self, registry: AgentRegistry, session_manager) -> None:
         """Session is bootstrapped at start and disposed at end of DAG run."""
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         dag_executor = DAGExecutor(
             node_executor=executor,
             session_manager=session_manager,
@@ -283,7 +286,7 @@ class TestDAGExecutorSessionLifecycle:
     @pytest.mark.asyncio
     async def test_dag_runs_without_session_manager(self, registry: AgentRegistry) -> None:
         """DAG executor works fine without session_manager (backward compat)."""
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         dag_executor = DAGExecutor(node_executor=executor)
 
         dag = DAG(
@@ -314,7 +317,7 @@ class TestDAGExecutorSessionLifecycle:
             async def dispose(self, session_id):
                 return 0
 
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         dag_executor = DAGExecutor(
             node_executor=executor,
             session_manager=BrokenSessionManager(),  # type: ignore[arg-type]

@@ -37,6 +37,7 @@ from cemaf import (
     create_executor,
 )
 from cemaf.citation.models import Citation
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID
 from cemaf.datasources.models import (
     CiteableChunk,
@@ -134,6 +135,7 @@ async def main() -> None:
     pipeline = create_interceptor_pipeline(interceptors=(pull_interceptor,))
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         services=RuntimeServices(
             data_source_registry=data_sources, token_budget=token_budget, interceptor_pipeline=pipeline

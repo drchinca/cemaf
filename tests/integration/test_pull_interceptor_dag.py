@@ -18,6 +18,7 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.citation.models import Citation
 from cemaf.context.budget import TokenBudget
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.datasources.models import (
@@ -111,6 +112,7 @@ async def test_data_source_chunk_reaches_the_agent() -> None:
         interceptors=(PullInterceptor(pull_tokens=500, data_source_registry=data_sources),)
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         services=RuntimeServices(interceptor_pipeline=pipeline, data_source_registry=data_sources),
     )
@@ -134,6 +136,7 @@ async def test_unhealthy_source_never_called_and_run_still_completes() -> None:
         interceptors=(PullInterceptor(pull_tokens=500, data_source_registry=data_sources),)
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         services=RuntimeServices(interceptor_pipeline=pipeline, data_source_registry=data_sources),
     )

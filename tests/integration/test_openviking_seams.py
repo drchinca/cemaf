@@ -15,6 +15,7 @@ from cemaf.context.classification import (
     DefaultContextTypeClassifier,
 )
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextType
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
@@ -90,6 +91,7 @@ class TestTieredContextProviderIntegration:
         compiler = PriorityContextCompiler(token_estimator=token_estimator)
 
         provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.CONFIDENTIAL,
             memory_manager=manager,
             compactor=compactor,
             compiler=compiler,
@@ -127,6 +129,7 @@ class TestTieredContextProviderIntegration:
         compiler = PriorityContextCompiler(token_estimator=token_estimator)
 
         provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.CONFIDENTIAL,
             memory_manager=manager,
             compactor=compactor,
             compiler=compiler,

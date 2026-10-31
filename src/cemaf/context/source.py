@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON, TokenCount
 from cemaf.core.utils import utc_now
 
@@ -75,6 +76,7 @@ class ContextSource:
     min_tokens: int = 0
     metadata: JSON = field(default_factory=dict)
     context_type: ContextType | None = None
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
 
     # Legacy field aliases for backward compatibility
     @property
@@ -98,6 +100,7 @@ class ContextSource:
         compressible: bool = True,
         min_tokens: int = 0,
         metadata: JSON | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
         # Legacy parameters for backward compatibility
         type: str | None = None,  # noqa: A002
         key: str | None = None,
@@ -120,6 +123,7 @@ class ContextSource:
         object.__setattr__(self, "min_tokens", min_tokens)
         object.__setattr__(self, "metadata", metadata or {})
         object.__setattr__(self, "context_type", context_type)
+        object.__setattr__(self, "security_level", security_level)
 
     @classmethod
     def from_tool_output(

@@ -200,7 +200,12 @@ async def answer_policy(
         return PolicyAnswer(status="abstained", reason="No permitted evidence")
     compiler = PriorityContextCompiler(token_estimator=SimpleTokenEstimator())
     budget = TokenBudget(max_tokens=8000, reserved_for_output=1000)
-    compiled = await compiler.compile(artifacts=((ref.source_id, content),), memories=(), budget=budget)
+    compiled = await compiler.compile(
+        artifacts=((ref.source_id, content),),
+        memories=(),
+        budget=budget,
+        clearance=SecurityLevel.CONFIDENTIAL,
+    )
     manifest = ContextManifest(
         tenant_id="a",
         task_id=run_id,
@@ -274,9 +279,9 @@ async def answer_policy(
         edges=(Edge(source=NodeID("answer"), target=NodeID("publish"), condition=EdgeCondition.ON_SUCCESS),),
         entry_node=NodeID("answer"),
     )
-    result = await create_executor(agent_registry=registry, services=services).run(
-        dag=dag, run_id=RunID(run_id)
-    )
+    result = await create_executor(
+        agent_registry=registry, services=services, clearance=SecurityLevel.CONFIDENTIAL
+    ).run(dag=dag, run_id=RunID(run_id))
     if not result.success or result.final_context.get("published") is None:
         return PolicyAnswer(
             status="abstained", reason="Evidence or claim gate rejected the answer", run_id=run_id
@@ -369,6 +374,7 @@ async def answer_baseline(
         artifacts=((source_id, policy["content"]),),
         memories=(),
         budget=TokenBudget(max_tokens=8000, reserved_for_output=1000),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     instruction = "Answer this support question using the provided policy evidence."
     if arm == "citation":
@@ -393,6 +399,7 @@ async def answer_baseline(
             run_logger=logger,
             budget_guard=BudgetGuard(max_total_tokens=16_000),
         ),
+        clearance=SecurityLevel.CONFIDENTIAL,
     ).run(dag=dag, run_id=RunID(run_id))
     answer = result.final_context.get("answer")
     if not result.success or answer is None:

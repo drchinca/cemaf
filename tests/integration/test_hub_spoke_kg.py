@@ -15,6 +15,7 @@ import asyncio
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event
 from cemaf.knowledge.factories import create_knowledge_graph
@@ -182,7 +183,7 @@ async def test_two_spokes_share_one_hub(real_kg, event_bus: InMemoryEventBus) ->
 
 @pytest.mark.asyncio
 async def test_meta_executor_wires_hub_spoke_kg() -> None:
-    """create_meta_executor(enable_hub_spoke_kg=True) hands meta-agents a spoke facade.
+    """create_meta_executor(enable_hub_spoke_kg=True, clearance=...) hands meta-agents a spoke facade.
 
     Composition-root proof: the resolved KG is a SpokeReadHubWriteKG (point reads
     cached), and a real self-audit-style registration succeeds through it.
@@ -217,6 +218,7 @@ async def test_meta_executor_wires_hub_spoke_kg() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     assert executor is not None

@@ -12,6 +12,7 @@ from typing import Any
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import LLMClient, Message
 from cemaf.observability import get_logger
@@ -30,7 +31,9 @@ class DivideAndConquerQueryEngine:
     - Respect max_depth to prevent infinite recursion
 
     Example:
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=3)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=3, clearance=SecurityLevel.CONFIDENTIAL
+        )
         result = await engine.query(
             instruction="Find all mentions of CEMAF",
             chunks=chunks,
@@ -43,6 +46,8 @@ class DivideAndConquerQueryEngine:
         llm_client: LLMClient,
         compiler: ContextCompiler,
         max_depth: int = 3,
+        *,
+        clearance: SecurityLevel,
     ) -> None:
         """
         Initialize divide-and-conquer query engine.
@@ -55,6 +60,7 @@ class DivideAndConquerQueryEngine:
         self._llm = llm_client
         self._compiler = compiler
         self._max_depth = max_depth
+        self._clearance = clearance
 
     async def query(
         self,
@@ -100,6 +106,7 @@ class DivideAndConquerQueryEngine:
         raw_chunk_tokens = sum(int(chunk.token_count) for chunk in chunks)
         chunk_data = tuple((chunk.chunk_id, chunk.content) for chunk in chunks)
         compiled = await self._compiler.compile(
+            clearance=self._clearance,
             artifacts=chunk_data,
             memories=(),
             budget=budget,
@@ -424,6 +431,7 @@ context, explicitly state that."""
     ) -> dict[str, Any]:
         """Compile a chunk batch to its budget before executing it."""
         compiled = await self._compiler.compile(
+            clearance=self._clearance,
             artifacts=tuple((chunk.chunk_id, chunk.content) for chunk in chunks_list),
             memories=(),
             budget=budget,
@@ -438,6 +446,7 @@ context, explicitly state that."""
     ) -> dict[str, Any]:
         """Aggregate multiple partial answers into one."""
         compiled = await self._compiler.compile(
+            clearance=self._clearance,
             artifacts=tuple((f"answer_{index}", answer) for index, answer in enumerate(answers)),
             memories=(),
             budget=budget,
@@ -475,6 +484,7 @@ Synthesize these into a single coherent response."""
         left_answer = left_result.answer or "No information found"
         right_answer = right_result.answer or "No information found"
         compiled = await self._compiler.compile(
+            clearance=self._clearance,
             artifacts=(("left", left_answer), ("right", right_answer)),
             memories=(),
             budget=budget,

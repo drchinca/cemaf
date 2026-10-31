@@ -20,6 +20,7 @@ from cemaf.agents.selection import AgentSelector
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.domain import DomainContext
 from cemaf.core.enums import InstanceStatus, MemoryScope
 from cemaf.core.provenance import ProvenanceLink, SourceReference
@@ -110,6 +111,7 @@ class ContextNodeExecutor:
         self,
         *,
         agent_registry: AgentRegistry,
+        clearance: SecurityLevel,
         run_logger: RunLogger | None = None,
         domain_context: DomainContext | None = None,
         llm_client: LLMClient | None = None,
@@ -144,6 +146,7 @@ class ContextNodeExecutor:
         self._memory_manager = memory_manager
         self._session_manager = session_manager
         self._context_compiler = context_compiler
+        self._clearance = clearance
         self._token_budget = token_budget
         self._blueprint_selector = blueprint_selector
         self._agent_selector = agent_selector
@@ -854,6 +857,7 @@ class ContextNodeExecutor:
                 artifacts=tuple(artifact_pairs),
                 memories=tuple(memory_pairs),
                 budget=self._token_budget,
+                clearance=self._clearance,
             )
         except Exception as exc:
             logger.warning(

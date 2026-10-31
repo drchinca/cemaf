@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.evals.evaluators import LengthEvaluator
@@ -121,6 +122,7 @@ def _gate_pipeline(min_length: int = 100):
 async def test_gate_failure_blocks_downstream() -> None:
     gen, ran = _Gen("short"), []  # 5 chars < 100 → fails the gate
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(gen, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=_gate_pipeline()),
@@ -137,6 +139,7 @@ async def test_gate_failure_blocks_downstream() -> None:
 async def test_gate_pass_lets_downstream_run() -> None:
     gen, ran = _Gen("x" * 200), []  # 200 chars >= 100 → passes
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(gen, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=_gate_pipeline()),
@@ -153,6 +156,7 @@ async def test_gate_pass_lets_downstream_run() -> None:
 async def test_empty_pipeline_is_noop() -> None:
     gen, ran = _Gen("short"), []
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(gen, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=create_interceptor_pipeline()),
@@ -171,6 +175,7 @@ async def test_empty_pipeline_is_noop() -> None:
 async def test_gate_reject_does_not_burn_retries() -> None:
     gen, ran = _Gen("short"), []  # deterministically fails the gate
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(gen, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=_gate_pipeline()),

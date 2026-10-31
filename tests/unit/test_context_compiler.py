@@ -144,7 +144,9 @@ class TestPriorityContextCompiler:
             ("large", "y" * 400),  # ~100 tokens - won't fit
         )
 
-        ctx = await compiler.compile(artifacts=artifacts, memories=(), budget=budget)
+        ctx = await compiler.compile(
+            artifacts=artifacts, memories=(), budget=budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         # Only small should fit (50 available tokens)
         assert ctx.total_tokens <= budget.available_tokens
@@ -167,6 +169,7 @@ class TestPriorityContextCompiler:
             memories=(),
             budget=budget,
             priorities=priorities,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         # High priority should be included
@@ -182,7 +185,9 @@ class TestPriorityContextCompiler:
 
         memories = (("user_context", "User prefers concise responses"),)
 
-        ctx = await compiler.compile(artifacts=(), memories=memories, budget=budget)
+        ctx = await compiler.compile(
+            artifacts=(), memories=memories, budget=budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         assert any(s.type == "memory" for s in ctx.sources)
 
@@ -223,11 +228,11 @@ class TestSecurityClearanceGate:
         assert "secrets" in ctx.metadata.get("security_excluded", [])
 
     @pytest.mark.asyncio
-    async def test_no_clearance_selects_identical_set(self, context_compiler: PriorityContextCompiler):
-        """Inv 3 / Property 3 — clearance=None yields the IDENTICAL set as the ungated path.
+    async def test_full_clearance_selects_identical_set(self, context_compiler: PriorityContextCompiler):
+        """Inv 3 / Property 3 — a CONFIDENTIAL caller sees the IDENTICAL set with or without classification.
 
-        Strengthened: multi-source mixed-level input compiled (a) with classification but no
-        clearance and (b) with no security kwargs at all → identical ordered keys + content_hash.
+        Multi-source mixed-level input compiled (a) with classification and (b) with no levels at all
+        → identical ordered keys + content_hash.
         """
         budget = TokenBudget(max_tokens=10000, reserved_for_output=0)
         artifacts = (("pub", "public notes"), ("conf", "api key"), ("int", "internal memo"))
@@ -238,12 +243,13 @@ class TestSecurityClearanceGate:
             memories=memories,
             budget=budget,
             source_levels={"conf": SecurityLevel.CONFIDENTIAL, "pub": SecurityLevel.PUBLIC},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         pristine = await context_compiler.compile(
             artifacts=artifacts,
             memories=memories,
             budget=budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert [s.key for s in gated_off.sources] == [s.key for s in pristine.sources]
         assert gated_off.content_hash == pristine.content_hash
@@ -262,14 +268,14 @@ class TestSecurityClearanceGate:
             memories=(),
             budget=budget,
             source_levels={"a": SecurityLevel.CONFIDENTIAL},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         as_public = await context_compiler.compile(
             artifacts=artifacts,
             memories=(),
             budget=budget,
             source_levels={"a": SecurityLevel.PUBLIC},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert as_conf.content_hash == as_public.content_hash
 

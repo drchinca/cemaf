@@ -18,7 +18,7 @@ import asyncio
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
-from cemaf.context.patch import ContextPatch
+from cemaf.context.patch import ContextPatch, SecurityLevel
 
 
 async def main() -> None:
@@ -47,6 +47,7 @@ async def main() -> None:
     compiler = PriorityContextCompiler(token_estimator=SimpleTokenEstimator(chars_per_token=4))
     budget = TokenBudget(max_tokens=120, reserved_for_output=20)
     compiled = await compiler.compile(
+        clearance=SecurityLevel.CONFIDENTIAL,
         artifacts=(("policy_doc", context.get("policy_doc")),),
         memories=(("user_pref", context.get("user_pref")),),
         budget=budget,

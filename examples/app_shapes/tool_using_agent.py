@@ -28,6 +28,7 @@ from cemaf import (
     create_executor,
     tool,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.result import Result
 from cemaf.core.types import AgentID
 from cemaf.resilience import with_retry
@@ -101,7 +102,7 @@ async def main() -> None:
         )
     )
 
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     run = await executor.run(dag=dag)
 
     # The executor stores structured agent output as JSON in the context.

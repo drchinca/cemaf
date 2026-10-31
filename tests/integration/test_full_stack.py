@@ -30,6 +30,7 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.events.bus import InMemoryEventBus
@@ -196,6 +197,7 @@ async def test_full_stack_composition(tmp_path: Path) -> None:
 
     # Wire executor
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(
@@ -249,6 +251,7 @@ async def test_full_stack_halts_when_budget_exhausted(tmp_path: Path) -> None:
 
     budget_guard = BudgetGuard(max_cost_usd=0.10)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=budget_guard),

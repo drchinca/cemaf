@@ -74,6 +74,7 @@ async def _boundary(
         artifacts=tuple((refs[i].source_id, contents[i]) for i in selected),
         memories=(),
         budget=TokenBudget(max_tokens=10000, reserved_for_output=0),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     manifest = ContextManifest(
         tenant_id="a",

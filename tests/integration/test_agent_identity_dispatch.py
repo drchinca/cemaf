@@ -20,6 +20,7 @@ from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.factories import create_agent_directory
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID, TaskID
 from cemaf.evals.evaluators import LengthEvaluator
@@ -78,7 +79,11 @@ async def test_parallel_peers_are_preadmitted_with_distinct_identity_before_disp
         agent_instance=_Worker(directory=directory, observed=observed, seen_instance_ids=seen_instance_ids),
         goal_type=_WorkerGoal,
     )
-    executor = create_executor(agent_registry=registry, services=RuntimeServices(agent_directory=directory))
+    executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        services=RuntimeServices(agent_directory=directory),
+    )
 
     sub_nodes = tuple(Node.agent(id=f"w{i}", name=f"w{i}", agent_id="Worker") for i in range(3))
     dag = DAG(
@@ -162,6 +167,7 @@ async def test_recover_retry_keeps_identity_but_gets_new_attempt_id() -> None:
         )
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(
             agent_directory=directory, interceptor_pipeline=pipeline, max_recovery_attempts=2

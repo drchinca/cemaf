@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.events.bus import InMemoryEventBus
@@ -134,13 +135,13 @@ class TestCreateMetaExecutor:
     def test_returns_dag_executor(self) -> None:
         """Returns a DAGExecutor instance."""
         agent_registry = AgentRegistry()
-        executor = create_meta_executor(agent_registry=agent_registry)
+        executor = create_meta_executor(agent_registry=agent_registry, clearance=SecurityLevel.CONFIDENTIAL)
         assert isinstance(executor, DAGExecutor)
 
     def test_graceful_degradation_without_services(self) -> None:
         """Without event_bus or memory_manager, no meta-agents are registered."""
         agent_registry = AgentRegistry()
-        executor = create_meta_executor(agent_registry=agent_registry)
+        executor = create_meta_executor(agent_registry=agent_registry, clearance=SecurityLevel.CONFIDENTIAL)
         assert executor is not None
         assert agent_registry.get("MetaAuditor") is None
         assert agent_registry.get("MetaArchitect") is None
@@ -160,6 +161,7 @@ class TestCreateMetaExecutor:
             agent_registry=agent_registry,
             tool_registry=tool_registry,
             services=services,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         assert isinstance(executor, DAGExecutor)
@@ -190,6 +192,7 @@ class TestCreateMetaExecutor:
             tool_registry=tool_registry,
             services=services,
             meta_services=meta_services,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         assert isinstance(executor, DAGExecutor)
@@ -204,6 +207,7 @@ class TestCreateMetaExecutor:
         executor = create_meta_executor(
             agent_registry=agent_registry,
             services=services,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert isinstance(executor, DAGExecutor)
         # No audit_trail (needs event_bus), so meta-agents not registered

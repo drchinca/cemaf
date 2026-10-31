@@ -6,6 +6,7 @@ import pytest
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.context.streaming_context_compiler import StreamingContextCompiler
 from cemaf.core.types import TokenCount
@@ -47,6 +48,7 @@ class TestStreamingContextCompiler:
             artifacts=artifacts,
             memories=(),
             budget=budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         stream_compiler = StreamingContextCompiler(token_estimator=estimator)
@@ -54,6 +56,7 @@ class TestStreamingContextCompiler:
             artifacts=artifacts,
             memories=(),
             budget=budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         # Both compilers should select the same high-priority sources
@@ -85,7 +88,9 @@ class TestStreamingContextCompiler:
         budget = TokenBudget(max_tokens=50_000, reserved_for_output=5_000)
         compiler = StreamingContextCompiler(token_estimator=estimator)
 
-        result = await compiler.compile_stream(large_source_gen(), budget)
+        result = await compiler.compile_stream(
+            large_source_gen(), budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
         gc.collect()
 
         assert result.total_tokens <= budget.available_tokens
@@ -105,6 +110,7 @@ class TestStreamingContextCompiler:
             artifacts=tuple((s.source_id, s.content) for s in sources),
             memories=(),
             budget=budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         compacted = await compiler.compact(compiled=compiled, preserve_recent=2, summary_budget_tokens=50)

@@ -34,6 +34,7 @@ from cemaf.blueprint import (
 )
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
@@ -257,6 +258,7 @@ class TestEngineConnects:
 
         services, registry, _bus, artifacts = _build_engine()
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -297,6 +299,7 @@ class TestEngineConnects:
 
         services, registry, _bus, artifacts = _build_engine()
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -331,6 +334,7 @@ class TestBoundaryHonesty:
 
         services, registry, _bus, artifacts = _build_engine()
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
