@@ -1,6 +1,7 @@
 """Every state change on a Context must be recorded so replay reproduces it."""
 
 from cemaf.context.context import Context
+from cemaf.context.merge import LastWriteWinsStrategy
 from cemaf.context.patch import ContextPatch
 
 
@@ -42,3 +43,18 @@ def test_merge_and_append_do_not_share_nested_state_with_parent() -> None:
     ctx.to_dict()["nested"]["k"] = 99
 
     assert ctx.get("nested.k") == 1
+
+
+def test_parallel_join_result_replays_to_merged_state() -> None:
+    base = Context().apply(ContextPatch.set(path="shared", value=0))
+    left = base.set("left", 1)
+    right = base.set("right", 2)
+
+    joined = LastWriteWinsStrategy().merge(base=base, branches=[left, right]).context
+
+    replayed = Context()
+    for patch in joined.patch_history:
+        replayed = replayed.apply(patch)
+
+    assert replayed.state_hash() == joined.state_hash()
+    assert joined.to_dict() == {"shared": 0, "left": 1, "right": 2}

@@ -28,7 +28,30 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.context import Context
+from cemaf.context.patch import ContextPatch, PatchSource
 from cemaf.core.provider_registry import ProviderRegistry
+
+
+def _record_merge(*, base: Context, merged_data: dict[str, Any]) -> Context:
+    """Return base plus one patch per top-level key the merge changed, so the result replays."""
+    result = base
+    for key in sorted(base.data.keys() - merged_data.keys()):
+        result = result.apply(
+            ContextPatch.delete(path=key, source=PatchSource.SYSTEM, source_id="context.merge")
+        )
+    for key, value in merged_data.items():
+        if key in base.data and base.data[key] == value:
+            continue
+        result = result.apply(
+            ContextPatch.set(
+                path=key,
+                value=value,
+                source=PatchSource.SYSTEM,
+                source_id="context.merge",
+                reason="parallel branch merge",
+            )
+        )
+    return result
 
 
 @dataclass(frozen=True)
@@ -154,7 +177,7 @@ class LastWriteWinsStrategy:
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, merged_data=merged_data),
             conflicts=conflicts,
         )
 
@@ -242,7 +265,7 @@ class RaiseOnConflictStrategy:
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, merged_data=merged_data),
             conflicts=[],
         )
 
@@ -326,7 +349,7 @@ class DeepMergeStrategy:
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, merged_data=merged_data),
             conflicts=conflicts,
         )
 
@@ -500,14 +523,14 @@ class ReducerMergeStrategy:
         if errors:
             return MergeResult(
                 success=False,
-                context=Context(data=merged_data),
+                context=_record_merge(base=base, merged_data=merged_data),
                 conflicts=conflicts,
                 error="; ".join(errors),
             )
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, merged_data=merged_data),
             conflicts=conflicts,
         )
 
