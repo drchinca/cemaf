@@ -374,6 +374,31 @@ class TestRecallRespectsClearance:
 
         assert "office" in recalled
         assert "salaries" not in recalled
-        withheld = [w for w in warnings if w["stage"] == "memory_clearance"]
-        assert len(withheld) == 1
-        assert "salaries" in withheld[0]["error_message"]
+        assert warnings == []  # filtered by the query itself, so nothing reached the executor's own gate
+
+    @pytest.mark.asyncio
+    async def test_withheld_memories_do_not_crowd_out_admitted_ones(
+        self, registry: AgentRegistry, memory_manager
+    ) -> None:
+        for index in range(12):
+            await memory_manager.remember(
+                scope=MemoryScope.PROJECT,
+                key=f"secret-{index}",
+                value={"v": index},
+                content_for_embedding="office secret",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office",
+            confidence=0.1,
+        )
+        executor = ContextNodeExecutor(
+            clearance=SecurityLevel.INTERNAL, agent_registry=registry, memory_manager=memory_manager
+        )
+
+        recalled = await executor._recall_global_memory(agent_name="Analyst", goal_text="office", run_id="")
+
+        assert list(recalled) == ["office"]

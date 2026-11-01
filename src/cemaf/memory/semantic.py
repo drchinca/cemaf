@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol, runtime_checkable
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
@@ -27,6 +28,7 @@ class MemoryQuery:
     limit: int = 10
     scope_path: str | None = None  # Filter to items under this hierarchical scope path
     session_id: str | None = None  # Isolate and normalize SESSION memories for one run
+    max_security_level: SecurityLevel | None = None  # Drop items above this level before the limit
 
 
 @dataclass(frozen=True)
@@ -240,6 +242,8 @@ class DefaultSemanticMemoryStore:
         ):
             return False
         if float(item.confidence) < query.min_confidence:
+            return False
+        if query.max_security_level is not None and item.security_level.rank > query.max_security_level.rank:
             return False
         if item.is_expired:
             return False

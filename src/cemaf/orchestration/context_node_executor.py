@@ -782,7 +782,12 @@ class ContextNodeExecutor:
             durable_scopes = tuple(scope for scope in MemoryScope if scope is not MemoryScope.SESSION)
             durable_results, session_results = await asyncio.gather(
                 self._memory_manager.recall(
-                    query=MemoryQuery(text=query_text, scopes=durable_scopes, limit=10),
+                    query=MemoryQuery(
+                        text=query_text,
+                        scopes=durable_scopes,
+                        limit=10,
+                        max_security_level=self._clearance,
+                    ),
                 ),
                 self._memory_manager.recall(
                     query=MemoryQuery(
@@ -790,6 +795,7 @@ class ContextNodeExecutor:
                         scope=MemoryScope.SESSION,
                         limit=10,
                         session_id=run_id,
+                        max_security_level=self._clearance,
                     ),
                 ),
             )
