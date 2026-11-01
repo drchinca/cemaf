@@ -6,6 +6,7 @@ from cemaf.context.context import Context
 from cemaf.context.merge import (
     DeepMergeStrategy,
     LastWriteWinsStrategy,
+    MergeConflictError,
     MergeStrategy,
     RaiseOnConflictStrategy,
     ReducerMergeStrategy,
@@ -132,3 +133,25 @@ def test_branch_deletion_propagates_unless_another_branch_changed_the_key(strate
     for patch in joined.patch_history:
         replayed = replayed.apply(patch)
     assert replayed.state_hash() == joined.state_hash()
+
+
+def test_delete_versus_modify_is_a_conflict() -> None:
+    base = Context().set("contested", 3)
+    left = base.delete("contested")
+    right = base.set("contested", 30)
+
+    with pytest.raises(MergeConflictError):
+        RaiseOnConflictStrategy().merge(base=base, branches=[left, right])
+    reported = LastWriteWinsStrategy().merge(base=base, branches=[left, right])
+    assert [c.key for c in reported.conflicts] == ["contested"]
+    assert reported.context.get("contested") == 30
+
+
+def test_type_change_is_not_mistaken_for_unchanged_when_another_branch_deletes() -> None:
+    base = Context().set("flag", 1)
+    left = base.delete("flag")
+    right = base.set("flag", True)
+
+    joined = LastWriteWinsStrategy().merge(base=base, branches=[left, right]).context
+
+    assert joined.get("flag") is True
