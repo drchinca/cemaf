@@ -339,3 +339,37 @@ class TestDAGExecutorSessionLifecycle:
         # Should not raise — bootstrap failure is isolated
         result = await dag_executor.run(dag=dag)
         assert result is not None
+
+
+class TestRecallRespectsClearance:
+    """Recall feeds the compiler and the agent's global_memory, so the gate applies at recall."""
+
+    @pytest.mark.asyncio
+    async def test_memory_above_clearance_never_reaches_the_agent(
+        self, registry: AgentRegistry, memory_manager
+    ) -> None:
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="salaries",
+            value={"ceo": 1},
+            content_for_embedding="salary bands",
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office location",
+        )
+        executor = ContextNodeExecutor(
+            clearance=SecurityLevel.INTERNAL,
+            agent_registry=registry,
+            memory_manager=memory_manager,
+        )
+
+        recalled = await executor._recall_global_memory(
+            agent_name="Analyst", goal_text="salary office", run_id=""
+        )
+
+        assert "office" in recalled
+        assert "salaries" not in recalled

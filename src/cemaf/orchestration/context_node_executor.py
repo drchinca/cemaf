@@ -793,8 +793,12 @@ class ContextNodeExecutor:
                     ),
                 ),
             )
+            # Gate at recall: these values reach both the compiler and the agent's
+            # global_memory, so anything above clearance must never enter the dict.
             recalled: dict[str, Any] = {}
             for result in (*durable_results, *session_results):
+                if result.item.security_level.rank > self._clearance.rank:
+                    continue
                 recalled[result.item.key] = result.item.value
             return recalled
         except Exception as exc:
