@@ -134,7 +134,7 @@ class TestEntityType:
         assert EntityType.SKILL.value == "skill"
 
     def test_member_count(self) -> None:
-        assert len(EntityType) == 7
+        assert len(EntityType) == 8
 
 
 class TestRelationType:
@@ -150,7 +150,7 @@ class TestRelationType:
         assert RelationType.IMPLEMENTS.value == "implements"
 
     def test_member_count(self) -> None:
-        assert len(RelationType) == 7
+        assert len(RelationType) == 8
 
 
 class TestKGEntity:

@@ -24,6 +24,7 @@ from cemaf.ingestion.factories import (
     create_adapter,
     create_adapter_from_config,
 )
+from cemaf.ingestion.okf import OKFAdapter, OKFCatalogPage
 from cemaf.ingestion.protocols import (
     CompressionStrategy,
     ContextAdapter,
@@ -42,6 +43,8 @@ __all__ = [
     "JSONAdapter",
     "TableAdapter",
     "ChunkAdapter",
+    "OKFAdapter",
+    "OKFCatalogPage",
     # Factories
     "adapter_registry",
     "create_adapter",

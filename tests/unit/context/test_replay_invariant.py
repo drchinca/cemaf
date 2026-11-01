@@ -155,3 +155,24 @@ def test_type_change_is_not_mistaken_for_unchanged_when_another_branch_deletes()
     joined = LastWriteWinsStrategy().merge(base=base, branches=[left, right]).context
 
     assert joined.get("flag") is True
+
+
+def test_mutators_survive_checkpoint_and_replay_each_intermediate_state() -> None:
+    ctx = Context().set("project", {"status": "draft", "tags": []})
+    snapshots = [ctx]
+    ctx = ctx.append("project.tags", "reviewed")
+    snapshots.append(ctx)
+    ctx = ctx.deep_merge("project", {"status": "approved", "details": {"revision": 2}})
+    snapshots.append(ctx)
+    ctx = ctx.delete("project.status")
+    snapshots.append(ctx)
+    ctx = ctx.merge(Context(data={"published": True}))
+    snapshots.append(ctx)
+
+    restored = Context.from_checkpoint_dict(ctx.to_checkpoint_dict())
+    for snapshot in snapshots:
+        assert restored.rollback_to(snapshot.patch_history[-1].id).to_dict() == snapshot.to_dict()
+    assert restored.to_dict() == {
+        "project": {"tags": ["reviewed"], "details": {"revision": 2}},
+        "published": True,
+    }

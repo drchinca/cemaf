@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 **Added:**
+- Open Knowledge Format (OKF) import/export for Markdown knowledge bundles,
+  preserving frontmatter, supporting files, provenance, and reviewable proposals.
+  Install the optional `cemaf[okf]` dependencies to use the adapters.
+- Budgeted knowledge catalogs, paginated file indexes, snapshot revisions, and
+  bundle diffs for selective context loading and incremental project memory.
+- Protocol-first OKF adapters for documentation, Python contracts, registered
+  agents, skills, tools, capabilities, and explicitly selected RBAC/ABAC policy
+  descriptions. Runtime authorization gates exports; imported descriptions do
+  not grant access.
+- `cemaf docs export-okf` and a versioned CEMAF vocabulary profile, with offline
+  research, persistent project-memory, and self-hosting DAG examples exercising
+  context compilation, knowledge graphs, citations, and proposal review.
+- Engine showcase with a flagship flow diagram and component-to-module map,
+  separating design targets from the current implementation evidence (#244).
+- Opt-in live PostgreSQL/pgvector round-trip and bulk-write regression tests
+  accompanying the schema and vector-decoding fixes (#243).
 - Context and provenance acceptance cases for a support-policy evidence pilot,
   with a versioned case catalog, adversarial policy fixtures, public-path tests,
   a required test matrix, an engineering gate, and a strict adoption gate that
@@ -29,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   factory, and run logger.
 
 **Fixed:**
+- `Context.set`, `merge`, `delete`, `append`, and `deep_merge` record patches
+  for replay; `to_dict()` returns a deep copy to prevent untracked mutations
+  through exported dictionaries (#258).
+- `PgVectorStore` creates custom schemas, passes bulk-copy schema names through
+  asyncpg's dedicated argument, and accepts vector wrappers exposing `to_list()`
+  as well as iterable embeddings (#243). Fresh databases install the vector
+  extension before pooled connections register its codec.
+- Agent and skill protocol declarations accept populated skill/tool tuples;
+  citations preserve source-document metadata, including OKF provenance.
 - Worker-kill assurance tests use an injected, shared lease clock to exercise
   expiry and fencing without a half-second startup race. Worker exits are
   reported immediately with diagnostics, and real process-kill assertions remain.
@@ -60,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at construction.
 
 **Changed:**
+- Reconciled the SPEC-18 peer-communication draft and index with the existing
+  specification and phase-one identity implementation, retaining newer test and
+  specification updates while integrating the original PR history (#247).
 - The prompt-caching decorator composes the adapter's public completion and
   streaming methods rather than duplicating SDK calls and response parsing.
 

@@ -118,6 +118,7 @@ all = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "huggingface-hub" },
+    { name = "markdown-it-py" },
     { name = "openai" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-sdk" },
@@ -138,6 +139,7 @@ dev = [
     { name = "cryptography" },
     { name = "fakeredis" },
     { name = "httpx" },
+    { name = "markdown-it-py" },
     { name = "mypy" },
     { name = "openai" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
@@ -169,6 +171,10 @@ http = [
 huggingface = [
     { name = "httpx" },
     { name = "huggingface-hub" },
+]
+okf = [
+    { name = "markdown-it-py" },
+    { name = "pyyaml" },
 ]
 ollama = [
     { name = "httpx" },
@@ -226,6 +232,7 @@ dev = [
     { name = "anthropic" },
     { name = "cryptography" },
     { name = "fakeredis" },
+    { name = "markdown-it-py" },
     { name = "mypy" },
     { name = "openai" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
@@ -269,6 +276,9 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'all'", specifier = ">=1.0" },
     { name = "huggingface-hub", marker = "extra == 'huggingface'", specifier = ">=1.0" },
     { name = "line-profiler", marker = "extra == 'profiling'", specifier = ">=4.2.0" },
+    { name = "markdown-it-py", marker = "extra == 'all'", specifier = ">=3.0" },
+    { name = "markdown-it-py", marker = "extra == 'dev'", specifier = ">=3.0" },
+    { name = "markdown-it-py", marker = "extra == 'okf'", specifier = ">=3.0" },
     { name = "memory-profiler", marker = "extra == 'profiling'", specifier = ">=0.61.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "openai", marker = "extra == 'all'", specifier = "~=2.14" },
@@ -294,6 +304,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "pyyaml", marker = "extra == 'okf'", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'security-yaml'", specifier = ">=6.0" },
     { name = "redis", marker = "extra == 'all'", specifier = ">=5.0" },
     { name = "redis", marker = "extra == 'dev'", specifier = ">=5.0" },
@@ -309,13 +320,14 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'all'", specifier = ">=0.34" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = ">=0.34" },
 ]
-provides-extras = ["dev", "http", "ollama", "openai-compatible", "tiktoken", "openai", "anthropic", "huggingface", "gemini", "groq", "together", "pinecone", "profiling", "prometheus", "otel", "web", "postgres", "redis", "security", "security-yaml", "enterprise", "all"]
+provides-extras = ["okf", "dev", "http", "ollama", "openai-compatible", "tiktoken", "openai", "anthropic", "huggingface", "gemini", "groq", "together", "pinecone", "profiling", "prometheus", "otel", "web", "postgres", "redis", "security", "security-yaml", "enterprise", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "anthropic", specifier = "~=0.40" },
     { name = "cryptography", specifier = ">=42.0" },
     { name = "fakeredis", specifier = ">=2.0" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
     { name = "mypy", specifier = ">=1.8" },
     { name = "openai", specifier = ">=2.14.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.27" },

@@ -8,7 +8,7 @@ RBACMemoryStore: decorator that enforces RBAC on any MemoryStore.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from cemaf.core.enums import MemoryScope
 from cemaf.memory.base import MemoryItem, MemoryStore
@@ -35,6 +35,15 @@ _ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     ROLE_SCOPE_ADMIN: frozenset({"read", "write", "delete", "list", "admin"}),
     ROLE_SYSTEM: frozenset({"read", "write", "delete", "list", "admin", "bypass"}),
 }
+
+
+@runtime_checkable
+class ScopeAuthorizer(Protocol):
+    """Structural scope authorization contract, implemented by RBACEnforcer."""
+
+    def can(
+        self, principal_id: str, action: str, scope: MemoryScope, scope_path: str | None = None
+    ) -> bool: ...
 
 
 # ---------------------------------------------------------------------------

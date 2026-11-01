@@ -21,6 +21,7 @@ class EntityType(StrEnum):
     MODULE = "module"
     PROTOCOL = "protocol"
     SKILL = "skill"
+    CONCEPT = "concept"
 
 
 class RelationType(StrEnum):
@@ -33,6 +34,7 @@ class RelationType(StrEnum):
     EXTRACTED_FROM = "extracted_from"
     CONTAINS = "contains"
     IMPLEMENTS = "implements"
+    REFERENCES = "references"
 
 
 @dataclass(frozen=True, slots=True)
