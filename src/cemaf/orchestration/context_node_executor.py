@@ -796,10 +796,20 @@ class ContextNodeExecutor:
             # Gate at recall: these values reach both the compiler and the agent's
             # global_memory, so anything above clearance must never enter the dict.
             recalled: dict[str, Any] = {}
+            withheld: list[str] = []
             for result in (*durable_results, *session_results):
                 if result.item.security_level.rank > self._clearance.rank:
+                    withheld.append(result.item.key)
                     continue
                 recalled[result.item.key] = result.item.value
+            if withheld and warnings is not None:
+                warnings.append(
+                    {
+                        "stage": "memory_clearance",
+                        "error_type": "SecurityExcluded",
+                        "error_message": f"withheld {len(withheld)} above clearance: {sorted(withheld)}",
+                    }
+                )
             return recalled
         except Exception as exc:
             logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)

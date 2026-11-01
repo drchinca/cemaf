@@ -59,7 +59,8 @@ class ExtractionPipeline:
         skipped_count = 0
 
         # Extracted memories carry no per-item provenance, so they inherit the most
-        # restrictive level among the session memories they were drawn from.
+        # restrictive level among the session memories. Episodes and events carry no
+        # level and do not raise it.
         promoted_level = max(
             (m.security_level for m in session_memories),
             key=lambda level: level.rank,

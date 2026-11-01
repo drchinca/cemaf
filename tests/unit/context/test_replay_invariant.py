@@ -2,7 +2,7 @@
 
 from cemaf.context.context import Context
 from cemaf.context.merge import LastWriteWinsStrategy
-from cemaf.context.patch import ContextPatch
+from cemaf.context.patch import ContextPatch, SecurityLevel
 
 
 def test_set_is_recorded_so_replay_reproduces_state() -> None:
@@ -58,3 +58,27 @@ def test_parallel_join_result_replays_to_merged_state() -> None:
 
     assert replayed.state_hash() == joined.state_hash()
     assert joined.to_dict() == {"shared": 0, "left": 1, "right": 2}
+
+
+def test_parallel_join_keeps_branch_classification_on_merge_patches() -> None:
+    base = Context()
+    secret = base.apply(
+        ContextPatch.set(path="payroll.band", value="C", security_level=SecurityLevel.CONFIDENTIAL)
+    )
+    public = base.apply(ContextPatch.set(path="office", value="Lima", security_level=SecurityLevel.PUBLIC))
+
+    joined = LastWriteWinsStrategy().merge(base=base, branches=[secret, public]).context
+    levels = {p.path: p.security_level for p in joined.patch_history}
+
+    assert levels["payroll"] == SecurityLevel.CONFIDENTIAL
+    assert levels["office"] == SecurityLevel.PUBLIC
+
+
+def test_parallel_join_keeps_dotted_top_level_keys_exact() -> None:
+    base = Context(data={"flag": 1})
+    branch = Context(data={"flag": True, "a.b": 2})
+
+    joined = LastWriteWinsStrategy().merge(base=base, branches=[branch]).context
+
+    assert joined.to_dict() == {"flag": True, "a.b": 2}
+    assert joined.get("flag") is True

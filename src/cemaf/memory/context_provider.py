@@ -66,7 +66,12 @@ class DefaultMemoryContextProvider:
         *,
         token_budget: int,
     ) -> tuple[ContextSource, ...]:
-        """Fetch, compact, and return as ContextSource objects."""
+        """Fetch, compact, and return the memories this provider's clearance admits."""
+        sources = await self._provide_all(query=query, token_budget=token_budget)
+        return tuple(source for source in sources if source.security_level.rank <= self._clearance.rank)
+
+    async def _provide_all(self, *, query: MemoryQuery, token_budget: int) -> tuple[ContextSource, ...]:
+        """Fetch and compact every matching memory, before the clearance gate."""
         if self._tiered_store is not None:
             return await self._provide_via_tiered(query=query, token_budget=token_budget)
         return await self._provide_via_flat(query=query, token_budget=token_budget)
@@ -77,7 +82,7 @@ class DefaultMemoryContextProvider:
         *,
         token_budget: int,
     ) -> tuple[tuple[str, str], ...]:
-        """Fetch, compact, and return as (key, content) pairs for the compiler."""
+        """Fetch, compact, and return admitted memories as (key, content) pairs."""
         sources = await self.provide_context_sources(
             query=query,
             token_budget=token_budget,
@@ -98,7 +103,11 @@ class DefaultMemoryContextProvider:
             artifact_count=len(artifacts),
         )
 
-        sources = await self.provide_context_sources(query=memory_query, token_budget=memory_budget)
+        # The compiler gates and records exclusions, so it receives every memory with its level.
+        sources = await self._provide_all(query=memory_query, token_budget=memory_budget)
+        clashing = {key for key, _ in artifacts} & {source.source_id for source in sources}
+        if clashing:
+            raise ValueError(f"Artifact keys collide with memory keys: {sorted(clashing)}")
 
         return await self._compiler.compile(
             clearance=self._clearance,

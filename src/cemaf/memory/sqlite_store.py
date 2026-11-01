@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS memory_items (
 )
 """
 
+_ADD_SECURITY_LEVEL = "ALTER TABLE memory_items ADD COLUMN security_level TEXT NOT NULL DEFAULT 'internal'"
+
 _CREATE_INDEX_EXPIRES = (
     "CREATE INDEX IF NOT EXISTS idx_memory_items_expires_at "
     "ON memory_items(expires_at) WHERE expires_at IS NOT NULL"
@@ -140,6 +142,10 @@ class SqliteMemoryStore:
                 # crash but doesn't fsync on every commit.
                 await conn.execute("PRAGMA synchronous=NORMAL")
                 await conn.execute(_CREATE_TABLE)
+                cursor = await conn.execute("PRAGMA table_info(memory_items)")
+                columns = {row[1] for row in await cursor.fetchall()}
+                if "security_level" not in columns:
+                    await conn.execute(_ADD_SECURITY_LEVEL)
                 await conn.execute(_CREATE_INDEX_EXPIRES)
                 await conn.commit()
             finally:

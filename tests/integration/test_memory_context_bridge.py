@@ -392,3 +392,40 @@ class TestMemoryClassificationReachesTheGate:
         promoted = await memory_manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
 
         assert [r.item.security_level for r in promoted] == [SecurityLevel.CONFIDENTIAL]
+
+    @pytest.mark.asyncio
+    async def test_provider_sources_are_gated_at_its_clearance(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        await memory_manager.remember(
+            scope=MemoryScope.TENANT,
+            key="salaries",
+            value={"ceo": 1},
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+        await memory_manager.remember(scope=MemoryScope.TENANT, key="office", value={"city": "Lima"})
+        estimator = SimpleTokenEstimator()
+        provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.INTERNAL,
+            memory_manager=memory_manager,
+            compactor=compactor,
+            compiler=PriorityContextCompiler(token_estimator=estimator),
+            token_estimator=estimator,
+        )
+
+        pairs = await provider.provide_memories_for_compiler(
+            query=MemoryQuery(scope=MemoryScope.TENANT), token_budget=4000
+        )
+
+        assert [key for key, _ in pairs] == [f"{MemoryScope.TENANT.value}:office"]
+
+    @pytest.mark.asyncio
+    async def test_artifact_key_colliding_with_memory_key_is_rejected(self) -> None:
+        memory_manager, _, provider, _ = _wire_full_stack()
+        await memory_manager.remember(scope=MemoryScope.TENANT, key="summary", value={"v": 1})
+
+        with pytest.raises(ValueError, match="collide"):
+            await provider.compile_with_memories(
+                artifacts=((f"{MemoryScope.TENANT.value}:summary", "artifact text"),),
+                memory_query=MemoryQuery(scope=MemoryScope.TENANT),
+                budget=TokenBudget(max_tokens=4000, reserved_for_output=500),
+            )

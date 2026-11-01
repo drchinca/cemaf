@@ -118,6 +118,8 @@ class PostgresMemoryStore(MemoryStore):
                 security_level TEXT NOT NULL DEFAULT 'internal',
                 PRIMARY KEY (tenant_id, scope, key)
             );
+            ALTER TABLE {s}.memory_items
+                ADD COLUMN IF NOT EXISTS security_level TEXT NOT NULL DEFAULT 'internal';
             CREATE INDEX IF NOT EXISTS idx_mi_expires
                 ON {s}.memory_items USING BRIN (expires_at);
             CREATE INDEX IF NOT EXISTS idx_mi_gin

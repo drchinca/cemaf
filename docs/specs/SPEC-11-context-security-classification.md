@@ -72,7 +72,7 @@ Gate rule: a source whose level `.rank > clearance.rank` is excluded
 
 ### 2.3 Classification carriers
 
-The level travels with the content, never in a side map:
+The level travels with the content. `source_levels` exists only to label `(key, content)` pairs at the compiler boundary:
 
 - `ContextSource.security_level` (default INTERNAL); every compiler gates on this field.
 - `MemoryItem.security_level` (default INTERNAL); persisted by the JSON, SQLite and Postgres stores.

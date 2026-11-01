@@ -367,9 +367,13 @@ class TestRecallRespectsClearance:
             memory_manager=memory_manager,
         )
 
+        warnings: list[dict[str, str]] = []
         recalled = await executor._recall_global_memory(
-            agent_name="Analyst", goal_text="salary office", run_id=""
+            agent_name="Analyst", goal_text="salary office", run_id="", warnings=warnings
         )
 
         assert "office" in recalled
         assert "salaries" not in recalled
+        withheld = [w for w in warnings if w["stage"] == "memory_clearance"]
+        assert len(withheld) == 1
+        assert "salaries" in withheld[0]["error_message"]
