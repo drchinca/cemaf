@@ -24,7 +24,6 @@ def _create_memory_backed_knowledge_graph(**kwargs: Any) -> KnowledgeGraph:
 
 
 knowledge_graph_registry.register(backend="memory", factory=_create_memory_backed_knowledge_graph)
-knowledge_graph_registry.register(backend="memory_backed", factory=_create_memory_backed_knowledge_graph)
 
 
 def create_knowledge_graph(

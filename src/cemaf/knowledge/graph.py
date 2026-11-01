@@ -18,6 +18,10 @@ from cemaf.memory.base import MemoryItem
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 
+_SEARCH_WINDOW_MULTIPLIER = 2
+_SEARCH_WINDOW_GROWTH = 4
+_MAX_SEARCH_WINDOW = 1000
+
 
 class MemoryBackedKnowledgeGraph:
     """Knowledge graph that stores entities and relations as MemoryItems."""
@@ -118,26 +122,25 @@ class MemoryBackedKnowledgeGraph:
         entity_type: EntityType | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
-        """Semantic search for entities via MemoryManager.recall()."""
-        results = await self._memory.recall(
-            MemoryQuery(
-                text=query,
-                scope=self._SCOPE,
-                limit=limit * 2,
-                max_security_level=self._clearance,
+        """Semantic search for entities; widens the window when relation and index items fill it."""
+        window = limit * _SEARCH_WINDOW_MULTIPLIER
+        while True:
+            results = await self._memory.recall(
+                MemoryQuery(text=query, scope=self._SCOPE, limit=window, max_security_level=self._clearance)
             )
-        )
-        entities: list[KGEntity] = []
-        for result in results:
-            if not result.item.key.startswith(self._ENTITY_PREFIX) or not self._admits(result.item):
-                continue
-            entity = self._entity_from_dict(data=result.item.value)
-            if entity_type is not None and entity.type != entity_type:
-                continue
-            entities.append(entity)
-            if len(entities) >= limit:
-                break
-        return tuple(entities)
+            entities: list[KGEntity] = []
+            for result in results:
+                if not result.item.key.startswith(self._ENTITY_PREFIX) or not self._admits(result.item):
+                    continue
+                entity = self._entity_from_dict(data=result.item.value)
+                if entity_type is not None and entity.type != entity_type:
+                    continue
+                entities.append(entity)
+                if len(entities) >= limit:
+                    return tuple(entities)
+            if len(results) < window or window >= _MAX_SEARCH_WINDOW:
+                return tuple(entities)
+            window *= _SEARCH_WINDOW_GROWTH
 
     async def remove_entity(self, entity_id: str) -> bool:
         """Remove entity, its relations, and clean up indexes."""

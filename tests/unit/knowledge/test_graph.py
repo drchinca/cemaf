@@ -662,3 +662,17 @@ class TestKnowledgeGraphClassification:
 
         with pytest.raises(PermissionError):
             await writer.add_entity(KGEntity(id="payroll", type=EntityType.MODULE, name="Downgraded"))
+
+
+@pytest.mark.asyncio
+async def test_search_returns_limit_entities_when_relations_fill_the_window() -> None:
+    graph = MemoryBackedKnowledgeGraph(memory_manager=FakeMemoryManager(), clearance=SecurityLevel.INTERNAL)
+    await graph.add_entity(KGEntity(id="office-1", type=EntityType.MODULE, name="one"))
+    await graph.add_entity(KGEntity(id="office-2", type=EntityType.MODULE, name="two"))
+    for relation_type in (RelationType.CONTAINS, RelationType.USES, RelationType.DEPENDS_ON):
+        await graph.add_relation(KGRelation(source_id="office-1", target_id="office-2", type=relation_type))
+    await graph.add_entity(KGEntity(id="office-3", type=EntityType.MODULE, name="three"))
+
+    found = await graph.search(query="office", limit=3)
+
+    assert sorted(e.id for e in found) == ["office-1", "office-2", "office-3"]

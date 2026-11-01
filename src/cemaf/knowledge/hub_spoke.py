@@ -9,6 +9,7 @@ events are dropped.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -38,26 +39,38 @@ class InvalidationKind(StrEnum):
     RELATION_ADDED = "relation_added"
 
 
+def entity_digest(*, entity_id: str) -> str:
+    """SHA-256 of an entity ID, so invalidation events never carry the ID itself."""
+    return hashlib.sha256(entity_id.encode()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class KGInvalidationEvent:
     kind: InvalidationKind
-    entity_ids: tuple[str, ...]
+    entity_digests: tuple[str, ...]
     correlation_id: str = ""
+
+    @classmethod
+    def for_entities(cls, *, kind: InvalidationKind, entity_ids: tuple[str, ...]) -> KGInvalidationEvent:
+        """Build an event naming entities only by digest."""
+        return cls(
+            kind=kind, entity_digests=tuple(entity_digest(entity_id=entity_id) for entity_id in entity_ids)
+        )
 
     def to_payload(self) -> dict[str, object]:
         return {
             "kind": self.kind.value,
-            "entity_ids": list(self.entity_ids),
+            "entity_digests": list(self.entity_digests),
             "correlation_id": self.correlation_id,
         }
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> KGInvalidationEvent:
-        raw_ids = payload.get("entity_ids", [])
-        ids = raw_ids if isinstance(raw_ids, list) else []
+        raw = payload.get("entity_digests", [])
+        digests = raw if isinstance(raw, list) else []
         return cls(
             kind=InvalidationKind(str(payload["kind"])),
-            entity_ids=tuple(str(x) for x in ids),
+            entity_digests=tuple(str(x) for x in digests),
             correlation_id=str(payload.get("correlation_id", "")),
         )
 
@@ -141,8 +154,10 @@ class LocalSpokeCache:
     async def invalidate(self, event: KGInvalidationEvent) -> None:
         try:
             self._stats.invalidations_received += 1
-            for entity_id in event.entity_ids:
+            digests = set(event.entity_digests)
+            for entity_id in [key for key in self._entries if entity_digest(entity_id=key) in digests]:
                 self._entries.pop(entity_id, None)
+            for entity_id in [key for key in self._inflight if entity_digest(entity_id=key) in digests]:
                 self._inflight.discard(entity_id)
             self._stats.size = len(self._entries)
         except Exception:
@@ -190,18 +205,14 @@ class HubKnowledgeGraph:
     async def add_entity(self, entity: KGEntity) -> None:
         await self._kg.add_entity(entity)
         await self._publish(
-            KGInvalidationEvent(
-                kind=InvalidationKind.ENTITY_UPDATED,
-                entity_ids=(entity.id,),
-            )
+            KGInvalidationEvent.for_entities(kind=InvalidationKind.ENTITY_UPDATED, entity_ids=(entity.id,))
         )
 
     async def add_relation(self, relation: KGRelation) -> None:
         await self._kg.add_relation(relation)
         await self._publish(
-            KGInvalidationEvent(
-                kind=InvalidationKind.RELATION_ADDED,
-                entity_ids=(relation.source_id, relation.target_id),
+            KGInvalidationEvent.for_entities(
+                kind=InvalidationKind.RELATION_ADDED, entity_ids=(relation.source_id, relation.target_id)
             )
         )
 
@@ -228,9 +239,8 @@ class HubKnowledgeGraph:
         result = await self._kg.remove_entity(entity_id)
         if result:
             await self._publish(
-                KGInvalidationEvent(
-                    kind=InvalidationKind.ENTITY_REMOVED,
-                    entity_ids=(entity_id,),
+                KGInvalidationEvent.for_entities(
+                    kind=InvalidationKind.ENTITY_REMOVED, entity_ids=(entity_id,)
                 )
             )
         return result
@@ -311,6 +321,7 @@ __all__ = [
     "HubKnowledgeGraph",
     "InvalidationKind",
     "KGInvalidationEvent",
+    "entity_digest",
     "KG_INVALIDATION_EVENT_TYPE",
     "LocalSpokeCache",
     "SpokeCacheConfig",

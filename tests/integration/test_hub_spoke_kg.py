@@ -24,6 +24,7 @@ from cemaf.knowledge.hub_spoke import (
     SpokeCacheConfig,
     SpokeReadHubWriteKG,
     create_hub_spoke_kg,
+    entity_digest,
 )
 from cemaf.knowledge.models import EntityType, KGEntity, KGRelation, RelationType
 from cemaf.memory.factories import create_memory_manager
@@ -132,7 +133,8 @@ async def test_invalidation_reaches_non_spoke_subscriber(real_kg, event_bus: InM
     await asyncio.sleep(0)  # let the bus dispatch
 
     assert len(received) == 1
-    assert received[0].payload["entity_ids"] == ["mod:evals"]
+    assert received[0].payload["entity_digests"] == [entity_digest(entity_id="mod:evals")]
+    assert "mod:evals" not in str(received[0].payload)  # IDs never travel on the bus
     assert received[0].payload["kind"] == "entity_updated"
 
 
