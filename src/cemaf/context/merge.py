@@ -47,12 +47,26 @@ def _branch_level(*, key: str, branches: list[Context]) -> SecurityLevel:
     return max(levels, key=lambda level: level.rank, default=SecurityLevel.INTERNAL)
 
 
+def _drop_branch_deletions(
+    *, base: Context, branches: list[Context], merged_data: dict[str, Any]
+) -> dict[str, Any]:
+    """Remove base keys a branch deleted, unless another branch changed that key."""
+    kept = dict(merged_data)
+    for key in base.data:
+        deleted = any(key not in branch.data for branch in branches)
+        changed = any(key in branch.data and branch.data[key] != base.data[key] for branch in branches)
+        if deleted and not changed:
+            kept.pop(key, None)
+    return kept
+
+
 def _record_merge(*, base: Context, branches: list[Context], merged_data: dict[str, Any]) -> Context:
     """Return base plus one patch per changed top-level key, labelled with the branches' level.
 
     Top-level keys containing "." cannot be expressed as patch paths; they are kept exactly
     in the result but do not replay from its history.
     """
+    merged_data = _drop_branch_deletions(base=base, branches=branches, merged_data=merged_data)
     result = base
     for key in sorted(base.data.keys() - merged_data.keys()):
         result = result.apply(

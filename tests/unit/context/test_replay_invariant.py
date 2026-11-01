@@ -113,3 +113,22 @@ def test_every_merge_strategy_result_replays_to_its_state(strategy: MergeStrateg
     for patch in joined.patch_history:
         replayed = replayed.apply(patch)
     assert replayed.state_hash() == joined.state_hash()
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [LastWriteWinsStrategy(), DeepMergeStrategy(), ReducerMergeStrategy()],
+    ids=["last_write_wins", "deep_merge", "reducer"],
+)
+def test_branch_deletion_propagates_unless_another_branch_changed_the_key(strategy: MergeStrategy) -> None:
+    base = Context().set("keep", 1).set("drop", 2).set("contested", 3)
+    left = base.delete("drop").delete("contested")
+    right = base.set("contested", 30).set("added", 4)
+
+    joined = strategy.merge(base=base, branches=[left, right]).context
+
+    assert joined.to_dict() == {"keep": 1, "contested": 30, "added": 4}
+    replayed = Context()
+    for patch in joined.patch_history:
+        replayed = replayed.apply(patch)
+    assert replayed.state_hash() == joined.state_hash()
