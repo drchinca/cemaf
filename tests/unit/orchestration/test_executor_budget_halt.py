@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.observability.budget_guard import BudgetGuard
@@ -87,6 +88,7 @@ async def test_budget_halts_on_telemetry_keys() -> None:
     )
     guard = BudgetGuard(max_cost_usd=1.0)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard),
@@ -112,6 +114,7 @@ async def test_budget_accepts_legacy_keys() -> None:
     )
     guard = BudgetGuard(max_cost_usd=1.0)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard),
@@ -130,6 +133,7 @@ async def test_budget_does_not_halt_under_cap() -> None:
     )
     guard = BudgetGuard(max_cost_usd=1.0)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard),

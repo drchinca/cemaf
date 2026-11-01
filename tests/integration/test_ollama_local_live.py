@@ -11,6 +11,7 @@ import os
 import pytest
 
 from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.llm.ollama import create_ollama_client
 from cemaf.llm.protocols import LLMClient, Message
 from cemaf.rlm import create_rlm_tool
@@ -53,6 +54,7 @@ async def test_real_ollama_recursively_decomposes_and_aggregates_bounded_context
         chunk_size=100,
         max_depth=3,
         max_tokens=300,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     content = "\n\n".join(
         (

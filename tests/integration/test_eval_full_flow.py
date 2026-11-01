@@ -2,6 +2,7 @@
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice, QualityPoliceConfig
@@ -163,6 +164,7 @@ class TestFullEvalFlow:
         )
         config = ExecutorConfig(enable_events=True)
         create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=config,
             services=services,

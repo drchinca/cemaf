@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID
 from cemaf.evals.police import AlertLevel, QualityPolice, QualityPoliceConfig
@@ -158,7 +159,10 @@ async def test_quality_police_predictive_halt_gracefully_stops_loop() -> None:
     services = RuntimeServices(event_bus=event_bus, quality_police=police, interceptor_pipeline=pipeline)
 
     executor = create_executor(
-        agent_registry=registry, services=services, config=ExecutorConfig(enable_events=True)
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        services=services,
+        config=ExecutorConfig(enable_events=True),
     )
 
     # 4. Construct DAG with a LOOP node

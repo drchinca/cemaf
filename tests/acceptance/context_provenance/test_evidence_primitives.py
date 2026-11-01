@@ -25,6 +25,7 @@ def _compiler() -> PriorityContextCompiler:
 async def test_selected_revision_ids_survive_compilation(policy_corpus):
     revisions = policy_corpus["policies"][:2]
     compiled = await _compiler().compile(
+        clearance=SecurityLevel.CONFIDENTIAL,
         artifacts=tuple((item["source_id"], item["content"]) for item in revisions),
         memories=(),
         budget=TokenBudget(max_tokens=1000, reserved_for_output=0),
@@ -39,6 +40,7 @@ async def test_selected_revision_ids_survive_compilation(policy_corpus):
 @pytest.mark.context_acceptance("selection_budget")
 async def test_budget_selection_reports_omitted_evidence():
     compiled = await _compiler().compile(
+        clearance=SecurityLevel.CONFIDENTIAL,
         artifacts=(("current", "a" * 80), ("older", "b" * 80)),
         memories=(),
         priorities={"current": 10, "older": 1},
@@ -109,6 +111,7 @@ def test_citation_membership_does_not_assert_claim_truth():
 async def test_exact_model_messages_and_citation_metadata_survive_round_trip(policy_corpus):
     policy = policy_corpus["policies"][1]
     compiled = await _compiler().compile(
+        clearance=SecurityLevel.CONFIDENTIAL,
         artifacts=((policy["source_id"], policy["content"]),),
         memories=(),
         budget=TokenBudget(max_tokens=1000, reserved_for_output=0),

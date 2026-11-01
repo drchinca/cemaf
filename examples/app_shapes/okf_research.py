@@ -19,6 +19,7 @@ from cemaf import DAG, Agent, AgentContext, AgentRegistry, AgentResult, AgentSta
 from cemaf.citation import CitationTracker
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON, AgentID
 from cemaf.evals.grounding import GroundednessEvaluator
 from cemaf.evals.protocols import EvalResult
@@ -132,7 +133,7 @@ async def run_example(proposal_dir: Path) -> JSON:
     discovery = await adapter.adapt_catalog(bundle, discovery_budget, directory="findings")
     print(discovery.source.content)
     source = await adapter.adapt(selected, budget)
-    graph = create_knowledge_graph(create_memory_manager())
+    graph = create_knowledge_graph(create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL)
     imported = await import_okf_bundle(bundle, graph=graph, bundle_id=bundle_id)
     assert not imported.unresolved_links
     logger = InMemoryRunLogger()
@@ -167,7 +168,9 @@ async def run_example(proposal_dir: Path) -> JSON:
             },
         )
     )
-    result = await create_executor(agent_registry=registry, services=services).run(dag=dag)
+    result = await create_executor(
+        agent_registry=registry, services=services, clearance=SecurityLevel.CONFIDENTIAL
+    ).run(dag=dag)
     assert result.success, result.error
     report = result.final_context.get("report")
     if isinstance(report, str):

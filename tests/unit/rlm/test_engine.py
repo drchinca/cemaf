@@ -10,6 +10,7 @@ import pytest
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, ToolDefinition
 from cemaf.rlm.engine import DivideAndConquerQueryEngine
@@ -118,13 +119,17 @@ class TestDivideAndConquerQueryEngine:
         self, llm_client: MockLLMClient, compiler: PriorityContextCompiler
     ) -> DivideAndConquerQueryEngine:
         """Create query engine."""
-        return DivideAndConquerQueryEngine(llm_client, compiler, max_depth=3)
+        return DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=3, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
     def test_engine_initialization(
         self, llm_client: MockLLMClient, compiler: PriorityContextCompiler
     ) -> None:
         """Test engine initialization."""
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=5)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=5, clearance=SecurityLevel.CONFIDENTIAL
+        )
         assert engine._max_depth == 5
 
     @pytest.mark.asyncio
@@ -340,7 +345,9 @@ class TestDivideAndConquerQueryEngine:
             def count_messages_tokens(self, messages: list[Message]) -> TokenCount:
                 return TokenCount(10)
 
-        engine = DivideAndConquerQueryEngine(FailingLLMClient(), compiler)  # type: ignore[arg-type]
+        engine = DivideAndConquerQueryEngine(
+            FailingLLMClient(), compiler, clearance=SecurityLevel.CONFIDENTIAL
+        )  # type: ignore[arg-type]
         chunks = (ContextChunk(chunk_id="chunk_0", content="Test", token_count=TokenCount(5)),)
 
         budget = TokenBudget(max_tokens=10000)
@@ -362,7 +369,9 @@ class TestDivideAndConquerQueryEngine:
             lambda prompt: "[Chunk left_fail]" in prompt,
             failure="left branch unavailable",
         )
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=2, clearance=SecurityLevel.CONFIDENTIAL
+        )
         chunks = (
             ContextChunk(chunk_id="left_fail", content="left failure content", token_count=TokenCount(500)),
             ContextChunk(chunk_id="left_ok", content="left ok content", token_count=TokenCount(500)),
@@ -389,7 +398,9 @@ class TestDivideAndConquerQueryEngine:
             lambda prompt: "[Chunk right_fail]" in prompt,
             failure="right branch unavailable",
         )
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=2, clearance=SecurityLevel.CONFIDENTIAL
+        )
         chunks = (
             ContextChunk(chunk_id="left_ok_1", content="left ok content", token_count=TokenCount(500)),
             ContextChunk(chunk_id="left_ok_2", content="left ok content", token_count=TokenCount(500)),
@@ -418,7 +429,9 @@ class TestDivideAndConquerQueryEngine:
             lambda prompt: "two parts of the context" in prompt,
             failure="aggregator unavailable",
         )
-        engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth=2)
+        engine = DivideAndConquerQueryEngine(
+            llm_client, compiler, max_depth=2, clearance=SecurityLevel.CONFIDENTIAL
+        )
         chunks = (
             ContextChunk(chunk_id="left_ok", content="left ok content", token_count=TokenCount(500)),
             ContextChunk(chunk_id="right_ok", content="right ok content", token_count=TokenCount(500)),

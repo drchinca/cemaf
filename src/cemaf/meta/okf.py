@@ -14,6 +14,7 @@ from cemaf.tools.registry import ToolRegistry
 
 def build_cemaf_okf_bundle(*, repo_root: Path) -> OKFBundle:
     """Describe repository architecture and an offline self-hosting composition."""
+    from cemaf.context.patch import SecurityLevel
     from cemaf.docs_api.contracts import PythonContractDocSource
     from cemaf.docs_api.okf import build_okf_bundle
     from cemaf.docs_api.sources import MarkdownDocSource
@@ -23,8 +24,10 @@ def build_cemaf_okf_bundle(*, repo_root: Path) -> OKFBundle:
     from cemaf.orchestration.services import RuntimeServices
 
     agents, tools = AgentRegistry(), ToolRegistry()
+    # Only the registered agents and tools are read; no data is compiled, so least privilege.
     create_meta_executor(
         agent_registry=agents,
+        clearance=SecurityLevel.PUBLIC,
         tool_registry=tools,
         services=RuntimeServices(memory_manager=create_memory_manager(), event_bus=InMemoryEventBus()),
     )

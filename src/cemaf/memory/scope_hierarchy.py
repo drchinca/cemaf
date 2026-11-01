@@ -100,6 +100,7 @@ class PropagatingScorer:
                 scope=query.scope,
                 scopes=query.scopes,
                 min_confidence=query.min_confidence,
+                max_security_level=query.max_security_level,
                 scope_path=path_str,
                 limit=5,
             )

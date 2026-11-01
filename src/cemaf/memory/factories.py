@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from cemaf.config.protocols import Settings
 from cemaf.context.compiler import ContextCompiler, TokenEstimator
 from cemaf.context.factories import create_priority_compiler, create_token_estimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryBackend
 from cemaf.core.provider_registry import ProviderRegistry
 from cemaf.events.protocols import EventBus
@@ -412,6 +413,7 @@ def create_memory_context_provider(
     chars_per_token: float = 4.0,
     compactor_type: str = "simple",
     scorer: MemoryScorer | None = None,
+    clearance: SecurityLevel,
 ) -> DefaultMemoryContextProvider:
     """Create a `DefaultMemoryContextProvider` — the JIT memory-to-context pull bridge.
 
@@ -431,6 +433,7 @@ def create_memory_context_provider(
         compiler=compiler or create_priority_compiler(token_estimator=estimator),
         token_estimator=estimator,
         tiered_store=tiered_store,
+        clearance=clearance,
     )
 
 

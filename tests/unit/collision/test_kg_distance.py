@@ -8,6 +8,7 @@ to decay.
 import pytest
 
 from cemaf.collision import build_kg_dep_distance
+from cemaf.context.patch import SecurityLevel
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.models import EntityType, KGEntity, KGRelation, RelationType
 from cemaf.memory.factories import create_memory_manager
@@ -16,7 +17,7 @@ INF = float("inf")
 
 
 async def _kg(*edges: tuple[str, str]):
-    kg = create_knowledge_graph(memory_manager=create_memory_manager())
+    kg = create_knowledge_graph(memory_manager=create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL)
     nodes = {n for edge in edges for n in edge}
     for node in nodes:
         await kg.add_entity(KGEntity(id=node, type=EntityType.MODULE, name=node))

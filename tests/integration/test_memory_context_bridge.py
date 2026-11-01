@@ -8,6 +8,7 @@ import pytest
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.memory.base import InMemoryStore
 from cemaf.memory.compaction import SimpleMemoryCompactor
@@ -16,7 +17,7 @@ from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.memory.session import DefaultSessionManager
+from cemaf.memory.session import DefaultSessionManager, ReportingSessionManager
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ def _wire_full_stack() -> tuple[
     )
 
     context_provider = DefaultMemoryContextProvider(
+        clearance=SecurityLevel.CONFIDENTIAL,
         memory_manager=memory_manager,
         compactor=compactor,
         compiler=compiler,
@@ -338,3 +340,145 @@ class TestSemanticSearchToContext:
         source_types = {s.source_type for s in compiled.sources}
         assert "artifact" in source_types
         assert "memory" in source_types
+
+
+class TestMemoryClassificationReachesTheGate:
+    """A memory's security level survives recall, compaction and compilation (SPEC-11)."""
+
+    @pytest.mark.asyncio
+    async def test_confidential_memory_is_withheld_from_internal_clearance(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        await memory_manager.remember(
+            scope=MemoryScope.TENANT,
+            key="salaries",
+            value={"ceo": 1},
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+        await memory_manager.remember(scope=MemoryScope.TENANT, key="office", value={"city": "Lima"})
+        estimator = SimpleTokenEstimator()
+        provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.INTERNAL,
+            memory_manager=memory_manager,
+            compactor=compactor,
+            compiler=PriorityContextCompiler(token_estimator=estimator),
+            token_estimator=estimator,
+        )
+
+        compiled = await provider.compile_with_memories(
+            artifacts=(),
+            memory_query=MemoryQuery(scope=MemoryScope.TENANT),
+            budget=TokenBudget(max_tokens=4000, reserved_for_output=500),
+        )
+
+        secret_key = f"{MemoryScope.TENANT.value}:salaries"
+        kept = {s.source_id for s in compiled.sources}
+        assert f"{MemoryScope.TENANT.value}:office" in kept
+        assert secret_key not in kept
+        assert (
+            secret_key not in compiled.metadata["security_excluded"]
+        )  # never fetched: filtered at the query
+
+    @pytest.mark.asyncio
+    async def test_session_promotion_keeps_confidential_level(self) -> None:
+        memory_manager, _, _, session_manager = _wire_full_stack()
+        await session_manager.bootstrap(session_id="s1")
+        await session_manager.ingest(
+            session_id="s1",
+            key="salary-band",
+            value={"band": "C"},
+            confidence=0.9,
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+
+        await session_manager.dispose(session_id="s1", promote_to=MemoryScope.PROJECT)
+        promoted = await memory_manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
+
+        assert [r.item.security_level for r in promoted] == [SecurityLevel.CONFIDENTIAL]
+
+    @pytest.mark.asyncio
+    async def test_provider_sources_are_gated_at_its_clearance(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        await memory_manager.remember(
+            scope=MemoryScope.TENANT,
+            key="salaries",
+            value={"ceo": 1},
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+        await memory_manager.remember(scope=MemoryScope.TENANT, key="office", value={"city": "Lima"})
+        estimator = SimpleTokenEstimator()
+        provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.INTERNAL,
+            memory_manager=memory_manager,
+            compactor=compactor,
+            compiler=PriorityContextCompiler(token_estimator=estimator),
+            token_estimator=estimator,
+        )
+
+        pairs = await provider.provide_memories_for_compiler(
+            query=MemoryQuery(scope=MemoryScope.TENANT), token_budget=4000
+        )
+
+        assert [key for key, _ in pairs] == [f"{MemoryScope.TENANT.value}:office"]
+
+    @pytest.mark.asyncio
+    async def test_artifact_key_colliding_with_memory_key_is_rejected(self) -> None:
+        memory_manager, _, provider, _ = _wire_full_stack()
+        await memory_manager.remember(scope=MemoryScope.TENANT, key="summary", value={"v": 1})
+
+        with pytest.raises(ValueError, match="collide"):
+            await provider.compile_with_memories(
+                artifacts=((f"{MemoryScope.TENANT.value}:summary", "artifact text"),),
+                memory_query=MemoryQuery(scope=MemoryScope.TENANT),
+                budget=TokenBudget(max_tokens=4000, reserved_for_output=500),
+            )
+
+    @pytest.mark.asyncio
+    async def test_reporting_session_promotion_keeps_confidential_level(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        session_manager = ReportingSessionManager(memory_manager=memory_manager, compactor=compactor)
+        await session_manager.bootstrap(session_id="s2")
+        await session_manager.ingest(
+            session_id="s2",
+            key="salary-band",
+            value={"band": "C"},
+            confidence=0.9,
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+
+        await session_manager.dispose(session_id="s2", promote_to=MemoryScope.PROJECT)
+        promoted = await memory_manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
+
+        assert [r.item.security_level for r in promoted] == [SecurityLevel.CONFIDENTIAL]
+
+    @pytest.mark.asyncio
+    async def test_provider_is_not_crowded_out_by_withheld_memories(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        for index in range(40):
+            await memory_manager.remember(
+                scope=MemoryScope.TENANT,
+                key=f"secret-{index}",
+                value={"v": index},
+                content_for_embedding="office",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        await memory_manager.remember(
+            scope=MemoryScope.TENANT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office",
+            confidence=0.1,
+        )
+        estimator = SimpleTokenEstimator()
+        provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.INTERNAL,
+            memory_manager=memory_manager,
+            compactor=compactor,
+            compiler=PriorityContextCompiler(token_estimator=estimator),
+            token_estimator=estimator,
+        )
+
+        sources = await provider.provide_context_sources(
+            query=MemoryQuery(text="office", scope=MemoryScope.TENANT, limit=1), token_budget=4000
+        )
+
+        assert [s.source_id for s in sources] == [f"{MemoryScope.TENANT.value}:office"]

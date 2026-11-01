@@ -10,6 +10,7 @@ from cemaf.blueprint.core import Blueprint, SceneGoal
 from cemaf.blueprint.entities import ContextEntity
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 
 
 class TestBlueprintCompiler:
@@ -94,6 +95,7 @@ class TestBlueprintCompiler:
         budget = TokenBudget(max_tokens=10000, reserved_for_output=1000)
 
         compiled = await compiler.compile(
+            clearance=SecurityLevel.CONFIDENTIAL,
             artifacts=artifacts,
             memories=memories,
             budget=budget,
@@ -131,6 +133,7 @@ class TestBlueprintCompiler:
         budget = TokenBudget(max_tokens=50)  # Small budget - should select high priority
 
         compiled = await compiler.compile(
+            clearance=SecurityLevel.CONFIDENTIAL,
             artifacts=artifacts,
             memories=memories,
             budget=budget,

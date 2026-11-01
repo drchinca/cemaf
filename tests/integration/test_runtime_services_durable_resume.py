@@ -14,6 +14,7 @@ from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
@@ -125,6 +126,7 @@ async def test_replacement_root_resumes_file_checkpoint_with_gates_events_trace_
     dag = _dag()
 
     doomed = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(die_on_second=True),
         config=ExecutorConfig(enable_events=False, enable_moderation=True),
         services=RuntimeServices(
@@ -155,6 +157,7 @@ async def test_replacement_root_resumes_file_checkpoint_with_gates_events_trace_
     bus.subscribe_all(capture)
     logger = InMemoryRunLogger()
     replacement = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(die_on_second=False),
         config=ExecutorConfig(enable_events=True, enable_logging=True, enable_moderation=True),
         services=RuntimeServices(

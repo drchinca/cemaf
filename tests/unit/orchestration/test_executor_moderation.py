@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.events.bus import InMemoryEventBus
@@ -106,6 +107,7 @@ def _registry() -> AgentRegistry:
 async def test_clean_output_is_allowed() -> None:
     pipeline = ModerationPipeline(post_flight=_KeywordBlockGate())
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=False, enable_moderation=True),
         services=RuntimeServices(moderation_pipeline=pipeline),
@@ -138,6 +140,7 @@ async def test_blocked_output_fails_node_and_dag() -> None:
     bus.subscribe_all(capture)
     pipeline = ModerationPipeline(post_flight=_KeywordBlockGate())
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=True, enable_moderation=True),
         services=RuntimeServices(
@@ -164,6 +167,7 @@ async def test_blocked_output_fails_node_and_dag() -> None:
 @pytest.mark.asyncio
 async def test_no_pipeline_configured_is_passthrough() -> None:
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),

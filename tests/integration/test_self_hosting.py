@@ -9,6 +9,7 @@ import pytest
 from cemaf.agents.base import AgentContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.events.bus import InMemoryEventBus
@@ -125,7 +126,7 @@ async def test_self_audit_loop() -> None:
 
     # 2. Create audit + KG
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     # 3. Seed events (simulate prior execution with scores for quality trend)
     for i in range(5):
@@ -157,6 +158,7 @@ async def test_self_audit_loop() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # 5. Verify meta-agents were registered
@@ -195,7 +197,7 @@ async def test_self_audit_loop() -> None:
 async def test_meta_executor_graceful_degradation() -> None:
     """Without event_bus/memory_manager, still returns a valid executor."""
     agent_registry = AgentRegistry()
-    _executor = create_meta_executor(agent_registry=agent_registry)
+    _executor = create_meta_executor(agent_registry=agent_registry, clearance=SecurityLevel.CONFIDENTIAL)
     assert _executor is not None
     # No meta-agents registered (no services to build them)
     assert agent_registry.get("MetaAuditor") is None
@@ -208,7 +210,7 @@ async def test_audit_to_knowledge_graph_wiring() -> None:
     memory_manager = FakeMemoryManager()
 
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     agent_registry = AgentRegistry()
     tool_registry = ToolRegistry()
@@ -224,6 +226,7 @@ async def test_audit_to_knowledge_graph_wiring() -> None:
         tool_registry=tool_registry,
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Publish events AFTER meta-executor creation

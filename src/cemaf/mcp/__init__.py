@@ -19,7 +19,7 @@ Usage (CEMAF as MCP server):
 
     adapter = MCPAdapter(transport=StdioTransport())
     adapter.register_tools(tool_registry.to_list())
-    adapter.set_memory_store(memory_store)
+    adapter.set_memory_store(memory_store, clearance=SecurityLevel.INTERNAL)
     await adapter.serve()
 """
 

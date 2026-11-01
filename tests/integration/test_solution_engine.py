@@ -18,6 +18,7 @@ import pytest
 from cemaf.agents.base import AgentContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.events.bus import InMemoryEventBus
@@ -113,7 +114,7 @@ async def _create_full_meta_stack() -> tuple[AgentRegistry, ToolRegistry, Runtim
     memory_manager = FakeMemoryManager()
 
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     agent_registry = AgentRegistry()
     tool_registry = ToolRegistry()
@@ -155,6 +156,7 @@ async def test_solution_designer_registered() -> None:
         services=services,
         meta_services=meta_services,
         config=ExecutorConfig(enable_events=False),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     assert agent_registry.get("MetaSolutionDesigner") is not None
@@ -170,6 +172,7 @@ async def test_solution_designer_solves_use_case() -> None:
         services=services,
         meta_services=meta_services,
         config=ExecutorConfig(enable_events=False),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     designer = agent_registry.get("MetaSolutionDesigner")
@@ -200,6 +203,7 @@ async def test_solution_versioning_in_knowledge_graph() -> None:
         services=services,
         meta_services=meta_services,
         config=ExecutorConfig(enable_events=False),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     designer = agent_registry.get("MetaSolutionDesigner")
@@ -252,6 +256,7 @@ async def test_solution_for_each_openviking_challenge() -> None:
         services=services,
         meta_services=meta_services,
         config=ExecutorConfig(enable_events=False),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     designer = agent_registry.get("MetaSolutionDesigner")

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.interceptors import GateValidationInterceptor, create_interceptor_pipeline
@@ -66,6 +67,7 @@ async def test_native_required_fields_validation_rejects_and_blocks_downstream()
         output_key="published",
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=pipeline),

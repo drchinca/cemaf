@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.interceptors import (
@@ -123,6 +124,7 @@ async def test_policy_deny_blocks_downstream_and_does_not_run_agent() -> None:
         rule_id="rule_ws_scoped",
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(gen, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(
@@ -143,6 +145,7 @@ async def test_policy_deny_blocks_downstream_and_does_not_run_agent() -> None:
 async def test_policy_allow_lets_dag_complete() -> None:
     gen, ran = _Gen(), []
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(gen, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(

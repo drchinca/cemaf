@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import FinishReason, TokenCount
 from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, StreamChunk, ToolDefinition
 from cemaf.rlm import create_rlm_tool
@@ -76,6 +77,7 @@ async def test_shared_rlm_tool_handles_concurrent_queries() -> None:
     """A shared RLMQueryTool should not leak per-query state under load."""
     llm_client = YieldingLLMClient()
     tool = create_rlm_tool(
+        clearance=SecurityLevel.CONFIDENTIAL,
         llm_client=llm_client,
         token_estimator=SimpleTokenEstimator(chars_per_token=4.0),
         chunk_size=100,

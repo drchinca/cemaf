@@ -48,6 +48,7 @@ class TieredMemoryStore:
             min_confidence=query.min_confidence,
             max_age=query.max_age,
             scope_path=query.scope_path,
+            max_security_level=query.max_security_level,
             limit=l0_limit,
         )
         candidates = await self._store.search(query=broad_query)
@@ -88,6 +89,7 @@ class TieredMemoryStore:
             min_confidence=query.min_confidence,
             max_age=query.max_age,
             scope_path=query.scope_path,
+            max_security_level=query.max_security_level,
             limit=l0_limit,
         )
         candidates = await self._store.search(query=broad_query)

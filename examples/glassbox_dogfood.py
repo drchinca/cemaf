@@ -66,6 +66,7 @@ from cemaf.blueprint import (
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON, AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.types import Opinion
@@ -353,6 +354,7 @@ async def main() -> None:
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(

@@ -16,6 +16,7 @@ from cemaf.context.compiler import (
     SimpleTokenEstimator,
 )
 from cemaf.context.patch import SecurityLevel
+from cemaf.core.types import TokenCount
 
 
 class TestTokenBudget:
@@ -144,7 +145,9 @@ class TestPriorityContextCompiler:
             ("large", "y" * 400),  # ~100 tokens - won't fit
         )
 
-        ctx = await compiler.compile(artifacts=artifacts, memories=(), budget=budget)
+        ctx = await compiler.compile(
+            artifacts=artifacts, memories=(), budget=budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         # Only small should fit (50 available tokens)
         assert ctx.total_tokens <= budget.available_tokens
@@ -167,6 +170,7 @@ class TestPriorityContextCompiler:
             memories=(),
             budget=budget,
             priorities=priorities,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         # High priority should be included
@@ -182,7 +186,9 @@ class TestPriorityContextCompiler:
 
         memories = (("user_context", "User prefers concise responses"),)
 
-        ctx = await compiler.compile(artifacts=(), memories=memories, budget=budget)
+        ctx = await compiler.compile(
+            artifacts=(), memories=memories, budget=budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         assert any(s.type == "memory" for s in ctx.sources)
 
@@ -223,11 +229,11 @@ class TestSecurityClearanceGate:
         assert "secrets" in ctx.metadata.get("security_excluded", [])
 
     @pytest.mark.asyncio
-    async def test_no_clearance_selects_identical_set(self, context_compiler: PriorityContextCompiler):
-        """Inv 3 / Property 3 — clearance=None yields the IDENTICAL set as the ungated path.
+    async def test_full_clearance_selects_identical_set(self, context_compiler: PriorityContextCompiler):
+        """Inv 3 / Property 3 — a CONFIDENTIAL caller sees the IDENTICAL set with or without classification.
 
-        Strengthened: multi-source mixed-level input compiled (a) with classification but no
-        clearance and (b) with no security kwargs at all → identical ordered keys + content_hash.
+        Multi-source mixed-level input compiled (a) with classification and (b) with no levels at all
+        → identical ordered keys + content_hash.
         """
         budget = TokenBudget(max_tokens=10000, reserved_for_output=0)
         artifacts = (("pub", "public notes"), ("conf", "api key"), ("int", "internal memo"))
@@ -238,12 +244,13 @@ class TestSecurityClearanceGate:
             memories=memories,
             budget=budget,
             source_levels={"conf": SecurityLevel.CONFIDENTIAL, "pub": SecurityLevel.PUBLIC},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         pristine = await context_compiler.compile(
             artifacts=artifacts,
             memories=memories,
             budget=budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert [s.key for s in gated_off.sources] == [s.key for s in pristine.sources]
         assert gated_off.content_hash == pristine.content_hash
@@ -262,14 +269,14 @@ class TestSecurityClearanceGate:
             memories=(),
             budget=budget,
             source_levels={"a": SecurityLevel.CONFIDENTIAL},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         as_public = await context_compiler.compile(
             artifacts=artifacts,
             memories=(),
             budget=budget,
             source_levels={"a": SecurityLevel.PUBLIC},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert as_conf.content_hash == as_public.content_hash
 
@@ -338,3 +345,52 @@ class TestSecurityClearanceGate:
             clearance=SecurityLevel.INTERNAL,
         )
         assert any(s.key == "plain" for s in ctx.sources)
+
+
+class TestSecurityLevelPropagation:
+    """Derived and compacted sources keep the classification of the content they carry."""
+
+    def test_with_priority_keeps_security_level(self):
+        source = ContextSource(content="payroll", security_level=SecurityLevel.CONFIDENTIAL)
+        assert source.with_priority(priority=5).security_level == SecurityLevel.CONFIDENTIAL
+
+    def test_with_token_count_keeps_security_level(self):
+        source = ContextSource(content="payroll", security_level=SecurityLevel.CONFIDENTIAL)
+        derived = source.with_token_count(token_count=TokenCount(3))
+        assert derived.security_level == SecurityLevel.CONFIDENTIAL
+
+    @pytest.mark.asyncio
+    async def test_compact_summary_inherits_highest_summarized_level(
+        self, context_compiler: PriorityContextCompiler
+    ):
+        secret = ContextSource(
+            content="s" * 500, token_count=TokenCount(125), security_level=SecurityLevel.CONFIDENTIAL
+        )
+        public = ContextSource(
+            content="p" * 500, token_count=TokenCount(125), security_level=SecurityLevel.PUBLIC
+        )
+        compiled = CompiledContext(
+            sources=(secret, public),
+            total_tokens=250,
+            budget=TokenBudget(max_tokens=10000, reserved_for_output=0),
+        )
+        compacted = await context_compiler.compact(
+            compiled=compiled, preserve_recent=0, summary_budget_tokens=5
+        )
+        summary = next(s for s in compacted.sources if s.source_type == "compacted_summary")
+        assert summary.security_level == SecurityLevel.CONFIDENTIAL
+
+    @pytest.mark.asyncio
+    async def test_streaming_compiler_excludes_and_records_above_clearance(self):
+        from cemaf.context.streaming_context_compiler import StreamingContextCompiler
+
+        compiler = StreamingContextCompiler(token_estimator=SimpleTokenEstimator())
+        compiled = await compiler.compile(
+            artifacts=(("payroll", "salaries"), ("brief", "public note")),
+            memories=(),
+            budget=TokenBudget(max_tokens=10000, reserved_for_output=0),
+            source_levels={"payroll": SecurityLevel.CONFIDENTIAL, "brief": SecurityLevel.PUBLIC},
+            clearance=SecurityLevel.INTERNAL,
+        )
+        assert [s.source_id for s in compiled.sources] == ["brief"]
+        assert compiled.metadata["security_excluded"] == ["payroll"]

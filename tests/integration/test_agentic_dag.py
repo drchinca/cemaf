@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.evals.evaluators import ContainsEvaluator, LengthEvaluator
@@ -195,6 +196,7 @@ class TestSingleAgentDag:
     @pytest.mark.asyncio
     async def test_single_agent_produces_output(self, registry: AgentRegistry) -> None:
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=False),
         )
@@ -229,6 +231,7 @@ class TestSingleAgentDag:
     @pytest.mark.asyncio
     async def test_agent_output_stored_in_context(self, registry: AgentRegistry) -> None:
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=False),
         )
@@ -259,6 +262,7 @@ class TestSingleAgentDag:
     @pytest.mark.asyncio
     async def test_failing_agent_returns_failure(self, registry: AgentRegistry) -> None:
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=False),
         )
@@ -299,6 +303,7 @@ class TestMultiAgentPipeline:
     @pytest.mark.asyncio
     async def test_two_agent_pipeline(self, registry: AgentRegistry) -> None:
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=False),
         )
@@ -351,6 +356,7 @@ class TestMultiAgentPipeline:
     @pytest.mark.asyncio
     async def test_pipeline_stops_on_failure_with_on_success_edge(self, registry: AgentRegistry) -> None:
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=False),
         )
@@ -426,6 +432,7 @@ class TestAgentDagWithEvals:
             quality_police=police,
         )
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -487,6 +494,7 @@ class TestAgentDagWithEvals:
             quality_police=police,
         )
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -577,6 +585,7 @@ class TestAgentDagWithEvals:
             quality_police=police,
         )
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -647,6 +656,7 @@ class TestAgentDagWithEvals:
             online_eval_pipeline=eval_pipeline,
         )
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -694,6 +704,7 @@ class TestQualityGuardInDag:
         reg.register_agent(agent_instance=guard, goal_type=QualityGuardGoal)
 
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=reg,
             config=ExecutorConfig(enable_events=False),
         )
@@ -740,6 +751,7 @@ class TestQualityGuardInDag:
         reg.register_agent(agent_instance=guard, goal_type=QualityGuardGoal)
 
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=reg,
             config=ExecutorConfig(enable_events=False),
         )
@@ -833,6 +845,7 @@ class TestFullAutomatedPipeline:
             quality_police=police,
         )
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,
@@ -933,6 +946,7 @@ class TestFullAutomatedPipeline:
             quality_police=police,
         )
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=ExecutorConfig(enable_events=True),
             services=services,

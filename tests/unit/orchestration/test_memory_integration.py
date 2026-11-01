@@ -4,9 +4,11 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope, NodeType
 from cemaf.core.types import NodeID, RunID
 from cemaf.memory.factories import create_memory_manager, create_session_manager
+from cemaf.memory.semantic import MemoryQuery
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 from cemaf.orchestration.dag import DAG, Node
 from cemaf.orchestration.executor import DAGExecutor
@@ -33,7 +35,7 @@ class TestContextNodeExecutorWithoutMemory:
 
     @pytest.mark.asyncio
     async def test_executor_without_memory_works(self, registry: AgentRegistry) -> None:
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         node = Node(
             id=NodeID("step_1"),
             type=NodeType.AGENT,
@@ -67,6 +69,7 @@ class TestContextNodeExecutorWithMemory:
         registry.register_agent(agent_instance=agent)
 
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             memory_manager=memory_manager,
         )
@@ -96,6 +99,7 @@ class TestContextNodeExecutorWithMemory:
                 raise RuntimeError("Memory store unavailable")
 
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             memory_manager=BrokenMemoryManager(),  # type: ignore[arg-type]
         )
@@ -170,7 +174,7 @@ class TestContextNodeExecutorWithMemory:
             async def dispose(self, session_id, **kwargs):
                 return await session_manager.dispose(session_id=session_id, **kwargs)
 
-        node_executor = ContextNodeExecutor(agent_registry=registry)
+        node_executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         executor = DAGExecutor(
             node_executor=node_executor,
             session_manager=RecordingSessionManager(),  # type: ignore[arg-type]
@@ -247,7 +251,7 @@ class TestDAGExecutorSessionLifecycle:
     @pytest.mark.asyncio
     async def test_session_bootstrapped_and_disposed(self, registry: AgentRegistry, session_manager) -> None:
         """Session is bootstrapped at start and disposed at end of DAG run."""
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         dag_executor = DAGExecutor(
             node_executor=executor,
             session_manager=session_manager,
@@ -283,7 +287,7 @@ class TestDAGExecutorSessionLifecycle:
     @pytest.mark.asyncio
     async def test_dag_runs_without_session_manager(self, registry: AgentRegistry) -> None:
         """DAG executor works fine without session_manager (backward compat)."""
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         dag_executor = DAGExecutor(node_executor=executor)
 
         dag = DAG(
@@ -314,7 +318,7 @@ class TestDAGExecutorSessionLifecycle:
             async def dispose(self, session_id):
                 return 0
 
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         dag_executor = DAGExecutor(
             node_executor=executor,
             session_manager=BrokenSessionManager(),  # type: ignore[arg-type]
@@ -336,3 +340,92 @@ class TestDAGExecutorSessionLifecycle:
         # Should not raise — bootstrap failure is isolated
         result = await dag_executor.run(dag=dag)
         assert result is not None
+
+
+class TestRecallRespectsClearance:
+    """Recall feeds the compiler and the agent's global_memory, so the gate applies at recall."""
+
+    @pytest.mark.asyncio
+    async def test_memory_above_clearance_never_reaches_the_agent(
+        self, registry: AgentRegistry, memory_manager
+    ) -> None:
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="salaries",
+            value={"ceo": 1},
+            content_for_embedding="salary bands",
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office location",
+        )
+        executor = ContextNodeExecutor(
+            clearance=SecurityLevel.INTERNAL,
+            agent_registry=registry,
+            memory_manager=memory_manager,
+        )
+
+        warnings: list[dict[str, str]] = []
+        recalled = await executor._recall_global_memory(
+            agent_name="Analyst", goal_text="salary office", run_id="", warnings=warnings
+        )
+
+        assert "office" in recalled
+        assert "salaries" not in recalled
+        assert warnings == []  # filtered by the query itself, so nothing reached the executor's own gate
+
+    @pytest.mark.asyncio
+    async def test_withheld_memories_do_not_crowd_out_admitted_ones(
+        self, registry: AgentRegistry, memory_manager
+    ) -> None:
+        for index in range(12):
+            await memory_manager.remember(
+                scope=MemoryScope.PROJECT,
+                key=f"secret-{index}",
+                value={"v": index},
+                content_for_embedding="office secret",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office",
+            confidence=0.1,
+        )
+        executor = ContextNodeExecutor(
+            clearance=SecurityLevel.INTERNAL, agent_registry=registry, memory_manager=memory_manager
+        )
+
+        recalled = await executor._recall_global_memory(agent_name="Analyst", goal_text="office", run_id="")
+
+        assert list(recalled) == ["office"]
+
+    @pytest.mark.asyncio
+    async def test_semantic_recall_reaches_past_many_withheld_candidates(self, memory_manager) -> None:
+        for index in range(40):
+            await memory_manager.remember(
+                scope=MemoryScope.PROJECT,
+                key=f"secret-{index}",
+                value={"v": index},
+                content_for_embedding="office",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        await memory_manager.remember(
+            scope=MemoryScope.PROJECT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office",
+            confidence=0.1,
+        )
+
+        results = await memory_manager.recall(
+            query=MemoryQuery(
+                text="office", scope=MemoryScope.PROJECT, limit=1, max_security_level=SecurityLevel.INTERNAL
+            )
+        )
+
+        assert [r.item.key for r in results] == ["office"]

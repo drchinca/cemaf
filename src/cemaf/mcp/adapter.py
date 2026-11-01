@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from cemaf.blueprint.core import Blueprint
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON
 from cemaf.events.protocols import EventBus
 from cemaf.mcp.bridges import PromptBridge, ResourceBridge, ToolBridge
@@ -80,6 +81,7 @@ class MCPAdapter:
         self._tools: dict[str, Tool] = {}
         self._blueprints: dict[str, Blueprint] = {}
         self._memory_store: MemoryStore | None = None
+        self._memory_clearance: SecurityLevel = SecurityLevel.PUBLIC
         self._pending_tasks: set[asyncio.Task[None]] = set()
 
         # Server state
@@ -169,14 +171,10 @@ class MCPAdapter:
             return True
         return False
 
-    def set_memory_store(self, store: MemoryStore) -> None:
-        """
-        Set memory store for resource access.
-
-        Args:
-            store: Memory store to use.
-        """
+    def set_memory_store(self, store: MemoryStore, *, clearance: SecurityLevel) -> None:
+        """Expose a memory store as resources; items above clearance are never listed or read."""
         self._memory_store = store
+        self._memory_clearance = clearance
 
     # Server lifecycle
 
@@ -386,7 +384,9 @@ class MCPAdapter:
         resources: list[dict[str, Any]] = []
 
         if self._memory_store:
-            mcp_resources = await ResourceBridge.list_resources(self._memory_store)
+            mcp_resources = await ResourceBridge.list_resources(
+                store=self._memory_store, clearance=self._memory_clearance
+            )
             resources = [r.to_dict() for r in mcp_resources]
 
         return {"resources": resources}
@@ -404,7 +404,9 @@ class MCPAdapter:
         if not self._memory_store:
             raise ValueError("No memory store configured")
 
-        contents = await ResourceBridge.read_resource(self._memory_store, uri)
+        contents = await ResourceBridge.read_resource(
+            store=self._memory_store, uri=uri, clearance=self._memory_clearance
+        )
         if contents is None:
             raise ValueError(f"Resource not found: {uri}")
 

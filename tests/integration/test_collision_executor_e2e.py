@@ -20,6 +20,7 @@ from cemaf.collision import (
     WriteItem,
     create_collision_coordinator,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.interceptors.pipeline import InterceptorPipeline
@@ -163,6 +164,7 @@ async def _run_collision_dag(*, holder_started_at: float, steer_started_at: floa
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(interceptor_pipeline=pipeline),
     )
@@ -226,7 +228,7 @@ class TestCollisionThroughRealExecutor:
         dag = dag.add_node(
             node=Node.agent(id="steer_node", name="S", agent_id="steer", output_key="decision")
         )
-        executor = create_executor(agent_registry=registry)
+        executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         run = await executor.run(dag=dag)
         assert _result_for(run, "holder_node").success is True
         assert _result_for(run, "steer_node").success is True

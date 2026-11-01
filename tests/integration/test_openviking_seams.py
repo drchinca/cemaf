@@ -9,12 +9,14 @@ Tests that verify real wiring between new modules:
 
 import pytest
 
+from cemaf.context.budget import TokenBudget
 from cemaf.context.classification import (
     ContextTypeBehavior,
     ContextTypeClassifier,
     DefaultContextTypeClassifier,
 )
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextType
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
@@ -90,6 +92,7 @@ class TestTieredContextProviderIntegration:
         compiler = PriorityContextCompiler(token_estimator=token_estimator)
 
         provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.CONFIDENTIAL,
             memory_manager=manager,
             compactor=compactor,
             compiler=compiler,
@@ -104,6 +107,47 @@ class TestTieredContextProviderIntegration:
 
         assert len(sources) > 0
         assert all(s.source_type == "memory" for s in sources)
+
+    @pytest.mark.asyncio
+    async def test_tiered_path_keeps_classification_to_the_gate(self) -> None:
+        """A CONFIDENTIAL memory stored through the tiered store is withheld from INTERNAL clearance."""
+        semantic_store, _ = _wire_semantic_store()
+        tiered_store = TieredMemoryStore(
+            semantic_store=semantic_store, tier_generator=TruncationTierGenerator()
+        )
+        await tiered_store.store_with_tiers(
+            item=MemoryItem(
+                scope=MemoryScope.PROJECT,
+                key="salaries",
+                value={"content": "salary bands document"},
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        )
+        await tiered_store.store_with_tiers(
+            item=MemoryItem(scope=MemoryScope.PROJECT, key="office", value={"content": "office document"})
+        )
+        token_estimator = SimpleTokenEstimator()
+        provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.INTERNAL,
+            memory_manager=DefaultMemoryManager(
+                semantic_store=semantic_store, episodic_store=InMemoryEpisodicStore()
+            ),
+            compactor=SimpleMemoryCompactor(scorer=TemporalDecayScorer()),
+            compiler=PriorityContextCompiler(token_estimator=token_estimator),
+            token_estimator=token_estimator,
+            tiered_store=tiered_store,
+        )
+
+        compiled = await provider.compile_with_memories(
+            artifacts=(),
+            memory_query=MemoryQuery(text="document", scope=MemoryScope.PROJECT),
+            budget=TokenBudget(max_tokens=4000, reserved_for_output=500),
+        )
+
+        kept = {s.source_id for s in compiled.sources}
+        assert f"{MemoryScope.PROJECT.value}:salaries" not in kept
+        assert f"{MemoryScope.PROJECT.value}:office" in kept
+        assert compiled.metadata["security_excluded"] == []  # filtered at the query, never fetched
 
     @pytest.mark.asyncio
     async def test_context_provider_without_tiered_falls_back_to_flat(self) -> None:
@@ -127,6 +171,7 @@ class TestTieredContextProviderIntegration:
         compiler = PriorityContextCompiler(token_estimator=token_estimator)
 
         provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.CONFIDENTIAL,
             memory_manager=manager,
             compactor=compactor,
             compiler=compiler,

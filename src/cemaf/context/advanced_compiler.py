@@ -3,6 +3,7 @@ Advanced Context Compiler - Extends PriorityContextCompiler with summarization.
 """
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from cemaf.context.algorithm import (
@@ -14,6 +15,7 @@ from cemaf.context.compiler import (
     CompiledContext,
     TokenEstimator,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.core.types import TokenCount
 from cemaf.llm.protocols import LLMClient
@@ -58,6 +60,9 @@ class AdvancedContextCompiler:
         memories: tuple[tuple[str, str], ...],
         budget: TokenBudget,
         priorities: dict[str, int] | None = None,
+        *,
+        clearance: SecurityLevel,
+        source_levels: dict[str, SecurityLevel] | None = None,
     ) -> CompiledContext:
         """
         Compiles context with dual-mode behavior:
@@ -69,15 +74,25 @@ class AdvancedContextCompiler:
           Uses algorithm to select best sources, then summarization fallback
         """
         # Gather all sources (sorted by priority)
-        all_sources = self._gather_all_sources(artifacts, memories, priorities)
+        gathered = self._gather_all_sources(
+            artifacts=artifacts,
+            memories=memories,
+            priorities=priorities,
+            source_levels=source_levels,
+        )
+        all_sources = [source for source in gathered if source.security_level.rank <= clearance.rank]
+        security_excluded = [
+            source.source_id for source in gathered if source.security_level.rank > clearance.rank
+        ]
 
         # MODE SELECTION: Check if algorithm should be used
         if self._algorithm is not None:
             # MODE 2: Two-stage (algorithm + summarization)
-            return await self._compile_two_stage(all_sources, budget)
+            result = await self._compile_two_stage(all_sources, budget)
         else:
             # MODE 1: Pure summarization (current behavior)
-            return await self._compile_pure_summarization(all_sources, budget)
+            result = await self._compile_pure_summarization(all_sources, budget)
+        return replace(result, metadata={**result.metadata, "security_excluded": security_excluded})
 
     async def _compile_pure_summarization(
         self,
@@ -164,9 +179,11 @@ class AdvancedContextCompiler:
         artifacts: tuple[tuple[str, str], ...],
         memories: tuple[tuple[str, str], ...],
         priorities: dict[str, int] | None,
+        source_levels: dict[str, SecurityLevel] | None,
     ) -> list[ContextSource]:
         """Gather all sources without filtering by budget."""
         priorities = priorities or {}
+        levels = source_levels or {}
         sources: list[ContextSource] = []
 
         # Create sources from artifacts and memories
@@ -178,6 +195,7 @@ class AdvancedContextCompiler:
                     type="artifact",
                     key=key,
                     content=content,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                     token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )
@@ -191,6 +209,7 @@ class AdvancedContextCompiler:
                     type="memory",
                     key=key,
                     content=content,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                     token_count=TokenCount(tokens) if isinstance(tokens, int) else tokens,
                     priority=priority,
                 )

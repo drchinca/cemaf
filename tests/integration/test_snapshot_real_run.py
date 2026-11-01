@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID
 from cemaf.observability.run_logger import InMemoryRunLogger
@@ -111,6 +112,7 @@ async def _run() -> tuple[ExecutionResult, InMemoryRunLogger]:
     registry.register_agent(agent_instance=SummarizeAgent(), goal_type=SummarizeGoal)
     run_logger = InMemoryRunLogger()
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(run_logger=run_logger),
     )

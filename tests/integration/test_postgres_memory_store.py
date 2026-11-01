@@ -11,11 +11,13 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.core.utils import utc_now
@@ -72,6 +74,7 @@ class _FakeConnection:
                 ttl,
                 expires_at,
                 scope_path,
+                security_level,
             ) = params
             self._pool.rows[(tenant, scope, key)] = {
                 "tenant_id": tenant,
@@ -84,6 +87,7 @@ class _FakeConnection:
                 "ttl_seconds": ttl,
                 "expires_at": expires_at,
                 "scope_path": scope_path,
+                "security_level": security_level,
             }
             return "INSERT 0 1"
 
@@ -300,3 +304,14 @@ async def test_tenant_isolation() -> None:
     finally:
         await store_alpha.close()
         await store_beta.close()
+
+
+async def test_security_level_roundtrip(store: PostgresMemoryStore) -> None:
+    """security_level is written and read back, so a reload cannot relabel a memory."""
+    item = replace(_make_item(key="salaries"), security_level=SecurityLevel.CONFIDENTIAL)
+    await store.set(item=item)
+
+    retrieved = await store.get(scope=MemoryScope.TENANT, key="salaries")
+
+    assert retrieved is not None
+    assert retrieved.security_level == SecurityLevel.CONFIDENTIAL

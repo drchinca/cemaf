@@ -4,6 +4,7 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType
 from cemaf.core.types import NodeID
 from cemaf.evals.evaluators import LengthEvaluator
@@ -63,6 +64,7 @@ class TestEvalPipelineIntegration:
         )
         config = ExecutorConfig(enable_events=True)
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=config,
             services=services,
@@ -85,6 +87,7 @@ class TestEvalPipelineIntegration:
         )
         config = ExecutorConfig(enable_events=True)
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=config,
             services=services,

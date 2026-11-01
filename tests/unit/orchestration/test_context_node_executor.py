@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType
 from cemaf.core.types import AgentID, NodeID
 from cemaf.knowledge import EntityType, KGEntity, create_knowledge_graph
@@ -26,7 +27,7 @@ def registry() -> AgentRegistry:
 @pytest.fixture
 def executor(registry: AgentRegistry) -> ContextNodeExecutor:
     """Create executor with registry."""
-    return ContextNodeExecutor(agent_registry=registry)
+    return ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
 
 @pytest.fixture
@@ -34,7 +35,9 @@ def executor_with_logger(registry: AgentRegistry) -> tuple[ContextNodeExecutor, 
     """Create executor with run logger."""
     run_logger = InMemoryRunLogger()
     run_logger.start_run(run_id="test-run", dag_name="test-dag", initial_context=Context())
-    executor = ContextNodeExecutor(agent_registry=registry, run_logger=run_logger)
+    executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, run_logger=run_logger
+    )
     return executor, run_logger
 
 
@@ -107,7 +110,7 @@ class TestContextNodeExecutor:
         agent = registry.create_agent("Librarian", vector_store=vector_store)
         assert agent is not None
         registry.register_agent(agent_instance=agent)
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
         node = Node(
             id=NodeID("step_1"),
@@ -127,7 +130,7 @@ class TestContextNodeExecutor:
         agent = registry.create_agent("Summarizer", llm_client=llm_client)
         assert agent is not None
         registry.register_agent(agent_instance=agent)
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
         node = Node(
             id=NodeID("step_1"),
@@ -157,6 +160,7 @@ class TestContextNodeExecutor:
         run_logger = InMemoryRunLogger()
         run_logger.start_run(run_id="prov-test", dag_name="test", initial_context=Context())
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             run_logger=run_logger,
         )
@@ -186,7 +190,7 @@ class TestContextNodeExecutor:
         agent = registry.create_agent("Writer", llm_client=llm_client)
         assert agent is not None
         registry.register_agent(agent_instance=agent)
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
         node = Node(
             id=NodeID("step_1"),
@@ -216,6 +220,7 @@ class TestContextNodeExecutor:
             business_rules=("formal tone", "include citations"),
         )
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             domain_context=domain,
         )
@@ -235,9 +240,13 @@ class TestContextNodeExecutor:
         self,
         registry: AgentRegistry,
     ) -> None:
-        kg = create_knowledge_graph(memory_manager=create_memory_manager())
+        kg = create_knowledge_graph(
+            memory_manager=create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL
+        )
         registry.register_agent(agent_instance=KGProbeAgent(), goal_type=KGProbeGoal)
-        executor = ContextNodeExecutor(agent_registry=registry, knowledge_graph=kg)
+        executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, knowledge_graph=kg
+        )
 
         node = Node(
             id=NodeID("step_kg"),

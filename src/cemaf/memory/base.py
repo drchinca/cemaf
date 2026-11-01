@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.core.utils import utc_now
@@ -44,6 +45,7 @@ class MemoryItem:
     ttl: timedelta | None = None  # Time-to-live
     expires_at: datetime | None = None  # Explicit expiration time
     scope_path: str | None = None  # Hierarchical scope path (e.g. "project/campaign/assets")
+    security_level: SecurityLevel = SecurityLevel.INTERNAL  # Data classification (SPEC-11)
 
     def __post_init__(self) -> None:
         """Set expires_at from ttl if not provided."""
@@ -83,6 +85,7 @@ class MemoryItem:
             ttl=self.ttl,
             expires_at=self.expires_at,
             scope_path=self.scope_path,
+            security_level=self.security_level,
         )
 
     def with_ttl(self, ttl: timedelta) -> MemoryItem:
@@ -97,6 +100,7 @@ class MemoryItem:
             ttl=ttl,
             expires_at=utc_now() + ttl,
             scope_path=self.scope_path,
+            security_level=self.security_level,
         )
 
     def without_expiration(self) -> MemoryItem:
@@ -111,6 +115,7 @@ class MemoryItem:
             ttl=None,
             expires_at=None,
             scope_path=self.scope_path,
+            security_level=self.security_level,
         )
 
 
@@ -360,6 +365,9 @@ class JsonFileMemoryStore(MemoryStore):
                         datetime.fromisoformat(str(expires_at_str)) if expires_at_str is not None else None
                     ),
                     scope_path=str(record["scope_path"]) if record.get("scope_path") is not None else None,
+                    security_level=SecurityLevel(
+                        str(record.get("security_level", SecurityLevel.INTERNAL.value))
+                    ),
                 )
                 if not item.is_expired:
                     self._data[item.full_key] = item
@@ -382,6 +390,7 @@ class JsonFileMemoryStore(MemoryStore):
                 "ttl_seconds": item.ttl.total_seconds() if item.ttl is not None else None,
                 "expires_at": item.expires_at.isoformat() if item.expires_at is not None else None,
                 "scope_path": item.scope_path,
+                "security_level": item.security_level.value,
             }
         self._path.write_text(json.dumps(payload, indent=2))
 

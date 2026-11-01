@@ -50,7 +50,7 @@ from cemaf.audit.factories import create_audit_system
 from cemaf.audit.protocols import AuditLog
 from cemaf.bootstrap import create_executor
 from cemaf.citation.tracker import CitationTracker
-from cemaf.context.patch import PatchOperation, PatchSource
+from cemaf.context.patch import PatchOperation, PatchSource, SecurityLevel
 from cemaf.core.types import JSON, AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.types import Opinion
@@ -463,6 +463,7 @@ async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditL
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(

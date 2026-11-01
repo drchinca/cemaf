@@ -15,6 +15,7 @@ import asyncio
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event
 from cemaf.knowledge.factories import create_knowledge_graph
@@ -23,6 +24,7 @@ from cemaf.knowledge.hub_spoke import (
     SpokeCacheConfig,
     SpokeReadHubWriteKG,
     create_hub_spoke_kg,
+    entity_digest,
 )
 from cemaf.knowledge.models import EntityType, KGEntity, KGRelation, RelationType
 from cemaf.memory.factories import create_memory_manager
@@ -41,7 +43,7 @@ def event_bus() -> InMemoryEventBus:
 def real_kg():
     """A real MemoryBackedKnowledgeGraph over a fully-wired in-memory MemoryManager."""
     manager = create_memory_manager()
-    return create_knowledge_graph(memory_manager=manager)
+    return create_knowledge_graph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
 
 
 @pytest.mark.asyncio
@@ -131,7 +133,8 @@ async def test_invalidation_reaches_non_spoke_subscriber(real_kg, event_bus: InM
     await asyncio.sleep(0)  # let the bus dispatch
 
     assert len(received) == 1
-    assert received[0].payload["entity_ids"] == ["mod:evals"]
+    assert received[0].payload["entity_digests"] == [entity_digest(entity_id="mod:evals")]
+    assert "mod:evals" not in str(received[0].payload)  # IDs never travel on the bus
     assert received[0].payload["kind"] == "entity_updated"
 
 
@@ -182,7 +185,7 @@ async def test_two_spokes_share_one_hub(real_kg, event_bus: InMemoryEventBus) ->
 
 @pytest.mark.asyncio
 async def test_meta_executor_wires_hub_spoke_kg() -> None:
-    """create_meta_executor(enable_hub_spoke_kg=True) hands meta-agents a spoke facade.
+    """create_meta_executor(enable_hub_spoke_kg=True, clearance=...) hands meta-agents a spoke facade.
 
     Composition-root proof: the resolved KG is a SpokeReadHubWriteKG (point reads
     cached), and a real self-audit-style registration succeeds through it.
@@ -197,7 +200,7 @@ async def test_meta_executor_wires_hub_spoke_kg() -> None:
 
     event_bus = InMemoryEventBus()
     manager = create_memory_manager(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=manager)
+    kg = create_knowledge_graph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
 
     agent_registry = AgentRegistry()
@@ -217,6 +220,7 @@ async def test_meta_executor_wires_hub_spoke_kg() -> None:
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     assert executor is not None

@@ -20,6 +20,7 @@ from cemaf.agents.protocols import Agent
 from cemaf.agents.registry import AgentRegistry
 from cemaf.agents.selection import Capability, DefaultAgentSelector
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID, NodeID
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
@@ -115,6 +116,7 @@ async def test_auction_selects_low_load_winner_and_loser_does_not_run() -> None:
         capabilities=frozenset({Capability.WRITE}),
     )
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
         budget_guard=BudgetGuard(max_cost_usd=10.0, max_total_tokens=100_000),
@@ -140,6 +142,7 @@ async def test_auction_records_selection_when_winner_fails() -> None:
         capabilities=frozenset({Capability.WRITE}),
     )
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
     )
@@ -155,7 +158,9 @@ async def test_auction_records_selection_when_winner_fails() -> None:
 async def test_capability_set_but_no_selector_uses_static_ref_id() -> None:
     """SPEC-09: capability set AND no selector wired → static ref_id resolution."""
     registry = _registry_with_two_writers()
-    executor = ContextNodeExecutor(agent_registry=registry)  # no agent_selector
+    executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry
+    )  # no agent_selector
     node = Node(
         id=NodeID("n"),
         type=NodeType.AGENT,
@@ -183,6 +188,7 @@ async def test_no_candidates_with_ref_id_falls_through_to_static() -> None:
     """Auction with an unmatched capability but a set ref_id → static resolution runs."""
     registry = _registry_with_two_writers()
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
     )
@@ -205,6 +211,7 @@ async def test_no_candidates_with_ref_id_falls_through_to_static() -> None:
 async def test_no_candidates_empty_ref_id_errors_cleanly() -> None:
     registry = _registry_with_two_writers()
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
     )
@@ -220,6 +227,7 @@ async def test_static_node_unaffected_by_wired_selector() -> None:
     """A Node.agent with a wired selector still resolves statically — no auction."""
     registry = _registry_with_two_writers()
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
     )
@@ -253,6 +261,7 @@ async def test_auction_winner_gets_admitted_identity() -> None:
     )
     directory = create_agent_directory()
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         agent_selector=DefaultAgentSelector(),
         budget_guard=BudgetGuard(max_cost_usd=10.0, max_total_tokens=100_000),

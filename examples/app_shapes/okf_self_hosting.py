@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 
 from cemaf import DAG, Node
 from cemaf.agents.registry import AgentRegistry
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.docs_api import (
     CemafDocsSearchTool,
@@ -35,12 +36,13 @@ async def run_example(destination: Path) -> OKFBundle:
     agents, tools, skills = AgentRegistry(), ToolRegistry(), SkillRegistry()
     skills.register_instance(ReadFileSkill(workspace=destination.parent))
     memory = create_memory_manager()
-    graph = create_knowledge_graph(memory)
+    graph = create_knowledge_graph(memory, clearance=SecurityLevel.CONFIDENTIAL)
     executor = create_meta_executor(
         agent_registry=agents,
         tool_registry=tools,
         services=RuntimeServices(memory_manager=memory, knowledge_graph=graph, event_bus=InMemoryEventBus()),
         meta_services=MetaServices(knowledge_graph=graph),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     provider = DictMappingProvider(
         {

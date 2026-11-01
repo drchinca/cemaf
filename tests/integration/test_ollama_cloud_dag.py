@@ -22,6 +22,7 @@ from cemaf import (
     Node,
     create_executor,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID
 from cemaf.llm.factories import DEFAULT_OLLAMA_CLOUD_MODEL, create_llm_client
 from cemaf.llm.protocols import LLMClient, Message
@@ -133,6 +134,7 @@ async def test_ollama_cloud_drives_real_dag(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         services=RuntimeServices(llm_client=llm),
     )

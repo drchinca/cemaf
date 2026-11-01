@@ -16,6 +16,7 @@ from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.factories import create_agent_directory
 from cemaf.agents.registry import AgentRegistry
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import InstanceStatus
 from cemaf.core.types import AgentID, TaskID
 from cemaf.council.types import Opinion
@@ -59,7 +60,7 @@ def _registry(*members: tuple[str, str]) -> AgentRegistry:
 @pytest.mark.asyncio
 async def test_council_node_decides_and_steers_dag() -> None:
     registry = _registry(("v1", "approve"), ("v2", "approve"), ("v3", "reject"))
-    executor = ContextNodeExecutor(agent_registry=registry)
+    executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     node = Node.council(
         id="gate",
         name="ship gate",
@@ -124,7 +125,7 @@ async def test_council_node_rounds_propagates_through_resolver() -> None:
     registry.register_instance(item=_VotingMember("ship_voter", "ship"))
     registry.register_instance(item=_VotingMember("holder", "hold"))
     registry.register_instance(item=_Swing())
-    executor = ContextNodeExecutor(agent_registry=registry)
+    executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
     node = Node.council(
         id="gate",
@@ -152,7 +153,7 @@ def test_council_node_rejects_rounds_less_than_one() -> None:
 async def test_council_no_decision_is_success_empty_output() -> None:
     """Unanimous method with dissent → no verdict → success + empty output, not failure."""
     registry = _registry(("v1", "approve"), ("v2", "reject"))
-    executor = ContextNodeExecutor(agent_registry=registry)
+    executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     node = Node.council(
         id="gate",
         name="ship gate",
@@ -172,7 +173,7 @@ async def test_council_no_decision_is_success_empty_output() -> None:
 @pytest.mark.asyncio
 async def test_council_node_with_no_members_errors() -> None:
     registry = _registry()  # empty
-    executor = ContextNodeExecutor(agent_registry=registry)
+    executor = ContextNodeExecutor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     node = Node.council(id="gate", name="g", members=("missing",), options=("a", "b"))
 
     result = await executor.execute_node(node, Context())
@@ -197,7 +198,7 @@ async def test_council_full_dag_run_records_verdict() -> None:
         output_key="verdict",
     )
     dag = DAG(name="council-dag", nodes=(council_node,), edges=(), entry_node=NodeID("gate"))
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
     run = await executor.run(dag=dag)
 
@@ -267,7 +268,7 @@ async def test_council_verdict_steers_downstream_edge() -> None:
         ),
         entry_node=NodeID("gate"),
     )
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
     run = await executor.run(dag=dag)
 
@@ -419,7 +420,7 @@ async def test_council_iterative_remediation_loop() -> None:
         entry_node=NodeID("loop"),
     )
 
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     run = await executor.run(dag=dag)
 
     assert run is not None
@@ -491,7 +492,9 @@ async def test_council_members_get_distinct_identity_retained_across_rounds() ->
     for member in members:
         registry.register_instance(item=member)
 
-    executor = ContextNodeExecutor(agent_registry=registry, agent_directory=directory)
+    executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, agent_directory=directory
+    )
     node = Node.council(
         id="gate", name="gate", members=("m1", "m2", "m3"), options=("ship", "hold"), rounds=2
     )

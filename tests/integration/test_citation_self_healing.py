@@ -20,6 +20,7 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.citation.models import Citation, CitedFact
 from cemaf.citation.rules import CitationFormatRule
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID
 from cemaf.interceptors import (
@@ -130,7 +131,10 @@ async def test_citation_quality_gate_and_self_healing() -> None:
     services = RuntimeServices(interceptor_pipeline=pipeline)
 
     executor = create_executor(
-        agent_registry=registry, services=services, config=ExecutorConfig(enable_events=False)
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        services=services,
+        config=ExecutorConfig(enable_events=False),
     )
 
     # 3. Construct DAG

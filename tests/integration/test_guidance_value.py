@@ -57,6 +57,7 @@ def retry(fn):
 """
     guided_code = """
 from cemaf import DAG, Node, create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.context import TokenBudget
 from cemaf.memory import create_memory_manager
 from cemaf.orchestration.services import RuntimeServices
@@ -64,7 +65,7 @@ from cemaf.resilience.retry import RetryPolicy
 
 dag = DAG(name="pipeline").add_node(Node.agent(id="write", name="Writer", agent_id="Writer"))
 services = RuntimeServices(memory_manager=create_memory_manager(), token_budget=TokenBudget(max_tokens=4096))
-executor = create_executor(services=services)
+executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, services=services)
 retry = RetryPolicy()
 """
     cold = Generation(

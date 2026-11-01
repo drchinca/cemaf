@@ -26,6 +26,7 @@ from cemaf.blueprint.harvest_defaults import (
 from cemaf.blueprint.library import BlueprintEntry, BlueprintLibrary
 from cemaf.blueprint.sources import InMemoryWritableBlueprintSource
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.interceptors import (
@@ -161,7 +162,10 @@ async def test_cognitive_self_healing_and_harvest_triad() -> None:
     pipeline = create_interceptor_pipeline(interceptors=(PIIFilterInterceptor(),))
 
     node_executor = ContextNodeExecutor(
-        agent_registry=registry, interceptor_pipeline=pipeline, max_recovery_attempts=3
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        interceptor_pipeline=pipeline,
+        max_recovery_attempts=3,
     )
 
     services = RuntimeServices(event_bus=event_bus, interceptor_pipeline=pipeline)

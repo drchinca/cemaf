@@ -7,6 +7,7 @@ import pytest
 from cemaf.citation import CitationTracker
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.ingestion import OKFAdapter
 from cemaf.knowledge import EntityType, OKFBundle, OKFDocument, RelationType, create_knowledge_graph
 from cemaf.knowledge.okf_graph import import_okf_bundle
@@ -27,7 +28,7 @@ async def test_okf_graph_context_retrieval_citation_and_proposal(tmp_path: Path)
     )
     method = OKFDocument(path="protocols/method.md", frontmatter={"type": "Procedure"}, body="Ten readings.")
     bundle = OKFBundle((document, method))
-    graph = create_knowledge_graph(create_memory_manager())
+    graph = create_knowledge_graph(create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL)
     imported = await import_okf_bundle(bundle, graph=graph, bundle_id="experiment")
     assert imported.entity_count == 2
     assert imported.relation_count == 2
@@ -65,6 +66,7 @@ async def test_okf_graph_context_retrieval_citation_and_proposal(tmp_path: Path)
         memories=(),
         budget=budget,
         priorities={source.key: 100},
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     assert compiled.within_budget()
     assert [item.key for item in compiled.sources] == [source.key]
@@ -121,7 +123,7 @@ async def test_two_persisted_sessions_embed_only_changed_concepts(tmp_path: Path
 async def test_graph_preflight_conflict_does_not_write_earlier_concepts() -> None:
     old = OKFDocument(path="z.md", frontmatter={"type": "Note"}, body="Already stored.")
     new = OKFDocument(path="a.md", frontmatter={"type": "Note"}, body="Must not be partially imported.")
-    graph = create_knowledge_graph(create_memory_manager())
+    graph = create_knowledge_graph(create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL)
     await import_okf_bundle(OKFBundle((old,)), graph=graph, bundle_id="project")
     with pytest.raises(ValueError, match="unused namespace"):
         await import_okf_bundle(OKFBundle((new, old)), graph=graph, bundle_id="project")
