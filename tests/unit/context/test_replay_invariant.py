@@ -1,7 +1,15 @@
 """Every state change on a Context must be recorded so replay reproduces it."""
 
+import pytest
+
 from cemaf.context.context import Context
-from cemaf.context.merge import LastWriteWinsStrategy
+from cemaf.context.merge import (
+    DeepMergeStrategy,
+    LastWriteWinsStrategy,
+    MergeStrategy,
+    RaiseOnConflictStrategy,
+    ReducerMergeStrategy,
+)
 from cemaf.context.patch import ContextPatch, SecurityLevel
 
 
@@ -82,3 +90,26 @@ def test_parallel_join_keeps_dotted_top_level_keys_exact() -> None:
 
     assert joined.to_dict() == {"flag": True, "a.b": 2}
     assert joined.get("flag") is True
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        LastWriteWinsStrategy(),
+        RaiseOnConflictStrategy(),
+        DeepMergeStrategy(),
+        ReducerMergeStrategy(reducers={"total": sum}),
+    ],
+    ids=["last_write_wins", "raise_on_conflict", "deep_merge", "reducer"],
+)
+def test_every_merge_strategy_result_replays_to_its_state(strategy: MergeStrategy) -> None:
+    base = Context().apply(ContextPatch.set(path="shared", value={"a": 1}))
+    left = base.set("left", 1).set("total", 2)
+    right = base.set("right", 2)
+
+    joined = strategy.merge(base=base, branches=[left, right]).context
+
+    replayed = Context()
+    for patch in joined.patch_history:
+        replayed = replayed.apply(patch)
+    assert replayed.state_hash() == joined.state_hash()

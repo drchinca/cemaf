@@ -17,7 +17,7 @@ from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.memory.session import DefaultSessionManager
+from cemaf.memory.session import DefaultSessionManager, ReportingSessionManager
 from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
 
 # ---------------------------------------------------------------------------
@@ -429,3 +429,21 @@ class TestMemoryClassificationReachesTheGate:
                 memory_query=MemoryQuery(scope=MemoryScope.TENANT),
                 budget=TokenBudget(max_tokens=4000, reserved_for_output=500),
             )
+
+    @pytest.mark.asyncio
+    async def test_reporting_session_promotion_keeps_confidential_level(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        session_manager = ReportingSessionManager(memory_manager=memory_manager, compactor=compactor)
+        await session_manager.bootstrap(session_id="s2")
+        await session_manager.ingest(
+            session_id="s2",
+            key="salary-band",
+            value={"band": "C"},
+            confidence=0.9,
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+
+        await session_manager.dispose(session_id="s2", promote_to=MemoryScope.PROJECT)
+        promoted = await memory_manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
+
+        assert [r.item.security_level for r in promoted] == [SecurityLevel.CONFIDENTIAL]
