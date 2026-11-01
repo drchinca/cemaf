@@ -1,9 +1,11 @@
 """Tests for SqliteMemoryStore."""
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.core.utils import utc_now
@@ -181,3 +183,16 @@ async def test_scope_path_none_preserved(db_path: str) -> None:
         retrieved = await store.get(scope=MemoryScope.TENANT, key="no_path")
         assert retrieved is not None
         assert retrieved.scope_path is None
+
+
+async def test_security_level_survives_reopen(db_path: str) -> None:
+    """security_level roundtrips through SQLite, so a reload cannot relabel a memory."""
+    async with SqliteMemoryStore(db_path=db_path) as store:
+        item = replace(_make_item(key="salaries"), security_level=SecurityLevel.CONFIDENTIAL)
+        await store.set(item=item)
+
+    async with SqliteMemoryStore(db_path=db_path) as store:
+        retrieved = await store.get(scope=MemoryScope.TENANT, key="salaries")
+
+    assert retrieved is not None
+    assert retrieved.security_level == SecurityLevel.CONFIDENTIAL

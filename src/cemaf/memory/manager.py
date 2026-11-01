@@ -39,6 +39,7 @@ Then inject via `RuntimeServices(memory_manager=manager, session_manager=...)`.
 from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.events.protocols import Event, EventBus, EventType
@@ -62,6 +63,7 @@ class MemoryManager(Protocol):
         *,
         confidence: float = 1.0,
         content_for_embedding: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem: ...
 
     async def recall(self, query: MemoryQuery) -> tuple[MemorySearchResult, ...]: ...
@@ -122,6 +124,7 @@ class DefaultMemoryManager:
         *,
         confidence: float = 1.0,
         content_for_embedding: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem:
         """Store a memory item with optional deduplication."""
         item = MemoryItem(
@@ -129,6 +132,7 @@ class DefaultMemoryManager:
             key=key,
             value=value,
             confidence=Confidence(confidence),
+            security_level=security_level,
         )
 
         if self._deduplicator is not None:

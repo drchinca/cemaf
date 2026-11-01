@@ -209,6 +209,7 @@ class ContextSource:
         priority: int = 7,
         timestamp: datetime | None = None,
         compressible: bool = False,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextSource:
         """
         Create a ContextSource from memory.
@@ -234,6 +235,7 @@ class ContextSource:
             compressible=compressible,
             metadata={"memory_key": memory_key},
             context_type=ContextType.MEMORY,
+            security_level=security_level,
         )
 
     @classmethod

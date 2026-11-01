@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import Confidence
 from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.memory.base import MemoryItem
@@ -57,6 +58,14 @@ class ExtractionPipeline:
         deduplicated_count = 0
         skipped_count = 0
 
+        # Extracted memories carry no per-item provenance, so they inherit the most
+        # restrictive level among the session memories they were drawn from.
+        promoted_level = max(
+            (m.security_level for m in session_memories),
+            key=lambda level: level.rank,
+            default=SecurityLevel.INTERNAL,
+        )
+
         # 2. For each extracted memory, create MemoryItem and store
         for mem in extracted:
             item = MemoryItem(
@@ -64,6 +73,7 @@ class ExtractionPipeline:
                 key=mem.key,
                 value=mem.value,
                 confidence=Confidence(mem.confidence),
+                security_level=promoted_level,
             )
 
             # 3. Dedup check if deduplicator available
@@ -84,6 +94,7 @@ class ExtractionPipeline:
                 value=item.value,
                 confidence=float(item.confidence),
                 content_for_embedding=mem.content_for_embedding,
+                security_level=item.security_level,
             )
             stored_count += 1
 

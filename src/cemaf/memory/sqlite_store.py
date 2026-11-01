@@ -20,6 +20,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.core.utils import utc_now
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS memory_items (
     ttl_seconds REAL,
     expires_at TEXT,
     scope_path TEXT,
+    security_level TEXT NOT NULL DEFAULT 'internal',
     PRIMARY KEY (scope, key)
 )
 """
@@ -80,6 +82,7 @@ def _row_to_item(row: aiosqlite.Row) -> MemoryItem:
         ttl=timedelta(seconds=ttl_seconds) if ttl_seconds is not None else None,
         expires_at=datetime.fromisoformat(expires_at_str) if expires_at_str is not None else None,
         scope_path=row[8],
+        security_level=SecurityLevel(row[9]),
     )
 
 
@@ -171,7 +174,7 @@ class SqliteMemoryStore:
         conn = await self._connection()
         async with conn.execute(
             "SELECT scope, key, value_json, confidence, created_at, updated_at, "
-            "ttl_seconds, expires_at, scope_path FROM memory_items "
+            "ttl_seconds, expires_at, scope_path, security_level FROM memory_items "
             "WHERE scope = ? AND key = ?",
             (scope.value, key),
         ) as cursor:
@@ -193,8 +196,8 @@ class SqliteMemoryStore:
                 await conn.execute(
                     "INSERT OR REPLACE INTO memory_items "
                     "(scope, key, value_json, confidence, created_at, "
-                    "updated_at, ttl_seconds, expires_at, scope_path) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "updated_at, ttl_seconds, expires_at, scope_path, security_level) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         item.scope.value,
                         item.key,
@@ -205,6 +208,7 @@ class SqliteMemoryStore:
                         item.ttl.total_seconds() if item.ttl is not None else None,
                         item.expires_at.isoformat() if item.expires_at is not None else None,
                         item.scope_path,
+                        item.security_level.value,
                     ),
                 )
                 await conn.commit()
@@ -232,7 +236,7 @@ class SqliteMemoryStore:
         now_iso = utc_now().isoformat()
         async with conn.execute(
             "SELECT scope, key, value_json, confidence, created_at, updated_at, "
-            "ttl_seconds, expires_at, scope_path FROM memory_items "
+            "ttl_seconds, expires_at, scope_path, security_level FROM memory_items "
             "WHERE scope = ? AND (expires_at IS NULL OR expires_at > ?)",
             (scope.value, now_iso),
         ) as cursor:

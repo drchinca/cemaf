@@ -70,6 +70,15 @@ Gate rule: a source whose level `.rank > clearance.rank` is excluded
 *before* the priority sort in `PriorityContextCompiler.compile`. Excluded keys are recorded in
 `CompiledContext.metadata["security_excluded"]` (provenance, not silent drop).
 
+### 2.3 Classification carriers
+
+The level travels with the content, never in a side map:
+
+- `ContextSource.security_level` (default INTERNAL); every compiler gates on this field.
+- `MemoryItem.security_level` (default INTERNAL); persisted by the JSON, SQLite and Postgres stores.
+- `MemoryManager.remember(..., security_level=)` and `SessionManager.ingest(..., security_level=)`
+  are the labelling entry points; the memory provider passes each memory's level to the compiler.
+
 ## 3. Invariants (DbC)
 
 1. `WHEN a ContextPatch is created WITHOUT security_level, THE System SHALL default it to INTERNAL.`
@@ -77,8 +86,11 @@ Gate rule: a source whose level `.rank > clearance.rank` is excluded
 3. `WHEN clearance admits every level present, THE compiler SHALL select the identical set it selects with no classification` (zero excluded by classification).
 4. `IF a source level rank exceeds the caller clearance rank, THEN THE compiler SHALL exclude that source AND record its key under metadata["security_excluded"].`
 5. `security_level SHALL NOT alter content_hash determinism` — same content ⇒ same hash regardless of classification.
+6. `WHEN a source is derived (with_priority, with_token_count) or compacted into a summary, THE System SHALL keep its level, and a summary SHALL take the most restrictive level it replaces.`
+7. `WHEN a MemoryItem is persisted and reloaded, THE System SHALL restore its security_level.`
+8. `WHEN session memories are promoted, THE promoted item SHALL keep the session item's level; WHEN they are extracted, THE promoted items SHALL take the most restrictive level among the session memories` (extraction has no per-item provenance).
 
-Budget: 5 invariants.
+Budget: 8 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -103,9 +115,14 @@ Feature: Context security classification
     Given a CONFIDENTIAL artifact
     When compile runs with clearance=CONFIDENTIAL
     Then the artifact is eligible for selection exactly as before
+
+  Scenario: Confidential memory withheld from internal clearance
+    Given a memory remembered with security_level=CONFIDENTIAL
+    When the memory provider compiles for clearance=INTERNAL
+    Then the memory is not selected and its key is in metadata["security_excluded"]
 ```
 
-Budget: 4 scenarios.
+Budget: 5 scenarios.
 
 ## 5. Out of Scope
 

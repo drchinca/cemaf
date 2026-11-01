@@ -2,6 +2,7 @@
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.memory.base import InMemoryStore, MemoryItem
@@ -213,3 +214,32 @@ class TestDisposeActuallyRemovesSessionItems:
         # The original SESSION item is gone; a PROJECT copy survives.
         assert len(session_after) == 0
         assert any(item.key == "keep" for item in project_after)
+
+
+class TestExtractionKeepsClassification:
+    """Promotion must not relabel session content to a lower security level (SPEC-11)."""
+
+    @pytest.mark.asyncio
+    async def test_promoted_memories_inherit_most_restrictive_session_level(self) -> None:
+        manager, _, pipeline, _ = _wire_full_stack()
+        session_memories = (
+            MemoryItem(
+                scope=MemoryScope.SESSION,
+                key="salary-band",
+                value={"fact": "band C is 120k"},
+                confidence=Confidence(0.9),
+                security_level=SecurityLevel.CONFIDENTIAL,
+            ),
+            MemoryItem(
+                scope=MemoryScope.SESSION,
+                key="office-city",
+                value={"fact": "office is in Lima"},
+                confidence=Confidence(0.9),
+            ),
+        )
+
+        report = await pipeline.run(session_memories=session_memories, episodes=(), recent_events=())
+        promoted = await manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
+
+        assert report.stored_count == 2
+        assert {r.item.security_level for r in promoted} == {SecurityLevel.CONFIDENTIAL}

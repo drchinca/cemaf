@@ -98,17 +98,15 @@ class DefaultMemoryContextProvider:
             artifact_count=len(artifacts),
         )
 
-        memories = await self.provide_memories_for_compiler(
-            query=memory_query,
-            token_budget=memory_budget,
-        )
+        sources = await self.provide_context_sources(query=memory_query, token_budget=memory_budget)
 
         return await self._compiler.compile(
             clearance=self._clearance,
             artifacts=artifacts,
-            memories=memories,
+            memories=tuple((source.source_id, source.content) for source in sources),
             budget=budget,
             priorities=priorities,
+            source_levels={source.source_id: source.security_level for source in sources},
         )
 
     async def _provide_via_tiered(
