@@ -92,7 +92,7 @@ The level travels with the content. `source_levels` exists only to label `(key, 
 7. `WHEN a MemoryItem is persisted and reloaded, THE System SHALL restore its security_level.`
 8. `WHEN session memories are promoted, THE promoted item SHALL keep the session item's level; WHEN they are extracted, THE promoted items SHALL take the most restrictive level among the session memories` (extraction has no per-item provenance).
 
-9. `WHEN a knowledge-graph reader's clearance is below an entity or relation level, THE System SHALL NOT return it from get, search or neighbor traversal, and SHALL NOT remove it.`
+9. `WHEN a knowledge-graph clearance is below an entity or relation level, THE System SHALL NOT return it from get, search or neighbor traversal (a relation is hidden when either end is), SHALL NOT remove it or anything tied to it, and SHALL NOT overwrite it.`
 
 Budget: 9 invariants.
 
@@ -123,7 +123,7 @@ Feature: Context security classification
   Scenario: Confidential memory withheld from internal clearance
     Given a memory remembered with security_level=CONFIDENTIAL
     When the memory provider compiles for clearance=INTERNAL
-    Then the memory is not selected and its key is in metadata["security_excluded"]
+    Then the memory is never fetched, so it is not selected and uses no budget
 ```
 
 Budget: 5 scenarios.

@@ -147,7 +147,7 @@ class TestTieredContextProviderIntegration:
         kept = {s.source_id for s in compiled.sources}
         assert f"{MemoryScope.PROJECT.value}:salaries" not in kept
         assert f"{MemoryScope.PROJECT.value}:office" in kept
-        assert compiled.metadata["security_excluded"] == [f"{MemoryScope.PROJECT.value}:salaries"]
+        assert compiled.metadata["security_excluded"] == []  # filtered at the query, never fetched
 
     @pytest.mark.asyncio
     async def test_context_provider_without_tiered_falls_back_to_flat(self) -> None:

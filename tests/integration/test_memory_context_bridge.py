@@ -374,7 +374,9 @@ class TestMemoryClassificationReachesTheGate:
         kept = {s.source_id for s in compiled.sources}
         assert f"{MemoryScope.TENANT.value}:office" in kept
         assert secret_key not in kept
-        assert compiled.metadata["security_excluded"] == [secret_key]
+        assert (
+            secret_key not in compiled.metadata["security_excluded"]
+        )  # never fetched: filtered at the query
 
     @pytest.mark.asyncio
     async def test_session_promotion_keeps_confidential_level(self) -> None:
@@ -447,3 +449,36 @@ class TestMemoryClassificationReachesTheGate:
         promoted = await memory_manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
 
         assert [r.item.security_level for r in promoted] == [SecurityLevel.CONFIDENTIAL]
+
+    @pytest.mark.asyncio
+    async def test_provider_is_not_crowded_out_by_withheld_memories(self) -> None:
+        memory_manager, compactor, _, _ = _wire_full_stack()
+        for index in range(40):
+            await memory_manager.remember(
+                scope=MemoryScope.TENANT,
+                key=f"secret-{index}",
+                value={"v": index},
+                content_for_embedding="office",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        await memory_manager.remember(
+            scope=MemoryScope.TENANT,
+            key="office",
+            value={"city": "Lima"},
+            content_for_embedding="office",
+            confidence=0.1,
+        )
+        estimator = SimpleTokenEstimator()
+        provider = DefaultMemoryContextProvider(
+            clearance=SecurityLevel.INTERNAL,
+            memory_manager=memory_manager,
+            compactor=compactor,
+            compiler=PriorityContextCompiler(token_estimator=estimator),
+            token_estimator=estimator,
+        )
+
+        sources = await provider.provide_context_sources(
+            query=MemoryQuery(text="office", scope=MemoryScope.TENANT, limit=1), token_budget=4000
+        )
+
+        assert [s.source_id for s in sources] == [f"{MemoryScope.TENANT.value}:office"]

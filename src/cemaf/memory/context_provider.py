@@ -1,5 +1,6 @@
 """Bridge between memory system and context compiler pipeline."""
 
+from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
@@ -71,7 +72,8 @@ class DefaultMemoryContextProvider:
         return tuple(source for source in sources if source.security_level.rank <= self._clearance.rank)
 
     async def _provide_all(self, *, query: MemoryQuery, token_budget: int) -> tuple[ContextSource, ...]:
-        """Fetch and compact every matching memory, before the clearance gate."""
+        """Fetch and compact matching memories at or below clearance, so withheld ones use no budget."""
+        query = replace(query, max_security_level=self._clearance)
         if self._tiered_store is not None:
             return await self._provide_via_tiered(query=query, token_budget=token_budget)
         return await self._provide_via_flat(query=query, token_budget=token_budget)
@@ -103,7 +105,7 @@ class DefaultMemoryContextProvider:
             artifact_count=len(artifacts),
         )
 
-        # The compiler gates and records exclusions, so it receives every memory with its level.
+        # Memories are filtered at the query; the compiler gates artifacts and keeps memory levels.
         sources = await self._provide_all(query=memory_query, token_budget=memory_budget)
         clashing = {key for key, _ in artifacts} & {source.source_id for source in sources}
         if clashing:

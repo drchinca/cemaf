@@ -15,6 +15,10 @@ from cemaf.memory.scoring import MemoryScorer, ScoredMemoryItem
 from cemaf.memory.session_keys import parse_session_memory_key, session_memory_logical_key
 from cemaf.retrieval.protocols import Document, EmbeddingProvider, SearchResult, VectorStore
 
+_CANDIDATE_MULTIPLIER = 3
+_CANDIDATE_GROWTH = 4
+_MAX_CANDIDATES = 1000
+
 
 @dataclass(frozen=True)
 class MemoryQuery:
@@ -138,13 +142,38 @@ class DefaultSemanticMemoryStore:
             raise ValueError("Semantic search requires query.text to be set")
 
         search_filter = self._build_filter(query=query)
-        # Fetch extra candidates for re-ranking after filtering
-        vector_results: list[SearchResult] = await self._vector_store.search_by_text(
-            query_text=query.text,
-            k=query.limit * 3,
-            filter=search_filter,
-        )
+        # Fetch extra candidates for re-ranking after filtering, and widen the window
+        # while item filters (e.g. clearance) reject so many that fewer than limit survive.
+        candidate_count = query.limit * _CANDIDATE_MULTIPLIER
+        while True:
+            vector_results: list[SearchResult] = await self._vector_store.search_by_text(
+                query_text=query.text,
+                k=candidate_count,
+                filter=search_filter,
+            )
+            results = await self._score_candidates(query=query, vector_results=vector_results)
+            exhausted = len(vector_results) < candidate_count
+            if len(results) >= query.limit or exhausted or candidate_count >= _MAX_CANDIDATES:
+                break
+            candidate_count *= _CANDIDATE_GROWTH
 
+        # Sort by combined score, assign ranks, limit
+        results.sort(key=lambda r: r.combined_score, reverse=True)
+        ranked = tuple(
+            MemorySearchResult(
+                item=r.item,
+                similarity=r.similarity,
+                combined_score=r.combined_score,
+                rank=i,
+            )
+            for i, r in enumerate(results[: query.limit])
+        )
+        return ranked
+
+    async def _score_candidates(
+        self, *, query: MemoryQuery, vector_results: list[SearchResult]
+    ) -> list[MemorySearchResult]:
+        """Load, filter and score vector candidates."""
         results: list[MemorySearchResult] = []
         for vr in vector_results:
             try:
@@ -172,18 +201,7 @@ class DefaultSemanticMemoryStore:
                 )
             )
 
-        # Sort by combined score, assign ranks, limit
-        results.sort(key=lambda r: r.combined_score, reverse=True)
-        ranked = tuple(
-            MemorySearchResult(
-                item=r.item,
-                similarity=r.similarity,
-                combined_score=r.combined_score,
-                rank=i,
-            )
-            for i, r in enumerate(results[: query.limit])
-        )
-        return ranked
+        return results
 
     async def _scope_search(
         self,
