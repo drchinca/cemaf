@@ -240,7 +240,9 @@ class TestContextNodeExecutor:
         self,
         registry: AgentRegistry,
     ) -> None:
-        kg = create_knowledge_graph(memory_manager=create_memory_manager())
+        kg = create_knowledge_graph(
+            memory_manager=create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL
+        )
         registry.register_agent(agent_instance=KGProbeAgent(), goal_type=KGProbeGoal)
         executor = ContextNodeExecutor(
             clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, knowledge_graph=kg

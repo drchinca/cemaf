@@ -37,7 +37,7 @@ async def test_bootstrap_meta_dogfood_registers_three_default_jobs() -> None:
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
 
     services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
     executor = create_meta_executor(
@@ -76,7 +76,7 @@ async def test_dogfood_self_audit_runs_under_scheduler() -> None:
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
 
     services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
     executor = create_meta_executor(
@@ -109,7 +109,7 @@ async def test_dogfood_knowledge_refresh_runs_under_scheduler() -> None:
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
 
     services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
     executor = create_meta_executor(
@@ -161,7 +161,7 @@ async def test_dogfood_dreaming_runs_and_consolidates_memory() -> None:
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
 
     services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
     executor = create_meta_executor(
@@ -211,7 +211,7 @@ async def test_dogfood_singleton_lease_prevents_double_run() -> None:
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
 
     services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
     executor = create_meta_executor(
@@ -273,7 +273,7 @@ async def test_dogfood_live_loop_fires_self_audit_autonomously() -> None:
     agent_registry = AgentRegistry()
     event_bus = InMemoryEventBus()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
 
     services = RuntimeServices(event_bus=event_bus, memory_manager=memory_manager)
     executor = create_meta_executor(

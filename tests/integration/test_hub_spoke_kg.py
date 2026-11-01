@@ -42,7 +42,7 @@ def event_bus() -> InMemoryEventBus:
 def real_kg():
     """A real MemoryBackedKnowledgeGraph over a fully-wired in-memory MemoryManager."""
     manager = create_memory_manager()
-    return create_knowledge_graph(memory_manager=manager)
+    return create_knowledge_graph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
 
 
 @pytest.mark.asyncio
@@ -198,7 +198,7 @@ async def test_meta_executor_wires_hub_spoke_kg() -> None:
 
     event_bus = InMemoryEventBus()
     manager = create_memory_manager(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=manager)
+    kg = create_knowledge_graph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
 
     agent_registry = AgentRegistry()

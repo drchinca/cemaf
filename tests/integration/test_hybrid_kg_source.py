@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.models import EntityType, KGEntity
 from cemaf.memory.factories import create_memory_manager
@@ -35,7 +36,7 @@ async def test_kg_ranker_contributes_to_hybrid_output() -> None:
 
     # Seed a real KG with two entities, one of which is NOT in the vector store.
     memory_manager = create_memory_manager()
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
     await kg.add_entity(
         KGEntity(
             id="mod:context",

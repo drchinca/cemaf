@@ -37,7 +37,7 @@ async def test_specifier_registered_when_workspace_present(tmp_path: Path) -> No
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "meta-openspec")
     runtime = FakeOpenSpecRuntime()
@@ -199,7 +199,7 @@ async def test_self_spec_dag_runs_through_executor(tmp_path: Path) -> None:
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
     runtime = FakeOpenSpecRuntime()

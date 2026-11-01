@@ -198,7 +198,7 @@ class TestKGEntity:
             name="KnowledgeGraph",
         )
         d = entity.to_dict()
-        expected_keys = {"id", "type", "name", "description", "properties", "created_at"}
+        expected_keys = {"id", "type", "name", "description", "properties", "created_at", "security_level"}
         assert set(d.keys()) == expected_keys
 
 
@@ -244,7 +244,7 @@ class TestKGRelation:
             type=RelationType.IMPLEMENTS,
         )
         d = relation.to_dict()
-        expected_keys = {"source_id", "target_id", "type", "properties", "created_at"}
+        expected_keys = {"source_id", "target_id", "type", "properties", "created_at", "security_level"}
         assert set(d.keys()) == expected_keys
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON
 from cemaf.knowledge.models import (
@@ -13,6 +14,7 @@ from cemaf.knowledge.models import (
     KGRelation,
     RelationType,
 )
+from cemaf.memory.base import MemoryItem
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.semantic import MemoryQuery
 
@@ -25,8 +27,13 @@ class MemoryBackedKnowledgeGraph:
     _RELATION_PREFIX = "kg:rel:"
     _INDEX_PREFIX = "kg:index:"
 
-    def __init__(self, memory_manager: MemoryManager) -> None:
+    def __init__(self, memory_manager: MemoryManager, *, clearance: SecurityLevel) -> None:
         self._memory = memory_manager
+        self._clearance = clearance
+
+    def _admits(self, item: MemoryItem) -> bool:
+        """True when this reader's clearance covers the stored item."""
+        return item.security_level.rank <= self._clearance.rank
 
     async def add_entity(self, entity: KGEntity) -> None:
         """Store entity as a MemoryItem with embedding text."""
@@ -35,6 +42,7 @@ class MemoryBackedKnowledgeGraph:
             key=f"{self._ENTITY_PREFIX}{entity.id}",
             value=entity.to_dict(),
             content_for_embedding=f"{entity.name} {entity.description}",
+            security_level=entity.security_level,
         )
 
     async def add_relation(self, relation: KGRelation) -> None:
@@ -44,6 +52,7 @@ class MemoryBackedKnowledgeGraph:
             scope=self._SCOPE,
             key=rel_key,
             value=relation.to_dict(),
+            security_level=relation.security_level,
         )
         await self._update_index(entity_id=relation.source_id, relation_key=rel_key)
         await self._update_index(entity_id=relation.target_id, relation_key=rel_key)
@@ -54,7 +63,7 @@ class MemoryBackedKnowledgeGraph:
             scope=self._SCOPE,
             key=f"{self._ENTITY_PREFIX}{entity_id}",
         )
-        if item is None:
+        if item is None or not self._admits(item):
             return None
         return self._entity_from_dict(data=item.value)
 
@@ -96,11 +105,12 @@ class MemoryBackedKnowledgeGraph:
                 text=query,
                 scope=self._SCOPE,
                 limit=limit * 2,
+                max_security_level=self._clearance,
             )
         )
         entities: list[KGEntity] = []
         for result in results:
-            if not result.item.key.startswith(self._ENTITY_PREFIX):
+            if not result.item.key.startswith(self._ENTITY_PREFIX) or not self._admits(result.item):
                 continue
             entity = self._entity_from_dict(data=result.item.value)
             if entity_type is not None and entity.type != entity_type:
@@ -117,7 +127,7 @@ class MemoryBackedKnowledgeGraph:
             scope=self._SCOPE,
             key=entity_key,
         )
-        if existing is None:
+        if existing is None or not self._admits(existing):
             return False
 
         # Get the entity's relation index and remove all listed relations.
@@ -180,7 +190,7 @@ class MemoryBackedKnowledgeGraph:
                 scope=self._SCOPE,
                 key=rel_key,
             )
-            if rel_item is None:
+            if rel_item is None or not self._admits(rel_item):
                 continue
 
             relation = self._relation_from_dict(data=rel_item.value)
@@ -265,6 +275,7 @@ class MemoryBackedKnowledgeGraph:
             description=data.get("description", ""),
             properties=data.get("properties", {}),
             created_at=datetime.fromisoformat(data["created_at"]),
+            security_level=SecurityLevel(data.get("security_level", SecurityLevel.INTERNAL.value)),
         )
 
     @staticmethod
@@ -276,4 +287,5 @@ class MemoryBackedKnowledgeGraph:
             type=RelationType(data["type"]),
             properties=data.get("properties", {}),
             created_at=datetime.fromisoformat(data["created_at"]),
+            security_level=SecurityLevel(data.get("security_level", SecurityLevel.INTERNAL.value)),
         )

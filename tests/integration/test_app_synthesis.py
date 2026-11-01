@@ -125,7 +125,7 @@ async def test_scaffolder_registered_in_meta_executor(tmp_path: Path) -> None:
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
     runtime = FakeOpenSpecRuntime()
@@ -161,7 +161,7 @@ async def test_app_synthesis_dag_runs_end_to_end(tmp_path: Path) -> None:
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
     runtime = FakeOpenSpecRuntime()

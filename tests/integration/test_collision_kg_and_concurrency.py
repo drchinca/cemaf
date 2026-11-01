@@ -20,6 +20,7 @@ from cemaf.collision import (
     create_collision_coordinator,
     emit_advisory,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.knowledge.factories import create_knowledge_graph
@@ -37,7 +38,7 @@ def _ws(agent_id: str, *paths: str, started_at: float = 0.0) -> AgentWriteSet:
 
 async def _kg_with_chain(*edges: tuple[str, str]):
     """Build a real KG with the given dependency edges (source DEPENDS_ON target)."""
-    kg = create_knowledge_graph(memory_manager=create_memory_manager())
+    kg = create_knowledge_graph(memory_manager=create_memory_manager(), clearance=SecurityLevel.CONFIDENTIAL)
     nodes = {n for edge in edges for n in edge}
     for node in nodes:
         await kg.add_entity(KGEntity(id=node, type=EntityType.MODULE, name=node))

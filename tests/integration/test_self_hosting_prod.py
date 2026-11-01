@@ -137,7 +137,7 @@ def _create_test_infra(
     memory_manager = FakeMemoryManager()
 
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     agent_registry = AgentRegistry()
     tool_registry = ToolRegistry()

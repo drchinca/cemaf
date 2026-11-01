@@ -101,7 +101,7 @@ def create_meta_executor(
     elif svc.knowledge_graph is not None:
         kg = svc.knowledge_graph
     elif svc.memory_manager is not None:
-        kg = create_knowledge_graph(memory_manager=svc.memory_manager)
+        kg = create_knowledge_graph(memory_manager=svc.memory_manager, clearance=clearance)
 
     # Optionally front the KG with a hub-and-spoke cache (SPEC-07). Meta-agents
     # share one spoke; writes still hit the hub-of-record and invalidate it.

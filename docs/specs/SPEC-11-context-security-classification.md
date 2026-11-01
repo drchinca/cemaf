@@ -78,6 +78,8 @@ The level travels with the content. `source_levels` exists only to label `(key, 
 - `MemoryItem.security_level` (default INTERNAL); persisted by the JSON, SQLite and Postgres stores.
 - `MemoryManager.remember(..., security_level=)` and `SessionManager.ingest(..., security_level=)`
   are the labelling entry points; the memory provider passes each memory's level to the compiler.
+- `KGEntity.security_level` and `KGRelation.security_level`; a `MemoryBackedKnowledgeGraph` takes a
+  required reader `clearance` and treats anything above it as absent.
 
 ## 3. Invariants (DbC)
 
@@ -90,7 +92,9 @@ The level travels with the content. `source_levels` exists only to label `(key, 
 7. `WHEN a MemoryItem is persisted and reloaded, THE System SHALL restore its security_level.`
 8. `WHEN session memories are promoted, THE promoted item SHALL keep the session item's level; WHEN they are extracted, THE promoted items SHALL take the most restrictive level among the session memories` (extraction has no per-item provenance).
 
-Budget: 8 invariants.
+9. `WHEN a knowledge-graph reader's clearance is below an entity or relation level, THE System SHALL NOT return it from get, search or neighbor traversal, and SHALL NOT remove it.`
+
+Budget: 9 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 

@@ -126,7 +126,7 @@ async def test_self_audit_loop() -> None:
 
     # 2. Create audit + KG
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     # 3. Seed events (simulate prior execution with scores for quality trend)
     for i in range(5):
@@ -210,7 +210,7 @@ async def test_audit_to_knowledge_graph_wiring() -> None:
     memory_manager = FakeMemoryManager()
 
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     agent_registry = AgentRegistry()
     tool_registry = ToolRegistry()

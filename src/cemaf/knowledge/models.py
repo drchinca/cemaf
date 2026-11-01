@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
@@ -58,6 +59,7 @@ class KGEntity:
     description: str = ""
     properties: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
 
     def to_dict(self) -> JSON:
         """Serialize entity to JSON-compatible dict."""
@@ -68,6 +70,7 @@ class KGEntity:
             "description": self.description,
             "properties": dict(self.properties),
             "created_at": self.created_at.isoformat(),
+            "security_level": self.security_level.value,
         }
 
 
@@ -80,6 +83,7 @@ class KGRelation:
     type: RelationType
     properties: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
 
     def to_dict(self) -> JSON:
         """Serialize relation to JSON-compatible dict."""
@@ -89,6 +93,7 @@ class KGRelation:
             "type": self.type.value,
             "properties": dict(self.properties),
             "created_at": self.created_at.isoformat(),
+            "security_level": self.security_level.value,
         }
 
 

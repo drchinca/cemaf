@@ -193,7 +193,9 @@ def _build_engine() -> tuple[RuntimeServices, AgentRegistry, InMemoryEventBus, d
     )
 
     memory_manager = create_memory_manager()
-    knowledge_graph = create_knowledge_graph(memory_manager=memory_manager)
+    knowledge_graph = create_knowledge_graph(
+        memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL
+    )
 
     services = RuntimeServices(
         event_bus=event_bus,
