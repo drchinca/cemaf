@@ -60,6 +60,10 @@ class Context(BaseModel):
 
     Context holds key-value pairs representing the current state and information.
     Any 'modification' to the context returns a new Context instance.
+
+    `data` is not deep-frozen: treat it as read-only. Read a copy with `to_dict()` and
+    change state only through `apply()` (or the mutators that call it), so every change
+    lands in `patch_history`.
     """
 
     model_config = {"frozen": True}
@@ -182,12 +186,12 @@ class Context(BaseModel):
 
     @classmethod
     def from_dict(cls, data: JSON) -> Context:
-        """Create a Context instance from a dictionary."""
+        """Create a Context from raw data with no patch history; replay cannot rebuild this state."""
         return cls(data=data)
 
     @classmethod
     def from_checkpoint_dict(cls, payload: JSON) -> Context:
-        """Restore a Context from a checkpoint payload (data + patch history)."""
+        """Restore a Context from a checkpoint payload; without patch_history it carries no provenance."""
         if "patch_history" in payload:
             patches = tuple(ContextPatch.from_dict(item) for item in payload.get("patch_history", []))
             return cls(data=payload.get("data", {}), patch_history=patches)
@@ -220,7 +224,9 @@ class Context(BaseModel):
         """
         Apply a ContextPatch and return a new Context.
 
-        Every state change goes through here, so patch_history always replays to the same state.
+        Every state change goes through here, so a Context built from Context() replays
+        from its patch_history to the same state. from_dict and from_checkpoint_dict are
+        the documented exceptions.
 
         Args:
             patch: The patch to apply
