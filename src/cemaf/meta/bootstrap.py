@@ -103,6 +103,13 @@ def create_meta_executor(
     elif svc.memory_manager is not None:
         kg = create_knowledge_graph(memory_manager=svc.memory_manager, clearance=clearance)
 
+    supplied_clearance = getattr(kg, "clearance", None)
+    if supplied_clearance is not None and supplied_clearance != clearance:
+        raise ValueError(
+            f"Knowledge graph clearance {supplied_clearance.value} does not match "
+            f"executor clearance {clearance.value}"
+        )
+
     # Optionally front the KG with a hub-and-spoke cache (SPEC-07). Meta-agents
     # share one spoke; writes still hit the hub-of-record and invalidate it.
     if (

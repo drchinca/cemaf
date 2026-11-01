@@ -603,3 +603,62 @@ class TestKnowledgeGraphClassification:
         assert payroll is not None
         assert payroll.security_level == SecurityLevel.CONFIDENTIAL
         assert [r.security_level for r in neighbors.relations] == [SecurityLevel.CONFIDENTIAL]
+
+    @pytest.mark.asyncio
+    async def test_traversal_hides_relations_to_entities_above_clearance(self) -> None:
+        memory = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.CONFIDENTIAL)
+        await writer.add_entity(KGEntity(id="acme", type=EntityType.MODULE, name="Acme"))
+        await writer.add_entity(
+            KGEntity(
+                id="payroll",
+                type=EntityType.MODULE,
+                name="Payroll",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        )
+        await writer.add_relation(
+            KGRelation(source_id="acme", target_id="payroll", type=RelationType.CONTAINS)
+        )
+        reader = MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.INTERNAL)
+
+        neighbors = await reader.query_neighbors(entity_id="acme", depth=2)
+
+        assert neighbors.relations == ()
+        assert neighbors.entities == ()
+
+    @pytest.mark.asyncio
+    async def test_reader_cannot_remove_an_entity_tied_to_hidden_relations(self) -> None:
+        memory = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.CONFIDENTIAL)
+        await self._seed(writer=writer)
+        reader = MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.INTERNAL)
+
+        with pytest.raises(PermissionError):
+            await reader.remove_entity(entity_id="acme")
+
+        neighbors = await writer.query_neighbors(entity_id="acme")
+        assert [r.target_id for r in neighbors.relations] == ["payroll"]
+
+    @pytest.mark.asyncio
+    async def test_relation_index_takes_the_level_of_relations_it_lists(self) -> None:
+        memory = create_memory_manager()
+        await self._seed(
+            writer=MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.CONFIDENTIAL)
+        )
+
+        index = await memory.recall_by_key(scope=MemoryScope.PROJECT, key="kg:index:acme")
+
+        assert index is not None
+        assert index.security_level == SecurityLevel.CONFIDENTIAL
+
+    @pytest.mark.asyncio
+    async def test_lower_clearance_writer_cannot_overwrite_a_confidential_entity(self) -> None:
+        memory = create_memory_manager()
+        await self._seed(
+            writer=MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.CONFIDENTIAL)
+        )
+        writer = MemoryBackedKnowledgeGraph(memory_manager=memory, clearance=SecurityLevel.INTERNAL)
+
+        with pytest.raises(PermissionError):
+            await writer.add_entity(KGEntity(id="payroll", type=EntityType.MODULE, name="Downgraded"))

@@ -212,3 +212,21 @@ class TestCreateMetaExecutor:
         assert isinstance(executor, DAGExecutor)
         # No audit_trail (needs event_bus), so meta-agents not registered
         assert agent_registry.get("MetaAuditor") is None
+
+
+def test_supplied_knowledge_graph_must_match_executor_clearance() -> None:
+    """A graph built at one clearance cannot be wired into an executor at a lower one."""
+    import pytest
+
+    from cemaf.memory.factories import create_memory_manager
+    from cemaf.orchestration.services import RuntimeServices
+
+    memory = create_memory_manager()
+    graph = create_knowledge_graph(memory_manager=memory, clearance=SecurityLevel.CONFIDENTIAL)
+
+    with pytest.raises(ValueError, match="does not match"):
+        create_meta_executor(
+            agent_registry=AgentRegistry(),
+            clearance=SecurityLevel.PUBLIC,
+            services=RuntimeServices(memory_manager=memory, knowledge_graph=graph),
+        )
