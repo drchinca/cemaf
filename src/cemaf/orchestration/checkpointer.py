@@ -34,6 +34,7 @@ class DAGCheckpoint:
     dag_name: str
     status: RunStatus
     completed_nodes: tuple[NodeID, ...] = ()
+    unsuccessful_nodes: tuple[NodeID, ...] = ()  # completed, but their result was not a success
     pending_nodes: tuple[NodeID, ...] = ()
     context: Context = field(default_factory=Context)  # Updated to Context
     error: str | None = None

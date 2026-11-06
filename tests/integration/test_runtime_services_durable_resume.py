@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
 from cemaf.context.patch import SecurityLevel
+from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
@@ -22,7 +24,7 @@ from cemaf.interceptors import GateValidationInterceptor, create_interceptor_pip
 from cemaf.moderation.factories import create_keyword_moderation_pipeline
 from cemaf.observability.otel_tracer import OTelTracer
 from cemaf.observability.run_logger import InMemoryRunLogger
-from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, Node
+from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.file_checkpointer import FileCheckpointer
 from cemaf.orchestration.results import NodeResult
@@ -268,3 +270,68 @@ async def test_resume_preserves_conditional_route_and_never_executes_rejected_br
     assert completed is not None
     assert completed.status.value == "completed"
     assert completed.pending_nodes == ()
+
+
+class _OutcomeNodeExecutor:
+    """Node executor whose 'broken' node always fails and whose 'flaky' node fails once."""
+
+    def __init__(self, *, flaky_fails: bool) -> None:
+        self.flaky_fails = flaky_fails
+        self.executed: list[str] = []
+
+    async def execute_node(self, node: Node, context: Context) -> NodeResult:
+        self.executed.append(str(node.id))
+        if str(node.id) == "broken" or (str(node.id) == "flaky" and self.flaky_fails):
+            return NodeResult(node_id=node.id, success=False, error=f"{node.id} failed")
+        return NodeResult(node_id=node.id, success=True, output=f"ran:{node.id}")
+
+
+@pytest.mark.asyncio
+async def test_resume_keeps_a_failed_node_that_let_the_run_continue_failed(tmp_path: Path) -> None:
+    """A node that failed but let the run continue must not look successful after resume."""
+    checkpointer = FileCheckpointer(tmp_path / "outcome-checkpoints", max_checkpoints=0)
+    broken = replace(
+        Node.tool(id="broken", name="broken", tool_id="worker", output_key="broken_result"),
+        retry_on_failure=True,
+        max_retries=0,
+    )
+    flaky = replace(
+        Node.tool(id="flaky", name="flaky", tool_id="worker", output_key="flaky_result"),
+        retry_on_failure=False,
+    )
+    after_broken = Node.tool(
+        id="after_broken", name="after broken", tool_id="worker", output_key="after_result"
+    )
+    dag = DAG(
+        name="durable-failed-outcome",
+        nodes=(broken, flaky, after_broken),
+        edges=(
+            Edge(source=broken.id, target=flaky.id, condition=EdgeCondition.ALWAYS),
+            Edge(source=broken.id, target=after_broken.id, condition=EdgeCondition.ON_SUCCESS),
+            Edge(source=flaky.id, target=after_broken.id, condition=EdgeCondition.ALWAYS),
+        ),
+        entry_node=broken.id,
+    )
+    run_id = RunID("failed-outcome-resume")
+
+    first_worker = _OutcomeNodeExecutor(flaky_fails=True)
+    first = DAGExecutor(
+        node_executor=first_worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=1),
+    )
+    halted = await first.run(dag, run_id=run_id)
+    checkpoint = await checkpointer.load(run_id)
+
+    replacement_worker = _OutcomeNodeExecutor(flaky_fails=False)
+    replacement = DAGExecutor(
+        node_executor=replacement_worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=1),
+    )
+    resumed = await replacement.resume(run_id=run_id, dag=dag)
+
+    assert halted.status is RunStatus.FAILED
+    assert first_worker.executed == ["broken", "flaky"]
+    assert checkpoint is not None
+    assert NodeID("broken") in checkpoint.unsuccessful_nodes
+    assert resumed.status is RunStatus.COMPLETED
+    assert replacement_worker.executed == ["flaky"]

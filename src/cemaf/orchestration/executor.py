@@ -396,6 +396,9 @@ class DAGExecutor:
                 dag_name=dag.name,
                 status=status,
                 completed_nodes=tuple(completed),
+                unsuccessful_nodes=tuple(
+                    node_id for node_id, result in completed.items() if not result.success
+                ),
                 pending_nodes=pending_nodes,
                 context=context,
                 error=error,
@@ -635,7 +638,7 @@ class DAGExecutor:
                     if completed_node != resume_checkpoint.failed_node:
                         completed[completed_node] = NodeResult(
                             node_id=completed_node,
-                            success=True,
+                            success=completed_node not in resume_checkpoint.unsuccessful_nodes,
                             metadata={"resumed_from_checkpoint": True},
                         )
 
