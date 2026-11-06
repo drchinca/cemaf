@@ -58,6 +58,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
 
+## Composition Root (SPEC-22)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-22](SPEC-22-supplied-services-are-used.md) | Supplied Runtime Services Are Used | none | `ExecutorConfig.enable_moderation` defaults to True, so a supplied moderation pipeline is never a silent no-op |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see

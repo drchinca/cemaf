@@ -221,3 +221,70 @@ async def test_real_runtime_root_crosses_memory_context_recovery_safety_audit_an
 
     await memory.vector_store.close()  # type: ignore[attr-defined]
     await memory.memory_store.close()  # type: ignore[attr-defined]
+
+
+class _DraftGoal(BaseModel):
+    topic: str
+
+
+class _ForbiddenDrafter:
+    """Agent whose draft contains a blocked word."""
+
+    @property
+    def id(self) -> AgentID:
+        return AgentID("ForbiddenDrafter")
+
+    @property
+    def description(self) -> str:
+        return "Writes a draft containing a blocked word"
+
+    @property
+    def skills(self) -> tuple[()]:
+        return ()
+
+    async def run(self, goal: _DraftGoal, context: AgentContext) -> AgentResult[str]:
+        return AgentResult.ok(output=f"FORBIDDEN draft about {goal.topic}", state=AgentState())
+
+
+async def _run_drafter(*, config: ExecutorConfig | None) -> Any:
+    """Run one drafting node with a keyword moderation pipeline supplied through RuntimeServices."""
+    registry = AgentRegistry()
+    registry.register_agent(agent_instance=_ForbiddenDrafter(), goal_type=_DraftGoal)
+    executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        config=config,
+        services=RuntimeServices(
+            moderation_pipeline=create_keyword_moderation_pipeline(blocked_words=("FORBIDDEN",)),
+        ),
+    )
+    node = Node.agent(
+        id="draft",
+        name="draft",
+        agent_id="ForbiddenDrafter",
+        input_mapping={"topic": "launch"},
+        output_key="draft",
+    )
+    return await executor.run(
+        dag=DAG(name="moderated-draft", nodes=(node,), edges=(), entry_node=NodeID("draft"))
+    )
+
+
+@pytest.mark.asyncio
+async def test_supplied_moderation_pipeline_moderates_by_default() -> None:
+    """SPEC-22: passing a moderation pipeline is enough; the default config must not silently skip it."""
+    run = await _run_drafter(config=None)
+
+    drafted = run.node_results[0]
+    assert drafted.success is False
+    assert "moderation" in (drafted.error or "")
+    assert run.final_context.get("draft") is None
+
+
+@pytest.mark.asyncio
+async def test_moderation_can_still_be_turned_off_explicitly() -> None:
+    """SPEC-22: enable_moderation=False keeps working as an explicit opt-out."""
+    run = await _run_drafter(config=ExecutorConfig(enable_moderation=False))
+
+    assert run.node_results[0].success is True
+    assert "FORBIDDEN" in str(run.final_context.get("draft"))

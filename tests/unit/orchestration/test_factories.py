@@ -3,6 +3,7 @@
 from cemaf.context.budget import TokenBudget
 from cemaf.datasources.registry import DataSourceRegistry
 from cemaf.interceptors.pull import PullInterceptor
+from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.factories import (
     create_executor_config,
     create_pull_interceptor,
@@ -84,3 +85,8 @@ def test_create_pull_interceptor_wires_token_budget_for_reconciliation() -> None
     interceptor = create_pull_interceptor(services=services, pull_tokens=1000)
 
     assert interceptor._token_budget is budget
+
+
+def test_create_executor_config_defaults_match_executor_config() -> None:
+    """SPEC-22: both ways of building a config agree, including enable_moderation=True."""
+    assert create_executor_config() == ExecutorConfig()

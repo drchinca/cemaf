@@ -184,7 +184,7 @@ class ExecutorConfig(BaseModel):
         description="Enable event bus integration",
     )
     enable_moderation: bool = Field(
-        default=False,
+        default=True,
         description="Enable moderation pipeline for content safety",
     )
     merge_strategy: str = Field(

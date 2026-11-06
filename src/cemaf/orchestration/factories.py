@@ -102,7 +102,7 @@ def create_executor_config(
     max_parallel: int | None = None,
     enable_logging: bool = True,
     enable_events: bool = True,
-    enable_moderation: bool = False,
+    enable_moderation: bool = True,
     merge_strategy: str = "last_write_wins",
     node_timeout_seconds: float = 300.0,
 ) -> ExecutorConfig:
