@@ -22,6 +22,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -111,6 +112,11 @@ class HaltSignal:
     reason: HaltReason
     source: str
     detail: str = ""
+
+
+def _new_run_id() -> RunID:
+    """A run id with 128 random bits, so runs started at the same instant never share checkpoints."""
+    return RunID(f"run_{uuid4().hex}")
 
 
 def _failure_stops_run(*, node: Node, result: NodeResult) -> bool:
@@ -490,7 +496,7 @@ class DAGExecutor:
         cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
         """Public entry point. Wraps _run_impl in ContextVar reset guard."""
-        effective_run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        effective_run_id = run_id or _new_run_id()
         route_token = _route_choices_var.set({})
         correlation_token = _correlation_id_var.set(str(effective_run_id))
         try:
@@ -564,7 +570,7 @@ class DAGExecutor:
         """
         # ContextVars were set by the public run() wrapper and will be
         # reset in its finally block. We just read them here.
-        run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        run_id = run_id or _new_run_id()
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
@@ -690,6 +696,14 @@ class DAGExecutor:
                 if cancellation_token and cancellation_token.is_cancelled:
                     cancel_msg = f"Execution cancelled: {cancellation_token.reason}"
                     logger.warning(cancel_msg, dag_name=dag.name, run_id=str(run_id))
+                    await self._save_runtime_checkpoint(
+                        run_id=run_id,
+                        dag=dag,
+                        status=RunStatus.FAILED,
+                        completed=completed,
+                        context=context,
+                        error=cancel_msg,
+                    )
                     if self._run_logger:
                         self._run_logger.end_run(
                             final_context=context,
@@ -917,6 +931,14 @@ class DAGExecutor:
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
                     halt_msg = "Budget exhausted - execution halted"
+                    await self._save_runtime_checkpoint(
+                        run_id=run_id,
+                        dag=dag,
+                        status=RunStatus.FAILED,
+                        completed=completed,
+                        context=context,
+                        error=halt_msg,
+                    )
                     logger.warning(
                         halt_msg,
                         dag_name=dag.name,
@@ -945,6 +967,14 @@ class DAGExecutor:
                 if self._quality_police and self._quality_police.should_halt():
                     completed_at = utc_now()
                     halt_msg = "Quality degradation - execution halted"
+                    await self._save_runtime_checkpoint(
+                        run_id=run_id,
+                        dag=dag,
+                        status=RunStatus.FAILED,
+                        completed=completed,
+                        context=context,
+                        error=halt_msg,
+                    )
                     logger.warning(
                         halt_msg,
                         dag_name=dag.name,

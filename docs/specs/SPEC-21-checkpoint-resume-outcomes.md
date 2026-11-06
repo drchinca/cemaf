@@ -32,6 +32,11 @@ class DAGCheckpoint:
     unsuccessful_nodes: tuple[NodeID, ...] = ()   # new: completed, but the result was not a success
 
 # FileCheckpointer JSON gains "unsuccessful_nodes": [str, ...]; a missing field reads as ().
+
+# Run ids minted by DAGExecutor when the caller passes none:
+#   RunID(f"run_{uuid4().hex}")   — 128 random bits; was run_<timestamp>, which two runs
+#                                    started in the same microsecond shared, so one run's
+#                                    checkpoint overwrote the other's.
 ```
 
 ## 3. Invariants (DbC)
@@ -42,8 +47,10 @@ class DAGCheckpoint:
 4. `failed_node keeps its meaning`: it is re-run on resume, whatever `unsuccessful_nodes` says.
 5. `THE System SHALL set failed_node only for a failure that ends the run`; a failure that lets the run continue is recorded in `unsuccessful_nodes` alone, so resume treats it the same whenever the process stopped.
 6. `Every checkpoint save SHALL describe the run's whole completed map`, including nodes restored from an earlier checkpoint (the exception path included).
+7. `WHEN DAGExecutor mints a run id, THE System SHALL make it unique across runs`, independent of start time.
+8. `WHEN a run ends early by cancellation or a budget or quality halt, THE System SHALL save a checkpoint with status FAILED and the run's completed map`, so the last checkpoint never lags the run whatever `checkpoint_interval` is.
 
-Budget: 6 invariants.
+Budget: 8 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -61,6 +68,21 @@ Feature: Resume keeps node outcomes
     Given a DAGCheckpoint with unsuccessful_nodes ("second",)
     When it is written and read back through FileCheckpointer serialization
     Then unsuccessful_nodes is ("second",)
+
+  Scenario: Runs started together get different ids
+    Given many runs started concurrently without a run_id
+    When they run
+    Then every run has a different run_id
+
+  Scenario: A halted run's checkpoint is current
+    Given checkpoint_interval=10 and a budget guard that halts after the second node
+    When the run halts
+    Then the checkpoint is FAILED and lists both completed nodes
+
+  Scenario: A cancelled run's checkpoint is current
+    Given checkpoint_interval=10 and a cancellation after the first node
+    When the run stops
+    Then the checkpoint is FAILED and lists the completed node
 ```
 
 ## 5. Out of Scope
@@ -71,8 +93,7 @@ Feature: Resume keeps node outcomes
   not use the native resume path or evaluate edge conditions. Checkpoints it
   writes carry no `unsuccessful_nodes`, so `DAGExecutor.resume` would treat their
   failed nodes as successful.
-- Saving a checkpoint on cancellation and on budget/quality halts (with
-  `checkpoint_interval > 1` the last saved checkpoint can lag the run).
+- Run ids supplied by the caller — uniqueness is then the caller's responsibility.
 
 ## 6. Dependencies
 

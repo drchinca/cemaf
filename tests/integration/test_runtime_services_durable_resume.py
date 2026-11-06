@@ -18,11 +18,13 @@ from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
 from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
+from cemaf.core.execution import CancellationToken
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.interceptors import GateValidationInterceptor, create_interceptor_pipeline
 from cemaf.moderation.factories import create_keyword_moderation_pipeline
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.otel_tracer import OTelTracer
 from cemaf.observability.run_logger import InMemoryRunLogger
 from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition, Node
@@ -413,3 +415,90 @@ async def test_exception_during_a_resumed_run_keeps_restored_nodes(tmp_path: Pat
     assert checkpoint is not None
     assert NodeID("broken") in checkpoint.completed_nodes
     assert checkpoint.unsuccessful_nodes == (NodeID("broken"),)
+
+
+class _BilledNodeExecutor:
+    """Every node succeeds and bills a fixed cost; optionally cancels the run after one node."""
+
+    def __init__(self, *, cost_per_node: float = 0.0, cancel_after: str | None = None) -> None:
+        self.cost_per_node = cost_per_node
+        self.cancel_after = cancel_after
+        self.token = CancellationToken()
+
+    async def execute_node(self, node: Node, context: Context) -> NodeResult:
+        if str(node.id) == self.cancel_after:
+            self.token.cancel(reason="operator stopped the run")
+        return NodeResult(
+            node_id=node.id,
+            success=True,
+            output=f"ran:{node.id}",
+            metadata={"cost_estimate_usd": self.cost_per_node},
+        )
+
+
+def _chain_dag(*, name: str) -> DAG:
+    """a -> b -> c, every node a plain tool node."""
+    nodes = tuple(
+        Node.tool(id=node_id, name=node_id, tool_id="worker", output_key=f"{node_id}_out")
+        for node_id in "abc"
+    )
+    return DAG(
+        name=name,
+        nodes=nodes,
+        edges=(Edge(source=NodeID("a"), target=NodeID("b")), Edge(source=NodeID("b"), target=NodeID("c"))),
+        entry_node=NodeID("a"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_runs_started_together_get_different_ids() -> None:
+    """Run ids must not depend on start time, or concurrent runs overwrite each other's checkpoints."""
+    executor = DAGExecutor(node_executor=_BilledNodeExecutor())
+    dag = _chain_dag(name="many-runs")
+
+    results = await asyncio.gather(*(executor.run(dag) for _ in range(50)))
+
+    assert len({result.run_id for result in results}) == 50
+
+
+@pytest.mark.asyncio
+async def test_a_budget_halt_saves_a_current_checkpoint(tmp_path: Path) -> None:
+    """With a sparse checkpoint interval, a halt still leaves a checkpoint listing every completed node."""
+    checkpointer = FileCheckpointer(tmp_path / "halt-checkpoints", max_checkpoints=0)
+    executor = DAGExecutor(
+        node_executor=_BilledNodeExecutor(cost_per_node=1.0),
+        services=RuntimeServices(
+            checkpointer=checkpointer,
+            checkpoint_interval=10,
+            budget_guard=BudgetGuard(max_cost_usd=1.5),
+        ),
+    )
+
+    halted = await executor.run(_chain_dag(name="budget-halt"), run_id=RunID("budget-halted"))
+    checkpoint = await checkpointer.load(RunID("budget-halted"))
+
+    assert halted.status is RunStatus.FAILED
+    assert checkpoint is not None
+    assert checkpoint.status is RunStatus.FAILED
+    assert checkpoint.completed_nodes == (NodeID("a"), NodeID("b"))
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_run_saves_a_current_checkpoint(tmp_path: Path) -> None:
+    """Cancellation between nodes leaves a checkpoint listing the nodes that finished."""
+    checkpointer = FileCheckpointer(tmp_path / "cancel-checkpoints", max_checkpoints=0)
+    worker = _BilledNodeExecutor(cancel_after="a")
+    executor = DAGExecutor(
+        node_executor=worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=10),
+    )
+
+    stopped = await executor.run(
+        _chain_dag(name="cancelled"), run_id=RunID("cancelled-run"), cancellation_token=worker.token
+    )
+    checkpoint = await checkpointer.load(RunID("cancelled-run"))
+
+    assert stopped.status is RunStatus.FAILED
+    assert checkpoint is not None
+    assert checkpoint.status is RunStatus.FAILED
+    assert checkpoint.completed_nodes == (NodeID("a"),)
