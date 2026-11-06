@@ -32,6 +32,9 @@ class ExecutorConfig(BaseModel):
     enable_moderation: bool = True      # was False
 
 def create_executor_config(*, ..., enable_moderation: bool = True, ...) -> ExecutorConfig: ...
+# Same default in OrchestrationSettings.enable_moderation and CEMAF_ORCHESTRATION_ENABLE_MODERATION
+# (create_dag_executor_from_config). DAGExecutor itself honours config.enable_moderation, so a
+# directly built executor and create_executor behave the same.
 ```
 
 Setting `enable_moderation=False` still turns moderation off; a `None`
@@ -78,4 +81,5 @@ Feature: Supplied services are used
 - **Integration** (`tests/integration/test_runtime_services_composite.py`): both §4
   scenarios through `create_executor` with a real keyword moderation pipeline.
 - **Unit** (`tests/unit/test_dag_executor.py`, `tests/unit/orchestration/test_factories.py`):
-  the shared default.
+  the shared default. `tests/unit/orchestration/test_executor_moderation.py`: a directly
+  built `DAGExecutor` moderates by default and skips moderation with `enable_moderation=False`.

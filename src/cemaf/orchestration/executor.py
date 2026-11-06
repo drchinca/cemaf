@@ -309,7 +309,7 @@ class DAGExecutor:
         )
         self._run_logger = services.run_logger
         self._event_bus = services.event_bus
-        self._moderation_pipeline = services.moderation_pipeline
+        self._moderation_pipeline = services.moderation_pipeline if cfg.enable_moderation else None
         self._quality_police = services.quality_police
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
         self._health_registry = services.health_monitor
