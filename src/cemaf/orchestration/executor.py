@@ -114,6 +114,11 @@ class HaltSignal:
     detail: str = ""
 
 
+def _stop_metadata(*, checkpoint_error: str | None) -> JSON:
+    """Result metadata recording a stop checkpoint that could not be saved."""
+    return {"checkpoint_error": checkpoint_error} if checkpoint_error else {}
+
+
 def _new_run_id() -> RunID:
     """A run id with 128 random bits, so runs started at the same instant never share checkpoints."""
     return RunID(f"run_{uuid4().hex}")
@@ -385,6 +390,30 @@ class DAGExecutor:
             correlation_id=_correlation_id_var.get(),
         )
         await self._event_bus.publish(event=event)
+
+    async def _save_checkpoint_on_stop(
+        self,
+        *,
+        run_id: RunID,
+        dag: DAG,
+        completed: dict[NodeID, NodeResult],
+        context: Context,
+        error: str,
+    ) -> str | None:
+        """Save the FAILED checkpoint for a stopping run; return the save error instead of raising it."""
+        try:
+            await self._save_runtime_checkpoint(
+                run_id=run_id,
+                dag=dag,
+                status=RunStatus.FAILED,
+                completed=completed,
+                context=context,
+                error=error,
+            )
+        except Exception as exc:
+            logger.warning("Could not save the stop checkpoint", run_id=str(run_id), error=str(exc))
+            return str(exc)
+        return None
 
     async def _save_runtime_checkpoint(
         self,
@@ -696,13 +725,8 @@ class DAGExecutor:
                 if cancellation_token and cancellation_token.is_cancelled:
                     cancel_msg = f"Execution cancelled: {cancellation_token.reason}"
                     logger.warning(cancel_msg, dag_name=dag.name, run_id=str(run_id))
-                    await self._save_runtime_checkpoint(
-                        run_id=run_id,
-                        dag=dag,
-                        status=RunStatus.FAILED,
-                        completed=completed,
-                        context=context,
-                        error=cancel_msg,
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=cancel_msg
                     )
                     if self._run_logger:
                         self._run_logger.end_run(
@@ -720,6 +744,7 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=utc_now(),
                         health_check_metadata=health_check_metadata,
+                        metadata=_stop_metadata(checkpoint_error=checkpoint_error),
                     )
 
                 if node_id in completed:
@@ -735,6 +760,40 @@ class DAGExecutor:
 
                 if not should_execute:
                     continue
+
+                # Halt before spending on the next node, not only after a node
+                # succeeds: a resumed run whose budget is already spent must stop
+                # here instead of paying for one more node on every resume.
+                pre_node_halt = self._halt_signal()
+                if pre_node_halt is not None:
+                    halt_msg = f"Execution halted before {node_id}: {pre_node_halt.reason.value}"
+                    logger.warning(
+                        halt_msg, dag_name=dag.name, run_id=str(run_id), source=pre_node_halt.source
+                    )
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=halt_msg
+                    )
+                    if self._run_logger:
+                        self._run_logger.end_run(final_context=context, success=False, error=halt_msg)
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=halt_msg,
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
+                        metadata={
+                            "halt": {
+                                "reason": pre_node_halt.reason.value,
+                                "source": pre_node_halt.source,
+                                "detail": pre_node_halt.detail,
+                            },
+                            **_stop_metadata(checkpoint_error=checkpoint_error),
+                        },
+                    )
 
                 # Keep the pre-node state so non-standard aggregate nodes can
                 # be rolled back if their final output fails moderation.
@@ -931,13 +990,8 @@ class DAGExecutor:
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
                     halt_msg = "Budget exhausted - execution halted"
-                    await self._save_runtime_checkpoint(
-                        run_id=run_id,
-                        dag=dag,
-                        status=RunStatus.FAILED,
-                        completed=completed,
-                        context=context,
-                        error=halt_msg,
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=halt_msg
                     )
                     logger.warning(
                         halt_msg,
@@ -960,20 +1014,18 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=completed_at,
                         health_check_metadata=health_check_metadata,
-                        metadata={"budget_guard": self._budget_guard.to_dict()},
+                        metadata={
+                            "budget_guard": self._budget_guard.to_dict(),
+                            **_stop_metadata(checkpoint_error=checkpoint_error),
+                        },
                     )
 
                 # Quality police check after each node
                 if self._quality_police and self._quality_police.should_halt():
                     completed_at = utc_now()
                     halt_msg = "Quality degradation - execution halted"
-                    await self._save_runtime_checkpoint(
-                        run_id=run_id,
-                        dag=dag,
-                        status=RunStatus.FAILED,
-                        completed=completed,
-                        context=context,
-                        error=halt_msg,
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=halt_msg
                     )
                     logger.warning(
                         halt_msg,
@@ -996,6 +1048,7 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=completed_at,
                         health_check_metadata=health_check_metadata,
+                        metadata=_stop_metadata(checkpoint_error=checkpoint_error),
                     )
 
                 if _failure_stops_run(node=node, result=result):

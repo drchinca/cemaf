@@ -48,9 +48,10 @@ class DAGCheckpoint:
 5. `THE System SHALL set failed_node only for a failure that ends the run`; a failure that lets the run continue is recorded in `unsuccessful_nodes` alone, so resume treats it the same whenever the process stopped.
 6. `Every checkpoint save SHALL describe the run's whole completed map`, including nodes restored from an earlier checkpoint (the exception path included).
 7. `WHEN DAGExecutor mints a run id, THE System SHALL make it unique across runs`, independent of start time.
-8. `WHEN a run ends early by cancellation or a budget or quality halt, THE System SHALL save a checkpoint with status FAILED and the run's completed map`, so the last checkpoint never lags the run whatever `checkpoint_interval` is.
+8. `WHEN a run ends early by cancellation or a budget or quality halt, THE System SHALL save a checkpoint with status FAILED and the run's completed map`, so the last checkpoint never lags the run whatever `checkpoint_interval` is. `IF that save fails, THEN THE System SHALL still return the original stop reason` and record the save error in `ExecutionResult.metadata["checkpoint_error"]`.
+9. `BEFORE dispatching each node, THE System SHALL check the halt controllers (budget, quality)` and stop without running the node when one has fired, so resuming a halted run never spends on another node.
 
-Budget: 8 invariants.
+Budget: 9 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -78,6 +79,16 @@ Feature: Resume keeps node outcomes
     Given checkpoint_interval=10 and a budget guard that halts after the second node
     When the run halts
     Then the checkpoint is FAILED and lists both completed nodes
+
+  Scenario: Resuming with a spent budget runs nothing
+    Given a run halted by its budget guard
+    When it is resumed with the same guard
+    Then no node runs and the result is FAILED with halt reason "budget_exhausted"
+
+  Scenario: A failing stop checkpoint does not hide the stop reason
+    Given a checkpointer whose FAILED save raises
+    When the run is cancelled
+    Then the result reports the cancellation and metadata["checkpoint_error"] carries the save error
 
   Scenario: A cancelled run's checkpoint is current
     Given checkpoint_interval=10 and a cancellation after the first node

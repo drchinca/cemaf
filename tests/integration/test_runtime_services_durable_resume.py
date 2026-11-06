@@ -27,6 +27,7 @@ from cemaf.moderation.factories import create_keyword_moderation_pipeline
 from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.otel_tracer import OTelTracer
 from cemaf.observability.run_logger import InMemoryRunLogger
+from cemaf.orchestration.checkpointer import DAGCheckpoint
 from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.file_checkpointer import FileCheckpointer
@@ -424,8 +425,10 @@ class _BilledNodeExecutor:
         self.cost_per_node = cost_per_node
         self.cancel_after = cancel_after
         self.token = CancellationToken()
+        self.executed: list[str] = []
 
     async def execute_node(self, node: Node, context: Context) -> NodeResult:
+        self.executed.append(str(node.id))
         if str(node.id) == self.cancel_after:
             self.token.cancel(reason="operator stopped the run")
         return NodeResult(
@@ -502,3 +505,56 @@ async def test_a_cancelled_run_saves_a_current_checkpoint(tmp_path: Path) -> Non
     assert checkpoint is not None
     assert checkpoint.status is RunStatus.FAILED
     assert checkpoint.completed_nodes == (NodeID("a"),)
+
+
+@pytest.mark.asyncio
+async def test_resuming_with_a_spent_budget_runs_no_more_nodes(tmp_path: Path) -> None:
+    """A run halted by its budget must not spend one more paid node on every resume."""
+    checkpointer = FileCheckpointer(tmp_path / "spent-checkpoints", max_checkpoints=0)
+    guard = BudgetGuard(max_cost_usd=1.5)
+    first = _BilledNodeExecutor(cost_per_node=1.0)
+    dag = _chain_dag(name="spent-budget")
+    await DAGExecutor(
+        node_executor=first,
+        services=RuntimeServices(checkpointer=checkpointer, budget_guard=guard),
+    ).run(dag, run_id=RunID("spent-budget"))
+
+    retry = _BilledNodeExecutor(cost_per_node=1.0)
+    resumed = await DAGExecutor(
+        node_executor=retry,
+        services=RuntimeServices(checkpointer=checkpointer, budget_guard=guard),
+    ).resume(run_id=RunID("spent-budget"), dag=dag)
+
+    assert first.executed == ["a", "b"]
+    assert resumed.status is RunStatus.FAILED
+    assert retry.executed == []
+    assert resumed.metadata["halt"]["reason"] == "budget_exhausted"
+
+
+class _StopSaveFailsCheckpointer(FileCheckpointer):
+    """Saves normally, except the FAILED checkpoint written when a run stops."""
+
+    async def save(self, checkpoint: DAGCheckpoint) -> None:
+        if checkpoint.status is RunStatus.FAILED:
+            raise OSError("checkpoint disk full")
+        await super().save(checkpoint)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_stop_checkpoint_does_not_hide_why_the_run_stopped(tmp_path: Path) -> None:
+    """If saving the stop checkpoint fails, the result still reports the cancellation and the save error."""
+    worker = _BilledNodeExecutor(cancel_after="a")
+    executor = DAGExecutor(
+        node_executor=worker,
+        services=RuntimeServices(
+            checkpointer=_StopSaveFailsCheckpointer(tmp_path / "full-disk", max_checkpoints=0)
+        ),
+    )
+
+    stopped = await executor.run(
+        _chain_dag(name="disk-full"), run_id=RunID("disk-full"), cancellation_token=worker.token
+    )
+
+    assert stopped.status is RunStatus.FAILED
+    assert "cancelled" in (stopped.error or "").lower()
+    assert "disk full" in stopped.metadata["checkpoint_error"]
