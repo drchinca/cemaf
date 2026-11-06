@@ -113,6 +113,22 @@ class HaltSignal:
     detail: str = ""
 
 
+def _failure_stops_run(*, node: Node, result: NodeResult) -> bool:
+    """True when a failed node ends the run rather than letting it continue down other edges.
+
+    A deterministic gate rejection is terminal even when the node normally retries
+    failures: the interceptor already judged the output, so unconditional edges must
+    not let downstream work run around that decision.
+    """
+    interceptor_metadata = result.metadata.get("interceptors")
+    gate_rejected = isinstance(interceptor_metadata, dict) and bool(interceptor_metadata.get("gate_rejected"))
+    return (
+        not result.success
+        and (not node.retry_on_failure or gate_rejected)
+        and node.type != NodeType.CONDITIONAL
+    )
+
+
 def _current_route_choices() -> dict[NodeID, set[NodeID]]:
     """Read-accessor with defensive empty-dict fallback for pre-run reads."""
     choices = _route_choices_var.get()
@@ -585,6 +601,7 @@ class DAGExecutor:
             payload={"dag_name": dag.name, "run_id": str(run_id)},
         )
 
+        completed: dict[NodeID, NodeResult] = {}
         try:
             # Validate DAG
             dag.validate_structure()
@@ -632,7 +649,6 @@ class DAGExecutor:
             order = dag.topological_sort()
 
             # Track completed nodes for edge conditions
-            completed: dict[NodeID, NodeResult] = {}
             if resume_checkpoint is not None:
                 for completed_node in resume_checkpoint.completed_nodes:
                     if completed_node != resume_checkpoint.failed_node:
@@ -889,7 +905,7 @@ class DAGExecutor:
                         completed=completed,
                         context=context,
                         error=result.error,
-                        failed_node=node_id if not result.success else None,
+                        failed_node=node_id if _failure_stops_run(node=node, result=result) else None,
                     )
 
                 # Budget guard halt check after each node. Cost recording
@@ -952,19 +968,7 @@ class DAGExecutor:
                         health_check_metadata=health_check_metadata,
                     )
 
-                # A deterministic gate rejection is terminal even when the
-                # node normally retries failures. The interceptor has already
-                # decided the output is unsafe/invalid; unconditional edges
-                # must not let downstream work execute around that decision.
-                _interceptor_metadata = result.metadata.get("interceptors")
-                _gate_rejected_result = isinstance(_interceptor_metadata, dict) and bool(
-                    _interceptor_metadata.get("gate_rejected")
-                )
-                if (
-                    not result.success
-                    and (not node.retry_on_failure or _gate_rejected_result)
-                    and node.type != NodeType.CONDITIONAL
-                ):
+                if _failure_stops_run(node=node, result=result):
                     # Record DAG failure metrics
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
@@ -1098,7 +1102,7 @@ class DAGExecutor:
                     run_id=run_id,
                     dag=dag,
                     status=RunStatus.FAILED,
-                    completed={result.node_id: result for result in node_results},
+                    completed=completed,
                     context=context,
                     error=str(e),
                 )

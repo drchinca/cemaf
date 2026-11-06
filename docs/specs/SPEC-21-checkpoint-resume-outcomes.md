@@ -40,8 +40,10 @@ class DAGCheckpoint:
 2. `WHEN a run is resumed, THE System SHALL rebuild each completed node with success=False if it is in unsuccessful_nodes, and success=True otherwise.`
 3. `unsuccessful_nodes SHALL survive a FileCheckpointer save and load unchanged.`
 4. `failed_node keeps its meaning`: it is re-run on resume, whatever `unsuccessful_nodes` says.
+5. `THE System SHALL set failed_node only for a failure that ends the run`; a failure that lets the run continue is recorded in `unsuccessful_nodes` alone, so resume treats it the same whenever the process stopped.
+6. `Every checkpoint save SHALL describe the run's whole completed map`, including nodes restored from an earlier checkpoint (the exception path included).
 
-Budget: 4 invariants.
+Budget: 6 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -66,7 +68,11 @@ Feature: Resume keeps node outcomes
 - Restoring each node's full `NodeResult` (output, error, metadata) on resume —
   only the success flag is preserved.
 - The legacy `CheckpointingDAGExecutor` wrapper in `checkpointer.py`, which does
-  not use the native resume path.
+  not use the native resume path or evaluate edge conditions. Checkpoints it
+  writes carry no `unsuccessful_nodes`, so `DAGExecutor.resume` would treat their
+  failed nodes as successful.
+- Saving a checkpoint on cancellation and on budget/quality halts (with
+  `checkpoint_interval > 1` the last saved checkpoint can lag the run).
 
 ## 6. Dependencies
 
