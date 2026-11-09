@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -42,13 +43,21 @@ pytestmark = pytest.mark.skipif(
     reason="set CEMAF_RUN_PGVECTOR_TESTS=1 with a real pgvector-enabled Postgres to execute",
 )
 
-_DSN = os.getenv("CEMAF_PGVECTOR_DSN", "postgresql://sipe:sipe@localhost:5432/sipe_vectors")
+_DSN = os.getenv("CEMAF_PGVECTOR_DSN", "postgresql://localhost:5432/cemaf")
 
 
 @pytest.fixture
-def schema() -> str:
-    """A unique schema per test run — a real database is a shared fixture, not a fresh one."""
-    return f"cemaf_live_{uuid.uuid4().hex[:8]}"
+async def schema() -> AsyncIterator[str]:
+    """A unique schema per test run, dropped afterwards — a real database is shared, not fresh."""
+    import asyncpg
+
+    name = f"cemaf_live_{uuid.uuid4().hex[:8]}"
+    yield name
+    conn = await asyncpg.connect(_DSN)
+    try:
+        await conn.execute(f'DROP SCHEMA IF EXISTS "{name}" CASCADE')
+    finally:
+        await conn.close()
 
 
 @pytest.mark.asyncio
