@@ -88,6 +88,7 @@ class OpenAICompatClient:
         timeout_seconds: float = 120.0,
         default_headers: dict[str, str] | None = None,
         provider: LLMProvider | str = LLMProvider.OLLAMA,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -100,6 +101,8 @@ class OpenAICompatClient:
             timeout_seconds=timeout_seconds,
         )
         self._default_headers = default_headers or {}
+        # None = the default network transport (SPEC-25).
+        self._transport = transport
 
     @property
     def config(self) -> LLMConfig:
@@ -145,7 +148,7 @@ class OpenAICompatClient:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
         try:
-            async with httpx.AsyncClient(timeout=cfg.timeout_seconds) as client:
+            async with httpx.AsyncClient(timeout=cfg.timeout_seconds, transport=self._transport) as client:
                 response = await client.post(
                     f"{self._base_url}/chat/completions",
                     json=payload,
@@ -226,7 +229,7 @@ class OpenAICompatClient:
 
         accumulated = ""
         async with (
-            httpx.AsyncClient(timeout=cfg.timeout_seconds) as client,
+            httpx.AsyncClient(timeout=cfg.timeout_seconds, transport=self._transport) as client,
             client.stream(
                 "POST",
                 f"{self._base_url}/chat/completions",

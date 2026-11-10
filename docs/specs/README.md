@@ -76,6 +76,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-22](SPEC-22-supplied-services-are-used.md) | Supplied Runtime Services Are Used | none | `ExecutorConfig.enable_moderation` defaults to True, so a supplied moderation pipeline is never a silent no-op |
 
+## LLM Testing (SPEC-25)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-25](SPEC-25-recorded-llm-replay.md) | Recorded LLM Replay | none | injectable HTTP transport on `OpenAICompatClient`; captured-once, replayed-in-CI model cassettes |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see

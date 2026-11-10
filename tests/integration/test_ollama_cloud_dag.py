@@ -7,8 +7,9 @@ does not require external credentials.
 
 from __future__ import annotations
 
-from typing import Any
+import json
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
@@ -29,35 +30,20 @@ from cemaf.llm.protocols import LLMClient, Message
 from cemaf.orchestration.services import RuntimeServices
 
 
-class _FakeResponse:
-    status_code = 200
-    text = ""
-
-    def json(self) -> dict[str, Any]:
-        return {
+def _ollama_cloud_endpoint(request: httpx.Request) -> httpx.Response:
+    """Stands in for https://ollama.com/v1 and checks the adapter's request."""
+    body = json.loads(request.content)
+    assert str(request.url) == "https://ollama.com/v1/chat/completions"
+    assert body["model"] == DEFAULT_OLLAMA_CLOUD_MODEL
+    assert request.headers["Authorization"] == "Bearer test-ollama-key"
+    return httpx.Response(
+        200,
+        json={
             "model": DEFAULT_OLLAMA_CLOUD_MODEL,
-            "choices": [
-                {
-                    "message": {"role": "assistant", "content": "pong"},
-                    "finish_reason": "stop",
-                }
-            ],
+            "choices": [{"message": {"role": "assistant", "content": "pong"}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 3, "completion_tokens": 1},
-        }
-
-
-class _FakeAsyncClient:
-    async def __aenter__(self) -> _FakeAsyncClient:
-        return self
-
-    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-        return None
-
-    async def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> _FakeResponse:
-        assert url == "https://ollama.com/v1/chat/completions"
-        assert json["model"] == DEFAULT_OLLAMA_CLOUD_MODEL
-        assert headers["Authorization"] == "Bearer test-ollama-key"
-        return _FakeResponse()
+        },
+    )
 
 
 class PromptGoal(BaseModel):
@@ -108,15 +94,12 @@ class EchoLLMAgent(Agent[PromptGoal, PromptResult]):
 
 
 @pytest.mark.asyncio
-async def test_ollama_cloud_drives_real_dag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "cemaf.llm.openai_compat.httpx.AsyncClient",
-        lambda *, timeout: _FakeAsyncClient(),
-    )
+async def test_ollama_cloud_drives_real_dag() -> None:
     llm = create_llm_client(
         provider="ollama-cloud",
         api_key="test-ollama-key",
         model=DEFAULT_OLLAMA_CLOUD_MODEL,
+        transport=httpx.MockTransport(_ollama_cloud_endpoint),
     )
     agent = EchoLLMAgent(llm=llm)
 

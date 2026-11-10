@@ -123,6 +123,7 @@ def _create_openai_compatible(**kwargs: Any) -> LLMClient:
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("OPENAI_API_KEY", ""))
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         api_key=api_key,
         base_url=kwargs.get("base_url", DEFAULT_OPENAI_COMPAT_BASE_URL),
         model=kwargs.get("model", DEFAULT_FREE_LLM_MODEL),
@@ -143,6 +144,7 @@ def _create_ollama(**kwargs: Any) -> LLMClient:
         temperature=kwargs.get("temperature", 0.7),
         max_tokens=kwargs.get("max_tokens", 4096),
         timeout_seconds=kwargs.get("timeout_seconds", 300.0),
+        transport=kwargs.get("transport"),
     )
 
 
@@ -161,6 +163,7 @@ def _create_ollama_tiered(**kwargs: Any) -> LLMClient:
         base_url=kwargs.get("base_url", DEFAULT_BASE_URL),
         escalation_chars=kwargs.get("escalation_chars", DEFAULT_ESCALATION_CHARS),
         timeout_seconds=kwargs.get("timeout_seconds", 300.0),
+        transport=kwargs.get("transport"),
     )
 
 
@@ -176,6 +179,7 @@ def _create_ollama_cloud(**kwargs: Any) -> LLMClient:
     if not api_key:
         raise ValueError("api_key required for Ollama Cloud (or set OLLAMA_CLOUD_API_KEY)")
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url=kwargs.get("base_url", OLLAMA_CLOUD_BASE_URL),
         api_key=api_key,
         model=kwargs.get("model", DEFAULT_OLLAMA_CLOUD_MODEL),
@@ -192,6 +196,7 @@ def _create_groq(**kwargs: Any) -> LLMClient:
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("GROQ_API_KEY", ""))
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
         model=kwargs.get("model", "llama-3.3-70b-versatile"),
@@ -208,6 +213,7 @@ def _create_together(**kwargs: Any) -> LLMClient:
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("TOGETHER_API_KEY", ""))
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url="https://api.together.xyz/v1",
         api_key=api_key,
         model=kwargs.get("model", "Llama-3.3-70B-Instruct-Turbo"),
@@ -229,6 +235,7 @@ def _create_huggingface(**kwargs: Any) -> LLMClient:
         or os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
     )
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url=kwargs.get("base_url", "https://router.huggingface.co/v1"),
         api_key=api_key,
         model=kwargs.get("model", "google/gemma-2-2b-it"),
