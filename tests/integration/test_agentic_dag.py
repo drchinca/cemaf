@@ -7,6 +7,7 @@ Proves the full execution path:
 No mocks for core execution. Uses simple deterministic agents that don't need LLM calls.
 """
 
+import asyncio
 import json
 
 import pytest
@@ -17,13 +18,15 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
-from cemaf.core.types import AgentID, NodeID
+from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.evals.evaluators import ContainsEvaluator, LengthEvaluator
-from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
+from cemaf.evals.online import EvalMode, EvalTrigger, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice, QualityPoliceConfig
+from cemaf.evals.protocols import EvalMetric, EvalResult
 from cemaf.events.bus import InMemoryEventBus
+from cemaf.orchestration.checkpointer import InMemoryCheckpointer
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
-from cemaf.orchestration.executor import ExecutorConfig
+from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig, HaltReason
 from cemaf.orchestration.services import RuntimeServices
 
 # ---------------------------------------------------------------------------
@@ -638,51 +641,395 @@ class TestAgentDagWithEvals:
         registry: AgentRegistry,
         event_bus: InMemoryEventBus,
     ) -> None:
-        """GATE mode eval emits QUALITY_ALERT on failure."""
-        # Gate eval that requires "important" keyword
-        eval_pipeline = OnlineEvalPipeline(
-            bindings=(
-                NodeEvalBinding(
-                    node_pattern="*",
-                    evaluators=(ContainsEvaluator(case_sensitive=False),),
-                    mode=EvalMode.GATE,
-                    expected="KEYWORD_NOT_IN_OUTPUT",
-                ),
-            ),
-            event_bus=event_bus,
-        )
-        services = RuntimeServices(
-            event_bus=event_bus,
-            online_eval_pipeline=eval_pipeline,
-        )
-        executor = create_executor(
-            clearance=SecurityLevel.CONFIDENTIAL,
-            agent_registry=registry,
-            config=ExecutorConfig(enable_events=True),
-            services=services,
+        """A failing online GATE binding fails the node and halts the run before downstream starts."""
+        eval_pipeline = _keyword_pipeline(event_bus=event_bus, mode=EvalMode.GATE, keyword="approved-topic")
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
         )
 
+        result = await executor.run(dag=_two_step_dag(name="gate-test", topic="rejected-topic"))
+
+        assert result.status == RunStatus.FAILED
+        assert result.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+        assert result.metadata["halt"]["node_id"] == "step_1"
+        assert [str(nr.node_id) for nr in result.node_results] == ["step_1"]
+        gated = result.node_results[0]
+        assert gated.success is False
+        assert "rejected-topic" in str(gated.metadata["online_gate"]["rejected_output"])
+
+    @pytest.mark.asyncio
+    async def test_gate_failure_on_the_only_node_fails_the_run(
+        self,
+        registry: AgentRegistry,
+        event_bus: InMemoryEventBus,
+    ) -> None:
+        """A gate failure on the last node still fails the run rather than completing it."""
+        eval_pipeline = _keyword_pipeline(event_bus=event_bus, mode=EvalMode.GATE, keyword="approved-topic")
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
         dag = DAG(
-            name="gate-test",
-            nodes=(
-                Node(
-                    id=NodeID("step_1"),
-                    type=NodeType.AGENT,
-                    name="Analyze",
-                    ref_id="Analyze",
-                    input_mapping={"topic": "testing"},
-                    retry_on_failure=False,
-                ),
-            ),
+            name="single-gate",
+            nodes=(_analyze_node(node_id="step_1", topic="rejected-topic"),),
             edges=(),
             entry_node=NodeID("step_1"),
         )
 
-        await executor.run(dag=dag)
+        result = await executor.run(dag=dag)
 
-        # Eval should have failed (output doesn't contain the expected keyword)
-        assert len(eval_pipeline.results) >= 1
+        assert result.status == RunStatus.FAILED
+        assert result.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+
+    @pytest.mark.asyncio
+    async def test_gate_holds_with_events_disabled(
+        self, registry: AgentRegistry, event_bus: InMemoryEventBus
+    ) -> None:
+        """The executor checks GATE bindings directly, so turning events off cannot skip the gate."""
+        eval_pipeline = _keyword_pipeline(event_bus=event_bus, mode=EvalMode.GATE, keyword="approved-topic")
+        executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
+            agent_registry=registry,
+            config=ExecutorConfig(enable_events=False),
+            services=RuntimeServices(event_bus=event_bus, online_eval_pipeline=eval_pipeline),
+        )
+
+        result = await executor.run(dag=_two_step_dag(name="no-events", topic="rejected-topic"))
+
+        assert result.status == RunStatus.FAILED
+        assert [str(nr.node_id) for nr in result.node_results] == ["step_1"]
+
+    @pytest.mark.asyncio
+    async def test_checkpoint_only_gate_halts_the_run(
+        self,
+        registry: AgentRegistry,
+        event_bus: InMemoryEventBus,
+    ) -> None:
+        """A CHECKPOINT_ONLY GATE binding on a checkpointed node judges the context and halts the run."""
+        eval_pipeline = OnlineEvalPipeline(
+            bindings=(
+                NodeEvalBinding(
+                    node_pattern="step_1",
+                    evaluators=(ContainsEvaluator(case_sensitive=False),),
+                    mode=EvalMode.GATE,
+                    expected="approved-topic",
+                    trigger=EvalTrigger.CHECKPOINT_ONLY,
+                ),
+            ),
+            event_bus=event_bus,
+        )
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
+        dag = _two_step_dag(name="checkpoint-gate", topic="rejected-topic", checkpoint_first=True)
+
+        result = await executor.run(dag=dag)
+
+        assert result.status == RunStatus.FAILED
+        assert result.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+        assert [str(nr.node_id) for nr in result.node_results] == ["step_1"]
+
+    @pytest.mark.asyncio
+    async def test_resume_after_gate_halt_rechecks_the_gated_node(
+        self,
+        registry: AgentRegistry,
+        event_bus: InMemoryEventBus,
+    ) -> None:
+        """A gate-halted run checkpoints FAILED at the gated node; resume re-checks it and stays halted."""
+        eval_pipeline = _keyword_pipeline(event_bus=event_bus, mode=EvalMode.GATE, keyword="approved-topic")
+        checkpointer = InMemoryCheckpointer()
+        executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
+            agent_registry=registry,
+            config=ExecutorConfig(enable_events=True),
+            services=RuntimeServices(
+                event_bus=event_bus,
+                online_eval_pipeline=eval_pipeline,
+                checkpointer=checkpointer,
+            ),
+        )
+        dag = _two_step_dag(name="resume-gate", topic="rejected-topic")
+
+        halted = await executor.run(dag=dag, run_id=RunID("run-resume-gate"))
+        checkpoint = await checkpointer.load(RunID("run-resume-gate"))
+        resumed = await executor.resume(run_id=RunID("run-resume-gate"), dag=dag)
+
+        assert halted.status == RunStatus.FAILED
+        assert checkpoint is not None
+        assert checkpoint.status == RunStatus.FAILED
+        assert checkpoint.failed_node == NodeID("step_1")
+        assert resumed.status == RunStatus.FAILED
+        assert "should_not_run" not in [str(nr.node_id) for nr in resumed.node_results]
+
+    @pytest.mark.asyncio
+    async def test_gate_failure_on_a_conditional_node_halts_the_run(
+        self,
+        registry: AgentRegistry,
+        event_bus: InMemoryEventBus,
+    ) -> None:
+        """A CONDITIONAL node that fails its gate halts the run instead of routing onward."""
+        eval_pipeline = OnlineEvalPipeline(
+            bindings=(
+                NodeEvalBinding(
+                    node_pattern="route",
+                    evaluators=(ContainsEvaluator(case_sensitive=False),),
+                    mode=EvalMode.GATE,
+                    expected="approved-topic",
+                ),
+            ),
+            event_bus=event_bus,
+        )
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
+        dag = DAG(
+            name="conditional-gate",
+            nodes=(
+                Node(
+                    id=NodeID("route"),
+                    type=NodeType.CONDITIONAL,
+                    name="route",
+                    config={
+                        "condition_fn": lambda data: True,
+                        "true_target": "after",
+                        "false_target": "after",
+                    },
+                ),
+                _analyze_node(node_id="after", topic="follow-up"),
+            ),
+            edges=(Edge(source=NodeID("route"), target=NodeID("after"), condition=EdgeCondition.ALWAYS),),
+            entry_node=NodeID("route"),
+        )
+
+        result = await executor.run(dag=dag)
+
+        assert result.status == RunStatus.FAILED
+        assert result.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+        assert "after" not in [str(nr.node_id) for nr in result.node_results]
+
+    @pytest.mark.asyncio
+    async def test_gate_failure_on_a_retrying_node_halts_without_retry(
+        self, event_bus: InMemoryEventBus
+    ) -> None:
+        """A gate failure is a verdict on the output, so a retrying node is not re-run."""
+        calls: list[str] = []
+        registry = AgentRegistry()
+        registry.register_agent(agent_instance=CountingAnalyzeAgent(calls=calls), goal_type=AnalyzeGoal)
+        eval_pipeline = _keyword_pipeline(event_bus=event_bus, mode=EvalMode.GATE, keyword="approved-topic")
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
+        retrying = Node(
+            id=NodeID("step_1"),
+            type=NodeType.AGENT,
+            name="step_1",
+            ref_id="Analyze",
+            input_mapping={"topic": "rejected-topic"},
+            retry_on_failure=True,
+        )
+        dag = DAG(name="retry-gate", nodes=(retrying,), edges=(), entry_node=NodeID("step_1"))
+
+        result = await executor.run(dag=dag)
+
+        assert result.status == RunStatus.FAILED
+        assert result.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+        assert calls == ["rejected-topic"]
+
+    @pytest.mark.asyncio
+    async def test_gate_evaluator_error_halts_the_run(
+        self,
+        registry: AgentRegistry,
+        event_bus: InMemoryEventBus,
+    ) -> None:
+        """An evaluator that raises fails the gate closed: the run halts with no score."""
+        eval_pipeline = OnlineEvalPipeline(
+            bindings=(
+                NodeEvalBinding(
+                    node_pattern="step_1",
+                    evaluators=(RaisingEvaluator(),),
+                    mode=EvalMode.GATE,
+                ),
+            ),
+            event_bus=event_bus,
+        )
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
+
+        result = await executor.run(dag=_two_step_dag(name="raising-gate", topic="approved-topic"))
+
+        assert result.status == RunStatus.FAILED
+        assert result.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+        assert result.metadata["halt"]["score"] is None
+        assert [str(nr.node_id) for nr in result.node_results] == ["step_1"]
+
+    @pytest.mark.asyncio
+    async def test_observe_mode_eval_failure_does_not_halt(
+        self,
+        registry: AgentRegistry,
+        event_bus: InMemoryEventBus,
+    ) -> None:
+        """A failing online OBSERVE binding is recorded but the run completes."""
+        eval_pipeline = _keyword_pipeline(
+            event_bus=event_bus, mode=EvalMode.OBSERVE, keyword="approved-topic"
+        )
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
+
+        result = await executor.run(dag=_two_step_dag(name="observe-test", topic="rejected-topic"))
+        await eval_pipeline.flush()
+
+        assert result.status == RunStatus.COMPLETED
+        assert [str(nr.node_id) for nr in result.node_results] == ["step_1", "should_not_run"]
         assert eval_pipeline.results[0]["overall_passed"] is False
+
+    @pytest.mark.asyncio
+    async def test_gate_failure_halts_only_its_own_run(self, event_bus: InMemoryEventBus) -> None:
+        """Both runs finish step_1 before either is gate-checked; only the run that failed the gate halts."""
+        both_started = asyncio.Barrier(2)
+        finished_step_one: list[str] = []
+        registry = AgentRegistry()
+        registry.register_agent(
+            agent_instance=RendezvousAgent(barrier=both_started, finished=finished_step_one),
+            goal_type=AnalyzeGoal,
+        )
+        eval_pipeline = _keyword_pipeline(event_bus=event_bus, mode=EvalMode.GATE, keyword="approved-topic")
+        executor = _executor_with_pipeline(
+            registry=registry, event_bus=event_bus, eval_pipeline=eval_pipeline
+        )
+
+        async with asyncio.TaskGroup() as group:
+            rejected_task = group.create_task(
+                executor.run(
+                    dag=_two_step_dag(name="rejected-run", topic="rejected-topic", agent_id="Rendezvous"),
+                    run_id=RunID("run-rejected"),
+                )
+            )
+            approved_task = group.create_task(
+                executor.run(
+                    dag=_two_step_dag(name="approved-run", topic="approved-topic", agent_id="Rendezvous"),
+                    run_id=RunID("run-approved"),
+                )
+            )
+        rejected, approved = rejected_task.result(), approved_task.result()
+
+        assert sorted(finished_step_one[:2]) == ["approved-topic", "rejected-topic"]
+        assert rejected.status == RunStatus.FAILED
+        assert rejected.metadata["halt"]["reason"] == HaltReason.GATE_EVAL_FAILED
+        assert approved.status == RunStatus.COMPLETED
+        assert [str(nr.node_id) for nr in approved.node_results] == ["step_1", "should_not_run"]
+
+
+class CountingAnalyzeAgent(AnalyzeAgent):
+    """Analyze agent that records every topic it is asked about."""
+
+    def __init__(self, *, calls: list[str]) -> None:
+        self._calls = calls
+
+    async def run(self, goal: AnalyzeGoal, context: AgentContext) -> AgentResult[AnalyzeResult]:
+        self._calls.append(goal.topic)
+        return await super().run(goal=goal, context=context)
+
+
+class RaisingEvaluator:
+    """Evaluator whose judge is unreachable."""
+
+    @property
+    def metric(self) -> EvalMetric:
+        return EvalMetric.CUSTOM
+
+    @property
+    def name(self) -> str:
+        return "RaisingEvaluator"
+
+    async def evaluate(
+        self, *, output: object, expected: object = None, context: object = None
+    ) -> EvalResult:
+        raise RuntimeError("judge offline")
+
+
+class RendezvousAgent(Agent[AnalyzeGoal, AnalyzeResult]):
+    """Waits until every concurrent run has reached step_1, so the runs genuinely overlap."""
+
+    def __init__(self, *, barrier: asyncio.Barrier, finished: list[str]) -> None:
+        self._barrier = barrier
+        self._finished = finished
+
+    @property
+    def id(self) -> AgentID:
+        return AgentID("Rendezvous")
+
+    @property
+    def description(self) -> str:
+        return "Meets the other concurrent runs before answering"
+
+    @property
+    def skills(self):
+        return ()
+
+    async def run(self, goal: AnalyzeGoal, context: AgentContext) -> AgentResult[AnalyzeResult]:
+        if goal.topic != "follow-up":
+            await self._barrier.wait()
+            self._finished.append(goal.topic)
+        return AgentResult.ok(
+            output=AnalyzeResult(analysis=f"Analysis of '{goal.topic}'"), state=AgentState()
+        )
+
+
+def _keyword_pipeline(*, event_bus: InMemoryEventBus, mode: EvalMode, keyword: str) -> OnlineEvalPipeline:
+    """Online pipeline whose step_1 binding passes only when the output contains the keyword."""
+    return OnlineEvalPipeline(
+        bindings=(
+            NodeEvalBinding(
+                node_pattern="step_1",
+                evaluators=(ContainsEvaluator(case_sensitive=False),),
+                mode=mode,
+                expected=keyword,
+            ),
+        ),
+        event_bus=event_bus,
+    )
+
+
+def _executor_with_pipeline(
+    *,
+    registry: AgentRegistry,
+    event_bus: InMemoryEventBus,
+    eval_pipeline: OnlineEvalPipeline,
+) -> DAGExecutor:
+    """Executor wired through create_executor with the given online pipeline."""
+    return create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        config=ExecutorConfig(enable_events=True),
+        services=RuntimeServices(event_bus=event_bus, online_eval_pipeline=eval_pipeline),
+    )
+
+
+def _analyze_node(*, node_id: str, topic: str, agent_id: str = "Analyze", checkpoint: bool = False) -> Node:
+    """An AGENT node that analyzes a topic."""
+    return Node(
+        id=NodeID(node_id),
+        type=NodeType.AGENT,
+        name=node_id,
+        ref_id=agent_id,
+        input_mapping={"topic": topic},
+        retry_on_failure=False,
+        checkpoint_enabled=checkpoint,
+    )
+
+
+def _two_step_dag(*, name: str, topic: str, agent_id: str = "Analyze", checkpoint_first: bool = False) -> DAG:
+    """step_1 analyzes the topic; should_not_run follows on success."""
+    return DAG(
+        name=name,
+        nodes=(
+            _analyze_node(node_id="step_1", topic=topic, agent_id=agent_id, checkpoint=checkpoint_first),
+            _analyze_node(node_id="should_not_run", topic="follow-up", agent_id=agent_id),
+        ),
+        edges=(Edge(source=NodeID("step_1"), target=NodeID("should_not_run")),),
+        entry_node=NodeID("step_1"),
+    )
 
 
 # ---------------------------------------------------------------------------

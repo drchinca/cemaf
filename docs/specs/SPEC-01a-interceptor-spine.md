@@ -2,7 +2,7 @@
 title: Interceptor Spine (minimal slice of SPEC-01)
 spec_id: SPEC-01a
 status: Implemented
-last_reviewed: 2026-06-10
+last_reviewed: 2026-11-06
 owner: drchinca
 parent: SPEC-01 — Node Interceptor Pipeline
 depends_on: []
@@ -45,6 +45,43 @@ an import cycle, `NodeResult`/`ExecutionResult` moved to
 > the "RECOVER (shipped)" subsection in §2 for the live contract. Tests:
 > `tests/unit/interceptors/test_recovery.py`,
 > `tests/integration/test_interceptor_recover.py`.
+
+> **Online-eval GATE halts the run (amendment, CEMAF-002).** §1 records that a
+> failing `EvalMode.GATE` binding on `OnlineEvalPipeline` only published a
+> `QUALITY_ALERT`, so the run carried on as if the gate had passed. The online
+> pipeline evaluates *after* a node has already succeeded and its output is in
+> the context, so it cannot reject that node the way `GateEvalInterceptor` does;
+> instead a GATE failure halts the run. `DAGExecutor` calls the pipeline's GATE
+> check directly after each node and gets the verdict back; it never depends on
+> an event-bus subscriber having run, so the halt holds on every bus (a Redis
+> stream bus delivers handlers later, on any worker). A failed check turns that
+> node into a failed `NodeResult` (`metadata["online_gate"]` holds the score and
+> the withheld output), restores the context from before the node, and ends the
+> run through the executor's terminal-failure path: the checkpoint is saved as
+> FAILED with this node as `failed_node`, so `resume()` re-runs and re-checks it.
+> The event bus carries OBSERVE evaluations only. Contract:
+>
+> ```python
+> @dataclass(frozen=True, slots=True)
+> class GateFailure:
+>     node_id: str
+>     score: float | None   # None when the evaluator raised
+>     message: str
+>
+> class OnlineEvalPipeline:
+>     async def check_gate(
+>         self, *, node_id: str, output: object, trigger: EvalTrigger,
+>         run_id: str, dag_name: str, workspace_id: str | None,
+>     ) -> GateFailure | None: ...
+>
+> class HaltReason(StrEnum):
+>     GATE_EVAL_FAILED = "gate_eval_failed"
+> ```
+>
+> Use `GateEvalInterceptor` to stop a node's output from ever being applied and
+> to gate its `ON_SUCCESS` edges; use an online GATE binding to stop the whole
+> run once a node's output fails a check. See Invariant 15, the three "Online
+> GATE" scenarios in §4, and Property 4.
 
 ## Contents
 
@@ -374,6 +411,12 @@ feedback).
     per-run state; the same pipeline instance is safe across concurrent DAG runs.
 14. **Unique ids**: constructing a pipeline with duplicate `interceptor_id`s is a
     construction error.
+15. **Online GATE halts its own run only**: when an `EvalMode.GATE` binding on
+    `OnlineEvalPipeline` fails (score below pass, or the evaluator raises), the
+    run whose node was evaluated ends with `RunStatus.FAILED` and no further
+    node of that run starts, whichever `EventBus` implementation is wired.
+    `EvalMode.OBSERVE` failures never halt. The pipeline keeps no per-run gate
+    state, so a GATE failure in one run never halts a concurrent run sharing it.
 
 EARS form (selected):
 
@@ -384,9 +427,12 @@ WHEN a POST interceptor returns REJECT, THE System SHALL set NodeResult.success=
 WHEN an interceptor raises, THE System SHALL treat it as REJECT and SHALL NOT propagate the exception.
 WHERE a NodeResult is gate_rejected, THE System SHALL NOT retry the node.
 IF a decision is REJECT with no reason, THEN THE System SHALL raise a construction error.
+WHEN an online GATE eval fails for a node, THE System SHALL halt that node's run with RunStatus.FAILED.
+WHILE a run has not recorded a GATE failure, THE System SHALL NOT halt it for another run's GATE failure.
+WHERE the gated node has retry_on_failure=True or is CONDITIONAL, THE System SHALL still halt the run without retrying.
 ```
 
-Budget: 14 invariants — within ≤15.
+Budget: 15 invariants — at the ≤15 limit.
 
 > **Documented gating boundary (not a leak):** a gate-reject blocks `ON_SUCCESS`
 > and `JSON_RULE` edges (its purpose) but intentionally does NOT block `ALWAYS`
@@ -472,9 +518,29 @@ Feature: Interceptor spine
   Scenario: Duplicate interceptor ids are rejected at construction
     When a pipeline is built with two interceptors sharing an id
     Then a ValueError is raised
+
+  Scenario: Online GATE failure halts the run
+    Given a 2-node DAG (step_1 → should_not_run)
+    And an OnlineEvalPipeline GATE binding that step_1's output fails
+    When the DAG runs
+    Then the run status is FAILED with halt reason "gate_eval_failed"
+    And "should_not_run" never executes
+
+  Scenario: Online OBSERVE failure does not halt the run
+    Given the same DAG with the binding in OBSERVE mode
+    When the DAG runs
+    Then the run status is COMPLETED
+    And "should_not_run" executes
+
+  Scenario: Online GATE failure halts only its own run
+    Given two concurrent runs sharing one OnlineEvalPipeline
+    And only the first run's output fails the GATE binding
+    When both runs execute
+    Then the first run is FAILED with halt reason "gate_eval_failed"
+    And the second run is COMPLETED
 ```
 
-13 scenarios — within ≤20.
+16 scenarios — within ≤20.
 
 ## 5. Out of Scope
 
@@ -488,6 +554,9 @@ Feature: Interceptor spine
 - **SPEC-00 type-foundation rewrite** (`surfaced_sources`,
   `cited_evidence_refs`) — this slice deliberately avoids it.
 - **TOOL/SKILL nodes** — spine applies to AGENT nodes only for now.
+- **Online GATE on PARALLEL / LOOP children** — the executor gates the node it
+  completes (the PARALLEL or LOOP node's aggregate output), not each child.
+  Gate a child individually with `GateEvalInterceptor`.
 - **Migrating existing branches** (auction/council) onto the spine — additive
   first; migration is a later PR once the spine is proven.
 
@@ -527,6 +596,15 @@ constructs.
 
 **Validates: §3 Invariant 7**
 
+### Property 4: Online GATE halts are run-scoped
+
+*For any* set of concurrent runs sharing one `OnlineEvalPipeline`, a run ends
+with halt reason `gate_eval_failed` if and only if a GATE binding failed for one
+of its own nodes.
+
+**Validates: §3 Invariant 15; §4 Scenarios "Online GATE failure halts the run",
+"Online GATE failure halts only its own run"**
+
 ## 9. Observability Contract
 
 - **Provenance**: each POST REJECT writes
@@ -537,5 +615,9 @@ constructs.
   - `interceptor.pre.reject` — `node_id`, `interceptor_id`, `reason`
   - `interceptor.post.reject` — `node_id`, `interceptor_id`, `reason`
   - `interceptor.gate.failed` — `node_id`, `score`, `threshold`
+  - `Gate eval failed - execution halted` (executor warning) — `dag_name`,
+    `node_id`, `score`; the `ExecutionResult.metadata["halt"]` carries
+    `{"reason": "gate_eval_failed", "source": "OnlineEvalPipeline", "node_id",
+    "score", "message"}`
 - **Metrics** (Prometheus, optional):
   - `cemaf_interceptor_rejects_total{phase, interceptor_id}` — counter
