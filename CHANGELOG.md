@@ -7,7 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-11-09
+
+A correctness and real-infrastructure release. Quality gates, resume and
+parallel steps now do what their specs promise; the Postgres audit log, Redis
+event bus and a real LLM call are exercised in CI; and several defaults stop
+failing silently. Breaking changes are listed first, as upgrade notes.
+
+**Breaking:**
+- `MergeStrategy` gains `handles_shared_writes(*, key) -> bool`. Custom
+  strategies must implement it; return True for keys the strategy merges or
+  reports on purpose (#262).
+- PARALLEL nodes coordinate their children's writes by default: when children
+  write the same top-level context key and the merge strategy would keep only
+  one, the earlier sibling runs and the others are recorded as steered. Under
+  last-write-wins the first sibling's value now wins instead of the last. Pass
+  `RuntimeServices(collision_policy=None)` to restore uncoordinated writes (#262).
+- `MockEmbeddingProvider` is renamed `CharacterHashEmbeddingProvider`, and the
+  `"mock"` embedding backend is now `"character_hash"` (#270).
+- `ExecutorConfig.enable_moderation` and `create_executor_config` default to
+  True, so a moderation pipeline supplied through `RuntimeServices` is used.
+  Pass `enable_moderation=False` to opt out (#266).
+- Online `EvalMode.GATE` bindings run only when `DAGExecutor` checks them; an
+  `OnlineEvalPipeline` used with `subscribe()` alone no longer runs GATE
+  bindings (#261).
+- `RedisEventBus` consumer groups are now named per subscriber
+  (`group-<type>-<subscriber>`). New groups read each stream from the start, so
+  the first deploy replays retained history; trim streams or destroy the old
+  `group-<type>` groups first if that is unwanted. Lambdas and
+  `functools.partial` handlers need `subscriber_name=`. Failed messages are
+  redelivered after `redelivery_idle_ms` (default 60 s) (#268).
+
 **Added:**
+- Custom node kinds: register `NodeResolver`s through
+  `RuntimeServices.node_resolvers`; they are matched before the built-in
+  council, auction and static resolvers, and `ContextNodeExecutor.resolver_ids`
+  lists the chain (SPEC-20) (#264).
+- An injectable `httpx` transport on `OpenAICompatClient`,
+  `create_ollama_client`, `create_tiered_ollama_router` and the LLM factories.
+  CI replays a real captured Ollama completion through the production adapter
+  and fails if the request drifts from the recording (SPEC-25) (#269).
+- The CI integration job runs real `pgvector/pgvector` and `redis` service
+  containers; the Postgres memory store, pgvector store, Postgres audit log and
+  Redis event bus are tested against them on every PR (#267, #268).
+- `offline_embedding_provider()` and `warn_non_semantic_embeddings()`: factories
+  that fall back to a non-semantic embedder (character hash, or the configured
+  `"hash"` default) log once that recall matches characters or identical text,
+  not meaning (SPEC-26) (#270).
 - Open Knowledge Format (OKF) import/export for Markdown knowledge bundles,
   preserving frontmatter, supporting files, provenance, and reviewable proposals.
   Install the optional `cemaf[okf]` dependencies to use the adapters.
@@ -45,9 +91,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   factory, and run logger.
 
 **Fixed:**
-- PARALLEL children writing the same top-level context key no longer race:
-  under last-write-wins the earlier sibling runs and the others are recorded
-  as steered, with a `CONTEXT_CONFLICT` event (SPEC-12 §2.4).
+- A failing online GATE eval now fails its node, withholds its output and halts
+  the run, on any event bus and with events disabled, including CONDITIONAL and
+  retrying nodes. Before, it only published an alert nothing acted on
+  (SPEC-01a Invariant 15) (#261).
+- Resume no longer rebuilds failed nodes as successes: `DAGCheckpoint` records
+  `unsuccessful_nodes`, and `failed_node` is set only for failures that end the
+  run. Halt controllers are checked before each node, so resuming with a spent
+  budget runs nothing. Cancellation and budget/quality halts save a FAILED
+  checkpoint; a failed save no longer hides the stop reason
+  (`metadata["checkpoint_error"]`) (SPEC-21) (#263).
+- Run ids are `run_<uuid4>` instead of a timestamp, so runs started in the same
+  microsecond no longer share (and overwrite) a checkpoint (#263).
+- PARALLEL children writing the same top-level context key no longer race; a
+  `CONTEXT_CONFLICT` event is published for each resolved conflict, and a
+  steered child is restored as unsuccessful on resume (SPEC-12 §2.4) (#262).
+- `PostgresAuditLog` read queries began with a linter comment inside the SQL
+  string, so `query`, `count` and `verify_chain` failed on every real database.
+  Its docstring no longer claims revoked UPDATE/DELETE or monthly partitions
+  (SPEC-23) (#267).
+- `RedisEventBus` delivers every event to every subscriber (two subscribers to
+  one type used to split the events), and failed messages are redelivered and
+  dead-lettered after 3 deliveries instead of staying pending forever
+  (SPEC-24) (#268).
 - `Context.set`, `merge`, `delete`, `append`, and `deep_merge` record patches
   for replay; `to_dict()` returns a deep copy to prevent untracked mutations
   through exported dictionaries (#258).
@@ -88,19 +154,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at construction.
 
 **Changed:**
-- `ExecutorConfig.enable_moderation` (and `create_executor_config`) now default
-  to True, so a moderation pipeline supplied through `RuntimeServices` is used
-  instead of being silently dropped. Pass `enable_moderation=False` to opt out
-  (SPEC-22).
-- **Breaking:** `MergeStrategy` gains `handles_shared_writes(*, key) -> bool`.
-  Custom strategies must implement it; return True for keys the strategy merges
-  or reports on purpose. `RuntimeServices.collision_policy` now defaults to the
-  TCAS policy; pass `None` to restore uncoordinated PARALLEL writes.
-- **Breaking:** `MockEmbeddingProvider` is renamed `CharacterHashEmbeddingProvider`,
-  and the `"mock"` embedding backend is now `"character_hash"`. When no embedding
-  provider is configured, factories fall back to it through
-  `offline_embedding_provider()` and log once that recall matches characters, not
-  meaning (SPEC-26).
+- CLAUDE.md states what each spec actually ships (shipped / partial / design
+  only), corrects the layering and `MetaArchitect` claims, and records that
+  CEMAF ships no server by design (#265).
 - Reconciled the SPEC-18 peer-communication draft and index with the existing
   specification and phase-one identity implementation, retaining newer test and
   specification updates while integrating the original PR history (#247).
