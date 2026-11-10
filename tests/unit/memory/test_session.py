@@ -15,7 +15,7 @@ from cemaf.memory.session import (
     SessionPhase,
     SessionState,
 )
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -24,7 +24,7 @@ from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvi
 
 def _make_session_manager() -> DefaultSessionManager:
     """Create a fully wired session manager."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
 
     semantic_store = DefaultSemanticMemoryStore(

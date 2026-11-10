@@ -96,6 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Custom strategies must implement it; return True for keys the strategy merges
   or reports on purpose. `RuntimeServices.collision_policy` now defaults to the
   TCAS policy; pass `None` to restore uncoordinated PARALLEL writes.
+- **Breaking:** `MockEmbeddingProvider` is renamed `CharacterHashEmbeddingProvider`,
+  and the `"mock"` embedding backend is now `"character_hash"`. When no embedding
+  provider is configured, factories fall back to it through
+  `offline_embedding_provider()` and log once that recall matches characters, not
+  meaning (SPEC-26).
 - Reconciled the SPEC-18 peer-communication draft and index with the existing
   specification and phase-one identity implementation, retaining newer test and
   specification updates while integrating the original PR history (#247).

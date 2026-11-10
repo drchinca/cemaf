@@ -13,7 +13,12 @@ from cemaf.retrieval.huggingface_embeddings import (
     DEFAULT_HF_EMBEDDING_MODEL,
     HuggingFaceEmbeddingProvider,
 )
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import (
+    CHARACTER_HASH_BACKEND,
+    InMemoryVectorStore,
+    offline_embedding_provider,
+    warn_non_semantic_embeddings,
+)
 from cemaf.retrieval.openai_embeddings import OpenAIEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
 from cemaf.retrieval.sqlite_vector_store import SqliteVectorStore
@@ -31,7 +36,7 @@ def create_in_memory_vector_store(
     dimension: int = 384,
 ) -> InMemoryVectorStore:
     """Factory for InMemoryVectorStore with sensible defaults."""
-    provider = embedding_provider or MockEmbeddingProvider(dimension=dimension)
+    provider = embedding_provider or offline_embedding_provider(dimension=dimension)
     return InMemoryVectorStore(provider)
 
 
@@ -57,7 +62,7 @@ def _create_sqlite_vector_store(**kwargs: Any) -> SqliteVectorStore:
     """Registry-compatible factory for a SQLite vector store."""
     provider = kwargs.get("embedding_provider")
     if provider is None:
-        provider = MockEmbeddingProvider(dimension=int(kwargs.get("dimension", 384)))
+        provider = offline_embedding_provider(dimension=int(kwargs.get("dimension", 384)))
     return SqliteVectorStore(
         db_path=str(kwargs.get("db_path") or os.getenv("CEMAF_RETRIEVAL_SQLITE_PATH", "cemaf_memory.db")),
         embedding_provider=provider,
@@ -65,6 +70,7 @@ def _create_sqlite_vector_store(**kwargs: Any) -> SqliteVectorStore:
 
 
 def _create_hash_embedding_provider(**kwargs: Any) -> EmbeddingProvider:
+    warn_non_semantic_embeddings(provider_name="HashEmbeddingProvider", matches="identical text only")
     return HashEmbeddingProvider(dimension=int(kwargs.get("dimension", 384)))
 
 
@@ -102,7 +108,10 @@ vector_store_registry.register(backend="memory", factory=_create_memory_vector_s
 vector_store_registry.register(backend="sqlite", factory=_create_sqlite_vector_store)
 vector_store_registry.register(backend="pgvector", factory=_create_pgvector_store)
 embedding_provider_registry.register(backend="hash", factory=_create_hash_embedding_provider)
-embedding_provider_registry.register(backend="mock", factory=_create_hash_embedding_provider)
+embedding_provider_registry.register(
+    backend=CHARACTER_HASH_BACKEND,
+    factory=lambda **kwargs: offline_embedding_provider(dimension=int(kwargs.get("dimension", 384))),
+)
 embedding_provider_registry.register(backend="openai", factory=_create_openai_embedding_provider)
 embedding_provider_registry.register(backend="huggingface", factory=_create_huggingface_embedding_provider)
 embedding_provider_registry.register(

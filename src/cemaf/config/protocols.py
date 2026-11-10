@@ -134,10 +134,10 @@ class RetrievalSettings(BaseModel):
     # Built-in vector store backend: memory, sqlite, pgvector
     vector_store_backend: Literal["memory", "sqlite", "pgvector"] = "memory"
 
-    # Built-in embedding provider: hash, mock, openai, huggingface, sentence-transformers
-    embedding_provider: Literal["hash", "mock", "openai", "huggingface", "sentence-transformers"] = (
-        DEFAULT_FREE_EMBEDDING_PROVIDER
-    )
+    # Built-in embedding provider: hash, character_hash, openai, huggingface, sentence-transformers
+    embedding_provider: Literal[
+        "hash", "character_hash", "openai", "huggingface", "sentence-transformers"
+    ] = DEFAULT_FREE_EMBEDDING_PROVIDER
 
     # Embedding model name
     embedding_model: str = DEFAULT_FREE_EMBEDDING_MODEL

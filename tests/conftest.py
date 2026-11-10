@@ -253,18 +253,18 @@ async def populated_memory_store(memory_store: InMemoryStore) -> InMemoryStore:
 # RETRIEVAL FIXTURES
 # =============================================================================
 
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 from cemaf.retrieval.protocols import Document
 
 
 @pytest.fixture
-def embedding_provider() -> MockEmbeddingProvider:
+def embedding_provider() -> CharacterHashEmbeddingProvider:
     """Mock embedding provider."""
-    return MockEmbeddingProvider(dimension=128)
+    return CharacterHashEmbeddingProvider(dimension=128)
 
 
 @pytest.fixture
-def vector_store(embedding_provider: MockEmbeddingProvider) -> InMemoryVectorStore:
+def vector_store(embedding_provider: CharacterHashEmbeddingProvider) -> InMemoryVectorStore:
     """Fresh vector store for each test."""
     return InMemoryVectorStore(embedding_provider=embedding_provider)
 

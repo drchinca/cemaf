@@ -14,14 +14,14 @@ from cemaf.memory.deduplication import (
 )
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _create_semantic_store() -> DefaultSemanticMemoryStore:
     """Wire up a real semantic store for testing."""
     from cemaf.memory.base import InMemoryStore
 
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     return DefaultSemanticMemoryStore(
         memory_store=InMemoryStore(),
         vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),

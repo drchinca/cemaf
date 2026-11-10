@@ -2,11 +2,13 @@
 Tests for vector store.
 """
 
+import logging
+
 import pytest
 
 from cemaf.retrieval.memory_store import (
+    CharacterHashEmbeddingProvider,
     InMemoryVectorStore,
-    MockEmbeddingProvider,
     cosine_similarity,
 )
 from cemaf.retrieval.protocols import Document
@@ -54,13 +56,13 @@ class TestCosineSimiliarity:
             cosine_similarity((1.0, 2.0), (1.0, 2.0, 3.0))
 
 
-class TestMockEmbeddingProvider:
-    """Tests for MockEmbeddingProvider."""
+class TestCharacterHashEmbeddingProvider:
+    """Tests for CharacterHashEmbeddingProvider."""
 
     @pytest.mark.asyncio
     async def test_embed_returns_correct_dimension(self):
         """Embedding has correct dimension."""
-        provider = MockEmbeddingProvider(dimension=128)
+        provider = CharacterHashEmbeddingProvider(dimension=128)
 
         embedding = await provider.embed("Test text")
 
@@ -69,7 +71,7 @@ class TestMockEmbeddingProvider:
     @pytest.mark.asyncio
     async def test_embed_is_deterministic(self):
         """Same text produces same embedding."""
-        provider = MockEmbeddingProvider()
+        provider = CharacterHashEmbeddingProvider()
 
         e1 = await provider.embed("Hello world")
         e2 = await provider.embed("Hello world")
@@ -79,7 +81,7 @@ class TestMockEmbeddingProvider:
     @pytest.mark.asyncio
     async def test_embed_batch(self):
         """Batch embedding works."""
-        provider = MockEmbeddingProvider()
+        provider = CharacterHashEmbeddingProvider()
 
         embeddings = await provider.embed_batch(["Text 1", "Text 2", "Text 3"])
 
@@ -87,17 +89,17 @@ class TestMockEmbeddingProvider:
 
     def test_properties(self):
         """Provider has correct properties."""
-        provider = MockEmbeddingProvider(dimension=256)
+        provider = CharacterHashEmbeddingProvider(dimension=256)
 
         assert provider.dimension == 256
-        assert provider.model_name == "mock-embeddings"
+        assert provider.model_name == "character-hash"
 
     def test_rejects_non_positive_dimension(self):
         """Mock provider dimensions must describe a real vector space."""
         with pytest.raises(ValueError, match="dimension must be positive, got 0"):
-            MockEmbeddingProvider(dimension=0)
+            CharacterHashEmbeddingProvider(dimension=0)
         with pytest.raises(ValueError, match="dimension must be positive, got -1"):
-            MockEmbeddingProvider(dimension=-1)
+            CharacterHashEmbeddingProvider(dimension=-1)
 
 
 class TestInMemoryVectorStore:
@@ -106,7 +108,7 @@ class TestInMemoryVectorStore:
     @pytest.fixture
     def store(self) -> InMemoryVectorStore:
         """Fresh vector store for each test."""
-        provider = MockEmbeddingProvider(dimension=128)
+        provider = CharacterHashEmbeddingProvider(dimension=128)
         return InMemoryVectorStore(embedding_provider=provider)
 
     def test_constructor_rejects_non_positive_provider_dimension(self):
@@ -226,3 +228,58 @@ class TestInMemoryVectorStore:
         await store.add_batch(docs)
 
         assert await store.count() == 3
+
+
+class TestOfflineEmbeddingFallback:
+    """SPEC-26: the offline fallback is named for what it does and announces itself once."""
+
+    OFFLINE_WARNING = "not meaning"
+
+    def _offline_warnings(self, caplog: pytest.LogCaptureFixture) -> list[str]:
+        return [r.getMessage() for r in caplog.records if self.OFFLINE_WARNING in r.getMessage()]
+
+    def test_falling_back_warns_once_per_process(self, caplog: pytest.LogCaptureFixture) -> None:
+        from cemaf.memory.factories import create_memory_manager
+        from cemaf.retrieval.memory_store import warn_non_semantic_embeddings
+
+        warn_non_semantic_embeddings.cache_clear()
+        with caplog.at_level(logging.WARNING):
+            create_memory_manager()
+            create_memory_manager()
+
+        assert len(self._offline_warnings(caplog)) == 1
+
+    def test_an_explicit_provider_stays_quiet(self, caplog: pytest.LogCaptureFixture) -> None:
+        from cemaf.memory.factories import create_memory_manager
+        from cemaf.retrieval.memory_store import (
+            CharacterHashEmbeddingProvider,
+            warn_non_semantic_embeddings,
+        )
+
+        warn_non_semantic_embeddings.cache_clear()
+        with caplog.at_level(logging.WARNING):
+            create_memory_manager(embedding_provider=CharacterHashEmbeddingProvider())
+
+        assert self._offline_warnings(caplog) == []
+
+    def test_the_runtime_default_is_the_character_hash_provider(self) -> None:
+        from cemaf.memory.factories import create_memory_runtime
+        from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider
+
+        runtime = create_memory_runtime()
+
+        assert isinstance(runtime.embedding_provider, CharacterHashEmbeddingProvider)
+        assert runtime.embedding_provider.model_name == "character-hash"
+
+    def test_the_configured_hash_default_also_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The config default "hash" (SHA-256 of the whole text) is non-semantic too, so it says so."""
+        from cemaf.retrieval.factories import create_embedding_provider
+        from cemaf.retrieval.memory_store import warn_non_semantic_embeddings
+
+        warn_non_semantic_embeddings.cache_clear()
+        with caplog.at_level(logging.WARNING):
+            create_embedding_provider()
+
+        warnings = self._offline_warnings(caplog)
+        assert len(warnings) == 1
+        assert "identical text only" in warnings[0]

@@ -38,7 +38,11 @@ from cemaf.memory.sqlite_store import SqliteMemoryStore
 from cemaf.memory.tiered import TruncationTierGenerator
 from cemaf.memory.tiered_store import TieredMemoryStore
 from cemaf.retrieval.factories import create_embedding_provider, create_vector_store
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import (
+    CHARACTER_HASH_BACKEND,
+    InMemoryVectorStore,
+    offline_embedding_provider,
+)
 from cemaf.retrieval.protocols import EmbeddingProvider, VectorStore
 
 if TYPE_CHECKING:
@@ -263,7 +267,7 @@ def create_memory_manager(
 ) -> DefaultMemoryManager:
     """Create a fully wired DefaultMemoryManager."""
     store = memory_store or InMemoryStore()
-    provider = embedding_provider or MockEmbeddingProvider()
+    provider = embedding_provider or offline_embedding_provider()
     resolved_scorer = scorer or create_memory_scorer()
     vs = vector_store or InMemoryVectorStore(embedding_provider=provider)
 
@@ -313,7 +317,7 @@ def create_memory_runtime(
     deduplicator: MemoryDeduplicator | None = None,
     memory_backend: MemoryBackend | str = MemoryBackend.MEMORY,
     vector_backend: str = "memory",
-    embedding_provider_name: str = "mock",
+    embedding_provider_name: str = CHARACTER_HASH_BACKEND,
     embedding_dimension: int = 384,
     embedding_model: str | None = None,
     embedding_api_key: str | None = None,
@@ -446,7 +450,7 @@ def create_tiered_store(
 ) -> TieredMemoryStore:
     """Create a TieredMemoryStore with default tier generator."""
     store = memory_store or InMemoryStore()
-    resolved_embedding_provider = embedding_provider or MockEmbeddingProvider()
+    resolved_embedding_provider = embedding_provider or offline_embedding_provider()
     resolved_scorer = scorer or create_memory_scorer()
 
     semantic_store = DefaultSemanticMemoryStore(
