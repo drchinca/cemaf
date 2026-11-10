@@ -381,6 +381,7 @@ class DAGExecutor:
         self._checkpoint_interval = services.checkpoint_interval
         self._knowledge_graph = services.knowledge_graph
         self._agent_directory = services.agent_directory
+        self._collision_policy = services.collision_policy
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.
@@ -780,6 +781,8 @@ class DAGExecutor:
                 correlation_id=_correlation_id_var.get(),
                 should_halt=self._should_halt,
                 agent_directory=self._agent_directory,
+                collision_policy=self._collision_policy,
+                event_bus=self._event_bus,
             )
 
             for node_id in order:
@@ -1752,6 +1755,8 @@ class DAGExecutor:
             run_logger=self._run_logger,
             correlation_id=_correlation_id_var.get(),
             agent_directory=self._agent_directory,
+            collision_policy=self._collision_policy,
+            event_bus=self._event_bus,
         )
         return await _run_parallel_nodes(
             nodes=nodes,

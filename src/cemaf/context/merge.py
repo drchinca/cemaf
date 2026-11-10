@@ -191,6 +191,10 @@ class MergeStrategy(Protocol):
     execution branches back into a single context.
     """
 
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """True when branches writing this top-level key are merged or reported on purpose."""
+        ...
+
     def merge(
         self,
         base: Context,
@@ -224,6 +228,10 @@ class LastWriteWinsStrategy:
     Conflicts are tracked in the result for observability but don't
     cause failures.
     """
+
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Overlapping writes keep only the last branch, so siblings must be coordinated."""
+        return False
 
     def merge(
         self,
@@ -311,6 +319,10 @@ class RaiseOnConflictStrategy:
 
     Same values from multiple branches are NOT considered conflicts.
     """
+
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Overlapping writes surface as a conflict error."""
+        return True
 
     def merge(
         self,
@@ -402,6 +414,10 @@ class DeepMergeStrategy:
     For conflicting leaf values (non-dict), last-write-wins is used.
     Lists and other types are replaced, not merged.
     """
+
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Overlapping writes are merged on purpose."""
+        return True
 
     def merge(
         self,
@@ -536,6 +552,10 @@ class ReducerMergeStrategy:
             }
         )
     """
+
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Only keys with a reducer are combined; the rest keep the last branch."""
+        return key in self._reducers
 
     def __init__(
         self,

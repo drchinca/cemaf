@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   factory, and run logger.
 
 **Fixed:**
+- PARALLEL children writing the same top-level context key no longer race:
+  under last-write-wins the earlier sibling runs and the others are recorded
+  as steered, with a `CONTEXT_CONFLICT` event (SPEC-12 §2.4).
 - `Context.set`, `merge`, `delete`, `append`, and `deep_merge` record patches
   for replay; `to_dict()` returns a deep copy to prevent untracked mutations
   through exported dictionaries (#258).
@@ -89,6 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to True, so a moderation pipeline supplied through `RuntimeServices` is used
   instead of being silently dropped. Pass `enable_moderation=False` to opt out
   (SPEC-22).
+- **Breaking:** `MergeStrategy` gains `handles_shared_writes(*, key) -> bool`.
+  Custom strategies must implement it; return True for keys the strategy merges
+  or reports on purpose. `RuntimeServices.collision_policy` now defaults to the
+  TCAS policy; pass `None` to restore uncoordinated PARALLEL writes.
 - Reconciled the SPEC-18 peer-communication draft and index with the existing
   specification and phase-one identity implementation, retaining newer test and
   specification updates while integrating the original PR history (#247).
