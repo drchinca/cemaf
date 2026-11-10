@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import math
+from collections import Counter
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
@@ -128,6 +129,7 @@ class ContextNodeExecutor:
         knowledge_graph: KnowledgeGraph | None = None,
         agent_directory: AgentDirectory | None = None,
         max_recovery_attempts: int = 2,
+        node_resolvers: tuple[NodeResolver, ...] = (),
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation.
 
@@ -135,6 +137,9 @@ class ContextNodeExecutor:
         a POST interceptor can ask the executor to re-run the same node with a
         feedback hint before the result is treated as REJECT. 0 disables recovery
         (any RECOVER decision is treated as REJECT immediately).
+
+        ``node_resolvers`` (SPEC-20) are matched before the built-in resolvers; a
+        resolver_id repeated anywhere in the chain raises ValueError.
         """
         if max_recovery_attempts < 0:
             raise ValueError("max_recovery_attempts must be >= 0")
@@ -157,12 +162,11 @@ class ContextNodeExecutor:
         self._agent_directory = agent_directory
         self._max_recovery_attempts = max_recovery_attempts
 
-        # NodeResolver chain — first match wins, registered most-specific first.
-        # Council short-circuits with its own NodeResult; AuctionResolver picks an
-        # agent (or falls through to ref_id); StaticRefResolver is the universal
-        # fallback. When agent_selector is absent, auction is skipped — preserves
-        # the prior "static unless a selector is wired" semantics.
+        # NodeResolver chain (SPEC-20) — first match wins. Application resolvers run
+        # first, then Council (its own NodeResult), Auction (only with an
+        # agent_selector), and StaticRefResolver as the universal fallback.
         resolvers: list[NodeResolver] = [
+            *node_resolvers,
             CouncilResolver(
                 registry=agent_registry,
                 aggregator=council_aggregator,
@@ -179,7 +183,16 @@ class ContextNodeExecutor:
                 )
             )
         resolvers.append(StaticRefResolver())
+        id_counts = Counter(resolver.resolver_id for resolver in resolvers)
+        duplicates = sorted(resolver_id for resolver_id, count in id_counts.items() if count > 1)
+        if duplicates:
+            raise ValueError(f"Node resolver ids must be unique; duplicated: {duplicates}")
         self._resolvers: tuple[NodeResolver, ...] = tuple(resolvers)
+
+    @property
+    def resolver_ids(self) -> tuple[str, ...]:
+        """The resolver chain's ids in the order nodes are matched."""
+        return tuple(resolver.resolver_id for resolver in self._resolvers)
 
     async def execute_node(
         self,
