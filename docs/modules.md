@@ -119,7 +119,7 @@ cemaf/
 ### `context/` — immutable context + patches + compilation
 - **Role**: The data model for "what the agent knows." `Context` is immutable, mutated via `ContextPatch`. `ContextCompiler` compiles under a `TokenBudget`.
 - **Contains**: `context.py` (Context), `patch.py` (ContextPatch, PatchOperation, PatchSource), `compiler.py` (ContextCompiler, SimpleTokenEstimator), `advanced_compiler.py` (PriorityContextCompiler with knapsack/optimal), `budget.py` (TokenBudget), `source.py` (ContextSource + ContextType), `classification.py` (ContextTypeBehavior), `merge.py` (parallel branch merging).
-- **Extension point**: implement `MergeStrategy` and register it with `merge_strategy_registry.register(...)` to customize parallel branch merge semantics.
+- **Extension point**: implement `MergeStrategy` (`merge(...)` plus `handles_shared_writes(*, key)`) and register it with `merge_strategy_registry.register(...)` to customize parallel branch merge semantics.
 
 ### `memory/` — scoped memory, sessions
 - **Role**: `MemoryManager` protocol + `DefaultMemoryManager` composing semantic + episodic + dedup. Session lifecycle (`SessionManager`). Tiered storage. Extraction pipeline.

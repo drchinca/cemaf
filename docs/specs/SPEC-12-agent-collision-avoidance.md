@@ -1,6 +1,6 @@
 # SPEC-12 — Agent Collision Avoidance (TCAS over ContextPatch paths)
 
-> Status: Draft · Last-Reviewed: 2026-06-25 · Depends on: SPEC-00, SPEC-01a
+> Status: Draft · Last-Reviewed: 2026-11-06 · Depends on: SPEC-00, SPEC-01a
 > Owns: deterministic coordination of concurrent agents that intend to write
 > overlapping context paths — detect, advise, and steer before a write conflict.
 
@@ -86,6 +86,47 @@ class CollisionCoordinator:                  # implements CollisionPolicy via a 
         # returns the WORST advisory between this agent and every other registered peer.
 ```
 
+### 2.4 Built-in PARALLEL coordination (CEMAF-003)
+
+Every PARALLEL node coordinates its children's writes before dispatching them. A
+PARALLEL node knows each child's `output_key` up front, so no cohort barrier is
+needed: the handler builds one write set per child and advises sibling pairs
+with the configured policy.
+
+A merge strategy that replaces whole top-level keys drops one of two writes that
+share a top-level key (`results.a` and `results.b` both write `results`). So each
+write set's path is the child's **top-level key**, and only children whose key
+the merge strategy would not handle itself take part. `MergeStrategy` declares
+this per key:
+
+```python
+class MergeStrategy(Protocol):
+    def handles_shared_writes(self, *, key: str) -> bool: ...
+    # LastWriteWinsStrategy (default): False — overlapping writes are coordinated.
+    # RaiseOnConflictStrategy, DeepMergeStrategy: True — overlap is reported or merged on purpose.
+    # ReducerMergeStrategy: True only for keys it has a reducer for.
+
+@dataclass(frozen=True)
+class RuntimeServices:
+    collision_policy: CollisionPolicy | None = field(default_factory=create_collision_policy)
+    # On by default: a silent dropped write is the failure this prevents. None turns it off.
+    # The built-in default has no dep_distance (see §5).
+
+COLLISION_METADATA_KEY: Final = "collision"
+# A steered child is never dispatched. Its NodeResult:
+#   success=False, output=None, error="collision: <child> steered off '<output_key>'; <holder> holds ..."
+#   metadata["collision"] = {"steered": True, "held_by": <node id>, "risk": float, "output_key": str}
+```
+
+Write sets use the child's node id and `started_at = position + 1`, so with the
+default policy the earlier sibling holds right-of-way. Pairs are judged in
+sibling order; a pair involving an already-steered child is skipped, and the
+policy's `steer` is followed whichever side it names. Steered children do not
+count as failures of the PARALLEL node.
+When the executor has an event bus, each advisory the planner judged at
+TRAFFIC_ADVISORY or above is published as `CONTEXT_CONFLICT` with the later
+sibling's node id as `agent_id`.
+
 Priority (deterministic tiebreak, highest wins right-of-way):
 1. greater committed progress (Σ item weights), then
 2. earlier `started_at`, then
@@ -101,8 +142,12 @@ Priority (deterministic tiebreak, highest wins right-of-way):
 6. `WHEN risk >= tau_RA, THE lower-priority agent SHALL be `steer` and the higher-priority agent SHALL be `hold`` — never equal, never both.
 7. `THE priority tiebreak SHALL be total` (progress, then started_at, then agent_id) so `hold`/`steer` are deterministic for any input.
 8. `advise_against_cohort SHALL NOT return before `cohort_size` agents have registered` when a cohort size is set (no false-CLEAR from advising before peers register).
+9. `WHEN children of one PARALLEL node write output_keys sharing a top-level key that the merge strategy does not handle, THE System SHALL dispatch exactly one of them` (the earlier sibling, under the default policy) and record the others as steered.
+10. `WHEN children of a PARALLEL node write different top-level keys, THE System SHALL dispatch all of them.`
+11. `IF RuntimeServices.collision_policy is None OR the merge strategy handles the shared key, THEN THE System SHALL dispatch every child writing it.`
+12. `A steered child SHALL NOT fail its PARALLEL node and SHALL NOT steer another sibling.`
 
-Budget: 8 invariants.
+Budget: 12 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -138,15 +183,58 @@ Feature: Agent collision risk
     Given a coordinator with cohort_size 2 and only agent A registered
     When agent A asks for an advisory against the cohort
     Then it does not return until agent B registers
+
+  Scenario: Parallel siblings writing one top-level key — the earlier one runs
+    Given a PARALLEL node with children "first" and "second" writing "results.a" and "results.b"
+    When the DAG runs with the default RuntimeServices
+    Then "first" runs and "second" is recorded as steered and never runs
+    And the PARALLEL node and the run succeed
+
+  Scenario: Swapping sibling order swaps who holds
+    Given the same PARALLEL node with its children listed in the opposite order
+    When the DAG runs
+    Then the sibling listed first runs and the other is steered
+
+  Scenario: Different top-level keys all run
+    Given a PARALLEL node whose children write "research" and "outline"
+    When the DAG runs
+    Then both children run
+
+  Scenario: Coordination turned off
+    Given RuntimeServices(collision_policy=None)
+    And a PARALLEL node with two children writing "decision"
+    When the DAG runs
+    Then both children run
+
+  Scenario: A fan-in merge strategy keeps every sibling
+    Given an executor with ReducerMergeStrategy and a reducer for "findings"
+    And a PARALLEL node with two children writing "findings"
+    When the DAG runs
+    Then both children run and the strategy combines their writes
+
+  Scenario: A key the reducer does not cover is still coordinated
+    Given the same executor and two children writing "summary", which has no reducer
+    When the DAG runs
+    Then only the earlier child runs
+
+  Scenario: Conflicts are published
+    Given an executor with an event bus
+    And a PARALLEL node with two children writing "decision"
+    When the DAG runs
+    Then a CONTEXT_CONFLICT event at RESOLUTION_ADVISORY names the holder and the steered child
 ```
 
-Budget: 6 scenarios.
+Budget: 13 scenarios.
 
 ## 5. Out of Scope
 
 - File/line-range collision (ECC's original domain) — CEMAF coordinates *context paths*, not source files. Execution/command security is explicitly **not** CEMAF's concern.
 - Mutating the merge strategy — this spec *prevents* conflicting writes; post-hoc merge stays as-is.
-- The consumer-side interceptor that wires the coordinator into a live run (separate, consumer-owned; this spec ships the reusable primitives + a built-in interceptor adapter).
+- Coordinating writes outside a single PARALLEL node (e.g. two concurrent runs, or nodes in different branches). `CollisionCoordinator` stays available for consumers who need that; the built-in coordination (§2.4) covers PARALLEL siblings only.
+- The dependency channel in built-in coordination — it runs without a `dep_distance`, so only the overlap and tree channels contribute.
+- Fallback siblings — the plan is fixed before dispatch, so a steered child does not run when the sibling holding its key fails.
+- Children of a nested PARALLEL node are coordinated among themselves, not against the outer node's children.
+- Last-write-wins also lets a branch's unchanged copy of an existing key overwrite a sibling's change to it; that merge behaviour is unchanged here.
 - 3D embedding / visualization (future, monitoring concern).
 
 ## 6. Dependencies
@@ -182,8 +270,9 @@ properties are the enforcement.
 
 - **Log events**: `collision.advisory` with `{level, risk, steer, hold, agent_a, agent_b}`.
 - **Attributes**: `brightagent.collision.risk`, `brightagent.collision.level`.
-- **Event** (when wired to a run via the built-in adapter): `CONTEXT_CONFLICT` on the EventBus
-  carrying the Advisory at TRAFFIC_ADVISORY and above.
+- **Event** (built-in PARALLEL coordination, §2.4): `CONTEXT_CONFLICT` on the executor's
+  EventBus carrying the Advisory at TRAFFIC_ADVISORY and above.
+- **NodeResult**: a steered child carries `metadata["collision"]` (`steered`, `held_by`, `risk`, `output_key`).
 - **Metrics**: none (derivable from events).
 
 ## 10. Test Coverage Update
@@ -201,12 +290,11 @@ properties are the enforcement.
   a `CONTEXT_CONFLICT` event when wired to a real `InMemoryEventBus`. The dependency channel is
   driven through a real `MemoryBackedKnowledgeGraph` via `build_kg_dep_distance`
   (`test_collision_kg_and_concurrency.py`), and an N-agent cohort races through `asyncio.gather`.
-- **End-to-end** (`test_collision_executor_e2e.py`): the production path — a
-  `CollisionGuardInterceptor` (PreInterceptor) consulting a `CollisionCoordinator`, wired via
-  `RuntimeServices.interceptor_pipeline` into a real `DAGExecutor` running a PARALLEL node whose
-  two agents intend to write the same `output_key`. Asserts the steered agent is PRE-rejected
-  (never runs), the holder runs, resolution follows priority deterministically (swap test), and
-  a no-guard control proves the guard is the cause.
+- **End-to-end** (`test_collision_executor_e2e.py`): the production path — a real
+  `DAGExecutor` built by `create_executor` with default `RuntimeServices`, running a PARALLEL
+  node whose two agents intend to write the same `output_key`. Asserts the steered agent never
+  runs and the holder does, resolution follows sibling order (swap test), disjoint keys all run,
+  `collision_policy=None` lets both run, and a `CONTEXT_CONFLICT` event is published.
 
 ### Self-verification
 `cd cemaf && uv run pytest tests/unit tests/integration -q && uv run mypy src/cemaf/collision && uv run ruff check`. Confirm each §2/§3/§4 entry has a new test before opening the PR.

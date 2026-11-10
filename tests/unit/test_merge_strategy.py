@@ -24,6 +24,20 @@ from cemaf.context.merge import (
 class TestMergeStrategyProtocol:
     """Tests for MergeStrategy protocol compliance."""
 
+    @pytest.mark.parametrize(
+        ("strategy", "key", "handled"),
+        [
+            (LastWriteWinsStrategy(), "findings", False),
+            (RaiseOnConflictStrategy(), "findings", True),
+            (DeepMergeStrategy(), "findings", True),
+            (ReducerMergeStrategy(reducers={"findings": list}), "findings", True),
+            (ReducerMergeStrategy(reducers={"findings": list}), "summary", False),
+        ],
+    )
+    def test_handles_shared_writes_per_key(self, strategy: MergeStrategy, key: str, handled: bool) -> None:
+        """Only keys the strategy merges or reports on purpose are exempt from coordination."""
+        assert strategy.handles_shared_writes(key=key) is handled
+
     def test_last_write_wins_is_merge_strategy(self) -> None:
         """LastWriteWinsStrategy implements MergeStrategy protocol."""
         strategy = LastWriteWinsStrategy()
@@ -537,6 +551,9 @@ class TestCreateMergeStrategy:
         created: dict[str, object] = {}
 
         class PreferBaseStrategy:
+            def handles_shared_writes(self, *, key: str) -> bool:
+                return False
+
             def merge(self, base: Context, branches: list[Context]) -> MergeResult:
                 return MergeResult(success=True, context=base)
 

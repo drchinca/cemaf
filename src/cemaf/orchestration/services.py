@@ -55,13 +55,15 @@ OpenSpec deps. See `cemaf.meta.bootstrap`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.agents.selection import AgentSelector
 from cemaf.blueprint.harvest import BlueprintHarvesterEngine
 from cemaf.blueprint.library import BlueprintLibrary
+from cemaf.collision.factories import create_collision_policy
+from cemaf.collision.protocols import CollisionPolicy
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
@@ -165,6 +167,10 @@ class RuntimeServices:
 
     # Identity (SPEC-18 phase 1) — per-spawn AgentInstance admission/lifecycle
     agent_directory: AgentDirectory | None = None
+
+    # Collision guard (SPEC-12 §2.4) — PARALLEL children writing overlapping keys;
+    # the earlier sibling runs. None turns coordination off (last write wins).
+    collision_policy: CollisionPolicy | None = field(default_factory=create_collision_policy)
 
     def __post_init__(self) -> None:
         if self.agent_directory is not None and not isinstance(self.agent_directory, AgentDirectory):
