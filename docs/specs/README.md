@@ -58,6 +58,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
 
+## Durable Execution (SPEC-21)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-21](SPEC-21-checkpoint-resume-outcomes.md) | Checkpoint Resume Keeps Node Outcomes | none | `DAGCheckpoint.unsuccessful_nodes`; resume rebuilds failed-but-continued nodes as failed |
+
 ## Composition Root (SPEC-22)
 
 | ID | Title | Depends on | Owns |

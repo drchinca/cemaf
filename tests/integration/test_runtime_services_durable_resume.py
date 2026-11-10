@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+from enum import StrEnum
 from pathlib import Path
 
 import pytest
@@ -15,14 +17,18 @@ from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
 from cemaf.context.context import Context
 from cemaf.context.patch import SecurityLevel
+from cemaf.core.enums import RunStatus
+from cemaf.core.execution import CancellationToken
 from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.interceptors import GateValidationInterceptor, create_interceptor_pipeline
 from cemaf.moderation.factories import create_keyword_moderation_pipeline
+from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.observability.otel_tracer import OTelTracer
 from cemaf.observability.run_logger import InMemoryRunLogger
-from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, Node
+from cemaf.orchestration.checkpointer import DAGCheckpoint
+from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.file_checkpointer import FileCheckpointer
 from cemaf.orchestration.results import NodeResult
@@ -268,3 +274,287 @@ async def test_resume_preserves_conditional_route_and_never_executes_rejected_br
     assert completed is not None
     assert completed.status.value == "completed"
     assert completed.pending_nodes == ()
+
+
+class FlakyOutcome(StrEnum):
+    """How the 'flaky' node behaves for one worker."""
+
+    FAILS = "fails"
+    SUCCEEDS = "succeeds"
+    WORKER_DIES = "worker_dies"
+
+
+class _OutcomeNodeExecutor:
+    """Node executor whose 'broken' node always fails and whose 'flaky' node behaves as told."""
+
+    def __init__(self, *, flaky: FlakyOutcome) -> None:
+        self.flaky = flaky
+        self.executed: list[str] = []
+
+    async def execute_node(self, node: Node, context: Context) -> NodeResult:
+        self.executed.append(str(node.id))
+        if str(node.id) == "flaky" and self.flaky == FlakyOutcome.WORKER_DIES:
+            raise asyncio.CancelledError("simulated worker termination")
+        if str(node.id) == "broken" or (str(node.id) == "flaky" and self.flaky == FlakyOutcome.FAILS):
+            return NodeResult(node_id=node.id, success=False, error=f"{node.id} failed")
+        return NodeResult(node_id=node.id, success=True, output=f"ran:{node.id}")
+
+
+@pytest.mark.asyncio
+async def test_resume_keeps_a_failed_node_that_let_the_run_continue_failed(tmp_path: Path) -> None:
+    """A node that failed but let the run continue must not look successful after resume."""
+    checkpointer = FileCheckpointer(tmp_path / "outcome-checkpoints", max_checkpoints=0)
+    dag = _failed_outcome_dag()
+    run_id = RunID("failed-outcome-resume")
+
+    first_worker = _OutcomeNodeExecutor(flaky=FlakyOutcome.FAILS)
+    first = DAGExecutor(
+        node_executor=first_worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=1),
+    )
+    halted = await first.run(dag, run_id=run_id)
+    checkpoint = await checkpointer.load(run_id)
+
+    replacement_worker = _OutcomeNodeExecutor(flaky=FlakyOutcome.SUCCEEDS)
+    replacement = DAGExecutor(
+        node_executor=replacement_worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=1),
+    )
+    resumed = await replacement.resume(run_id=run_id, dag=dag)
+
+    assert halted.status is RunStatus.FAILED
+    assert first_worker.executed == ["broken", "flaky"]
+    assert checkpoint is not None
+    assert NodeID("broken") in checkpoint.unsuccessful_nodes
+    assert resumed.status is RunStatus.COMPLETED
+    assert replacement_worker.executed == ["flaky"]
+
+
+def _failed_outcome_dag() -> DAG:
+    """broken fails but the run continues; after_broken needs broken to succeed and flaky to finish."""
+    broken = replace(
+        Node.tool(id="broken", name="broken", tool_id="worker", output_key="broken_result"),
+        retry_on_failure=True,
+        max_retries=0,
+    )
+    flaky = replace(
+        Node.tool(id="flaky", name="flaky", tool_id="worker", output_key="flaky_result"),
+        retry_on_failure=False,
+    )
+    after_broken = Node.tool(
+        id="after_broken", name="after broken", tool_id="worker", output_key="after_result"
+    )
+    return DAG(
+        name="durable-failed-outcome",
+        nodes=(broken, flaky, after_broken),
+        edges=(
+            Edge(source=broken.id, target=flaky.id, condition=EdgeCondition.ALWAYS),
+            Edge(source=broken.id, target=after_broken.id, condition=EdgeCondition.ON_SUCCESS),
+            Edge(source=flaky.id, target=after_broken.id, condition=EdgeCondition.ALWAYS),
+        ),
+        entry_node=broken.id,
+    )
+
+
+def _executor_for(*, worker: _OutcomeNodeExecutor, checkpointer: FileCheckpointer) -> DAGExecutor:
+    """DAGExecutor that checkpoints after every node."""
+    return DAGExecutor(
+        node_executor=worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=1),
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_continued_failure_is_not_the_failed_node_when_the_worker_dies(tmp_path: Path) -> None:
+    """The worker dies right after a failure that let the run continue: resume must not re-run that node."""
+    checkpointer = FileCheckpointer(tmp_path / "died-checkpoints", max_checkpoints=0)
+    dag = _failed_outcome_dag()
+    run_id = RunID("continued-failure-worker-dies")
+
+    with pytest.raises(asyncio.CancelledError):
+        await _executor_for(
+            worker=_OutcomeNodeExecutor(flaky=FlakyOutcome.WORKER_DIES), checkpointer=checkpointer
+        ).run(dag, run_id=run_id)
+    checkpoint = await checkpointer.load(run_id)
+    replacement_worker = _OutcomeNodeExecutor(flaky=FlakyOutcome.SUCCEEDS)
+    resumed = await _executor_for(worker=replacement_worker, checkpointer=checkpointer).resume(
+        run_id=run_id, dag=dag
+    )
+
+    assert checkpoint is not None
+    assert checkpoint.failed_node is None
+    assert checkpoint.unsuccessful_nodes == (NodeID("broken"),)
+    assert resumed.status is RunStatus.COMPLETED
+    assert replacement_worker.executed == ["flaky"]
+
+
+@pytest.mark.asyncio
+async def test_exception_during_a_resumed_run_keeps_restored_nodes(tmp_path: Path) -> None:
+    """An exception outside node execution on a resumed run must checkpoint the restored nodes too."""
+    checkpointer = FileCheckpointer(tmp_path / "raise-checkpoints", max_checkpoints=0)
+    dag = _failed_outcome_dag()
+    run_id = RunID("resumed-run-raises")
+    bus = InMemoryEventBus()
+
+    async def crash_after_flaky(event: Event) -> None:
+        if event.payload.get("node_id") == "flaky":
+            raise RuntimeError("audit sink offline")
+
+    bus.subscribe(event_type=EventType.TASK_COMPLETED, handler=crash_after_flaky)
+
+    await _executor_for(worker=_OutcomeNodeExecutor(flaky=FlakyOutcome.FAILS), checkpointer=checkpointer).run(
+        dag, run_id=run_id
+    )
+    resumed = await DAGExecutor(
+        node_executor=_OutcomeNodeExecutor(flaky=FlakyOutcome.SUCCEEDS),
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=1, event_bus=bus),
+    ).resume(run_id=run_id, dag=dag)
+    checkpoint = await checkpointer.load(run_id)
+
+    assert resumed.status is RunStatus.FAILED
+    assert "audit sink offline" in (resumed.error or "")
+    assert checkpoint is not None
+    assert NodeID("broken") in checkpoint.completed_nodes
+    assert checkpoint.unsuccessful_nodes == (NodeID("broken"),)
+
+
+class _BilledNodeExecutor:
+    """Every node succeeds and bills a fixed cost; optionally cancels the run after one node."""
+
+    def __init__(self, *, cost_per_node: float = 0.0, cancel_after: str | None = None) -> None:
+        self.cost_per_node = cost_per_node
+        self.cancel_after = cancel_after
+        self.token = CancellationToken()
+        self.executed: list[str] = []
+
+    async def execute_node(self, node: Node, context: Context) -> NodeResult:
+        self.executed.append(str(node.id))
+        if str(node.id) == self.cancel_after:
+            self.token.cancel(reason="operator stopped the run")
+        return NodeResult(
+            node_id=node.id,
+            success=True,
+            output=f"ran:{node.id}",
+            metadata={"cost_estimate_usd": self.cost_per_node},
+        )
+
+
+def _chain_dag(*, name: str) -> DAG:
+    """a -> b -> c, every node a plain tool node."""
+    nodes = tuple(
+        Node.tool(id=node_id, name=node_id, tool_id="worker", output_key=f"{node_id}_out")
+        for node_id in "abc"
+    )
+    return DAG(
+        name=name,
+        nodes=nodes,
+        edges=(Edge(source=NodeID("a"), target=NodeID("b")), Edge(source=NodeID("b"), target=NodeID("c"))),
+        entry_node=NodeID("a"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_runs_started_together_get_different_ids() -> None:
+    """Run ids must not depend on start time, or concurrent runs overwrite each other's checkpoints."""
+    executor = DAGExecutor(node_executor=_BilledNodeExecutor())
+    dag = _chain_dag(name="many-runs")
+
+    results = await asyncio.gather(*(executor.run(dag) for _ in range(50)))
+
+    assert len({result.run_id for result in results}) == 50
+
+
+@pytest.mark.asyncio
+async def test_a_budget_halt_saves_a_current_checkpoint(tmp_path: Path) -> None:
+    """With a sparse checkpoint interval, a halt still leaves a checkpoint listing every completed node."""
+    checkpointer = FileCheckpointer(tmp_path / "halt-checkpoints", max_checkpoints=0)
+    executor = DAGExecutor(
+        node_executor=_BilledNodeExecutor(cost_per_node=1.0),
+        services=RuntimeServices(
+            checkpointer=checkpointer,
+            checkpoint_interval=10,
+            budget_guard=BudgetGuard(max_cost_usd=1.5),
+        ),
+    )
+
+    halted = await executor.run(_chain_dag(name="budget-halt"), run_id=RunID("budget-halted"))
+    checkpoint = await checkpointer.load(RunID("budget-halted"))
+
+    assert halted.status is RunStatus.FAILED
+    assert checkpoint is not None
+    assert checkpoint.status is RunStatus.FAILED
+    assert checkpoint.completed_nodes == (NodeID("a"), NodeID("b"))
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_run_saves_a_current_checkpoint(tmp_path: Path) -> None:
+    """Cancellation between nodes leaves a checkpoint listing the nodes that finished."""
+    checkpointer = FileCheckpointer(tmp_path / "cancel-checkpoints", max_checkpoints=0)
+    worker = _BilledNodeExecutor(cancel_after="a")
+    executor = DAGExecutor(
+        node_executor=worker,
+        services=RuntimeServices(checkpointer=checkpointer, checkpoint_interval=10),
+    )
+
+    stopped = await executor.run(
+        _chain_dag(name="cancelled"), run_id=RunID("cancelled-run"), cancellation_token=worker.token
+    )
+    checkpoint = await checkpointer.load(RunID("cancelled-run"))
+
+    assert stopped.status is RunStatus.FAILED
+    assert checkpoint is not None
+    assert checkpoint.status is RunStatus.FAILED
+    assert checkpoint.completed_nodes == (NodeID("a"),)
+
+
+@pytest.mark.asyncio
+async def test_resuming_with_a_spent_budget_runs_no_more_nodes(tmp_path: Path) -> None:
+    """A run halted by its budget must not spend one more paid node on every resume."""
+    checkpointer = FileCheckpointer(tmp_path / "spent-checkpoints", max_checkpoints=0)
+    guard = BudgetGuard(max_cost_usd=1.5)
+    first = _BilledNodeExecutor(cost_per_node=1.0)
+    dag = _chain_dag(name="spent-budget")
+    await DAGExecutor(
+        node_executor=first,
+        services=RuntimeServices(checkpointer=checkpointer, budget_guard=guard),
+    ).run(dag, run_id=RunID("spent-budget"))
+
+    retry = _BilledNodeExecutor(cost_per_node=1.0)
+    resumed = await DAGExecutor(
+        node_executor=retry,
+        services=RuntimeServices(checkpointer=checkpointer, budget_guard=guard),
+    ).resume(run_id=RunID("spent-budget"), dag=dag)
+
+    assert first.executed == ["a", "b"]
+    assert resumed.status is RunStatus.FAILED
+    assert retry.executed == []
+    assert resumed.metadata["halt"]["reason"] == "budget_exhausted"
+
+
+class _StopSaveFailsCheckpointer(FileCheckpointer):
+    """Saves normally, except the FAILED checkpoint written when a run stops."""
+
+    async def save(self, checkpoint: DAGCheckpoint) -> None:
+        if checkpoint.status is RunStatus.FAILED:
+            raise OSError("checkpoint disk full")
+        await super().save(checkpoint)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_stop_checkpoint_does_not_hide_why_the_run_stopped(tmp_path: Path) -> None:
+    """If saving the stop checkpoint fails, the result still reports the cancellation and the save error."""
+    worker = _BilledNodeExecutor(cancel_after="a")
+    executor = DAGExecutor(
+        node_executor=worker,
+        services=RuntimeServices(
+            checkpointer=_StopSaveFailsCheckpointer(tmp_path / "full-disk", max_checkpoints=0)
+        ),
+    )
+
+    stopped = await executor.run(
+        _chain_dag(name="disk-full"), run_id=RunID("disk-full"), cancellation_token=worker.token
+    )
+
+    assert stopped.status is RunStatus.FAILED
+    assert "cancelled" in (stopped.error or "").lower()
+    assert "disk full" in stopped.metadata["checkpoint_error"]
