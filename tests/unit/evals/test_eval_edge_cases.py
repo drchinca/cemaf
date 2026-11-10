@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig
-from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
+from cemaf.evals.online import EvalMode, EvalTrigger, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.evals.police import AlertLevel, QualityPolice, QualityPoliceConfig
 from cemaf.evals.protocols import EvalMetric, EvalResult
 from cemaf.events.bus import InMemoryEventBus
@@ -136,10 +136,16 @@ class TestOnlineGatePassingEval:
             bindings=(binding,),
             event_bus=bus,
         )
-        pipeline.subscribe()
+        gate_failure = await pipeline.check_gate(
+            node_id="node-a",
+            output="hello world",
+            trigger=EvalTrigger.EVERY_NODE,
+            run_id="run-a",
+            dag_name="dag",
+            workspace_id=None,
+        )
 
-        await bus.publish(event=_task_completed_event(node_id="node-a"))
-
+        assert gate_failure is None
         assert len(alerts) == 0
         assert len(pipeline.results) == 1
         assert pipeline.results[0]["overall_passed"] is True

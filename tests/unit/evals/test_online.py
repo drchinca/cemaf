@@ -3,9 +3,10 @@
 import pytest
 
 from cemaf.evals.evaluators import ContainsEvaluator, LengthEvaluator
-from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
+from cemaf.evals.online import EvalMode, EvalTrigger, GateFailure, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
+from tests.unit.evals.conftest import FailingEvaluator
 
 
 def _make_binding(
@@ -130,9 +131,16 @@ async def test_gate_mode_emits_quality_alert_on_failure() -> None:
         bindings=(binding,),
         event_bus=bus,
     )
-    pipeline.subscribe()
+    gate_failure = await pipeline.check_gate(
+        node_id="summarize",
+        output="hello world",
+        trigger=EvalTrigger.EVERY_NODE,
+        run_id="run-a",
+        dag_name="dag",
+        workspace_id=None,
+    )
 
-    await bus.publish(event=_task_completed_event(output="hello world"))
+    assert gate_failure is not None
 
     assert len(alerts) == 1
     assert alerts[0].payload["level"] == "halt"
@@ -320,3 +328,83 @@ async def test_flush_only_awaits_this_pipelines_tasks() -> None:
         assert not unrelated_done.is_set()  # flush did not drain unrelated tasks
     finally:
         unrelated_task.cancel()
+
+
+def _keyword_binding(*, mode: EvalMode) -> NodeEvalBinding:
+    """Binding that fails for "hello world" because the expected keyword is absent."""
+    return NodeEvalBinding(
+        node_pattern="summarize",
+        evaluators=(ContainsEvaluator(),),
+        mode=mode,
+        expected="impossible_string_not_in_output",
+    )
+
+
+async def _check_summarize(*, pipeline: OnlineEvalPipeline) -> object:
+    """Run check_gate for the summarize node with a failing output."""
+    return await pipeline.check_gate(
+        node_id="summarize",
+        output="hello world",
+        trigger=EvalTrigger.EVERY_NODE,
+        run_id="run-a",
+        dag_name="dag",
+        workspace_id=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_check_gate_returns_failure_for_failing_gate_binding() -> None:
+    """A failing GATE binding comes back as a GateFailure with its score."""
+    pipeline = OnlineEvalPipeline(
+        bindings=(_keyword_binding(mode=EvalMode.GATE),), event_bus=InMemoryEventBus()
+    )
+
+    failure = await _check_summarize(pipeline=pipeline)
+
+    assert isinstance(failure, GateFailure)
+    assert failure.node_id == "summarize"
+    assert failure.score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_check_gate_ignores_observe_bindings() -> None:
+    """OBSERVE bindings never produce a gate failure."""
+    pipeline = OnlineEvalPipeline(
+        bindings=(_keyword_binding(mode=EvalMode.OBSERVE),), event_bus=InMemoryEventBus()
+    )
+
+    assert await _check_summarize(pipeline=pipeline) is None
+    assert pipeline.results == []
+
+
+@pytest.mark.asyncio
+async def test_gate_bindings_do_not_run_from_events() -> None:
+    """GATE bindings run only through check_gate, never from a TASK_COMPLETED event."""
+    bus = InMemoryEventBus()
+    pipeline = OnlineEvalPipeline(bindings=(_keyword_binding(mode=EvalMode.GATE),), event_bus=bus)
+    pipeline.subscribe()
+
+    await bus.publish(event=_task_completed_event(run_id="run-a"))
+
+    assert pipeline.results == []
+
+
+@pytest.mark.asyncio
+async def test_gate_evaluator_error_fails_closed() -> None:
+    """A GATE evaluator that raises still returns a failure, with no score."""
+    pipeline = OnlineEvalPipeline(
+        bindings=(
+            NodeEvalBinding(
+                node_pattern="summarize",
+                evaluators=(FailingEvaluator(error_message="judge offline"),),
+                mode=EvalMode.GATE,
+            ),
+        ),
+        event_bus=InMemoryEventBus(),
+    )
+
+    failure = await _check_summarize(pipeline=pipeline)
+
+    assert isinstance(failure, GateFailure)
+    assert failure.score is None
+    assert "judge offline" in failure.message

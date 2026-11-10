@@ -1,4 +1,4 @@
-"""Online evaluation pipeline — runs evaluators at DAG checkpoints during execution."""
+"""Online evaluation pipeline — runs evaluators on node outputs while a DAG executes."""
 
 import asyncio
 from dataclasses import dataclass
@@ -19,8 +19,15 @@ _OBSERVE_EVAL_SEMAPHORE = asyncio.Semaphore(8)
 class EvalMode(StrEnum):
     """How to handle eval failures."""
 
-    GATE = "gate"  # Failed eval blocks downstream
+    GATE = "gate"  # Failed eval halts the run (checked directly by DAGExecutor)
     OBSERVE = "observe"  # Log only, don't block
+
+
+class TriggerSource(StrEnum):
+    """What prompted an evaluation, as recorded on eval results."""
+
+    TASK_COMPLETED = "task_completed"
+    CHECKPOINT = "checkpoint"
 
 
 class EvalTrigger(StrEnum):
@@ -41,12 +48,21 @@ class NodeEvalBinding:
     trigger: EvalTrigger = EvalTrigger.EVERY_NODE
 
 
-class OnlineEvalPipeline:
-    """Subscribes to execution events and runs evaluators on node outputs.
+@dataclass(frozen=True, slots=True)
+class GateFailure:
+    """A GATE binding that failed for one node of a run; score is None when the evaluator raised."""
 
-    Supports two modes:
-    - EVERY_NODE (legacy): evaluates after each node completes
-    - CHECKPOINT_ONLY: evaluates only at explicit CHECKPOINT nodes in the DAG
+    node_id: str
+    score: float | None
+    message: str
+
+
+class OnlineEvalPipeline:
+    """Runs evaluators on node outputs during execution.
+
+    OBSERVE bindings run from bus events. GATE bindings run only when DAGExecutor
+    calls check_gate(), so a failing gate halts the run with any EventBus. Without
+    DAGExecutor, GATE bindings do not run.
     """
 
     def __init__(
@@ -73,6 +89,38 @@ class OnlineEvalPipeline:
         in_flight = tuple(self._pending)
         await asyncio.gather(*in_flight, return_exceptions=True)
 
+    async def check_gate(
+        self,
+        *,
+        node_id: str,
+        output: object,
+        trigger: EvalTrigger,
+        run_id: str,
+        dag_name: str,
+        workspace_id: str | None,
+    ) -> GateFailure | None:
+        """Run the GATE bindings for a node and return the first failure, if any."""
+        matched = self._bindings_in_mode(node_id=node_id, trigger=trigger, mode=EvalMode.GATE)
+        if not matched or output is None:
+            return None
+        source = (
+            TriggerSource.CHECKPOINT
+            if trigger == EvalTrigger.CHECKPOINT_ONLY
+            else TriggerSource.TASK_COMPLETED
+        )
+        eval_ctx = self._build_eval_context(node_id=node_id, output=output, source=source, dag_name=dag_name)
+        for binding in matched:
+            failure = await self._run_eval(
+                binding=binding,
+                eval_ctx=eval_ctx,
+                correlation_id=run_id,
+                run_id=run_id,
+                workspace_id=workspace_id,
+            )
+            if failure is not None:
+                return failure
+        return None
+
     def subscribe(self) -> None:
         """Subscribe to execution events."""
         self._event_bus.subscribe(
@@ -92,9 +140,8 @@ class OnlineEvalPipeline:
         if output is None:
             return
 
-        matched = self._find_bindings(
-            node_id=node_id,
-            trigger=EvalTrigger.EVERY_NODE,
+        matched = self._bindings_in_mode(
+            node_id=node_id, trigger=EvalTrigger.EVERY_NODE, mode=EvalMode.OBSERVE
         )
         if not matched:
             return
@@ -104,15 +151,13 @@ class OnlineEvalPipeline:
         workspace_raw = payload.get("workspace_id")
         workspace_id = str(workspace_raw) if workspace_raw is not None else None
 
-        eval_ctx = EvalContext(
-            output=output,
+        eval_ctx = self._build_eval_context(
             node_id=node_id,
-            node_type=payload.get("node_type", ""),
-            dag_name=payload.get("dag_name", ""),
-            dag_position=payload.get("dag_position", 0),
-            dag_total_nodes=payload.get("dag_total_nodes", 0),
-            previous_scores=tuple(r["overall_score"] for r in self._results),
-            metadata={"trigger": "task_completed"},
+            output=output,
+            source=TriggerSource.TASK_COMPLETED,
+            dag_name=str(payload.get("dag_name", "")),
+            dag_position=int(payload.get("dag_position", 0)),
+            dag_total_nodes=int(payload.get("dag_total_nodes", 0)),
         )
 
         for binding in matched:
@@ -135,14 +180,6 @@ class OnlineEvalPipeline:
                         )
 
                 self._spawn_observe(_observe_run())
-            else:
-                await self._run_eval(
-                    binding=binding,
-                    eval_ctx=eval_ctx,
-                    correlation_id=event.correlation_id or "",
-                    run_id=run_id_str,
-                    workspace_id=workspace_id,
-                )
 
     async def _handle_checkpoint(self, event: Event) -> None:
         """Evaluate on DAG_CHECKPOINT — for CHECKPOINT_ONLY bindings."""
@@ -150,12 +187,13 @@ class OnlineEvalPipeline:
         node_id = str(payload.get("node_id", ""))
         output = payload.get("context_snapshot")
 
-        matched = self._find_bindings(
-            node_id=node_id,
-            trigger=EvalTrigger.CHECKPOINT_ONLY,
+        matched = self._bindings_in_mode(
+            node_id=node_id, trigger=EvalTrigger.CHECKPOINT_ONLY, mode=EvalMode.OBSERVE
         )
         # Also include wildcard EVERY_NODE bindings at checkpoints
-        matched.extend(self._find_bindings(node_id=node_id, trigger=EvalTrigger.EVERY_NODE))
+        matched.extend(
+            self._bindings_in_mode(node_id=node_id, trigger=EvalTrigger.EVERY_NODE, mode=EvalMode.OBSERVE)
+        )
         if not matched:
             return
 
@@ -170,15 +208,13 @@ class OnlineEvalPipeline:
         run_id_payload = payload.get("run_id")
         run_id_str = str(run_id_payload) if run_id_payload is not None else (event.correlation_id or "")
 
-        eval_ctx = EvalContext(
-            output=output,
+        eval_ctx = self._build_eval_context(
             node_id=node_id,
-            node_type="checkpoint",
-            dag_name=payload.get("dag_name", ""),
-            dag_position=payload.get("dag_position", 0),
-            dag_total_nodes=payload.get("dag_total_nodes", 0),
-            previous_scores=tuple(r["overall_score"] for r in self._results),
-            metadata={"trigger": "checkpoint"},
+            output=output,
+            source=TriggerSource.CHECKPOINT,
+            dag_name=str(payload.get("dag_name", "")),
+            dag_position=int(payload.get("dag_position", 0)),
+            dag_total_nodes=int(payload.get("dag_total_nodes", 0)),
         )
 
         for binding in matched:
@@ -201,14 +237,6 @@ class OnlineEvalPipeline:
                         )
 
                 self._spawn_observe(_observe_ckpt())
-            else:
-                await self._run_eval(
-                    binding=binding,
-                    eval_ctx=eval_ctx,
-                    correlation_id=event.correlation_id or "",
-                    run_id=run_id_str,
-                    workspace_id=workspace_id,
-                )
 
     async def _run_eval(
         self,
@@ -218,8 +246,8 @@ class OnlineEvalPipeline:
         correlation_id: str,
         run_id: str = "",
         workspace_id: str | None = None,
-    ) -> None:
-        """Run evaluators for a single binding and emit results."""
+    ) -> GateFailure | None:
+        """Run evaluators for a single binding, emit results, and return a GATE failure if any."""
         eval_scope = {
             "node_id": eval_ctx.node_id,
             "mode": binding.mode.value,
@@ -282,6 +310,7 @@ class OnlineEvalPipeline:
             )
 
             if binding.mode == EvalMode.GATE and not result.overall_passed:
+                gate_message = f"Gate eval failed for '{eval_ctx.node_id}' (score={result.overall_score:.2f})"
                 await self._event_bus.publish(
                     event=Event.create(
                         type=EventType.QUALITY_ALERT,
@@ -289,10 +318,7 @@ class OnlineEvalPipeline:
                             "node_id": eval_ctx.node_id,
                             "level": "halt",
                             "score": result.overall_score,
-                            "message": (
-                                f"Gate eval failed for '{eval_ctx.node_id}'"
-                                f" (score={result.overall_score:.2f})"
-                            ),
+                            "message": gate_message,
                         },
                         source="online_eval_pipeline",
                         correlation_id=correlation_id,
@@ -305,6 +331,13 @@ class OnlineEvalPipeline:
                     eval_ctx.node_id,
                     result.overall_score,
                 )
+            if binding.mode == EvalMode.GATE and not result.overall_passed:
+                return GateFailure(
+                    node_id=eval_ctx.node_id,
+                    score=result.overall_score,
+                    message=gate_message,
+                )
+            return None
 
         except Exception as e:
             logger.error("Eval pipeline error for node '%s': %s", eval_ctx.node_id, e)
@@ -321,6 +354,45 @@ class OnlineEvalPipeline:
                     correlation_id=correlation_id,
                 )
             )
+            if binding.mode == EvalMode.GATE:
+                return GateFailure(
+                    node_id=eval_ctx.node_id,
+                    score=None,
+                    message=f"Gate eval errored for '{eval_ctx.node_id}': {e}",
+                )
+            return None
+
+    def _build_eval_context(
+        self,
+        *,
+        node_id: str,
+        output: object,
+        source: TriggerSource,
+        dag_name: str,
+        dag_position: int = 0,
+        dag_total_nodes: int = 0,
+    ) -> EvalContext:
+        """Evaluation context for one node output, carrying the scores seen so far."""
+        return EvalContext(
+            output=output,
+            node_id=node_id,
+            node_type="checkpoint" if source == TriggerSource.CHECKPOINT else "",
+            dag_name=dag_name,
+            dag_position=dag_position,
+            dag_total_nodes=dag_total_nodes,
+            previous_scores=tuple(r["overall_score"] for r in self._results),
+            metadata={"trigger": source.value},
+        )
+
+    def _bindings_in_mode(
+        self,
+        *,
+        node_id: str,
+        trigger: EvalTrigger,
+        mode: EvalMode,
+    ) -> list[NodeEvalBinding]:
+        """Bindings for a node in one mode; GATE bindings run only through check_gate()."""
+        return [b for b in self._find_bindings(node_id=node_id, trigger=trigger) if b.mode == mode]
 
     def _find_bindings(
         self,
