@@ -34,7 +34,7 @@ CEMAF is a **protocol-first, multi-agent orchestration framework** for context e
 | Spec | State | What exists |
 |---|---|---|
 | SPEC-00 Enterprise Context Brain | ⚪ | Umbrella design |
-| SPEC-01a Interceptor spine | 🟢 | PRE/POST chain, `GateEvalInterceptor`, RECOVER |
+| SPEC-01a Interceptor spine | 🟢 | PRE/POST chain, `GateEvalInterceptor`, RECOVER; online GATE bindings halt the run |
 | SPEC-01 Full interceptor pipeline | 🟡 | Only the 01a slice; no `ChainProfile`, HALT routing |
 | SPEC-02 KG + datasources | 🟡 | KG, datasource registry, `PullInterceptor`; no concrete datasource adapters |
 | SPEC-03 Blueprint as LLM input | 🟡 | `StructuredGenerator` (tested); no node uses it, no `BlueprintInterceptor` |
@@ -46,7 +46,7 @@ CEMAF is a **protocol-first, multi-agent orchestration framework** for context e
 | SPEC-09 Auction · SPEC-10 Council | 🟢 | |
 | SPEC-11 Context security classification | 🟢 | Executor enforces clearance on recall and compilation |
 | SPEC-11 Dogfood meta-scheduler | 🟢 | Meta layer only |
-| SPEC-12 Collision avoidance | 🟡 | Risk math + coordinator; nothing applies it to a live run yet |
+| SPEC-12 Collision avoidance | 🟢 | PARALLEL nodes coordinate overlapping child writes by default (§2.4); cross-run coordination is consumer-owned |
 | SPEC-13 Scoped blueprint harvest | 🟡 | Project-scoped harvest wired; PROJECT→GLOBAL promotion not called at runtime |
 | SPEC-14 Session snapshot | 🟢 | Projection only; no CLI/API exposes it |
 | SPEC-15 Memory branches | ⚪ | Not built |
@@ -54,6 +54,13 @@ CEMAF is a **protocol-first, multi-agent orchestration framework** for context e
 | SPEC-17 Autonomous context substrate | 🟡 | Evidence/manifest slice; `RunLease` exists in `orchestration/run_lease.py` but no run uses it; no durable coordinator or authority |
 | SPEC-18 Peer communication + task board | 🟡 | Phase 1 per-agent identity; no messaging or board |
 | SPEC-19 Property assertions | 🟢 | Test tooling |
+| SPEC-20 Node resolver chain | 🟢 | Custom node kinds via `RuntimeServices.node_resolvers` |
+| SPEC-21 Checkpoint resume outcomes | 🟢 | Resume keeps failed nodes failed; unique run ids; checkpoints on cancel/halt |
+| SPEC-22 Supplied services are used | 🟢 | A supplied moderation pipeline is on by default |
+| SPEC-23 Postgres audit log | 🟢 | Tested on real Postgres in CI; signed-chain tamper detection |
+| SPEC-24 Durable event bus | 🟢 | Redis fan-out per subscriber, redelivery, dead-letter stream; tested on real Redis |
+| SPEC-25 Recorded LLM replay | 🟢 | A captured Ollama call replays through the real adapter in CI |
+| SPEC-26 Honest offline embeddings | 🟢 | Non-semantic embedders are named for what they do and warn once |
 
 CEMAF ships no HTTP API, container image or authentication layer **by design**: it is a library that applications compose (`cemaf-service`, `iccha_autonomy`, `kyi`, `meridiansight`), and each application owns its own server and auth. Do not add one here. The CLI exposes `inspect`, `docs` and `blueprint` commands, not engine runs.
 
