@@ -27,7 +27,7 @@ class SimpleEmbeddingProvider(EmbeddingProvider):
         return "simple-test"
 
     async def embed(self, text: str) -> tuple[float, ...]:
-        # Use the existing MockEmbeddingProvider's logic for better differentiation
+        # Use the existing CharacterHashEmbeddingProvider's logic for better differentiation
         import json
         import math
 

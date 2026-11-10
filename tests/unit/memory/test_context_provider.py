@@ -17,7 +17,7 @@ from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Wiring helper — real implementations, no mocks
@@ -26,7 +26,7 @@ from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvi
 
 def _make_provider() -> tuple[DefaultMemoryManager, DefaultMemoryContextProvider]:
     """Wire a DefaultMemoryContextProvider with real implementations."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
     token_estimator = SimpleTokenEstimator()
 

@@ -10,13 +10,13 @@ from tempfile import TemporaryDirectory
 from cemaf.citation import CitationTracker
 from cemaf.core.types import JSON
 from cemaf.knowledge import OKFBundle, OKFDocument
-from cemaf.retrieval.memory_store import MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider
 from cemaf.retrieval.protocols import EmbeddingProvider
 from cemaf.retrieval.sqlite_vector_store import SqliteVectorStore
 
 
 async def run_sessions(directory: Path, *, embedding_provider: EmbeddingProvider | None = None) -> JSON:
-    provider = embedding_provider or MockEmbeddingProvider()
+    provider = embedding_provider or CharacterHashEmbeddingProvider()
     namespace = "research"
     fixture = Path(__file__).resolve().parents[1] / "data" / "okf_research"
     retired = OKFDocument(path="retired.md", frontmatter={"type": "Note"}, body="Superseded work item.")

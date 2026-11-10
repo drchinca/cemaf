@@ -97,10 +97,10 @@ async def test_offline_research_dag_and_reviewable_export(tmp_path: Path) -> Non
 
 
 async def test_two_persisted_sessions_embed_only_changed_concepts(tmp_path: Path) -> None:
-    from cemaf.retrieval.memory_store import MockEmbeddingProvider
+    from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider
     from examples.app_shapes.okf_project_memory import run_sessions
 
-    class CountingEmbeddings(MockEmbeddingProvider):
+    class CountingEmbeddings(CharacterHashEmbeddingProvider):
         def __init__(self) -> None:
             super().__init__()
             self.inputs: list[str] = []

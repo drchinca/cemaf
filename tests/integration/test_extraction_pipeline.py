@@ -15,7 +15,7 @@ from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.session import DefaultSessionManager
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _wire_full_stack() -> tuple[
@@ -26,7 +26,7 @@ def _wire_full_stack() -> tuple[
 ]:
     """Wire manager + deduplicator + extraction pipeline + session manager."""
     store = InMemoryStore()
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
 
     semantic_store = DefaultSemanticMemoryStore(
@@ -166,7 +166,7 @@ class TestDisposeActuallyRemovesSessionItems:
         await session_manager.bootstrap(session_id="s1")
 
         # Semantically distinct values — near-identical dicts ({"v":0}/{"v":1})
-        # embed ~0.9 cosine under MockEmbeddingProvider and would be deduped,
+        # embed ~0.9 cosine under CharacterHashEmbeddingProvider and would be deduped,
         # which would mask what this test is actually checking.
         distinct_values = [
             {"insight": "users prefer concise responses"},

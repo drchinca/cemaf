@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 from cemaf.retrieval.protocols import Document
 
 
 @pytest.fixture
 def store() -> InMemoryVectorStore:
-    return InMemoryVectorStore(embedding_provider=MockEmbeddingProvider(dimension=3))
+    return InMemoryVectorStore(embedding_provider=CharacterHashEmbeddingProvider(dimension=3))
 
 
 async def _seed(store: InMemoryVectorStore) -> None:

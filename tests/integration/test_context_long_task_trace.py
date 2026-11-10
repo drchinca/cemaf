@@ -31,7 +31,7 @@ from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
 from cemaf.replay.replayer import Replayer, ReplayMode
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _wire_memory_stack() -> tuple[
@@ -39,7 +39,7 @@ def _wire_memory_stack() -> tuple[
     DefaultMemoryContextProvider,
     DefaultSessionManager,
 ]:
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
     semantic_store = DefaultSemanticMemoryStore(
         memory_store=InMemoryStore(),

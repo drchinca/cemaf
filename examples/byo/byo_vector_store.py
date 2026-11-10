@@ -13,7 +13,7 @@ Usage:
 
 import asyncio
 
-from cemaf.retrieval.memory_store import MockEmbeddingProvider, cosine_similarity
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, cosine_similarity
 from cemaf.retrieval.protocols import (
     Document,
     EmbeddingProvider,
@@ -78,10 +78,10 @@ class DictVectorStore:
 
 
 async def main() -> None:
-    # Swap MockEmbeddingProvider for a real one (e.g. create_embedding_provider(
+    # Swap CharacterHashEmbeddingProvider for a real one (e.g. create_embedding_provider(
     # "openai")) and the SAME store gives semantically-ranked results — the mock
     # is deterministic-hash, so it proves the wiring, not retrieval quality.
-    store = DictVectorStore(MockEmbeddingProvider())
+    store = DictVectorStore(CharacterHashEmbeddingProvider())
 
     assert isinstance(store, VectorStore), "DictVectorStore must satisfy VectorStore"
 

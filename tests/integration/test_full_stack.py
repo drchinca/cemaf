@@ -1,6 +1,6 @@
 """Full-stack integration test — everything real except the LLM.
 
-Wires SqliteMemoryStore (tmp_path), InMemoryVectorStore + MockEmbeddingProvider,
+Wires SqliteMemoryStore (tmp_path), InMemoryVectorStore + CharacterHashEmbeddingProvider,
 ContextCompiler + SimpleTokenEstimator, BudgetGuard, QualityPolice +
 OnlineEvalPipeline, EventBus, SessionManager, ModerationPipeline, all into a
 single DAGExecutor. Runs a 3-node agent DAG with scripted deterministic

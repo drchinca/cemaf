@@ -18,7 +18,7 @@ from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.session import DefaultSessionManager, ReportingSessionManager
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Shared wiring — all real implementations, no mocks
@@ -32,7 +32,7 @@ def _wire_full_stack() -> tuple[
     DefaultSessionManager,
 ]:
     """Wire the full memory → retrieval → context stack with real implementations."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
     token_estimator = SimpleTokenEstimator()
 

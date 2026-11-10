@@ -82,6 +82,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-25](SPEC-25-recorded-llm-replay.md) | Recorded LLM Replay | none | injectable HTTP transport on `OpenAICompatClient`; captured-once, replayed-in-CI model cassettes |
 
+## Retrieval (SPEC-26)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-26](SPEC-26-honest-offline-embeddings.md) | Honest Offline Embeddings | none | `CharacterHashEmbeddingProvider` as the named, warned-about offline fallback |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
