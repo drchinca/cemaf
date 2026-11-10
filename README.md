@@ -188,9 +188,9 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          LAYER 2  —  Self-Hosting                    │
-│   audit/  •  knowledge/  •  meta/  (MetaSpecifier, MetaScaffolder…)  │
+│   audit/  •  meta/  (MetaSpecifier, MetaScaffolder…)  •  operator/   │
 │                              ▲                                       │
-│                              │ one-way dependency                    │
+│                              │ consumes (base imports lazily only)   │
 │ ─────────────────────────────┴─────────────────────────────────────  │
 │                          LAYER 1  —  Base Framework                  │
 │                                                                      │
@@ -198,7 +198,7 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 │       │                  (topo sort → node dispatch → context)       │
 │       ▼                                                              │
 │  agents/  •  tools/  •  skills/  •  blueprint/                       │
-│  context/ •  memory/ •  retrieval/ •  rlm/                          │
+│  context/ •  memory/ •  retrieval/ •  rlm/  •  knowledge/           │
 │  llm/     •  generation/ • streaming/                                │
 │  evals/   •  moderation/ • validation/ • citation/                  │
 │  events/  •  observability/ • resilience/ • persistence/            │
@@ -225,7 +225,7 @@ CEMAF's self-hosting layer is its first client. Meta-agents, meta-tools, and pre
 
 | Meta-agent | Role | Tools |
 |---|---|---|
-| `MetaArchitect` | Design DAG pipelines from a feature description | `IntrospectRegistryTool`, `GenerateDAGTool` |
+| `MetaArchitect` | Build a DAG from every registered agent, ordered by tool-safety flags (the description names the DAG; no LLM planning yet) | `IntrospectRegistryTool`, `GenerateDAGTool` |
 | `MetaSynthesizer` | Generate CEMAF agent Python source from templates | (template-based) |
 | `MetaAuditor` | Analyze execution traces for quality / anomalies | `TraceAnalyzerTool` |
 | `MetaKnowledgeGraph` | Query and refresh the entity knowledge graph | `KnowledgeGraphTool` |
@@ -589,11 +589,11 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **Resilience**: Retry, circuit breaker, rate limiting as composable decorators
 
 ### Self-Hosting Engine
-CEMAF is its own first client — opt-in modules where the framework uses its own primitives to introspect, audit, spec, and extend itself. Fully decoupled from the base framework (one-way dependency).
+CEMAF is its own first client — opt-in modules where the framework uses its own primitives to introspect, audit, spec, and extend itself. The base framework does not import `meta`, `audit` or `operator` at load time (the CLI's OKF export and RBAC audit logging import them lazily). The knowledge graph started here and is now part of the base layer through `RuntimeServices.knowledge_graph`.
 
 - **Audit Trail**: `EventBusAuditLog` subscribes to EventBus, converts events into queryable `AuditEntry` records with quality trend analysis and z-score anomaly detection
 - **Knowledge Graph**: `MemoryBackedKnowledgeGraph` — entities and relations backed by MemoryManager with semantic search and neighbor traversal
-- **Meta-Agents**: `MetaArchitect` (DAG design), `MetaSpecifier` (OpenSpec proposal authoring), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations), `MetaScaffolder` (runnable CEMAF-app synthesis)
+- **Meta-Agents**: `MetaArchitect` (DAG from the registered agents), `MetaSpecifier` (OpenSpec proposal authoring), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations), `MetaScaffolder` (runnable CEMAF-app synthesis)
 - **OpenSpec Bridge**: `OpenSpecRuntime` protocol (System/Npx/Fake impls) + `OpenSpecWorkspace` (atomic writes, per-change locks) exposes `openspec validate/list/show/write/delete` as CEMAF tools
 - **Pre-built DAGs**: `create_self_audit_dag()`, `create_feature_synthesis_dag()`, `create_knowledge_refresh_dag()`, `create_self_spec_dag()`, `create_app_synthesis_dag()`
 - **Entry point**: `create_meta_executor()` wraps `create_executor()`, auto-wires audit + KG from `RuntimeServices` and MetaSpecifier/OpenSpec tools from `MetaServices`
