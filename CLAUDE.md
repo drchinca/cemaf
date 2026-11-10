@@ -29,6 +29,41 @@ CEMAF is a **protocol-first, multi-agent orchestration framework** for context e
 
 > **Target architecture**: SPEC-00..06 (`docs/specs/SPEC-00-enterprise-context-brain.md` and siblings) define the Enterprise Context Brain — the umbrella architecture this codebase is converging toward (interceptor pipeline, datasource registry, blueprint-as-LLM-input, task state machine, guardian mesh, self-resolving DAG). For where each spec concept lands in the codebase and the phased build-out, see [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
 
+**What is built, by spec** (🟢 shipped and wired · 🟡 partly built or not on the runtime path · ⚪ design only). A spec being numbered does not mean it runs — check this table before relying on one.
+
+| Spec | State | What exists |
+|---|---|---|
+| SPEC-00 Enterprise Context Brain | ⚪ | Umbrella design |
+| SPEC-01a Interceptor spine | 🟢 | PRE/POST chain, `GateEvalInterceptor`, RECOVER; online GATE bindings halt the run |
+| SPEC-01 Full interceptor pipeline | 🟡 | Only the 01a slice; no `ChainProfile`, HALT routing |
+| SPEC-02 KG + datasources | 🟡 | KG, datasource registry, `PullInterceptor`; no concrete datasource adapters |
+| SPEC-03 Blueprint as LLM input | 🟡 | `StructuredGenerator` (tested); no node uses it, no `BlueprintInterceptor` |
+| SPEC-04 Task state machine | 🟡 | `StateMachine` + SQLite store; nothing in `src/` uses it, no `TaskContext` |
+| SPEC-05 Guardian mesh | ⚪ | Only the citation gate exists |
+| SPEC-06 Self-resolving DAG | ⚪ | Not built |
+| SPEC-07 Hub-and-spoke KG | 🟢 | |
+| SPEC-08 Failure-feedback loop | 🟢 | Substrate; the orchestrating loop lives in `iccha_autonomy` |
+| SPEC-09 Auction · SPEC-10 Council | 🟢 | |
+| SPEC-11 Context security classification | 🟢 | Executor enforces clearance on recall and compilation |
+| SPEC-11 Dogfood meta-scheduler | 🟢 | Meta layer only |
+| SPEC-12 Collision avoidance | 🟢 | PARALLEL nodes coordinate overlapping child writes by default (§2.4); cross-run coordination is consumer-owned |
+| SPEC-13 Scoped blueprint harvest | 🟡 | Project-scoped harvest wired; PROJECT→GLOBAL promotion not called at runtime |
+| SPEC-14 Session snapshot | 🟢 | Projection only; no CLI/API exposes it |
+| SPEC-15 Memory branches | ⚪ | Not built |
+| SPEC-16 Engine manifest | ⚪ | Not built |
+| SPEC-17 Autonomous context substrate | 🟡 | Evidence/manifest slice; `RunLease` exists in `orchestration/run_lease.py` but no run uses it; no durable coordinator or authority |
+| SPEC-18 Peer communication + task board | 🟡 | Phase 1 per-agent identity; no messaging or board |
+| SPEC-19 Property assertions | 🟢 | Test tooling |
+| SPEC-20 Node resolver chain | 🟢 | Custom node kinds via `RuntimeServices.node_resolvers` |
+| SPEC-21 Checkpoint resume outcomes | 🟢 | Resume keeps failed nodes failed; unique run ids; checkpoints on cancel/halt |
+| SPEC-22 Supplied services are used | 🟢 | A supplied moderation pipeline is on by default |
+| SPEC-23 Postgres audit log | 🟢 | Tested on real Postgres in CI; signed-chain tamper detection |
+| SPEC-24 Durable event bus | 🟢 | Redis fan-out per subscriber, redelivery, dead-letter stream; tested on real Redis |
+| SPEC-25 Recorded LLM replay | 🟢 | A captured Ollama call replays through the real adapter in CI |
+| SPEC-26 Honest offline embeddings | 🟢 | Non-semantic embedders are named for what they do and warn once |
+
+CEMAF ships no HTTP API, container image or authentication layer **by design**: it is a library that applications compose (`cemaf-service`, `iccha_autonomy`, `kyi`, `meridiansight`), and each application owns its own server and auth. Do not add one here. The CLI exposes `inspect`, `docs` and `blueprint` commands, not engine runs.
+
 ### Layer 1: Base Framework (the engine)
 
 The base framework provides composable primitives for building multi-agent systems. Every integration point is a `@runtime_checkable` Protocol — bring your own LLM, vector store, memory backend, etc.
@@ -67,32 +102,32 @@ The base framework provides composable primitives for building multi-agent syste
 
 ### Layer 2: Self-Hosting Engine (CEMAF's first client)
 
-Three opt-in modules where CEMAF uses its own primitives to introspect, audit, and extend itself. **Fully decoupled** — zero base framework modules import from these. Dependency arrow is strictly one-way.
+Opt-in modules where CEMAF uses its own primitives to introspect, audit, and extend itself. No base module imports `meta`, `audit` or `operator` at load time; two lazy edges exist — the CLI's `docs export-okf` command imports `meta.okf`, and RBAC writes `AuditEntry` records when given an `AuditLog`. `knowledge` started here but is now a base dependency: `RuntimeServices.knowledge_graph` (SPEC-02/07) makes orchestration, agents, collision and interceptors import its `KnowledgeGraph` protocol.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                  SELF-HOSTING LAYER                           │
 │                                                              │
-│  meta/              audit/              knowledge/            │
-│  ├─ agents.py       ├─ subscriber.py    ├─ graph.py          │
-│  │  MetaArchitect   │  EventBusAudit    │  MemoryBackedKG    │
-│  │  MetaSynthesizer │  Log → AuditEntry │  entities as       │
-│  │  MetaAuditor     ├─ trail.py         │  MemoryItems       │
-│  │  MetaKG Agent    │  quality trends   ├─ protocols.py      │
-│  ├─ tools.py        │  z-score anomaly  │  KnowledgeGraph    │
-│  │  Introspect      │  detection        │  protocol          │
-│  │  GenerateDAG     ├─ protocols.py     └──────────┬─────────┘
-│  │  TraceAnalyzer   │  AuditLog,                   │
-│  │  KGTool          │  AuditTrail                   │
-│  ├─ dags.py         │  protocols                    │
-│  │  self_audit      └──────────┬────────────────────┘
-│  │  feature_synth              │
-│  │  kg_refresh                 │ consumes (never imported by)
-│  ├─ bootstrap.py               │
-│  │  create_meta_               ▼
-│  │  executor()     ┌──────────────────────┐
-│  └─ registry.py    │   BASE FRAMEWORK     │
-│                    │   (Layer 1)          │
+│  meta/              audit/              operator/             │
+│  ├─ agents.py       ├─ subscriber.py    └─ snapshot.py       │
+│  │  MetaArchitect   │  EventBusAudit       cemaf.session.v1   │
+│  │  MetaSynthesizer │  Log → AuditEntry                       │
+│  │  MetaAuditor     ├─ trail.py                               │
+│  │  MetaKG Agent    │  quality trends                         │
+│  ├─ tools.py        │  z-score anomaly                        │
+│  │  Introspect      │  detection                              │
+│  │  GenerateDAG     ├─ protocols.py                           │
+│  │  TraceAnalyzer   │  AuditLog,                              │
+│  │  KGTool          │  AuditTrail                             │
+│  ├─ dags.py         └──────────┬───────────                   │
+│  │  self_audit                 │                              │
+│  │  feature_synth              │ consumes (base imports these │
+│  │  kg_refresh                 │ only lazily: CLI, RBAC)      │
+│  ├─ bootstrap.py               ▼                              │
+│  │  create_meta_   ┌──────────────────────┐                   │
+│  │  executor()     │   BASE FRAMEWORK     │                   │
+│  └─ registry.py    │   (Layer 1, incl.    │                   │
+│                    │    knowledge/)       │                   │
 │                    └──────────────────────┘
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -103,7 +138,7 @@ Three opt-in modules where CEMAF uses its own primitives to introspect, audit, a
 
 | Meta-Agent | What It Does | Tools It Uses |
 |-----------|-------------|--------------|
-| `MetaArchitect` | Designs DAG pipelines from feature descriptions | IntrospectRegistryTool, GenerateDAGTool |
+| `MetaArchitect` | Builds a DAG from every registered agent, ordered by tool-safety flags; the feature description only names the DAG (no LLM planning yet) | IntrospectRegistryTool, GenerateDAGTool |
 | `MetaSpecifier` | Authors OpenSpec proposals and validates them through the OpenSpec bridge | OpenSpec tool surface when runtime is configured |
 | `MetaSynthesizer` | Generates CEMAF agent Python source from templates | None (template-based) |
 | `MetaAuditor` | Analyzes execution traces for quality/anomalies | TraceAnalyzerTool |
@@ -273,6 +308,7 @@ return Result.fail(error="Rate limit exceeded")
 | `memory` | Semantic + episodic memory, tiered storage, dedup, extraction, session | `base.py`, `manager.py`, `semantic.py`, `session.py`, `sqlite_store.py` |
 | `retrieval` | VectorStore, EmbeddingProvider protocols | `protocols.py`, `memory_store.py` |
 | `rlm` | Recursive Language Model — divide-and-conquer large context queries | `base.py`, `protocols.py` |
+| `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07). A base dependency via `RuntimeServices.knowledge_graph` | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
 
 ### LLM Integration (talking to models)
 
@@ -308,11 +344,10 @@ return Result.fail(error="Rate limit exceeded")
 
 ### Self-Hosting Layer (CEMAF introspects itself)
 
-These modules are **opt-in consumers** of the base framework. No base module imports from them.
+These modules are **opt-in consumers** of the base framework. No base module imports them at load time (see the two lazy edges in Layer 2 above).
 
 | Module | Purpose | Key Files |
 |--------|---------|-----------|
 | `audit` | Structured audit trail — EventBus subscriber → AuditEntry, quality trend, z-score anomaly detection | `subscriber.py`, `trail.py`, `protocols.py`, `models.py` |
-| `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07) for bounded-LRU point-read acceleration | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
 | `meta` | Self-hosting agents, tools, DAGs, and bootstrap | `agents.py`, `tools.py`, `dags.py`, `bootstrap.py`, `registry.py` |
 | `operator` | Operator plane (SPEC-14) — versioned read-only run snapshots (`cemaf.session.v1`) projected from RunRecord/ExecutionResult; sits above observability + orchestration | `snapshot.py` |
