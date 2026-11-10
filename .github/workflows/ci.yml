@@ -151,11 +151,22 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # Test-only names: production factories read CEMAF_POSTGRES_DSN, which must stay unset here.
       CEMAF_TEST_POSTGRES_DSN: postgresql://cemaf@localhost:5432/cemaf
       CEMAF_RUN_PGVECTOR_TESTS: "1"
       CEMAF_PGVECTOR_DSN: postgresql://cemaf@localhost:5432/cemaf
+      # Database 15 is reserved for tests: the live event-bus tests flush it.
+      CEMAF_TEST_REDIS_URL: redis://localhost:6379/15
     steps:
       - uses: actions/checkout@v4
 

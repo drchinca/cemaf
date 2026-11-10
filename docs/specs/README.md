@@ -82,6 +82,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-23](SPEC-23-postgres-audit-log.md) | Postgres Audit Log | none | durable `AuditLog` backend, signed-chain verification, tamper detection |
 
+## Events (SPEC-24)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-24](SPEC-24-durable-event-bus.md) | Durable Event Bus Delivery | none | `RedisEventBus` fan-out per subscriber, redelivery, dead-letter stream |
+
 ## LLM Testing (SPEC-25)
 
 | ID | Title | Depends on | Owns |

@@ -3,10 +3,13 @@ Redis Streams-backed durable EventBus.
 
 Unlike Pub/Sub (fire-and-forget), Streams provide persistent, ordered,
 consumer-group delivery that survives process restarts. Each subscriber
-gets an independent consumer group — all receive all events.
+(named by its handler, or explicitly) gets its own consumer group, so every
+subscriber receives every event; replicas of one subscriber share the group and
+split the work.
 
-Dead-letter: after 3 failed deliveries, message moved to
-cemaf:events:dlq stream.
+Retry and dead-letter: a failed message is redelivered after
+``redelivery_idle_ms``; after 3 deliveries it moves to the cemaf:events:dlq
+stream (SPEC-24).
 """
 
 import asyncio
@@ -23,16 +26,40 @@ logger = logging.getLogger(__name__)
 _SUBSCRIBE_ALL_STREAM = "cemaf:events:__all__"
 _DLQ_STREAM = "cemaf:events:dlq"
 _MAX_DELIVERY_ATTEMPTS = 3
+# Long enough that a slow handler on another replica still holds its messages;
+# shorter values make the bus re-run in-flight work and burn delivery attempts.
+DEFAULT_REDELIVERY_IDLE_MS = 60_000
+_RECLAIM_FROM_START = "0-0"
+# Automatic names containing these are shared by unrelated handlers. Closures are
+# allowed: two different closures resolving to one group on a bus raise in _claim_group.
+_AMBIGUOUS_NAME_MARKERS = ("<lambda>", "functools.partial")
+_READ_BATCH = 10
+_READ_BLOCK_MS = 200
+
+
+def _subscriber_name(handler: EventHandler | EventHandlerFn) -> str:
+    """A name for a handler that is stable across restarts: its module-qualified name.
+
+    Raises ValueError for lambdas and partials, whose names are shared by unrelated
+    handlers; those must pass subscriber_name explicitly.
+    """
+    target = type(handler) if hasattr(handler, "handle") else handler
+    module = getattr(target, "__module__", "") or ""
+    qualname = getattr(target, "__qualname__", "") or type(target).__qualname__
+    name = f"{module}.{qualname}"
+    if any(marker in name for marker in _AMBIGUOUS_NAME_MARKERS):
+        raise ValueError(f"cannot derive a unique subscriber name from {name!r}; pass subscriber_name=")
+    return name
 
 
 class RedisEventBus:
     """
     EventBus implemented with Redis Streams for durable, ordered delivery.
 
-    Each call to subscribe() creates an independent consumer group so
-    every subscriber receives every event — fan-out semantics, not
-    competing-consumers. The __all__ stream mirrors every published event
-    for subscribe_all() consumers.
+    Each subscriber has its own consumer group (``group-<type>-<subscriber name>``),
+    so every subscriber receives every event; processes subscribing under the same
+    name compete for that group's messages. The __all__ stream mirrors every
+    published event for subscribe_all() consumers.
     """
 
     def __init__(
@@ -40,6 +67,7 @@ class RedisEventBus:
         redis_url: str,
         worker_id: str | None = None,
         max_stream_length: int = 100_000,
+        redelivery_idle_ms: int = DEFAULT_REDELIVERY_IDLE_MS,
     ) -> None:
         try:
             import redis.asyncio as aioredis
@@ -49,8 +77,11 @@ class RedisEventBus:
         self._redis = aioredis.from_url(redis_url)
         self._worker_id = worker_id or f"worker-{uuid4().hex[:8]}"
         self._max_stream_length = max_stream_length
+        self._redelivery_idle_ms = redelivery_idle_ms
         # background tasks spawned by subscribe / subscribe_all
         self._tasks: list[asyncio.Task[None]] = []
+        # consumer group -> the handler registered for it on this bus
+        self._handlers_by_group: dict[str, EventHandler | EventHandlerFn] = {}
 
     async def publish(self, event: Event) -> None:
         """Append event to its type-specific stream and to the __all__ mirror."""
@@ -78,13 +109,16 @@ class RedisEventBus:
         self,
         event_type: str | EventType,
         handler: EventHandler | EventHandlerFn,
+        *,
+        subscriber_name: str | None = None,
     ) -> Callable[[], None]:
-        """Subscribe to a single event type via a dedicated consumer group."""
+        """Subscribe to one event type through this subscriber's own consumer group."""
         type_str = event_type.value if isinstance(event_type, EventType) else event_type
         stream = f"cemaf:events:{type_str}"
-        group = f"group-{type_str}"
+        group = f"group-{type_str}-{subscriber_name or _subscriber_name(handler)}"
+        self._claim_group(group=group, handler=handler)
 
-        task = asyncio.get_event_loop().create_task(
+        task = asyncio.get_running_loop().create_task(
             self._consume_loop(stream, group, handler),
             name=f"redis-event-bus-{group}",
         )
@@ -97,10 +131,16 @@ class RedisEventBus:
 
         return unsubscribe
 
-    def subscribe_all(self, handler: EventHandler | EventHandlerFn) -> Callable[[], None]:
+    def subscribe_all(
+        self,
+        handler: EventHandler | EventHandlerFn,
+        *,
+        subscriber_name: str | None = None,
+    ) -> Callable[[], None]:
         """Subscribe to all published events via the __all__ mirror stream."""
-        group = f"group-all-{uuid4().hex[:8]}"
-        task = asyncio.get_event_loop().create_task(
+        group = f"group-all-{subscriber_name or _subscriber_name(handler)}"
+        self._claim_group(group=group, handler=handler)
+        task = asyncio.get_running_loop().create_task(
             self._consume_loop(_SUBSCRIBE_ALL_STREAM, group, handler),
             name=f"redis-event-bus-all-{group}",
         )
@@ -113,6 +153,14 @@ class RedisEventBus:
 
         return unsubscribe
 
+    def _claim_group(self, *, group: str, handler: EventHandler | EventHandlerFn) -> None:
+        """Reserve a consumer group for one handler on this bus; a second handler would split its events."""
+        existing = self._handlers_by_group.get(group)
+        # == not `is`: each access to a bound method builds a new, equal object.
+        if existing is not None and existing != handler:
+            raise ValueError(f"subscriber name already used by another handler for {group!r}")
+        self._handlers_by_group[group] = handler
+
     async def _consume_loop(
         self,
         stream: str,
@@ -122,20 +170,37 @@ class RedisEventBus:
         """Read and dispatch messages from a consumer group until cancelled."""
         await self._ensure_group(stream, group)
 
+        reclaim_cursor = _RECLAIM_FROM_START
         while True:
             try:
-                # BLOCK 200ms so the loop yields to other coroutines regularly.
+                # Retry first: claim messages a failed (or crashed) delivery left
+                # pending for longer than redelivery_idle_ms. Each claim counts as
+                # another delivery, which is what lets _maybe_dlq reach its limit.
+                # The cursor walks the whole pending list across passes, so a long
+                # backlog at the head cannot hide later pending messages.
+                claimed = await self._redis.xautoclaim(
+                    stream,
+                    group,
+                    self._worker_id,
+                    min_idle_time=self._redelivery_idle_ms,
+                    start_id=reclaim_cursor,
+                    count=_READ_BATCH,
+                )
+                # Redis 7 replies [cursor, messages, deleted]; Redis 6.2 omits deleted.
+                next_cursor, reclaimed = claimed[0], claimed[1]
+                reclaim_cursor = next_cursor.decode() if isinstance(next_cursor, bytes) else str(next_cursor)
+                for msg_id, fields in reclaimed:
+                    await self._dispatch(stream, group, msg_id, fields, handler)
+
+                # BLOCK so the loop yields to other coroutines regularly.
                 raw = await self._redis.xreadgroup(
                     groupname=group,
                     consumername=self._worker_id,
                     streams={stream: ">"},
-                    count=10,
-                    block=200,
+                    count=_READ_BATCH,
+                    block=_READ_BLOCK_MS,
                 )
-                if not raw:
-                    continue
-
-                for _, messages in raw:
+                for _, messages in raw or ():
                     for msg_id, fields in messages:
                         await self._dispatch(stream, group, msg_id, fields, handler)
 
