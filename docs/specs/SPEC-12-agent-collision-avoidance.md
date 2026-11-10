@@ -145,7 +145,7 @@ Priority (deterministic tiebreak, highest wins right-of-way):
 9. `WHEN children of one PARALLEL node write output_keys sharing a top-level key that the merge strategy does not handle, THE System SHALL dispatch exactly one of them` (the earlier sibling, under the default policy) and record the others as steered.
 10. `WHEN children of a PARALLEL node write different top-level keys, THE System SHALL dispatch all of them.`
 11. `IF RuntimeServices.collision_policy is None OR the merge strategy handles the shared key, THEN THE System SHALL dispatch every child writing it.`
-12. `A steered child SHALL NOT fail its PARALLEL node and SHALL NOT steer another sibling.`
+12. `A steered child SHALL NOT fail its PARALLEL node, SHALL NOT steer another sibling, and SHALL be restored as unsuccessful on resume` (via SPEC-21 `unsuccessful_nodes`).
 
 Budget: 12 invariants.
 

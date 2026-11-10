@@ -7,6 +7,8 @@ one is steered and never dispatched — deterministically, observed through the 
 ExecutionResult.
 """
 
+from dataclasses import replace
+
 import pytest
 from pydantic import BaseModel
 
@@ -18,11 +20,12 @@ from cemaf.context.context import Context
 from cemaf.context.merge import ReducerMergeStrategy
 from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
-from cemaf.core.types import AgentID, NodeID
+from cemaf.core.types import AgentID, NodeID, RunID
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
+from cemaf.orchestration.checkpointer import InMemoryCheckpointer
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
-from cemaf.orchestration.dag import DAG, Node
+from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import DAGExecutor
 from cemaf.orchestration.node_handlers import COLLISION_METADATA_KEY, SteeredField, is_steered
 from cemaf.orchestration.results import ExecutionResult, NodeResult
@@ -35,6 +38,33 @@ class _Goal(BaseModel):
 
 class _Out(BaseModel):
     who: str
+
+
+class FailsOnceAgent(Agent[_Goal, _Out]):
+    """Fails on its first run and succeeds afterwards, so a resumed run gets past it."""
+
+    def __init__(self, *, ran: list[str]) -> None:
+        self._ran = ran
+        self._attempts = 0
+
+    @property
+    def id(self) -> AgentID:
+        return AgentID("flaky")
+
+    @property
+    def description(self) -> str:
+        return "flaky agent"
+
+    @property
+    def skills(self) -> tuple[()]:
+        return ()
+
+    async def run(self, goal: _Goal, context: AgentContext) -> AgentResult[_Out]:
+        self._attempts += 1
+        if self._attempts == 1:
+            return AgentResult.fail(error="first attempt fails", state=AgentState())
+        self._ran.append("flaky")
+        return AgentResult.ok(output=_Out(who="flaky"), state=AgentState())
 
 
 class RecordingAgent(Agent[_Goal, _Out]):
@@ -238,6 +268,53 @@ class TestCollisionThroughRealExecutor:
 
         assert ran == ["first"]
         assert [is_steered(result=result) for result in results] == [False, True]
+
+    @pytest.mark.asyncio
+    async def test_resume_keeps_a_steered_child_unsuccessful(self) -> None:
+        """After a later failure, resume must not treat the steered child as a success."""
+        ran: list[str] = []
+        registry = AgentRegistry()
+        for child_id in ("first", "second", "after_second"):
+            registry.register_agent(
+                agent_instance=RecordingAgent(agent_id=child_id, ran=ran), goal_type=_Goal
+            )
+        registry.register_agent(agent_instance=FailsOnceAgent(ran=ran), goal_type=_Goal)
+        dag = DAG(
+            name="resume-steered",
+            nodes=(
+                Node.parallel(id="fan", name="Fan", parallel_nodes=["first", "second"]),
+                Node.agent(id="first", name="first", agent_id="first", output_key="decision"),
+                Node.agent(id="second", name="second", agent_id="second", output_key="decision"),
+                replace(
+                    Node.agent(id="flaky", name="flaky", agent_id="flaky", output_key="flaky_out"),
+                    retry_on_failure=False,
+                ),
+                Node.agent(
+                    id="after_second", name="after_second", agent_id="after_second", output_key="later"
+                ),
+            ),
+            edges=(
+                Edge(source=NodeID("fan"), target=NodeID("flaky")),
+                Edge(
+                    source=NodeID("second"), target=NodeID("after_second"), condition=EdgeCondition.ON_SUCCESS
+                ),
+                Edge(source=NodeID("flaky"), target=NodeID("after_second"), condition=EdgeCondition.ALWAYS),
+            ),
+            entry_node=NodeID("fan"),
+        )
+        executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
+            agent_registry=registry,
+            services=RuntimeServices(checkpointer=InMemoryCheckpointer()),
+        )
+
+        halted = await executor.run(dag=dag, run_id=RunID("run-resume-steered"))
+        resumed = await executor.resume(run_id=RunID("run-resume-steered"), dag=dag)
+
+        assert halted.status is RunStatus.FAILED
+        assert resumed.status is RunStatus.COMPLETED
+        assert "flaky" in ran
+        assert "after_second" not in ran
 
     @pytest.mark.asyncio
     async def test_conflict_is_published_on_the_event_bus(self) -> None:
