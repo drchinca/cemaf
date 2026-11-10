@@ -292,7 +292,7 @@ class OrchestrationSettings(BaseModel):
     cycle_detection_limit: int = 1000
     enable_logging: bool = True
     enable_events: bool = True
-    enable_moderation: bool = False
+    enable_moderation: bool = True
 
 
 class EventsSettings(BaseModel):

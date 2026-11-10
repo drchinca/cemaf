@@ -69,7 +69,7 @@ class TestExecutorConfig:
         config = ExecutorConfig()
         assert config.enable_logging is True
         assert config.enable_events is True
-        assert config.enable_moderation is False
+        assert config.enable_moderation is True
         assert config.merge_strategy == "last_write_wins"
 
     def test_frozen(self):

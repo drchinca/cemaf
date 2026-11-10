@@ -85,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at construction.
 
 **Changed:**
+- `ExecutorConfig.enable_moderation` (and `create_executor_config`) now default
+  to True, so a moderation pipeline supplied through `RuntimeServices` is used
+  instead of being silently dropped. Pass `enable_moderation=False` to opt out
+  (SPEC-22).
 - Reconciled the SPEC-18 peer-communication draft and index with the existing
   specification and phase-one identity implementation, retaining newer test and
   specification updates while integrating the original PR history (#247).
