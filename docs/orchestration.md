@@ -441,7 +441,30 @@ the prior "static unless a selector is wired" semantics.
 **Adding a node "kind" is registering a resolver, not editing `execute_node`.**
 The dispatch loop walks the chain and the first `matches()` wins; `Node.council`
 and `Node.auction` are just factories that stamp the config key their resolver
-looks for.
+looks for. Register your own through `RuntimeServices` (SPEC-20). They are
+matched before the built-ins, `ContextNodeExecutor.resolver_ids` lists the chain
+in match order, and duplicate `resolver_id`s fail at construction:
+
+```python
+class ApprovalResolver:
+    resolver_id = "approval"
+
+    def matches(self, *, node: Node) -> bool:
+        return bool(node.config.get("approval"))
+
+    async def resolve(self, *, node: Node, resolved_inputs: object, run_id: str, start: float) -> NodeComplete:
+        return NodeComplete(result=NodeResult(node_id=node.id, success=True, output="approved"))
+
+
+executor = create_executor(
+    agent_registry=registry,
+    clearance=SecurityLevel.CONFIDENTIAL,
+    services=RuntimeServices(node_resolvers=(ApprovalResolver(),)),
+)
+```
+
+A resolver that returns `NodeComplete` skips the interceptor chain (as the
+council does); moderation and events still apply.
 
 ## Budget-Guarded Execution
 

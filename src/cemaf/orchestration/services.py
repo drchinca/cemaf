@@ -85,6 +85,7 @@ from cemaf.observability.health import HealthMonitor
 from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
+from cemaf.orchestration.resolvers.protocols import NodeResolver
 from cemaf.persistence.artifacts import ArtifactResolver
 from cemaf.persistence.evidence import EvidenceStore
 from cemaf.retrieval.protocols import VectorStore
@@ -171,6 +172,10 @@ class RuntimeServices:
     # Collision guard (SPEC-12 §2.4) — PARALLEL children writing overlapping keys;
     # the earlier sibling runs. None turns coordination off (last write wins).
     collision_policy: CollisionPolicy | None = field(default_factory=create_collision_policy)
+
+    # Node resolver chain (SPEC-20) — application node kinds, matched before the
+    # built-in council / auction / static resolvers. Empty = built-ins only.
+    node_resolvers: tuple[NodeResolver, ...] = ()
 
     def __post_init__(self) -> None:
         if self.agent_directory is not None and not isinstance(self.agent_directory, AgentDirectory):

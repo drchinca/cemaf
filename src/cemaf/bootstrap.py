@@ -37,6 +37,7 @@ def create_executor(
         knowledge_graph=svc.knowledge_graph,
         agent_directory=svc.agent_directory,
         max_recovery_attempts=svc.max_recovery_attempts,
+        node_resolvers=svc.node_resolvers,
     )
 
     # Wire online eval pipeline and quality police subscriptions

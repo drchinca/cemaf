@@ -58,6 +58,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
 
+## Node Dispatch (SPEC-20)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-20](SPEC-20-node-resolver-chain.md) | Node Resolver Chain | SPEC-09, SPEC-10 | first-match resolver order; public `RuntimeServices.node_resolvers` registration |
+
 ## Durable Execution (SPEC-21)
 
 | ID | Title | Depends on | Owns |
