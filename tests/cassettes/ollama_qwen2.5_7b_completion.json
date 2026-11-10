@@ -1,0 +1,50 @@
+{
+  "recorded_with": {
+    "model": "qwen2.5:7b",
+    "provider": "ollama"
+  },
+  "request": {
+    "json": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "Name the capital of France in one word.",
+          "role": "user"
+        }
+      ],
+      "model": "qwen2.5:7b",
+      "temperature": 0.0,
+      "top_p": 1.0
+    },
+    "method": "POST",
+    "path": "/v1/chat/completions"
+  },
+  "response": {
+    "json": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "Paris",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1794012779,
+      "id": "chatcmpl-642",
+      "model": "qwen2.5:7b",
+      "object": "chat.completion",
+      "system_fingerprint": "fp_ollama",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 38,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 40
+      }
+    },
+    "status": 200
+  }
+}
