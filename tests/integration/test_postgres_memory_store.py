@@ -1,18 +1,22 @@
-"""Offline integration tests for PostgresMemoryStore.
+"""Integration tests for PostgresMemoryStore, against a fake pool and a real Postgres.
 
-These tests drive the real PostgresMemoryStore methods against a small
-asyncpg-shaped in-memory pool. They verify CEMAF's query/serialization behavior
-without requiring a live database in the default suite. Real database smoke can
-be run separately by wiring PostgresMemoryStore with an actual DSN.
+Every test runs twice: once against a small asyncpg-shaped in-memory pool (always),
+and once against a real Postgres when CEMAF_TEST_POSTGRES_DSN is set (CI sets it from a
+pgvector/pgvector service container). The fake proves the query/serialization
+logic offline; the real run proves asyncpg's actual quoting, JSONB and timestamp
+decoding, which the fake can only imitate.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any
 
 import pytest
@@ -25,6 +29,28 @@ from cemaf.memory.base import MemoryItem
 from cemaf.memory.postgres_store import PostgresMemoryStore
 
 _TEST_SCHEMA = "cemaf_test"
+_REAL_DSN = os.getenv("CEMAF_TEST_POSTGRES_DSN")
+
+
+class Backend(StrEnum):
+    """Which pool a test's stores talk to."""
+
+    FAKE_POOL = "fake_pool"
+    REAL_POSTGRES = "real_postgres"
+
+
+BACKENDS = pytest.mark.parametrize(
+    "backend",
+    [
+        Backend.FAKE_POOL,
+        pytest.param(
+            Backend.REAL_POSTGRES,
+            marks=pytest.mark.skipif(
+                _REAL_DSN is None, reason="set CEMAF_TEST_POSTGRES_DSN to run against Postgres"
+            ),
+        ),
+    ],
+)
 
 
 class _FakeAcquire:
@@ -165,19 +191,51 @@ def _make_item(
     )
 
 
+async def _open_stores(
+    *, backend: Backend, tenant_ids: tuple[str, ...]
+) -> tuple[list[PostgresMemoryStore], str]:
+    """Stores sharing one pool (fake) or one fresh schema (real), one per tenant."""
+    if backend == Backend.REAL_POSTGRES:
+        assert _REAL_DSN is not None
+        schema = f"cemaf_it_{uuid.uuid4().hex[:8]}"
+        return [
+            PostgresMemoryStore(dsn=_REAL_DSN, schema=schema, tenant_id=t, pool_min=1) for t in tenant_ids
+        ], schema
+    pool = _FakePool()
+    stores = [
+        PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id=t) for t in tenant_ids
+    ]
+    for store in stores:
+        store._pool = pool  # type: ignore[attr-defined]
+        await store._ensure_schema()
+    return stores, _TEST_SCHEMA
+
+
+async def _close_stores(*, backend: Backend, stores: list[PostgresMemoryStore], schema: str) -> None:
+    """Close the stores and, on a real database, drop the per-test schema."""
+    for store in stores:
+        await store.close()
+    if backend == Backend.REAL_POSTGRES:
+        import asyncpg
+
+        conn = await asyncpg.connect(_REAL_DSN)
+        try:
+            await conn.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+        finally:
+            await conn.close()
+
+
 @pytest.fixture
-async def store() -> AsyncIterator[PostgresMemoryStore]:
-    """Fresh PostgresMemoryStore using an asyncpg-shaped fake pool."""
-
-    s = PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id="test_tenant")
-    s._pool = _FakePool()  # type: ignore[attr-defined]
-    await s._ensure_schema()
+async def store(backend: Backend) -> AsyncIterator[PostgresMemoryStore]:
+    """A PostgresMemoryStore on the requested backend."""
+    stores, schema = await _open_stores(backend=backend, tenant_ids=("test_tenant",))
     try:
-        yield s
+        yield stores[0]
     finally:
-        await s.close()
+        await _close_stores(backend=backend, stores=stores, schema=schema)
 
 
+@BACKENDS
 async def test_set_get_roundtrip(store: PostgresMemoryStore) -> None:
     """All MemoryItem fields survive a write/read round-trip through the Postgres adapter."""
     item = _make_item(
@@ -198,6 +256,7 @@ async def test_set_get_roundtrip(store: PostgresMemoryStore) -> None:
     assert retrieved.created_at.year == item.created_at.year
 
 
+@BACKENDS
 async def test_get_returns_none_for_expired(store: PostgresMemoryStore) -> None:
     """An item whose expires_at has passed is treated as absent."""
     item = _make_item(key="expiring", ttl=timedelta(milliseconds=10))
@@ -207,7 +266,7 @@ async def test_get_returns_none_for_expired(store: PostgresMemoryStore) -> None:
     past = utc_now() - timedelta(seconds=10)
     async with pool.acquire() as conn:
         await conn.execute(
-            f"UPDATE {_TEST_SCHEMA}.memory_items "
+            f"UPDATE {store._schema}.memory_items "
             f"SET expires_at = $1 "
             f"WHERE tenant_id = $2 AND scope = $3 AND key = $4",
             past,
@@ -220,6 +279,7 @@ async def test_get_returns_none_for_expired(store: PostgresMemoryStore) -> None:
     assert result is None
 
 
+@BACKENDS
 async def test_delete_returns_true_if_existed(store: PostgresMemoryStore) -> None:
     """delete() returns True for an existing key, False on a second call."""
     item = _make_item(key="deleteme")
@@ -232,6 +292,7 @@ async def test_delete_returns_true_if_existed(store: PostgresMemoryStore) -> Non
     assert second is False
 
 
+@BACKENDS
 async def test_list_by_scope_excludes_expired(store: PostgresMemoryStore) -> None:
     """list_by_scope returns only live items; expired rows are filtered by the query."""
     items = [
@@ -246,7 +307,7 @@ async def test_list_by_scope_excludes_expired(store: PostgresMemoryStore) -> Non
     past = utc_now() - timedelta(seconds=5)
     async with pool.acquire() as conn:
         await conn.execute(
-            f"UPDATE {_TEST_SCHEMA}.memory_items "
+            f"UPDATE {store._schema}.memory_items "
             f"SET expires_at = $1 "
             f"WHERE tenant_id = $2 AND scope = $3 AND key = $4",
             past,
@@ -262,6 +323,7 @@ async def test_list_by_scope_excludes_expired(store: PostgresMemoryStore) -> Non
     assert "expired" not in keys
 
 
+@BACKENDS
 async def test_exclude_filter(store: PostgresMemoryStore) -> None:
     """exclude_filter prevents rows whose JSON field matches the excluded values."""
     await store.set(item=_make_item(key="class_a", value={"class": "A", "x": 1}))
@@ -278,17 +340,12 @@ async def test_exclude_filter(store: PostgresMemoryStore) -> None:
     assert "class_c" not in keys
 
 
-async def test_tenant_isolation() -> None:
+@BACKENDS
+async def test_tenant_isolation(backend: Backend) -> None:
     """Two stores with different tenant_ids cannot see each other's data."""
-    pool = _FakePool()
-    store_alpha = PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id="alpha")
-    store_beta = PostgresMemoryStore(dsn="postgresql://offline", schema=_TEST_SCHEMA, tenant_id="beta")
-    store_alpha._pool = pool  # type: ignore[attr-defined]
-    store_beta._pool = pool  # type: ignore[attr-defined]
+    (store_alpha, store_beta), schema = await _open_stores(backend=backend, tenant_ids=("alpha", "beta"))
 
     try:
-        await store_alpha._ensure_schema()
-        await store_beta._ensure_schema()
         await store_alpha.set(item=_make_item(key="secret_alpha", value={"owner": "alpha"}))
         await store_beta.set(item=_make_item(key="secret_beta", value={"owner": "beta"}))
 
@@ -302,10 +359,10 @@ async def test_tenant_isolation() -> None:
         assert all(r.value.get("owner") == "alpha" for r in alpha_list)
         assert all(r.value.get("owner") == "beta" for r in beta_list)
     finally:
-        await store_alpha.close()
-        await store_beta.close()
+        await _close_stores(backend=backend, stores=[store_alpha, store_beta], schema=schema)
 
 
+@BACKENDS
 async def test_security_level_roundtrip(store: PostgresMemoryStore) -> None:
     """security_level is written and read back, so a reload cannot relabel a memory."""
     item = replace(_make_item(key="salaries"), security_level=SecurityLevel.CONFIDENTIAL)

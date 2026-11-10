@@ -76,6 +76,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-22](SPEC-22-supplied-services-are-used.md) | Supplied Runtime Services Are Used | none | `ExecutorConfig.enable_moderation` defaults to True, so a supplied moderation pipeline is never a silent no-op |
 
+## Audit (SPEC-23)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-23](SPEC-23-postgres-audit-log.md) | Postgres Audit Log | none | durable `AuditLog` backend, signed-chain verification, tamper detection |
+
 ## LLM Testing (SPEC-25)
 
 | ID | Title | Depends on | Owns |
