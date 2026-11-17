@@ -1,181 +1,95 @@
 {
   "schema_version": 1,
   "step": 6,
-  "label": "quality gate \u2014 composite eval",
+  "label": "quality gate \u2014 eval interceptor + recover",
   "dag_name": "gate",
-  "total_ms": 321,
+  "status": "completed",
+  "total_ms": 62,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:16.485909+00:00",
+      "corr": "run_b9e0b5f27d59496cb73867022add9d2a",
       "attrs": {
         "dag_name": "gate",
-        "run_id": "run_2026-06-11T23:52:16.485909+00:00"
+        "run_id": "run_b9e0b5f27d59496cb73867022add9d2a"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:16.485909+00:00",
+      "corr": "run_b9e0b5f27d59496cb73867022add9d2a",
       "attrs": {
         "node_id": "write",
         "node_type": "agent",
         "agent_id": "Writer",
-        "inputs": {
-          "findings": [
-            "a",
-            "b",
-            "c"
-          ]
-        },
+        "inputs": {},
         "goal_text": ""
       }
     },
     {
-      "t_ms": 0,
-      "kind": "auction.bid",
-      "source": "Writer",
-      "corr": "",
-      "attrs": {
-        "candidate": "Writer.fast",
-        "fitness": 0.82,
-        "load": 0.05,
-        "score": 0.78
-      }
-    },
-    {
-      "t_ms": 0,
-      "kind": "auction.bid",
-      "source": "Writer",
-      "corr": "",
-      "attrs": {
-        "candidate": "Writer.careful",
-        "fitness": 0.81,
-        "load": 0.64,
-        "score": 0.29
-      }
-    },
-    {
-      "t_ms": 0,
-      "kind": "auction.award",
-      "source": "Writer",
-      "corr": "",
-      "attrs": {
-        "winner": "Writer.fast",
-        "saved_p95_ms": 1400
-      }
-    },
-    {
-      "t_ms": 321,
-      "kind": "citation.added",
-      "source": "Writer",
-      "corr": "",
-      "attrs": {
-        "claim": "a",
-        "src": "rfc-8446",
-        "supported": true,
-        "strength": 0.92
-      }
-    },
-    {
-      "t_ms": 321,
-      "kind": "citation.added",
-      "source": "Writer",
-      "corr": "",
-      "attrs": {
-        "claim": "b",
-        "src": "memory:research#3",
-        "supported": true,
-        "strength": 0.88
-      }
-    },
-    {
-      "t_ms": 321,
-      "kind": "citation.added",
-      "source": "Writer",
-      "corr": "",
-      "attrs": {
-        "claim": "c",
-        "src": "cloudflare-blog-2018",
-        "supported": true,
-        "strength": 0.81
-      }
-    },
-    {
-      "t_ms": 321,
+      "t_ms": 62,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:16.485909+00:00",
+      "corr": "run_b9e0b5f27d59496cb73867022add9d2a",
       "attrs": {
         "node_id": "write",
         "success": true,
-        "duration_ms": 321.2681249715388,
+        "duration_ms": 62.38541599941527,
         "error": null,
-        "output": "{\"body\": \"TLS 1.3 reduces handshake to 1-RTT\\u2026\", \"citations\": [{\"claim\": \"a\", \"src\": \"rfc-8446\", \"supported\": true, \"strength\": 0.92}, {\"claim\": \"b\", \"src\": \"memory:research#3\", \"supported\": true, \"strength\": 0.88}, {\"claim\": \"c\", \"src\": \"cloudflare-blog-2018\", \"supported\": true, \"strength\": 0.81}], \"tokens_in\": 248, \"tokens_out\": 64}",
-        "run_id": "run_2026-06-11T23:52:16.485909+00:00",
-        "workspace_id": null
+        "output": "TLS 1.3 cuts the handshake to 1-RTT. New connections finish the handshake in one round trip, resumed sessions can send 0-RTT early data (with replay caveats), and every major browser has shipped it since 2018.",
+        "run_id": "run_b9e0b5f27d59496cb73867022add9d2a",
+        "workspace_id": null,
+        "recovery_attempts": 1
       }
     },
     {
-      "t_ms": 321,
-      "kind": "task.started",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:16.485909+00:00",
-      "attrs": {
-        "node_id": "gate",
-        "node_type": "agent",
-        "agent_id": "Gate",
-        "inputs": {
-          "body": "TLS 1.3 reduces handshake to 1-RTT\u2026"
-        },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 321,
-      "kind": "eval.completed",
-      "source": "QualityGate",
-      "corr": "",
-      "attrs": {
-        "composite": 0.907,
-        "threshold": 0.8,
-        "sub": {
-          "deterministic": 1.0,
-          "semantic": 0.91,
-          "judge": 0.81,
-          "citation_membership": 1.0
-        },
-        "verdict": "pass"
-      }
-    },
-    {
-      "t_ms": 321,
-      "kind": "task.completed",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:16.485909+00:00",
-      "attrs": {
-        "node_id": "gate",
-        "success": true,
-        "duration_ms": 0.06862496957182884,
-        "error": null,
-        "output": "{\"composite\": 0.907, \"verdict\": \"pass\"}",
-        "run_id": "run_2026-06-11T23:52:16.485909+00:00",
-        "workspace_id": null
-      }
-    },
-    {
-      "t_ms": 321,
+      "t_ms": 62,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:16.485909+00:00",
+      "corr": "run_b9e0b5f27d59496cb73867022add9d2a",
       "attrs": {
         "dag_name": "gate",
-        "run_id": "run_2026-06-11T23:52:16.485909+00:00",
-        "num_nodes": 2,
-        "duration_ms": 321.61699999999996
+        "run_id": "run_b9e0b5f27d59496cb73867022add9d2a",
+        "num_nodes": 1,
+        "duration_ms": 62.70100000000001
+      }
+    },
+    {
+      "t_ms": 62,
+      "kind": "eval.started",
+      "source": "online_eval_pipeline",
+      "corr": "run_b9e0b5f27d59496cb73867022add9d2a",
+      "attrs": {
+        "node_id": "write",
+        "mode": "observe",
+        "run_id": "run_b9e0b5f27d59496cb73867022add9d2a",
+        "workspace_id": null
+      }
+    },
+    {
+      "t_ms": 62,
+      "kind": "eval.completed",
+      "source": "online_eval_pipeline",
+      "corr": "run_b9e0b5f27d59496cb73867022add9d2a",
+      "attrs": {
+        "node_id": "write",
+        "mode": "observe",
+        "run_id": "run_b9e0b5f27d59496cb73867022add9d2a",
+        "workspace_id": null,
+        "overall_score": 1.0,
+        "overall_passed": true,
+        "trigger": "task_completed",
+        "results": [
+          {
+            "metric": "length",
+            "score": 1.0,
+            "passed": true,
+            "reason": "Length: 209 chars"
+          }
+        ]
       }
     }
   ]

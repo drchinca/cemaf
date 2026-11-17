@@ -1,137 +1,163 @@
 {
   "schema_version": 1,
   "step": 4,
-  "label": "council \u2014 3-member vote",
+  "label": "council \u2014 3-member weighted vote",
   "dag_name": "council",
-  "total_ms": 154,
+  "status": "completed",
+  "total_ms": 12,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "corr": "run_9bdbafdf16e9496ea9040831e49fead6",
       "attrs": {
         "dag_name": "council",
-        "run_id": "run_2026-06-11T23:52:15.947112+00:00"
+        "run_id": "run_9bdbafdf16e9496ea9040831e49fead6"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "corr": "run_9bdbafdf16e9496ea9040831e49fead6",
       "attrs": {
-        "node_id": "seed",
+        "node_id": "research",
         "node_type": "agent",
-        "agent_id": "Greeter",
-        "inputs": {
-          "text": "TLS 1.3"
-        },
+        "agent_id": "Researcher",
+        "inputs": {},
         "goal_text": ""
       }
     },
     {
-      "t_ms": 61,
+      "t_ms": 0,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "corr": "run_9bdbafdf16e9496ea9040831e49fead6",
       "attrs": {
-        "node_id": "seed",
+        "node_id": "research",
         "success": true,
-        "duration_ms": 61.10216700471938,
+        "duration_ms": 0.16112499997689156,
         "error": null,
-        "output": "{\"text\": \"Hello, TLS 1.3!\", \"tokens_in\": 12, \"tokens_out\": 8}",
-        "run_id": "run_2026-06-11T23:52:15.947112+00:00",
+        "output": "TLS 1.3 handshake completes in one round trip (1-RTT) for a new connection. TLS 1.3 handshake is supported by every major browser since 2018. TLS 1.3 handshake resumption supports 0-RTT early data with replay caveats.",
+        "run_id": "run_9bdbafdf16e9496ea9040831e49fead6",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 61,
+      "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "corr": "run_9bdbafdf16e9496ea9040831e49fead6",
       "attrs": {
         "node_id": "vote",
         "node_type": "agent",
-        "agent_id": "Council",
-        "inputs": {
-          "findings": [
-            "1-RTT handshake",
-            "browser support 2018",
-            "perf gains"
-          ]
-        },
+        "agent_id": "",
+        "inputs": {},
         "goal_text": ""
       }
     },
     {
-      "t_ms": 61,
-      "kind": "council.ballot",
-      "source": "Council",
+      "t_ms": 0,
+      "kind": "citation.added",
+      "source": "citation_tracker",
       "corr": "",
       "attrs": {
-        "agent": "ResearcherA",
-        "vote": "sufficient",
-        "weight": 0.82
+        "citation_id": "cite_43d77864"
       }
     },
     {
-      "t_ms": 92,
-      "kind": "council.ballot",
-      "source": "Council",
+      "t_ms": 0,
+      "kind": "citation.added",
+      "source": "citation_tracker",
       "corr": "",
       "attrs": {
-        "agent": "ResearcherB",
-        "vote": "sufficient",
-        "weight": 0.71
+        "citation_id": "cite_30e67b8e"
       }
     },
     {
-      "t_ms": 123,
-      "kind": "council.ballot",
-      "source": "Council",
+      "t_ms": 0,
+      "kind": "citation.added",
+      "source": "citation_tracker",
       "corr": "",
       "attrs": {
-        "agent": "Skeptic",
-        "vote": "insufficient",
-        "weight": 0.58
+        "citation_id": "cite_254ca3cb"
       }
     },
     {
-      "t_ms": 154,
-      "kind": "council.decided",
-      "source": "Council",
+      "t_ms": 0,
+      "kind": "citation.fact_created",
+      "source": "citation_tracker",
       "corr": "",
       "attrs": {
-        "decision": "sufficient",
-        "weighted_score": 0.95
+        "fact_id": "fact-77f0a4c4",
+        "citation_count": 3
       }
     },
     {
-      "t_ms": 154,
+      "t_ms": 12,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "corr": "run_9bdbafdf16e9496ea9040831e49fead6",
       "attrs": {
         "node_id": "vote",
         "success": true,
-        "duration_ms": 93.13916700193658,
+        "duration_ms": 11.615833999712777,
         "error": null,
-        "output": "{\"decision\": \"sufficient\", \"weighted_score\": 0.95}",
-        "run_id": "run_2026-06-11T23:52:15.947112+00:00",
-        "workspace_id": null
+        "output": "sufficient",
+        "run_id": "run_9bdbafdf16e9496ea9040831e49fead6",
+        "workspace_id": null,
+        "council": {
+          "winning_choice": "sufficient",
+          "method": "weighted",
+          "decided": true,
+          "quorum_met": true,
+          "tally": {
+            "sufficient": 1.5299999999999998,
+            "insufficient": 0.58
+          },
+          "ballots": [
+            {
+              "member_id": "ReviewerA",
+              "choice": "sufficient",
+              "confidence": 0.82,
+              "abstained": false,
+              "error": null,
+              "raw_choice": null,
+              "rationale": "Primary sources agree."
+            },
+            {
+              "member_id": "ReviewerB",
+              "choice": "sufficient",
+              "confidence": 0.71,
+              "abstained": false,
+              "error": null,
+              "raw_choice": null,
+              "rationale": "Browser support is documented."
+            },
+            {
+              "member_id": "Skeptic",
+              "choice": "insufficient",
+              "confidence": 0.58,
+              "abstained": false,
+              "error": null,
+              "raw_choice": null,
+              "rationale": "0-RTT replay risk is under-explained."
+            }
+          ]
+        }
       }
     },
     {
-      "t_ms": 154,
+      "t_ms": 12,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.947112+00:00",
+      "corr": "run_9bdbafdf16e9496ea9040831e49fead6",
       "attrs": {
         "dag_name": "council",
-        "run_id": "run_2026-06-11T23:52:15.947112+00:00",
+        "run_id": "run_9bdbafdf16e9496ea9040831e49fead6",
         "num_nodes": 2,
-        "duration_ms": 154.54100000000003
+        "duration_ms": 12.36
       }
     }
   ]
