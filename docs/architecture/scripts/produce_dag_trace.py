@@ -1,25 +1,28 @@
-"""
-Produce real CEMAF run traces for the docs viz — 7 steps, each adds one
-capability so an investor sees the framework evolve from hello-world to
-the full machinery.
+"""Produce real CEMAF run traces for the showcase — 7 steps, one capability each.
 
-Step 1: hello — single static agent
-Step 2: chain — 2 agents in sequence (events bus produces structured trace)
-Step 3: parallel — 2 agents fan-out, 1 fan-in
-Step 4: council — 3-member deliberation, weighted vote
-Step 5: auction + writer — competitive agent selection + a citation step
-Step 6: eval gate — composite quality gate, threshold-based pass/fail
-Step 7: full flow — research → council → auction(writer) → cite → gate
-                    → publish → harvest, with tier hits + extraction events
+Every step is one ``executor.run(dag)`` through ``create_executor`` on real
+primitives; the trace is whatever the EventBus carried during that run:
 
-Every step subscribes to the EventBus and writes a JSON trace into:
-    docs/architecture/traces/step-N.json
+  1 hello     — one static agent
+  2 chain     — two agents, the second reads the first's output from context
+  3 parallel  — PARALLEL node fan-out; 4.0.0's default collision policy steers a
+                sibling that would overwrite another's key; fan-in joiner
+  4 council   — ``Node.council`` resolved by CouncilResolver + weighted aggregator
+  5 auction   — ``Node.auction`` resolved by AuctionResolver + DefaultAgentSelector
+                over two WRITE agents; the winner cites its sources (CitationTracker)
+  6 gate      — GateEvalInterceptor (RECOVER) on the writer: short draft → hint →
+                revised draft passes; OnlineEvalPipeline observes the result
+  7 full flow — research → parallel → council → auction writer → gate → harvest
 
-The viz at docs/architecture/cemaf-graph.html consumes those JSONs.
+Agents are deterministic and offline (no LLM, no network). The only events an
+agent causes itself are its own work (citations it registers); every other
+event comes from the framework.
 
 Usage:
-    uv run python examples/produce_dag_trace.py             # writes all steps
-    uv run python examples/produce_dag_trace.py --step 4    # writes only step 4
+    uv run python docs/architecture/scripts/produce_dag_trace.py            # all steps
+    uv run python docs/architecture/scripts/produce_dag_trace.py --inline   # + rewrite HTML
+    uv run python docs/architecture/scripts/produce_dag_trace.py --step 4
+    uv run python docs/architecture/scripts/produce_dag_trace.py --check    # CI drift gate
 """
 
 from __future__ import annotations
@@ -29,660 +32,869 @@ import asyncio
 import json
 import re
 import sys
+import tempfile
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from cemaf import (
-    Agent,
-    AgentContext,
-    AgentRegistry,
-    AgentResult,
-    AgentState,
-    DAG,
-    Node,
-    create_executor,
-)
-from cemaf.core.types import AgentID
+from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
+from cemaf.agents.registry import AgentRegistry
+from cemaf.agents.selection import Capability, DefaultAgentSelector
+from cemaf.blueprint import BlueprintLibrary, InMemoryWritableBlueprintSource, create_blueprint_harvester
+from cemaf.bootstrap import create_executor
+from cemaf.citation.tracker import CitationTracker
+from cemaf.context.patch import SecurityLevel
+from cemaf.core.types import AgentID, NodeID
+from cemaf.council.aggregator import DefaultVoteAggregator
+from cemaf.council.types import AggregationMethod, CouncilConfig, Opinion
+from cemaf.evals.evaluators import LengthEvaluator
+from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event
-from cemaf.orchestration.dag import Edge
+from cemaf.interceptors import GateEvalInterceptor, GateFailureMode, create_interceptor_pipeline
+from cemaf.interceptors.types import RECOVERY_HINTS_KEY
+from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
+from cemaf.retrieval.protocols import Document, VectorStore
+
+REPO_ROOT: Final = Path(__file__).resolve().parents[3]
+TRACE_DIR: Final = REPO_ROOT / "docs" / "architecture" / "traces"
+SHOWCASE_HTML: Final = REPO_ROOT / "docs" / "architecture" / "cemaf-graph.html"
+TRACE_SCHEMA_VERSION: Final = 1
+TRACE_DATA_OPEN: Final = "/*TRACE-DATA*/const TRACE_DATA = "
+TRACE_DATA_CLOSE: Final = ";/*END-TRACE-DATA*/"
+TRACE_DATA_RE: Final = re.compile(
+    re.escape(TRACE_DATA_OPEN) + r"(.+?)" + re.escape(TRACE_DATA_CLOSE), re.DOTALL
+)
+
+CLEARANCE: Final = SecurityLevel.INTERNAL
+TOPIC: Final = "TLS 1.3 handshake"
+GATE_MIN_CHARS: Final = 160
+SHIP: Final = "ship"
+HOLD: Final = "hold"
+SUFFICIENT: Final = "sufficient"
+INSUFFICIENT: Final = "insufficient"
+WRITE_CAPABILITY: Final = Capability.WRITE
+
+SOURCES: Final = (
+    Document(
+        id="rfc-8446#section-2",
+        content="TLS 1.3 handshake completes in one round trip (1-RTT) for a new connection.",
+        metadata={"title": "RFC 8446 — TLS 1.3", "namespace": "standards"},
+    ),
+    Document(
+        id="rfc-8446#section-2.3",
+        content="TLS 1.3 handshake resumption supports 0-RTT early data with replay caveats.",
+        metadata={"title": "RFC 8446 — 0-RTT", "namespace": "standards"},
+    ),
+    Document(
+        id="caniuse-tls13",
+        content="TLS 1.3 handshake is supported by every major browser since 2018.",
+        metadata={"title": "Browser support for TLS 1.3", "namespace": "web"},
+    ),
+)
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-TRACE_DIR = REPO_ROOT / "docs" / "architecture" / "traces"
-
-
-# ---------- tracer ----------
+# ---------- trace recording ----------
 
 
 @dataclass
 class RunTracer:
-    """Subscribes to the EventBus and records every event with relative timestamp."""
+    """Record every EventBus event with a run-relative timestamp."""
 
     started_ns: int = field(default_factory=time.monotonic_ns)
     events: list[dict[str, Any]] = field(default_factory=list)
 
-    def attach(self, bus: InMemoryEventBus) -> None:
+    def attach(self, *, bus: InMemoryEventBus) -> None:
+        """Subscribe to every event on the bus."""
         bus.subscribe_all(self._on_event)
-
-    def reset(self) -> None:
-        self.started_ns = time.monotonic_ns()
-        self.events.clear()
 
     def _on_event(self, event: Event) -> None:
         rel_ms = (time.monotonic_ns() - self.started_ns) // 1_000_000
-        try:
-            payload = json.loads(json.dumps(event.payload, default=str))
-        except (TypeError, ValueError):
-            payload = {"_unserializable": str(event.payload)}
+        # Payloads are framework-shaped JSON plus pydantic outputs; default=str keeps them readable.
+        payload = json.loads(json.dumps(event.payload, default=str))
         self.events.append(
             {
                 "t_ms": int(rel_ms),
-                "kind": event.type,
+                "kind": str(event.type),
                 "source": event.source or "",
                 "corr": event.correlation_id or "",
                 "attrs": payload,
             }
         )
 
-    def to_dict(self, *, step: int, label: str, dag_name: str) -> dict[str, Any]:
+
+@dataclass(frozen=True, slots=True)
+class StepRun:
+    """The trace of one step plus anything the run produced off the bus."""
+
+    step: int
+    label: str
+    dag_name: str
+    status: str
+    events: tuple[dict[str, Any], ...]
+    extras: dict[str, Any] = field(default_factory=dict)
+
+    def to_trace(self) -> dict[str, Any]:
+        """The JSON shape the showcase reads."""
         return {
-            "schema_version": 1,
-            "step": step,
-            "label": label,
-            "dag_name": dag_name,
+            "schema_version": TRACE_SCHEMA_VERSION,
+            "step": self.step,
+            "label": self.label,
+            "dag_name": self.dag_name,
+            "status": self.status,
             "total_ms": self.events[-1]["t_ms"] if self.events else 0,
             "events": list(self.events),
+            **self.extras,
         }
 
 
-# ---------- helpers ----------
-
-
-# Module-level bus reference: AgentContext doesn't expose event_bus, so we set
-# this before each _run() and the agents publish through it from inside .run().
-_ACTIVE_BUS: InMemoryEventBus | None = None
-
-
-async def _emit(ctx: AgentContext, kind: str, payload: dict[str, Any], source: str) -> None:
-    """Publish an event from inside an agent via the active EventBus."""
-    if _ACTIVE_BUS is None:
-        return
-    await _ACTIVE_BUS.publish(
-        Event.create(
-            type=kind,
-            payload=payload,
-            source=source,
-            correlation_id=getattr(ctx, "run_id", None),
-        )
-    )
-
-
-def _write(tracer: RunTracer, *, step: int, label: str, dag_name: str) -> Path:
-    TRACE_DIR.mkdir(parents=True, exist_ok=True)
-    path = TRACE_DIR / f"step-{step}.json"
-    payload = tracer.to_dict(step=step, label=label, dag_name=dag_name)
-    path.write_text(json.dumps(payload, indent=2))
-    return path
-
-
-# ---------- shared agent payloads ----------
+# ---------- goals ----------
 
 
 class TextGoal(BaseModel):
-    text: str = Field(default="")
-
-
-class TextResult(BaseModel):
-    text: str
-    tokens_in: int = 0
-    tokens_out: int = 0
+    text: str = ""
 
 
 class ListGoal(BaseModel):
-    items: list[str] = Field(default_factory=list)
+    items: list[str] = []
 
 
-class ListResult(BaseModel):
-    items: list[str] = Field(default_factory=list)
-    tokens_in: int = 0
-    tokens_out: int = 0
+class TopicGoal(BaseModel):
+    topic: str = TOPIC
 
 
-# ---------- Step 1: hello world (single static agent) ----------
+class ReviewGoal(BaseModel):
+    objective: str = "Is the evidence sufficient?"
 
 
-class GreeterAgent(Agent[TextGoal, TextResult]):
+class WriteGoal(BaseModel):
+    facts: str = ""
+    objective: str = "Write a short brief."
+
+
+# ---------- agents ----------
+
+
+class DemoAgent[GoalT: BaseModel](Agent[GoalT, str]):
+    """Shared identity surface for the demo agents."""
+
+    def __init__(self, *, agent_id: str, description: str) -> None:
+        self._id = AgentID(agent_id)
+        self._description = description
+
     @property
     def id(self) -> AgentID:
-        return AgentID("Greeter")
+        return self._id
 
     @property
     def description(self) -> str:
-        return "Single static agent — the simplest CEMAF run."
+        return self._description
 
     @property
     def skills(self) -> tuple[()]:
         return ()
 
-    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
-        await asyncio.sleep(0.06)
+
+class Greeter(DemoAgent[TextGoal]):
+    """Says hello."""
+
+    def __init__(self) -> None:
+        super().__init__(agent_id="Greeter", description="Single static agent.")
+
+    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[str]:
+        await asyncio.sleep(0.02)
+        return AgentResult.ok(output=f"Hello, {goal.text}!", state=AgentState())
+
+
+class Shouter(DemoAgent[TextGoal]):
+    """Uppercases the previous node's output."""
+
+    def __init__(self) -> None:
+        super().__init__(agent_id="Shouter", description="Uppercases its input.")
+
+    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[str]:
+        await asyncio.sleep(0.02)
+        return AgentResult.ok(output=goal.text.upper(), state=AgentState())
+
+
+class Fetcher(DemoAgent[TopicGoal]):
+    """Pulls one source from the vector store; latency differs per fetcher."""
+
+    def __init__(self, *, agent_id: str, store: VectorStore, rank: int, delay_s: float) -> None:
+        super().__init__(agent_id=agent_id, description="Parallel branch: fetch one source.")
+        self._store = store
+        self._rank = rank
+        self._delay_s = delay_s
+
+    async def run(self, goal: TopicGoal, context: AgentContext) -> AgentResult[str]:
+        await asyncio.sleep(self._delay_s)
+        hits = await self._store.search_by_text(query_text=goal.topic, k=len(SOURCES))
+        return AgentResult.ok(output=hits[self._rank].document.content, state=AgentState())
+
+
+class Joiner(DemoAgent[ListGoal]):
+    """Fan-in: merges the parallel branches."""
+
+    def __init__(self) -> None:
+        super().__init__(agent_id="Joiner", description="Merges parallel branch outputs.")
+
+    async def run(self, goal: ListGoal, context: AgentContext) -> AgentResult[str]:
+        await asyncio.sleep(0.01)
+        return AgentResult.ok(output=" | ".join(goal.items), state=AgentState())
+
+
+class Researcher(DemoAgent[TopicGoal]):
+    """Retrieves sources and registers each one with the CitationTracker."""
+
+    def __init__(self, *, store: VectorStore, citations: CitationTracker) -> None:
+        super().__init__(agent_id="Researcher", description="Retrieves and cites sources.")
+        self._store = store
+        self._citations = citations
+
+    async def run(self, goal: TopicGoal, context: AgentContext) -> AgentResult[str]:
+        hits = await self._store.search_by_text(query_text=goal.topic, k=len(SOURCES))
+        tracked = self._citations.track_search_results(hits)
+        self._citations.create_cited_fact(
+            fact=hits[0].document.content, citations=tracked, confidence=hits[0].score
+        )
         return AgentResult.ok(
-            output=TextResult(text=f"Hello, {goal.text}!", tokens_in=12, tokens_out=8),
+            output=" ".join(hit.document.content for hit in hits),
             state=AgentState(),
+            metadata={"reasoning": f"retrieved {len(hits)} sources for '{goal.topic}'"},
         )
 
 
-# ---------- Step 2: chain (2 agents) ----------
+class Reviewer(DemoAgent[ReviewGoal]):
+    """Council member with a fixed vote and confidence (the weighted aggregator's weight)."""
 
+    def __init__(self, *, agent_id: str, vote: str, confidence: float, rationale: str) -> None:
+        super().__init__(agent_id=agent_id, description="Votes on whether to proceed.")
+        self._vote = vote
+        self._confidence = confidence
+        self._rationale = rationale
 
-class UpperAgent(Agent[TextGoal, TextResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("Upper")
+    async def run(self, goal: ReviewGoal, context: AgentContext) -> AgentResult[str]:
+        return AgentResult.ok(output=self._vote, state=AgentState())
 
-    @property
-    def description(self) -> str:
-        return "Uppercases its input."
-
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
-        await asyncio.sleep(0.05)
-        return AgentResult.ok(
-            output=TextResult(text=goal.text.upper(), tokens_in=18, tokens_out=18),
-            state=AgentState(),
+    async def deliberate(self, *, question: object, goal: object, context: AgentContext) -> Opinion:
+        await asyncio.sleep(0.01)
+        return Opinion(
+            member_id=self.id, choice=self._vote, confidence=self._confidence, rationale=self._rationale
         )
 
 
-# ---------- Step 3: parallel fan-out + fan-in ----------
+class Writer(DemoAgent[WriteGoal]):
+    """WRITE-capable agent; drafts short, revises to full length when a gate hint arrives."""
 
-
-class FetcherA(Agent[TextGoal, TextResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("FetcherA")
-
-    @property
-    def description(self) -> str:
-        return "Parallel branch A — 'fast source'."
+    def __init__(self, *, agent_id: str, load: float, delay_s: float) -> None:
+        super().__init__(agent_id=agent_id, description="Writes the brief.")
+        self._load = load
+        self._delay_s = delay_s
 
     @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
-        await asyncio.sleep(0.10)
-        await _emit(context, "memory.hit", {"tier": "L0", "hits": 1}, "FetcherA")
-        return AgentResult.ok(output=TextResult(text="A:" + goal.text, tokens_in=24, tokens_out=10), state=AgentState())
-
-
-class FetcherB(Agent[TextGoal, TextResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("FetcherB")
+    def capabilities(self) -> frozenset[Capability]:
+        return frozenset({WRITE_CAPABILITY})
 
     @property
-    def description(self) -> str:
-        return "Parallel branch B — 'slow but rich source'."
+    def current_load(self) -> float:
+        return self._load
 
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: TextGoal, context: AgentContext) -> AgentResult[TextResult]:
-        await asyncio.sleep(0.16)
-        await _emit(context, "memory.hit", {"tier": "L1", "hits": 3}, "FetcherB")
-        return AgentResult.ok(output=TextResult(text="B:" + goal.text, tokens_in=64, tokens_out=32), state=AgentState())
-
-
-class JoinerAgent(Agent[ListGoal, TextResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("Joiner")
-
-    @property
-    def description(self) -> str:
-        return "Fan-in — merges parallel branch outputs."
-
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: ListGoal, context: AgentContext) -> AgentResult[TextResult]:
-        await asyncio.sleep(0.04)
-        return AgentResult.ok(output=TextResult(text=" + ".join(goal.items), tokens_in=20, tokens_out=14), state=AgentState())
-
-
-# ---------- Step 4: council (3-member weighted vote) ----------
-
-
-class CouncilGoal(BaseModel):
-    findings: list[str]
-
-
-class CouncilResult(BaseModel):
-    decision: str
-    weighted_score: float
-
-
-class CouncilAgent(Agent[CouncilGoal, CouncilResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("Council")
-
-    @property
-    def description(self) -> str:
-        return "Three-member council: weighted-majority aggregator."
-
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: CouncilGoal, context: AgentContext) -> AgentResult[CouncilResult]:
-        ballots = [("ResearcherA", "sufficient", 0.82), ("ResearcherB", "sufficient", 0.71), ("Skeptic", "insufficient", 0.58)]
-        for who, vote, weight in ballots:
-            await _emit(context, "council.ballot", {"agent": who, "vote": vote, "weight": weight}, "Council")
-            await asyncio.sleep(0.03)
-        score = round((0.82 + 0.71) - 0.58, 2)
-        await _emit(context, "council.decided", {"decision": "sufficient", "weighted_score": score}, "Council")
-        return AgentResult.ok(output=CouncilResult(decision="sufficient", weighted_score=score), state=AgentState())
-
-
-# ---------- Step 5: auction + writer with citations ----------
-
-
-class WriterGoal(BaseModel):
-    findings: list[str]
-
-
-class CitationOut(BaseModel):
-    claim: str
-    src: str
-    supported: bool
-    strength: float
-
-
-class WriterResult(BaseModel):
-    body: str
-    citations: list[CitationOut]
-    tokens_in: int
-    tokens_out: int
-
-
-class WriterAgent(Agent[WriterGoal, WriterResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("Writer")
-
-    @property
-    def description(self) -> str:
-        return "Writer (auction-selected) producing draft + grounded citations."
-
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: WriterGoal, context: AgentContext) -> AgentResult[WriterResult]:
-        # auction event stream: 2 candidates compete on fitness × (1 - load)
-        for name, fit, load, score in (("Writer.fast", 0.82, 0.05, 0.78), ("Writer.careful", 0.81, 0.64, 0.29)):
-            await _emit(context, "auction.bid", {"candidate": name, "fitness": fit, "load": load, "score": score}, "Writer")
-        await _emit(context, "auction.award", {"winner": "Writer.fast", "saved_p95_ms": 1400}, "Writer")
-        await asyncio.sleep(0.32)
-        cites = [
-            CitationOut(claim=goal.findings[0], src="rfc-8446", supported=True, strength=0.92),
-            CitationOut(claim=goal.findings[1], src="memory:research#3", supported=True, strength=0.88),
-            CitationOut(claim=goal.findings[2], src="cloudflare-blog-2018", supported=True, strength=0.81),
-        ]
-        for c in cites:
-            await _emit(context, "citation.added", c.model_dump(), "Writer")
+    async def run(self, goal: WriteGoal, context: AgentContext) -> AgentResult[str]:
+        await asyncio.sleep(self._delay_s)
+        hints = context.global_memory.get(RECOVERY_HINTS_KEY, [])
+        revising = isinstance(hints, list) and bool(hints)
+        draft = "TLS 1.3 cuts the handshake to 1-RTT."
+        if revising:
+            draft += (
+                " New connections finish the handshake in one round trip, resumed sessions can send"
+                " 0-RTT early data (with replay caveats), and every major browser has shipped it since 2018."
+            )
         return AgentResult.ok(
-            output=WriterResult(body="TLS 1.3 reduces handshake to 1-RTT…", citations=cites, tokens_in=248, tokens_out=64),
+            output=draft,
             state=AgentState(),
+            metadata={"cost_estimate_usd": 0.02, "tokens_total": len(draft.split()), "overall_score": 0.95},
         )
 
 
-# ---------- Step 6: eval gate ----------
+# ---------- shared wiring ----------
 
 
-class GateGoal(BaseModel):
-    body: str
+async def _seeded_store() -> InMemoryVectorStore:
+    """Offline vector store seeded with the demo sources."""
+    store = InMemoryVectorStore(embedding_provider=CharacterHashEmbeddingProvider(dimension=64))
+    for doc in SOURCES:
+        await store.add(doc)
+    return store
 
 
-class GateResult(BaseModel):
-    composite: float
-    verdict: str
+def _register(*, registry: AgentRegistry, agent: Agent[Any, Any], goal_type: type[BaseModel]) -> None:
+    registry.register_agent(agent_instance=agent, goal_type=goal_type)
 
 
-class GateAgent(Agent[GateGoal, GateResult]):
-    """Quality gate — composite over deterministic / semantic / judge / citation."""
-
-    @property
-    def id(self) -> AgentID:
-        return AgentID("Gate")
-
-    @property
-    def description(self) -> str:
-        return "Composite quality gate (4 sub-scores, weighted)."
-
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: GateGoal, context: AgentContext) -> AgentResult[GateResult]:
-        sub = {"deterministic": 1.0, "semantic": 0.91, "judge": 0.81, "citation_membership": 1.0}
-        composite = round(0.2 * sub["deterministic"] + 0.4 * sub["semantic"] + 0.3 * sub["judge"] + 0.1 * sub["citation_membership"], 3)
-        verdict = "pass" if composite >= 0.80 else "fail"
-        await _emit(context, "eval.completed", {"composite": composite, "threshold": 0.80, "sub": sub, "verdict": verdict}, "QualityGate")
-        return AgentResult.ok(output=GateResult(composite=composite, verdict=verdict), state=AgentState())
+def _register_writers(*, registry: AgentRegistry) -> None:
+    """Two WRITE candidates for the auction: a busy one and an idle one."""
+    for agent_id, load, delay_s in (("WriterBusy", 0.64, 0.05), ("WriterIdle", 0.05, 0.03)):
+        registry.register_agent(
+            agent_instance=Writer(agent_id=agent_id, load=load, delay_s=delay_s),
+            goal_type=WriteGoal,
+            capabilities=frozenset({WRITE_CAPABILITY}),
+        )
 
 
-# ---------- Step 7: full flow with publisher + harvest ----------
-
-
-class PublishGoal(BaseModel):
-    body: str
-
-
-class PublishResult(BaseModel):
-    artifact_id: str
-
-
-class PublisherAgent(Agent[PublishGoal, PublishResult]):
-    @property
-    def id(self) -> AgentID:
-        return AgentID("Publisher")
-
-    @property
-    def description(self) -> str:
-        return "Emits artifact, promotes session memory → PROJECT, harvests blueprint."
-
-    @property
-    def skills(self) -> tuple[()]:
-        return ()
-
-    async def run(self, goal: PublishGoal, context: AgentContext) -> AgentResult[PublishResult]:
-        await asyncio.sleep(0.06)
-        await _emit(context, "content.published", {"artifact_id": "tls-1-3-brief", "len_chars": len(goal.body)}, "Publisher")
-        await _emit(context, "memory.extracted", {"tier": "PROJECT", "items": 4, "scope": "session→project"}, "Publisher")
-        await _emit(context, "blueprint.harvested", {"new_blueprint_id": "research-publish-v4", "score": 0.86}, "Publisher")
-        return AgentResult.ok(output=PublishResult(artifact_id="tls-1-3-brief"), state=AgentState())
-
-
-# ---------- step runners ----------
-
-
-async def _run(*, registry: AgentRegistry, dag: DAG, step: int, label: str) -> Path:
-    global _ACTIVE_BUS
-    bus = InMemoryEventBus()
-    _ACTIVE_BUS = bus  # agents close over this to emit domain events
-    try:
-        tracer = RunTracer()
-        tracer.attach(bus)
-        services = RuntimeServices(event_bus=bus)
-        config = ExecutorConfig()
-        executor = create_executor(agent_registry=registry, services=services, config=config)
-        result = await executor.run(dag=dag)
-        print(f"step {step:>1}  {label:<32}  status={result.status.value}  events={len(tracer.events)}")
-        path = _write(tracer, step=step, label=label, dag_name=dag.name)
-        return path
-    finally:
-        _ACTIVE_BUS = None
-
-
-def _r(reg: AgentRegistry, agent: Agent, goal_type: type[BaseModel]) -> AgentRegistry:
-    reg.register_agent(agent_instance=agent, goal_type=goal_type)
-    return reg
-
-
-async def step1_hello() -> Path:
-    reg = _r(AgentRegistry(), GreeterAgent(), TextGoal)
-    dag = DAG(name="hello").add_node(
-        node=Node.agent(id="greet", name="Greeter", agent_id="Greeter", input_mapping={"text": "world"}, output_key="greeting")
+def _register_council(*, registry: AgentRegistry, votes: tuple[str, str, str]) -> tuple[str, ...]:
+    members = (
+        ("ReviewerA", votes[0], 0.82, "Primary sources agree."),
+        ("ReviewerB", votes[1], 0.71, "Browser support is documented."),
+        ("Skeptic", votes[2], 0.58, "0-RTT replay risk is under-explained."),
     )
-    return await _run(registry=reg, dag=dag, step=1, label="hello — single agent")
+    for agent_id, vote, confidence, rationale in members:
+        registry.register_instance(
+            item=Reviewer(agent_id=agent_id, vote=vote, confidence=confidence, rationale=rationale)
+        )
+    return tuple(member[0] for member in members)
 
 
-async def step2_chain() -> Path:
-    reg = _r(_r(AgentRegistry(), GreeterAgent(), TextGoal), UpperAgent(), TextGoal)
+def _weighted_aggregator() -> DefaultVoteAggregator:
+    return DefaultVoteAggregator(config=CouncilConfig(method=AggregationMethod.WEIGHTED))
+
+
+def _recovering_gate(*, node_pattern: str) -> GateEvalInterceptor:
+    return GateEvalInterceptor(
+        evaluators=(LengthEvaluator(min_length=GATE_MIN_CHARS),),
+        node_pattern=node_pattern,
+        threshold=0.5,
+        on_failure=GateFailureMode.RECOVER,
+    )
+
+
+def _add_parallel_fetch(*, dag: DAG, store: VectorStore, registry: AgentRegistry) -> DAG:
+    """Add a PARALLEL node over three fetchers; the third would overwrite the first's key.
+
+    Edges run from the PARALLEL node to each child so topological order dispatches the
+    group before any child could run on its own.
+    """
+    fetchers = (
+        ("fetch_spec", "FetcherSpec", 0, 0.06, "spec_source"),
+        ("fetch_web", "FetcherWeb", 2, 0.10, "web_source"),
+        ("fetch_spec_again", "FetcherSpecMirror", 1, 0.04, "spec_source"),
+    )
+    nodes: list[Node] = [
+        Node.parallel(
+            id="fan",
+            name="Fan out",
+            parallel_nodes=[node_id for node_id, *_ in fetchers],
+            output_key="fan_out",
+        )
+    ]
+    for node_id, agent_id, rank, delay_s, output_key in fetchers:
+        _register(
+            registry=registry,
+            agent=Fetcher(agent_id=agent_id, store=store, rank=rank, delay_s=delay_s),
+            goal_type=TopicGoal,
+        )
+        nodes.append(
+            Node.agent(
+                id=node_id,
+                name=agent_id,
+                agent_id=agent_id,
+                input_mapping={"topic": TOPIC},
+                output_key=output_key,
+            )
+        )
+    for node in nodes:
+        dag = dag.add_node(node=node)
+    for node_id, *_ in fetchers:
+        dag = dag.add_edge(edge=Edge(source=NodeID("fan"), target=NodeID(node_id)))
+    return dag
+
+
+async def _run(
+    *,
+    step: int,
+    label: str,
+    dag: DAG,
+    registry: AgentRegistry,
+    bus: InMemoryEventBus,
+    tracer: RunTracer,
+    services: RuntimeServices,
+    online: OnlineEvalPipeline | None = None,
+) -> StepRun:
+    executor = create_executor(
+        agent_registry=registry,
+        clearance=CLEARANCE,
+        config=ExecutorConfig(enable_events=True),
+        services=services,
+    )
+    tracer.started_ns = time.monotonic_ns()
+    result = await executor.run(dag=dag)
+    if online is not None:
+        await online.flush()
+    # CitationTracker publishes from sync code via loop.create_task; let those land.
+    await asyncio.sleep(0)
+    return StepRun(
+        step=step,
+        label=label,
+        dag_name=dag.name,
+        status=result.status.value,
+        events=tuple(tracer.events),
+    )
+
+
+def _bus_and_tracer() -> tuple[InMemoryEventBus, RunTracer]:
+    bus = InMemoryEventBus()
+    tracer = RunTracer()
+    tracer.attach(bus=bus)
+    return bus, tracer
+
+
+# ---------- steps ----------
+
+
+async def step1_hello() -> StepRun:
+    """One static agent."""
+    bus, tracer = _bus_and_tracer()
+    registry = AgentRegistry()
+    _register(registry=registry, agent=Greeter(), goal_type=TextGoal)
+    dag = DAG(name="hello").add_node(
+        node=Node.agent(
+            id="greet",
+            name="Greeter",
+            agent_id="Greeter",
+            input_mapping={"text": "world"},
+            output_key="greeting",
+        )
+    )
+    return await _run(
+        step=1,
+        label=STEP_LABELS[1],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=RuntimeServices(event_bus=bus),
+    )
+
+
+async def step2_chain() -> StepRun:
+    """Two agents; the second reads the first's output through context."""
+    bus, tracer = _bus_and_tracer()
+    registry = AgentRegistry()
+    _register(registry=registry, agent=Greeter(), goal_type=TextGoal)
+    _register(registry=registry, agent=Shouter(), goal_type=TextGoal)
     dag = (
         DAG(name="chain")
-        .add_node(node=Node.agent(id="greet", name="Greeter", agent_id="Greeter", input_mapping={"text": "world"}, output_key="greeting"))
-        .add_node(node=Node.agent(id="upper", name="Upper", agent_id="Upper", input_mapping={"text": "world (greeted)"}, output_key="loud"))
+        .add_node(
+            node=Node.agent(
+                id="greet",
+                name="Greeter",
+                agent_id="Greeter",
+                input_mapping={"text": "world"},
+                output_key="greeting",
+            )
+        )
+        .add_node(
+            node=Node.agent(
+                id="shout",
+                name="Shouter",
+                agent_id="Shouter",
+                input_mapping={"text": "$$greeting$$"},
+                output_key="loud",
+            )
+        )
+        .add_edge(edge=Edge(source=NodeID("greet"), target=NodeID("shout")))
     )
-    dag = dag.add_edge(edge=Edge(source="greet", target="upper"))
-    return await _run(registry=reg, dag=dag, step=2, label="chain — 2 agents")
-
-
-async def step3_parallel() -> Path:
-    reg = AgentRegistry()
-    _r(reg, FetcherA(), TextGoal)
-    _r(reg, FetcherB(), TextGoal)
-    _r(reg, JoinerAgent(), ListGoal)
-    dag = (
-        DAG(name="parallel")
-        .add_node(node=Node.agent(id="seed", name="Greeter", agent_id="Greeter", input_mapping={"text": "x"}, output_key="seed"))
-        .add_node(node=Node.agent(id="a", name="FetcherA", agent_id="FetcherA", input_mapping={"text": "x"}, output_key="a"))
-        .add_node(node=Node.agent(id="b", name="FetcherB", agent_id="FetcherB", input_mapping={"text": "x"}, output_key="b"))
-        .add_node(node=Node.agent(id="join", name="Joiner", agent_id="Joiner",
-                                  input_mapping={"items": ["A:x", "B:x"]}, output_key="merged"))
+    return await _run(
+        step=2,
+        label=STEP_LABELS[2],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=RuntimeServices(event_bus=bus),
     )
-    _r(reg, GreeterAgent(), TextGoal)
-    dag = dag.add_edge(edge=Edge(source="seed", target="a")).add_edge(edge=Edge(source="seed", target="b"))
-    dag = dag.add_edge(edge=Edge(source="a", target="join")).add_edge(edge=Edge(source="b", target="join"))
-    return await _run(registry=reg, dag=dag, step=3, label="parallel — fan-out + fan-in")
 
 
-async def step4_council() -> Path:
-    reg = AgentRegistry()
-    _r(reg, GreeterAgent(), TextGoal)  # provides initial findings string
-    _r(reg, CouncilAgent(), CouncilGoal)
+async def step3_parallel() -> StepRun:
+    """PARALLEL fan-out with default collision coordination, then a fan-in joiner."""
+    bus, tracer = _bus_and_tracer()
+    store = await _seeded_store()
+    registry = AgentRegistry()
+    _register(registry=registry, agent=Joiner(), goal_type=ListGoal)
+    dag = _add_parallel_fetch(dag=DAG(name="parallel"), store=store, registry=registry)
+    dag = dag.add_node(
+        node=Node.agent(
+            id="join",
+            name="Joiner",
+            agent_id="Joiner",
+            input_mapping={"items": ["$$spec_source$$", "$$web_source$$"]},
+            output_key="merged",
+        )
+    ).add_edge(edge=Edge(source=NodeID("fan"), target=NodeID("join")))
+    # RuntimeServices() carries the 4.0.0 default collision_policy; nothing to opt into.
+    return await _run(
+        step=3,
+        label=STEP_LABELS[3],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=RuntimeServices(event_bus=bus),
+    )
+
+
+async def step4_council() -> StepRun:
+    """Node.council resolved by CouncilResolver with a weighted aggregator."""
+    bus, tracer = _bus_and_tracer()
+    store = await _seeded_store()
+    citations = CitationTracker(event_bus=bus)
+    registry = AgentRegistry()
+    _register(registry=registry, agent=Researcher(store=store, citations=citations), goal_type=TopicGoal)
+    members = _register_council(registry=registry, votes=(SUFFICIENT, SUFFICIENT, INSUFFICIENT))
     dag = (
         DAG(name="council")
-        .add_node(node=Node.agent(id="seed", name="Greeter", agent_id="Greeter", input_mapping={"text": "TLS 1.3"}, output_key="seed"))
-        .add_node(node=Node.agent(id="vote", name="Council", agent_id="Council",
-                                  input_mapping={"findings": ["1-RTT handshake", "browser support 2018", "perf gains"]},
-                                  output_key="vote"))
+        .add_node(node=Node.agent(id="research", name="Research", agent_id="Researcher", output_key="facts"))
+        .add_node(
+            node=Node.council(
+                id="vote",
+                name="Evidence review",
+                members=members,
+                options=(SUFFICIENT, INSUFFICIENT),
+                output_key="verdict",
+            )
+        )
+        .add_edge(edge=Edge(source=NodeID("research"), target=NodeID("vote")))
     )
-    dag = dag.add_edge(edge=Edge(source="seed", target="vote"))
-    return await _run(registry=reg, dag=dag, step=4, label="council — 3-member vote")
+    return await _run(
+        step=4,
+        label=STEP_LABELS[4],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=RuntimeServices(event_bus=bus, council_aggregator=_weighted_aggregator()),
+    )
 
 
-async def step5_auction_writer() -> Path:
-    reg = AgentRegistry()
-    _r(reg, GreeterAgent(), TextGoal)
-    _r(reg, WriterAgent(), WriterGoal)
+async def step5_auction() -> StepRun:
+    """Node.auction resolved by AuctionResolver; the low-load WRITE agent wins."""
+    bus, tracer = _bus_and_tracer()
+    store = await _seeded_store()
+    citations = CitationTracker(event_bus=bus)
+    registry = AgentRegistry()
+    _register(registry=registry, agent=Researcher(store=store, citations=citations), goal_type=TopicGoal)
+    _register_writers(registry=registry)
     dag = (
-        DAG(name="auction_writer")
-        .add_node(node=Node.agent(id="seed", name="Greeter", agent_id="Greeter", input_mapping={"text": "TLS"}, output_key="seed"))
-        .add_node(node=Node.agent(id="write", name="Writer", agent_id="Writer",
-                                  input_mapping={"findings": ["1-RTT handshake", "browser support 2018", "perf gains"]},
-                                  output_key="draft"))
+        DAG(name="auction")
+        .add_node(node=Node.agent(id="research", name="Research", agent_id="Researcher", output_key="facts"))
+        .add_node(
+            node=Node.auction(
+                id="write",
+                name="Write",
+                capability=WRITE_CAPABILITY.value,
+                input_mapping={"facts": "$$facts$$"},
+                output_key="draft",
+            )
+        )
+        .add_edge(edge=Edge(source=NodeID("research"), target=NodeID("write")))
     )
-    dag = dag.add_edge(edge=Edge(source="seed", target="write"))
-    return await _run(registry=reg, dag=dag, step=5, label="auction + writer — competitive selection")
+    return await _run(
+        step=5,
+        label=STEP_LABELS[5],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=RuntimeServices(event_bus=bus, agent_selector=DefaultAgentSelector()),
+    )
 
 
-async def step6_gate() -> Path:
-    reg = AgentRegistry()
-    _r(reg, WriterAgent(), WriterGoal)
-    _r(reg, GateAgent(), GateGoal)
+async def step6_gate() -> StepRun:
+    """GateEvalInterceptor RECOVERs a short draft; the revised draft passes; online eval observes."""
+    bus, tracer = _bus_and_tracer()
+    registry = AgentRegistry()
+    registry.register_agent(
+        agent_instance=Writer(agent_id="Writer", load=0.1, delay_s=0.03),
+        goal_type=WriteGoal,
+    )
+    online = OnlineEvalPipeline(
+        bindings=(
+            NodeEvalBinding(
+                node_pattern="write",
+                evaluators=(LengthEvaluator(min_length=GATE_MIN_CHARS),),
+                mode=EvalMode.OBSERVE,
+            ),
+        ),
+        event_bus=bus,
+    )
+    dag = DAG(name="gate").add_node(
+        node=Node.agent(id="write", name="Write", agent_id="Writer", output_key="draft")
+    )
+    services = RuntimeServices(
+        event_bus=bus,
+        online_eval_pipeline=online,
+        interceptor_pipeline=create_interceptor_pipeline(
+            interceptors=(_recovering_gate(node_pattern="write"),)
+        ),
+    )
+    return await _run(
+        step=6,
+        label=STEP_LABELS[6],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=services,
+        online=online,
+    )
+
+
+async def step7_full() -> StepRun:
+    """Research → parallel → council → auction writer → gate → harvest in one run."""
+    bus, tracer = _bus_and_tracer()
+    store = await _seeded_store()
+    citations = CitationTracker(event_bus=bus)
+    registry = AgentRegistry()
+    _register(registry=registry, agent=Researcher(store=store, citations=citations), goal_type=TopicGoal)
+    members = _register_council(registry=registry, votes=(SHIP, SHIP, HOLD))
+    _register_writers(registry=registry)
+
+    online = OnlineEvalPipeline(
+        bindings=(
+            NodeEvalBinding(
+                node_pattern="write",
+                evaluators=(LengthEvaluator(min_length=GATE_MIN_CHARS),),
+                mode=EvalMode.OBSERVE,
+            ),
+        ),
+        event_bus=bus,
+    )
+    harvest_source = InMemoryWritableBlueprintSource()
+    create_blueprint_harvester(
+        writable_source=harvest_source,
+        event_bus=bus,
+        library=BlueprintLibrary(),
+        threshold=0.8,
+    )
+
+    dag = DAG(name="full_flow").add_node(
+        node=Node.agent(id="research", name="Research", agent_id="Researcher", output_key="facts")
+    )
+    dag = _add_parallel_fetch(dag=dag, store=store, registry=registry)
     dag = (
-        DAG(name="gate")
-        .add_node(node=Node.agent(id="write", name="Writer", agent_id="Writer",
-                                  input_mapping={"findings": ["a", "b", "c"]}, output_key="draft"))
-        .add_node(node=Node.agent(id="gate", name="QualityGate", agent_id="Gate",
-                                  input_mapping={"body": "TLS 1.3 reduces handshake to 1-RTT…"}, output_key="verdict"))
+        dag.add_node(
+            node=Node.council(
+                id="plan",
+                name="Ship or hold",
+                members=members,
+                options=(SHIP, HOLD),
+                output_key="plan_verdict",
+            )
+        )
+        .add_node(
+            node=Node.auction(
+                id="write",
+                name="Write",
+                capability=WRITE_CAPABILITY.value,
+                input_mapping={"facts": "$$facts$$"},
+                output_key="draft",
+            )
+        )
+        .add_edge(edge=Edge(source=NodeID("research"), target=NodeID("fan")))
+        .add_edge(edge=Edge(source=NodeID("fan"), target=NodeID("plan")))
+        .add_edge(
+            edge=Edge(
+                source=NodeID("plan"),
+                target=NodeID("write"),
+                condition=EdgeCondition.JSON_RULE,
+                condition_rule=Condition(field="plan_verdict", operator=ConditionOperator.EQUALS, value=SHIP),
+            )
+        )
     )
-    dag = dag.add_edge(edge=Edge(source="write", target="gate"))
-    return await _run(registry=reg, dag=dag, step=6, label="quality gate — composite eval")
-
-
-async def step7_full() -> Path:
-    reg = AgentRegistry()
-    _r(reg, GreeterAgent(), TextGoal)
-    _r(reg, CouncilAgent(), CouncilGoal)
-    _r(reg, WriterAgent(), WriterGoal)
-    _r(reg, GateAgent(), GateGoal)
-    _r(reg, PublisherAgent(), PublishGoal)
-    dag = (
-        DAG(name="full_flow")
-        .add_node(node=Node.agent(id="seed", name="Greeter", agent_id="Greeter", input_mapping={"text": "TLS 1.3"}, output_key="seed"))
-        .add_node(node=Node.agent(id="vote", name="Council", agent_id="Council",
-                                  input_mapping={"findings": ["1-RTT handshake", "browser support 2018", "perf gains"]},
-                                  output_key="vote"))
-        .add_node(node=Node.agent(id="write", name="Writer", agent_id="Writer",
-                                  input_mapping={"findings": ["1-RTT handshake", "browser support 2018", "perf gains"]},
-                                  output_key="draft"))
-        .add_node(node=Node.agent(id="gate", name="QualityGate", agent_id="Gate",
-                                  input_mapping={"body": "TLS 1.3 reduces handshake to 1-RTT…"}, output_key="verdict"))
-        .add_node(node=Node.agent(id="pub", name="Publisher", agent_id="Publisher",
-                                  input_mapping={"body": "TLS 1.3 reduces handshake to 1-RTT…"}, output_key="published"))
+    services = RuntimeServices(
+        event_bus=bus,
+        agent_selector=DefaultAgentSelector(),
+        council_aggregator=_weighted_aggregator(),
+        online_eval_pipeline=online,
+        interceptor_pipeline=create_interceptor_pipeline(
+            interceptors=(_recovering_gate(node_pattern="write"),)
+        ),
     )
-    dag = dag.add_edge(edge=Edge(source="seed", target="vote"))
-    dag = dag.add_edge(edge=Edge(source="vote", target="write"))
-    dag = dag.add_edge(edge=Edge(source="write", target="gate"))
-    dag = dag.add_edge(edge=Edge(source="gate", target="pub"))
-    return await _run(registry=reg, dag=dag, step=7, label="full flow — research→vote→write→gate→publish")
+    run = await _run(
+        step=7,
+        label=STEP_LABELS[7],
+        dag=dag,
+        registry=registry,
+        bus=bus,
+        tracer=tracer,
+        services=services,
+        online=online,
+    )
+    # The harvester reports through its writable source, not the bus; record what it kept.
+    harvested = [blueprint.id for blueprint in harvest_source.load()]
+    return StepRun(
+        step=run.step,
+        label=run.label,
+        dag_name=run.dag_name,
+        status=run.status,
+        events=run.events,
+        extras={"blueprints_harvested": harvested},
+    )
 
 
-STEPS = {
+STEP_LABELS: Final[dict[int, str]] = {
+    1: "hello — single agent",
+    2: "chain — 2 agents",
+    3: "parallel — fan-out + collision steer + fan-in",
+    4: "council — 3-member weighted vote",
+    5: "auction + writer — competitive selection",
+    6: "quality gate — eval interceptor + recover",
+    7: "full flow — research→parallel→council→auction→gate→harvest",
+}
+
+STEPS: Final[dict[int, Callable[[], Awaitable[StepRun]]]] = {
     1: step1_hello,
     2: step2_chain,
     3: step3_parallel,
     4: step4_council,
-    5: step5_auction_writer,
+    5: step5_auction,
     6: step6_gate,
     7: step7_full,
 }
 
 
-SHOWCASE_HTML = REPO_ROOT / "docs" / "architecture" / "cemaf-graph.html"
-TRACE_DATA_RE = re.compile(
-    r"/\*TRACE-DATA\*/const TRACE_DATA = (.+?);/\*END-TRACE-DATA\*/", re.DOTALL
-)
+# ---------- output ----------
 
 
-def check_inlined_matches_disk() -> int:
-    """Verify the inlined TRACE_DATA block in cemaf-graph.html matches the
-    on-disk trace JSONs by event-count and event-kind set per step.
+def _index() -> dict[str, Any]:
+    return {
+        "schema_version": TRACE_SCHEMA_VERSION,
+        "steps": [
+            {"step": s, "label": STEP_LABELS[s], "path": f"traces/step-{s}.json"} for s in sorted(STEPS)
+        ],
+    }
 
-    Durations are intentionally NOT compared — they're run-relative monotonic
-    nanoseconds and naturally jitter ±1ms between runs.
 
-    Returns 0 if clean, 1 on drift. Designed to be called from CI.
-    """
-    if not SHOWCASE_HTML.exists():
-        print(f"FAIL: {SHOWCASE_HTML} not found")
-        return 1
-    src = SHOWCASE_HTML.read_text(encoding="utf-8")
-    m = TRACE_DATA_RE.search(src)
-    if not m:
-        print("FAIL: no /*TRACE-DATA*/ block in cemaf-graph.html")
-        return 1
+async def run_steps(*, steps: list[int], out_dir: Path) -> dict[int, dict[str, Any]]:
+    """Run the given steps and write step-N.json + index.json into out_dir."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    traces: dict[int, dict[str, Any]] = {}
+    for step in steps:
+        run = await STEPS[step]()
+        trace = run.to_trace()
+        (out_dir / f"step-{step}.json").write_text(json.dumps(trace, indent=2) + "\n", encoding="utf-8")
+        kinds = sorted({e["kind"] for e in trace["events"]})
+        print(
+            f"step {step}  {run.label:<58} status={run.status:<9} events={len(trace['events']):>3}  {kinds}"
+        )
+        traces[step] = trace
+    (out_dir / "index.json").write_text(json.dumps(_index(), indent=2) + "\n", encoding="utf-8")
+    return traces
+
+
+def _read_inlined(*, html: str) -> dict[str, Any]:
+    match = TRACE_DATA_RE.search(html)
+    if match is None:
+        raise ValueError(f"no {TRACE_DATA_OPEN.strip()} block in {SHOWCASE_HTML.name}")
+    data: dict[str, Any] = json.loads(match.group(1))
+    return data
+
+
+def inline_traces(*, trace_dir: Path) -> None:
+    """Rewrite the TRACE_DATA block in cemaf-graph.html from the on-disk traces."""
+    traces = {
+        str(s): json.loads((trace_dir / f"step-{s}.json").read_text(encoding="utf-8")) for s in sorted(STEPS)
+    }
+    payload = json.dumps({"index": _index(), "traces": traces}, separators=(",", ":"))
+    # Keep a literal "</script>" in any payload from closing the inline script.
+    payload = payload.replace("</", "<\\/")
+    html = SHOWCASE_HTML.read_text(encoding="utf-8")
+    if TRACE_DATA_RE.search(html) is None:
+        raise ValueError(f"no {TRACE_DATA_OPEN.strip()} block in {SHOWCASE_HTML.name}")
+    replacement = TRACE_DATA_OPEN + payload + TRACE_DATA_CLOSE
+    html = TRACE_DATA_RE.sub(lambda _match: replacement, html, count=1)
+    SHOWCASE_HTML.write_text(html, encoding="utf-8")
+    print(f"\n  inlined {len(traces)} traces into {SHOWCASE_HTML.relative_to(REPO_ROOT)}")
+
+
+def _kinds(*, trace: dict[str, Any]) -> set[str]:
+    return {e["kind"] for e in trace["events"]}
+
+
+async def check() -> int:
+    """Fail on drift: inlined vs on-disk, and inlined vs a fresh run of every step."""
     try:
-        inlined = json.loads(m.group(1))
-    except json.JSONDecodeError as exc:
-        print(f"FAIL: inlined TRACE_DATA isn't valid JSON: {exc}")
+        inlined = _read_inlined(html=SHOWCASE_HTML.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"FAIL: {exc}")
         return 1
 
     drift: list[str] = []
+    if inlined.get("index") != _index():
+        drift.append("inlined index differs from the producer's step labels/paths")
+
+    with tempfile.TemporaryDirectory(prefix="cemaf-traces-") as tmp:
+        try:
+            fresh = await run_steps(steps=sorted(STEPS), out_dir=Path(tmp))
+        except Exception as exc:  # the producer itself is broken — that is the drift
+            print(f"FAIL: producer could not run: {type(exc).__name__}: {exc}")
+            return 1
+
     for step in sorted(STEPS):
-        disk_path = TRACE_DIR / f"step-{step}.json"
-        if not disk_path.exists():
-            drift.append(f"step-{step}.json missing on disk")
-            continue
-        disk = json.loads(disk_path.read_text(encoding="utf-8"))
         inl = inlined.get("traces", {}).get(str(step))
         if inl is None:
             drift.append(f"step {step} missing in inlined TRACE_DATA")
             continue
-        if len(inl["events"]) != len(disk["events"]):
+        disk_path = TRACE_DIR / f"step-{step}.json"
+        if not disk_path.exists():
+            drift.append(f"{disk_path.relative_to(REPO_ROOT)} missing")
+        else:
+            disk = json.loads(disk_path.read_text(encoding="utf-8"))
+            if len(inl["events"]) != len(disk["events"]) or _kinds(trace=inl) != _kinds(trace=disk):
+                drift.append(f"step {step}: inlined trace differs from {disk_path.name}")
+        if fresh[step]["status"] != "completed":
+            drift.append(f"step {step}: fresh run ended {fresh[step]['status']}")
+        if _kinds(trace=inl) != _kinds(trace=fresh[step]):
             drift.append(
-                f"step {step}: inlined {len(inl['events'])} events vs disk "
-                f"{len(disk['events'])} events"
-            )
-            continue
-        inl_kinds = {e["kind"] for e in inl["events"]}
-        disk_kinds = {e["kind"] for e in disk["events"]}
-        if inl_kinds != disk_kinds:
-            drift.append(
-                f"step {step}: event-kind set differs "
-                f"(only inlined: {inl_kinds - disk_kinds}, "
-                f"only disk: {disk_kinds - inl_kinds})"
+                f"step {step}: event kinds differ from a fresh run "
+                f"(only inlined: {sorted(_kinds(trace=inl) - _kinds(trace=fresh[step]))}, "
+                f"only fresh: {sorted(_kinds(trace=fresh[step]) - _kinds(trace=inl))})"
             )
 
     if drift:
-        print("TRACE_DATA drift detected — re-run produce_dag_trace.py and re-inline:")
-        for d in drift:
-            print(f"  ✗ {d}")
+        print("TRACE_DATA drift — run `make demo` (produce_dag_trace.py --inline) and commit:")
+        for item in drift:
+            print(f"  ✗ {item}")
         return 1
-    print(
-        f"TRACE_DATA inlined in cemaf-graph.html matches "
-        f"{len(STEPS)} on-disk trace JSONs (event-count + event-kinds)"
-    )
+    print(f"TRACE_DATA in {SHOWCASE_HTML.name} matches disk and a fresh run of all {len(STEPS)} steps")
     return 0
 
 
-async def main() -> None:
-    parser = argparse.ArgumentParser()
+async def main() -> int:
+    parser = argparse.ArgumentParser(description="Produce the showcase's real CEMAF run traces.")
     parser.add_argument("--step", type=int, choices=sorted(STEPS), help="Run a single step (default: all)")
+    parser.add_argument("--inline", action="store_true", help="Also rewrite TRACE_DATA in cemaf-graph.html")
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Verify inlined TRACE_DATA in cemaf-graph.html matches the on-disk traces. "
-        "Exits non-zero on drift. Skips running the steps.",
+        help="Run every step into a temp dir and fail if the inlined TRACE_DATA drifted. Writes nothing.",
     )
     args = parser.parse_args()
 
     if args.check:
-        sys.exit(check_inlined_matches_disk())
-
-    targets = [args.step] if args.step else sorted(STEPS)
-    written: list[Path] = []
-    for step in targets:
-        path = await STEPS[step]()
-        written.append(path)
-
-    # Index file so the viz can list all available steps without sniffing
-    idx = {
-        "schema_version": 1,
-        "steps": [
-            {
-                "step": s,
-                "label": (await asyncio.to_thread(_label_of, s)),
-                "path": f"traces/step-{s}.json",
-            }
-            for s in sorted(STEPS)
-            if (TRACE_DIR / f"step-{s}.json").exists()
-        ],
-    }
-    (TRACE_DIR / "index.json").write_text(json.dumps(idx, indent=2))
-    print()
-    for p in written:
-        print(f"  → {p.relative_to(REPO_ROOT)}")
-
-
-def _label_of(step: int) -> str:
-    # we don't have the label without running, so re-encode known labels
-    return {
-        1: "hello — single agent",
-        2: "chain — 2 agents",
-        3: "parallel — fan-out + fan-in",
-        4: "council — 3-member vote",
-        5: "auction + writer — competitive selection",
-        6: "quality gate — composite eval",
-        7: "full flow — research→vote→write→gate→publish",
-    }[step]
+        return await check()
+    steps = [args.step] if args.step else sorted(STEPS)
+    await run_steps(steps=steps, out_dir=TRACE_DIR)
+    if args.inline:
+        inline_traces(trace_dir=TRACE_DIR)
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))
