@@ -37,7 +37,7 @@ compact directory catalogs and load selected documents into each turn.
 
 > **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
 > - **Module graph** — every module in `src/cemaf/` as a node, every `import` as an edge, AST-exact (regenerate with [`docs/architecture/build_graph_data.py`](docs/architecture/build_graph_data.py)).
-> - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Generate fresh traces with [`uv run python docs/architecture/scripts/produce_dag_trace.py`](docs/architecture/scripts/produce_dag_trace.py).
+> - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Regenerate and re-inline them with `make demo` ([`produce_dag_trace.py --inline`](docs/architecture/scripts/produce_dag_trace.py)).
 >
 > Deeper read: [`docs/architecture/deep-architecture.md`](docs/architecture/deep-architecture.md) · [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) (interactive atlas) · [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
 
@@ -58,7 +58,7 @@ compact directory catalogs and load selected documents into each turn.
    ↑ every read/write a wire · every patch carries source + reason + run_id
 ```
 
-CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
+CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `dag.started`, `task.started`, `context.conflict(steer, hold, risk)`, `task.completed` carrying the council verdict and tally, the auction winner and score, and gate recovery attempts, `citation.added`, `eval.completed(overall_score, results)`, `dag.completed`. **Glass-box by default**, not by configuration.
 
 ### Framework contracts and specifications
 
