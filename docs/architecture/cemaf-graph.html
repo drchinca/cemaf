@@ -1263,11 +1263,11 @@ addEventListener('keydown',e=>{
 
 const T_TOTAL = 11200;
 
-// Pricing (illustrative · Anthropic-style)
+// Pricing (illustrative · generic model tiers, not a vendor price list)
 const MODEL_PRICING = {
-  'claude-sonnet-4-6':       { in: 3.0e-6, out: 15.0e-6 },
-  'claude-haiku-4-5':        { in: 0.8e-6, out:  4.0e-6 },
-  'judge-claude-haiku-4-5':  { in: 0.8e-6, out:  4.0e-6 },
+  'large-model':       { in: 3.0e-6, out: 15.0e-6 },
+  'small-model':        { in: 0.8e-6, out:  4.0e-6 },
+  'judge-small-model':  { in: 0.8e-6, out:  4.0e-6 },
 };
 function calcUsd(c){
   const p = MODEL_PRICING[c.model] || {in:0,out:0};
@@ -1297,39 +1297,39 @@ const NARRATIVE = {
 const A_NODES_BASE = [
   {id:'a_bp',       name:'BlueprintLoader',  kind:'bootstrap', tier:3,
     t0: 100,  t1: 600,
-    cost:{in_tokens:0,   out_tokens:0,  model:'claude-haiku-4-5', latency_ms:420}},
+    cost:{in_tokens:0,   out_tokens:0,  model:'small-model', latency_ms:420}},
   {id:'a_lib',      name:'Librarian',        kind:'static',    tier:1,
     t0: 700,  t1:1900,
-    cost:{in_tokens:128, out_tokens:24, model:'claude-haiku-4-5', latency_ms:980}},
+    cost:{in_tokens:128, out_tokens:24, model:'small-model', latency_ms:980}},
   {id:'a_research', name:'Researcher',       kind:'static',    tier:0,
     t0:2050,  t1:3700,
-    cost:{in_tokens:312, out_tokens:96, model:'claude-sonnet-4-6', latency_ms:1640}},
+    cost:{in_tokens:312, out_tokens:96, model:'large-model', latency_ms:1640}},
   {id:'a_council',  name:'Council (3)',      kind:'council',   tier:3,
     t0:3850,  t1:5100,
-    cost:{in_tokens:128, out_tokens:36, model:'claude-haiku-4-5', latency_ms:1080}},
+    cost:{in_tokens:128, out_tokens:36, model:'small-model', latency_ms:1080}},
   {id:'a_writer1',  name:'Writer.fast',      kind:'auction',   tier:2,
     t0:5250,  t1:7050,
-    cost:{in_tokens:248, out_tokens:64, model:'claude-sonnet-4-6', latency_ms:1420}},
+    cost:{in_tokens:248, out_tokens:64, model:'large-model', latency_ms:1420}},
   {id:'a_cite',     name:'CitationTracker',  kind:'static',    tier:1,
     t0:7150,  t1:7700,
-    cost:{in_tokens:96,  out_tokens:12, model:'claude-haiku-4-5', latency_ms:480}},
+    cost:{in_tokens:96,  out_tokens:12, model:'small-model', latency_ms:480}},
   {id:'a_gate',     name:'QualityGate',      kind:'gate',      tier:1,
     t0:7800,  t1:8500,
-    cost:{in_tokens:64,  out_tokens:16, model:'judge-claude-haiku-4-5', latency_ms:620}},
+    cost:{in_tokens:64,  out_tokens:16, model:'judge-small-model', latency_ms:620}},
   // pass branch
   {id:'a_publish',  name:'Publisher',        kind:'terminal',  tier:4,
     t0:9700,  t1:10300,
-    cost:{in_tokens:48,  out_tokens:24, model:'claude-haiku-4-5', latency_ms:480}, branch:'pass'},
+    cost:{in_tokens:48,  out_tokens:24, model:'small-model', latency_ms:480}, branch:'pass'},
   {id:'a_harvest',  name:'BlueprintHarvester',kind:'terminal-meta', tier:3,
     t0:10350, t1:11000,
-    cost:{in_tokens:64,  out_tokens:32, model:'claude-haiku-4-5', latency_ms:540}, branch:'pass'},
+    cost:{in_tokens:64,  out_tokens:32, model:'small-model', latency_ms:540}, branch:'pass'},
   // fail branch (RECOVER)
   {id:'a_heal',     name:'AutoHealManager',  kind:'heal',      tier:4,
     t0:8650,  t1:9000,
-    cost:{in_tokens:32,  out_tokens:16, model:'claude-haiku-4-5', latency_ms:280}, branch:'fail'},
+    cost:{in_tokens:32,  out_tokens:16, model:'small-model', latency_ms:280}, branch:'fail'},
   {id:'a_writer2',  name:'Writer.attempt2',  kind:'auction',   tier:2,
     t0:9050,  t1:10400,
-    cost:{in_tokens:288, out_tokens:72, model:'claude-sonnet-4-6', latency_ms:1280}, branch:'fail'},
+    cost:{in_tokens:288, out_tokens:72, model:'large-model', latency_ms:1280}, branch:'fail'},
 ];
 
 // Edges. branch:'all' is default. 'alt' = drawn but not taken (thin dotted).
@@ -1580,8 +1580,8 @@ function buildAuditScript(branch){
     a(1900,'TASK_COMPLETED',    {span:'librarian.fetch', latency_ms:980, 'usage.input_tokens':128, 'usage.output_tokens':24, cost_usd:0.0002}),
     a(1950,'CHECKPOINT_WRITTEN',{checkpoint:'ck-2', after:'Librarian', tokens:'0.4k'}),
     a(2050,'INTERCEPTOR_PRE',   {span:'researcher.synth', count:2}),
-    a(2200,'TASK_STARTED',      {span:'researcher.synth', 'gen_ai.request.model':'claude-sonnet-4-6'}),
-    a(3700,'TASK_COMPLETED',    {span:'researcher.synth', 'gen_ai.request.model':'claude-sonnet-4-6', 'usage.input_tokens':312, 'usage.output_tokens':96, latency_ms:1640, cost_usd:0.0023}),
+    a(2200,'TASK_STARTED',      {span:'researcher.synth', 'gen_ai.request.model':'large-model'}),
+    a(3700,'TASK_COMPLETED',    {span:'researcher.synth', 'gen_ai.request.model':'large-model', 'usage.input_tokens':312, 'usage.output_tokens':96, latency_ms:1640, cost_usd:0.0023}),
     a(3720,'INTERCEPTOR_POST',  {span:'researcher.synth', verdict:'pass'}),
     a(3750,'CHECKPOINT_WRITTEN',{checkpoint:'ck-3', after:'Researcher', tokens:'1.8k'}),
     a(3850,'INTERCEPTOR_PRE',   {span:'council.deliberate', count:1}),
@@ -1594,7 +1594,7 @@ function buildAuditScript(branch){
     a(5200,'COMPACTION',        {target:'c_research', before_tokens:1420, after_tokens:420, reduction:'71%', 'preserved.priority':'P0,P1'}),
     a(5250,'INTERCEPTOR_PRE',   {span:'writer.fast', count:2}),
     a(5300,'AUCTION_AWARD',     {role:'writer', winner:'Writer.fast', bid:0.78, runner_up:'Writer.careful'}),
-    a(7050,'TASK_COMPLETED',    {span:'writer.fast', 'gen_ai.request.model':'claude-sonnet-4-6', 'usage.input_tokens':248, 'usage.output_tokens':64, latency_ms:1420, cost_usd:0.0040}),
+    a(7050,'TASK_COMPLETED',    {span:'writer.fast', 'gen_ai.request.model':'large-model', 'usage.input_tokens':248, 'usage.output_tokens':64, latency_ms:1420, cost_usd:0.0040}),
     a(7080,'INTERCEPTOR_POST',  {span:'writer.fast', verdict:'pass'}),
     a(7150,'INTERCEPTOR_PRE',   {span:'citation.attach', count:1}),
   ];
@@ -1612,7 +1612,7 @@ function buildAuditScript(branch){
       a(8900,'SELF_HEAL_PATCH', {patch:'mutate goal.constraints', detail:'cite only retrieved evidence'}),
       a(9000,'INTERCEPTOR_POST',{span:'auto_heal', verdict:'pass'}),
       a(9050,'AUCTION_AWARD',   {role:'writer', winner:'Writer.fast (rerun)', bid:0.81}),
-      a(10400,'TASK_COMPLETED', {span:'writer.attempt2', 'gen_ai.request.model':'claude-sonnet-4-6', 'usage.input_tokens':288, 'usage.output_tokens':72, latency_ms:1280, cost_usd:0.0019}),
+      a(10400,'TASK_COMPLETED', {span:'writer.attempt2', 'gen_ai.request.model':'large-model', 'usage.input_tokens':288, 'usage.output_tokens':72, latency_ms:1280, cost_usd:0.0019}),
       a(10420,'EVAL_COMPLETED', {span:'writer.attempt2', composite:0.84, verdict:'PASS'}),
       a(10500,'BUDGET_WARN',    {spent_usd:0.029, cap_usd:0.050, pct:58}),
     );
@@ -1624,7 +1624,7 @@ function buildAuditScript(branch){
       a(8500,'EVAL_COMPLETED',  {span:'gate.eval', composite:0.86, threshold:0.80, 'sub.det':1.00, 'sub.sem':0.91, 'sub.judge':0.81, 'sub.citation':1.00, verdict:'PASS'}),
       a(8520,'INTERCEPTOR_POST', {span:'gate.eval', verdict:'pass'}),
       a(9700,'INTERCEPTOR_PRE',  {span:'publisher', count:0}),
-      a(10300,'TASK_COMPLETED',  {span:'publisher', 'gen_ai.request.model':'claude-haiku-4-5', 'usage.input_tokens':48, 'usage.output_tokens':24, latency_ms:480, cost_usd:0.0001}),
+      a(10300,'TASK_COMPLETED',  {span:'publisher', 'gen_ai.request.model':'small-model', 'usage.input_tokens':48, 'usage.output_tokens':24, latency_ms:480, cost_usd:0.0001}),
       a(10310,'KG_UPSERT',       {entities:2, relations:3}),
       a(10350,'MEMORY_EXTRACTED',{tier:'PROJECT', items:4, scope:'session→project'}),
       a(10800,'TASK_COMPLETED',  {span:'blueprint.harvest', cost_usd:0.0002}),
@@ -1927,7 +1927,7 @@ function buildDagView(){
   scroll.appendChild(svg); dual.appendChild(scroll);
   // Persistent honesty footer
   const honesty=document.createElement('div'); honesty.className='honesty';
-  honesty.innerHTML='<b>*illustrative · Anthropic-style pricing</b> · persistence layer: <b>FileCheckpointer</b> (current) · planned: SQLitePersistence.';
+  honesty.innerHTML='<b>*illustrative pricing · generic model tiers</b> · persistence layer: <b>FileCheckpointer</b> (current) · planned: SQLitePersistence.';
   dual.appendChild(honesty);
   // Verify-the-demo block — every demo claim mapped to a real CEMAF source file
   const verify=document.createElement('div'); verify.className='verify';
@@ -1946,7 +1946,7 @@ function buildDagView(){
       ['Token budget · priority',   'TokenBudget · priority eviction',               'src/cemaf/context/budget.py'],
       ['Composition root',          'RuntimeServices · BYO-X protocols',             'src/cemaf/bootstrap.py'],
     ].map(([k,v,src])=>`<div class="vrow"><div class="vk">${k}</div><div class="vv">${v}</div><div class="vsrc"><code>${src}</code></div></div>`).join('')+
-    '<div class="vrow" style="margin-top:6px;border-top:1px solid var(--line);padding-top:8px;"><div class="vk">Module graph</div><div class="vv">43 modules · 169 imports · AST-exact</div><div class="vsrc">regenerate: <code>build_graph_data.py --check</code></div></div>';
+    '<div class="vrow" style="margin-top:6px;border-top:1px solid var(--line);padding-top:8px;"><div class="vk">Module graph</div><div class="vv">'+DATA.nodes.length+' modules · '+DATA.edges.reduce((a,e)=>a+e.w,0)+' imports · AST-exact</div><div class="vsrc">regenerate: <code>build_graph_data.py --check</code></div></div>';
   dual.appendChild(verify);
   inner.appendChild(dual);
 
