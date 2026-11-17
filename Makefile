@@ -104,8 +104,8 @@ check: lint typecheck audit-all  ## Pre-PR: lint + typecheck + every audit
 
 # ---- demo / traces / showcase ----------------------------------------------
 
-demo:  ## Regenerate the 7 real CEMAF run traces (writes docs/architecture/traces/*.json)
-	uv run python docs/architecture/scripts/produce_dag_trace.py
+demo:  ## Regenerate the 7 real CEMAF run traces and inline them into cemaf-graph.html
+	uv run python docs/architecture/scripts/produce_dag_trace.py --inline
 
 demo-step:  ## Regenerate one trace (use STEP=N, e.g. make demo-step STEP=7)
 	@if [ -z "$(STEP)" ]; then echo "usage: make demo-step STEP=N (N is 1..7)"; exit 2; fi
