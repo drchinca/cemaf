@@ -198,10 +198,11 @@
   <h1>CEMAF Architecture Atlas</h1>
   <p class="lede">A ground-truth tour of the framework — from the dependency tiers down to the single node hot-path where every feature is a station. Each view is drawn from <code class="mono">src/cemaf/</code>, not the ideal.</p>
   <div class="meta-row">
-    <span class="pill"><b>40</b>&nbsp;modules</span>
-    <span class="pill"><b>2</b>&nbsp;layers, one-way arrow</span>
+    <span class="pill"><b>v4.0.0</b></span>
+    <span class="pill"><b>47</b>&nbsp;modules</span>
+    <span class="pill"><b>2</b>&nbsp;layers</span>
     <span class="pill"><b>2</b>&nbsp;dispatch seams</span>
-    <span class="pill"><b>23</b>&nbsp;RuntimeServices deps</span>
+    <span class="pill"><b>33</b>&nbsp;RuntimeServices deps</span>
     <span class="pill">protocol-first · BYO-X</span>
   </div>
 </header>
@@ -232,40 +233,40 @@
     </div>
 
     <div class="tier" style="--accent:var(--layer2)">
-      <div class="tier-head"><span class="tier-name" style="color:var(--layer2)">Layer 2 · Self-Hosting</span><span class="tier-desc">CEMAF's first client — consumes the base via contracts, never imported back</span></div>
-      <div class="mods"><span class="mod"><b>meta</b></span><span class="mod">audit</span><span class="mod">knowledge</span></div>
+      <div class="tier-head"><span class="tier-name" style="color:var(--layer2)">Layer 2 · Self-Hosting</span><span class="tier-desc">CEMAF's first client — meta-agents, audit trail, operator snapshots</span></div>
+      <div class="mods"><span class="mod"><b>meta</b></span><span class="mod">audit</span><span class="mod">operator</span></div>
     </div>
-    <div class="arrow-up">▲ &nbsp; consumes via Protocol only (one-way) &nbsp; ▲</div>
+    <div class="arrow-up">▲ &nbsp; consumes the base; the base imports it only lazily (see below) &nbsp; ▲</div>
 
     <div class="tier" style="--accent:var(--orchestration)">
-      <div class="tier-head"><span class="tier-name" style="color:var(--orchestration)">Tier 3 · Orchestration</span><span class="tier-desc">top of Layer 1 · fan-out 14</span></div>
-      <div class="mods"><span class="mod"><b>orchestration</b></span><span class="mod">resolvers/</span><span class="mod">interceptors</span><span class="mod">bootstrap</span><span class="mod">RuntimeServices</span></div>
+      <div class="tier-head"><span class="tier-name" style="color:var(--orchestration)">Tier 3 · Orchestration</span><span class="tier-desc">top of Layer 1 · orchestration fan-out 17</span></div>
+      <div class="mods"><span class="mod"><b>orchestration</b></span><span class="mod">resolvers/</span><span class="mod">interceptors</span><span class="mod">collision</span><span class="mod">bootstrap</span><span class="mod">cemaf (facade)</span><span class="mod">RuntimeServices</span></div>
     </div>
     <div class="arrow-up">▲</div>
 
     <div class="tier" style="--accent:var(--capability)">
       <div class="tier-head"><span class="tier-name" style="color:var(--capability)">Tier 2 · Capabilities</span><span class="tier-desc">work units · quality/safety · integrations</span></div>
       <div class="mods">
-        <span class="mod">agents</span><span class="mod">tools</span><span class="mod">skills</span><span class="mod">sandbox</span><span class="mod">blueprint</span><span class="mod">evals</span><span class="mod">council</span><span class="mod">iteration</span><span class="mod">resilience</span><span class="mod">citation</span><span class="mod">moderation</span><span class="mod">validation</span><span class="mod">generation</span><span class="mod">streaming</span><span class="mod">mcp</span><span class="mod">rlm</span><span class="mod">cache</span><span class="mod">persistence</span><span class="mod">ingestion</span><span class="mod">state</span><span class="mod">catalog</span><span class="mod">security</span><span class="mod">trust</span><span class="mod">improvement</span><span class="mod">scheduler</span><span class="mod">replay</span><span class="mod">docs_api</span>
+        <span class="mod">agents</span><span class="mod">tools</span><span class="mod">blueprint</span><span class="mod">evals</span><span class="mod">persistence</span><span class="mod">citation</span><span class="mod">docs_api</span><span class="mod">mcp</span><span class="mod">sandbox</span><span class="mod">skills</span><span class="mod">validation</span><span class="mod">moderation</span><span class="mod">council</span><span class="mod">replay</span><span class="mod">scheduler</span><span class="mod">trust</span><span class="mod">cache</span><span class="mod">catalog</span><span class="mod">cli</span><span class="mod">generation</span><span class="mod">improvement</span><span class="mod">ingestion</span><span class="mod">iteration</span><span class="mod">properties</span><span class="mod">rlm</span><span class="mod">security</span><span class="mod">state</span><span class="mod">streaming</span>
       </div>
     </div>
     <div class="arrow-up">▲</div>
 
     <div class="tier" style="--accent:var(--fabric)">
-      <div class="tier-head"><span class="tier-name" style="color:var(--fabric)">Tier 1 · Shared fabric</span><span class="tier-desc">the substrate every capability builds on</span></div>
-      <div class="mods"><span class="mod"><b>context</b>&nbsp;(10)</span><span class="mod"><b>observability</b>&nbsp;(10)</span><span class="mod"><b>events</b>&nbsp;(9)</span><span class="mod"><b>llm</b>&nbsp;(8)</span><span class="mod"><b>retrieval</b>&nbsp;(7)</span><span class="mod"><b>memory</b>&nbsp;(7)</span></div>
+      <div class="tier-head"><span class="tier-name" style="color:var(--fabric)">Tier 1 · Shared fabric</span><span class="tier-desc">the substrate every capability builds on · (fan-in)</span></div>
+      <div class="mods"><span class="mod"><b>context</b>&nbsp;(22)</span><span class="mod"><b>events</b>&nbsp;(12)</span><span class="mod"><b>observability</b>&nbsp;(12)</span><span class="mod"><b>llm</b>&nbsp;(11)</span><span class="mod"><b>memory</b>&nbsp;(8)</span><span class="mod"><b>retrieval</b>&nbsp;(8)</span><span class="mod"><b>knowledge</b>&nbsp;(7)</span><span class="mod">datasources&nbsp;(2)</span><span class="mod">resilience&nbsp;(2)</span></div>
     </div>
     <div class="arrow-up">▲</div>
 
     <div class="tier" style="--accent:var(--foundation)">
       <div class="tier-head"><span class="tier-name" style="color:var(--foundation)">Tier 0 · Foundation</span><span class="tier-desc">imported by nearly everything</span></div>
-      <div class="mods"><span class="mod"><b>core</b>&nbsp;(fan-in 38)</span><span class="mod"><b>config</b>&nbsp;(fan-in 18)</span></div>
+      <div class="mods"><span class="mod"><b>core</b>&nbsp;(fan-in 44)</span><span class="mod"><b>config</b>&nbsp;(fan-in 18)</span></div>
       <p class="card-note" style="margin:10px 0 0;font-size:12.5px;color:var(--ink-soft)">Result[T] · NewType ids · enums · <code class="mono">utc_now</code> · Settings · provider registry</p>
     </div>
 
     <div class="card" style="margin-top:22px;border-left:4px solid var(--good)">
-      <h3><span class="dot" style="background:var(--good)"></span>The one-way boundary, precisely</h3>
-      <p>No Layer-2 package is a structural dependency of the base. Three import sites cross down, with differing mechanisms: <code class="mono">orchestration → knowledge.protocols.KnowledgeGraph</code> (runtime Protocol), <code class="mono">security → audit.protocols.AuditLog</code> (TYPE_CHECKING only), and <code class="mono">security → audit.models</code> (a lazy, in-method concrete import that dodges a parse-time cycle). No base module imports <code class="mono">meta</code> at all.</p>
+      <h3><span class="dot" style="background:var(--good)"></span>The layer boundary, precisely (4.0.0)</h3>
+      <p>No base module imports <code class="mono">meta</code>, <code class="mono">audit</code> or <code class="mono">operator</code> at load time. Two lazy edges exist: the CLI's <code class="mono">docs export-okf</code> command imports <code class="mono">meta.okf</code> inside the function, and RBAC imports <code class="mono">audit.models</code> inside the method that writes <code class="mono">AuditEntry</code> records (its <code class="mono">AuditLog</code> type is a Protocol). <code class="mono">knowledge</code> started in Layer 2 but is now a base dependency: <code class="mono">RuntimeServices.knowledge_graph</code> (SPEC-02/07) makes orchestration, resolvers, agents, collision and interceptors import its <code class="mono">KnowledgeGraph</code> Protocol, and <code class="mono">docs_api</code>, <code class="mono">ingestion</code> and the pull interceptor use its OKF and relation models.</p>
     </div>
   </section>
 
@@ -280,6 +281,7 @@
           <h4>Resolve</h4>
           <div class="where">resolvers/ · first-match-wins</div>
           <div class="branch">
+            <span class="chip">Custom <code class="mono">node_resolvers</code> → matched first (SPEC-20)</span>
             <span class="chip">CouncilResolver → <b>NodeComplete</b> (verdict steers DAG, agent never runs)</span>
             <span class="chip">Auction / Static → <b>RunAgent</b></span>
           </div>
@@ -288,7 +290,7 @@
       <div class="step"><div class="rail"><div class="node-dot" style="background:var(--fabric)">2</div><div class="line"></div></div>
         <div class="step-body"><div class="card">
           <h4>Prep context</h4>
-          <div class="where">recall global_memory (MemoryManager) → compile under TokenBudget (ContextCompiler)</div>
+          <div class="where">recall global_memory (MemoryManager) → compile under TokenBudget (ContextCompiler) · filtered by the executor's <span class="mono">clearance</span> (SPEC-11)</div>
         </div></div></div>
 
       <div class="step"><div class="rail"><div class="node-dot" style="background:var(--capability)">3</div><div class="line"></div></div>
@@ -323,8 +325,9 @@
 
     <div class="seam">
       <h3>Seam 1 · NodeResolver chain <span class="tag" style="background:var(--orchestration)">orchestration/resolvers/</span></h3>
-      <p class="seam-sub">First <code class="mono">matches()</code> wins → <code class="mono">ResolveOutcome = RunAgent | NodeComplete</code>. Add a node kind = register a resolver, not edit code.</p>
+      <p class="seam-sub">First <code class="mono">matches()</code> wins → <code class="mono">ResolveOutcome = RunAgent | NodeComplete</code>. Add a node kind = register a resolver through <code class="mono">RuntimeServices.node_resolvers</code>, not edit code. Duplicate resolver ids are rejected at construction.</p>
       <div class="lane">
+        <div class="resolver"><span class="rname" style="color:var(--fabric)">Your resolvers</span><span class="rwhen">matched before every built-in · <code>ContextNodeExecutor.resolver_ids</code> lists the chain</span><span class="tag" style="background:var(--fabric)">SPEC-20</span></div>
         <div class="resolver"><span class="rname" style="color:var(--layer2)">CouncilResolver</span><span class="rwhen">matches <code>config["council"]</code> → deliberate, vote, return verdict</span><span class="tag" style="background:var(--layer2)">SPEC-10</span></div>
         <div class="resolver"><span class="rname" style="color:var(--capability)">AuctionResolver</span><span class="rwhen">matches <code>config["capability"]</code> <em>only when an agent_selector is wired</em>; else falls through</span><span class="tag" style="background:var(--capability)">SPEC-09</span></div>
         <div class="resolver"><span class="rname" style="color:var(--ink-soft)">StaticRefResolver</span><span class="rwhen">always matches → <code>RunAgent(node.ref_id)</code> · universal fallback</span><span class="tag" style="background:var(--ink-soft)">base</span></div>
@@ -337,7 +340,20 @@
       <div class="lane">
         <div class="resolver"><span class="rname">PreInterceptor</span><span class="rwhen"><code>pre()</code> → ACCEPT (enrich ctx) | REJECT</span><span class="tag" style="background:var(--capability)">PRE</span></div>
         <div class="resolver"><span class="rname">PostInterceptor</span><span class="rwhen"><code>post()</code> → ACCEPT | REJECT | <b>RECOVER</b></span><span class="tag" style="background:var(--capability)">POST</span></div>
-        <div class="resolver"><span class="rname" style="color:var(--good)">GateEvalInterceptor</span><span class="rwhen">runs Evaluators on output · <code>on_failure = REJECT</code> (block) | <code>RECOVER</code> (retry + hint)</span><span class="tag" style="background:var(--good)">gate</span></div>
+        <div class="resolver"><span class="rname" style="color:var(--good)">GateEvalInterceptor</span><span class="rwhen">runs Evaluators on output · <code>on_failure = REJECT</code> (block) | <code>RECOVER</code> (retry + hint)</span><span class="tag" style="background:var(--good)">POST</span></div>
+        <div class="resolver"><span class="rname" style="color:var(--good)">GateValidationInterceptor</span><span class="rwhen">turns a validation pipeline into a real gate on node output</span><span class="tag" style="background:var(--good)">POST</span></div>
+        <div class="resolver"><span class="rname">PolicyInterceptor</span><span class="rwhen">asks a pluggable <code>PolicyEngine</code> to authorise the node (in-house rules, OPA adapters)</span><span class="tag" style="background:var(--capability)">PRE</span></div>
+        <div class="resolver"><span class="rname">PullInterceptor</span><span class="rwhen">pull-not-push retrieval: surfaces citeable chunks from registered datasources into the node's context, capped by its own token budget</span><span class="tag" style="background:var(--capability)">PRE · SPEC-02</span></div>
+      </div>
+    </div>
+
+    <div class="seam">
+      <h3>What 4.0.0 changed on this path</h3>
+      <div class="lane">
+        <div class="resolver"><span class="rname">Parallel writes</span><span class="rwhen">PARALLEL nodes coordinate children that write the same context key (<code>collision_policy</code>, SPEC-12). <code>collision_policy=None</code> restores uncoordinated writes.</span><span class="tag" style="background:var(--orchestration)">breaking</span></div>
+        <div class="resolver"><span class="rname">Online GATE</span><span class="rwhen"><code>EvalMode.GATE</code> bindings run when <code>DAGExecutor</code> checks them and halt the run; <code>subscribe()</code> alone no longer runs them.</span><span class="tag" style="background:var(--orchestration)">breaking</span></div>
+        <div class="resolver"><span class="rname">Moderation</span><span class="rwhen">A moderation pipeline supplied through <code>RuntimeServices</code> is used by default (SPEC-22).</span><span class="tag" style="background:var(--orchestration)">breaking</span></div>
+        <div class="resolver"><span class="rname">Resume</span><span class="rwhen">Resumed runs keep failed nodes failed; checkpoints written on cancel and halt (SPEC-21).</span><span class="tag" style="background:var(--good)">fix</span></div>
       </div>
     </div>
   </section>
@@ -399,12 +415,12 @@
   <!-- ============ RUNTIME & REACTIVE ============ -->
   <section class="view" id="runtime">
     <h2>Runtime &amp; the reactive plane</h2>
-    <p class="sub">One composition root wires ~23 injectable dependencies; the executor runs the DAG and emits events. Quality, audit, and learning subscribe asynchronously — off the hot path.</p>
+    <p class="sub">One composition root wires up to 33 injectable dependencies from <code class="mono">RuntimeServices</code>; the executor runs the DAG and emits events. Quality, audit, and learning subscribe asynchronously — off the hot path.</p>
 
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:20px">
       <div class="card" style="border-left:4px solid var(--orchestration)">
         <h3><span class="mono">create_executor()</span> <span class="tag" style="background:var(--orchestration)">base root</span></h3>
-        <p>Builds the ContextNodeExecutor (threads all 23 RuntimeServices deps incl. <code class="mono">max_recovery_attempts</code>), assembles the resolver chain <span class="mono">[Council, Auction?, Static]</span>, subscribes online-eval + quality-police when an event bus is present, wraps in an InstrumentedDAGExecutor when a tracer is present.</p>
+        <p>Requires a <code class="mono">clearance: SecurityLevel</code>. Builds the ContextNodeExecutor (incl. <code class="mono">max_recovery_attempts</code>, <code class="mono">node_resolvers</code>), assembles the resolver chain <span class="mono">[your resolvers…, Council, Auction?, Static]</span>, subscribes online-eval + quality-police when an event bus is present, wraps in an InstrumentedDAGExecutor when a tracer is present.</p>
       </div>
       <div class="card" style="border-left:4px solid var(--layer2)">
         <h3><span class="mono">create_meta_executor()</span> <span class="tag" style="background:var(--layer2)">Layer-2 root</span></h3>
@@ -434,7 +450,7 @@
       <div class="card"><h3><span class="num">2</span>&nbsp;One hot-path, many stations</h3><p>Features are PRE/POST interceptor stations and resolver entries on a single <code class="mono">execute_node</code> flow — not bespoke branches.</p></div>
       <div class="card"><h3><span class="num">3</span>&nbsp;Immutable data + provenance</h3><p>Context is copy-on-write; every mutation carries a ContextPatch source; every node run records a ProvenanceLink.</p></div>
       <div class="card"><h3><span class="num">4</span>&nbsp;Budgeted, priority-selected context</h3><p>TokenBudget + ContextCompiler drop by priority, not recency, before each agent call.</p></div>
-      <div class="card"><h3><span class="num">5</span>&nbsp;Strict layering</h3><p>Layer 2 self-hosting consumes the base only through contracts; the base never imports it — so CEMAF introspects itself without a cycle.</p></div>
+      <div class="card"><h3><span class="num">5</span>&nbsp;Strict layering</h3><p>Layer 2 (meta, audit, operator) consumes the base; the base imports it only lazily, in two places — so CEMAF introspects itself without a load-time cycle.</p></div>
     </div>
   </section>
 
@@ -442,7 +458,7 @@
 
 <footer>
   <div class="src-note">
-    Ground truth: every structural claim is verifiable against <code>src/cemaf/</code>. Companion reference: <a href="deep-architecture.md">deep-architecture.md</a> · module index: <a href="spec-module-map.md">spec-module-map.md</a>.
+    Reviewed against CEMAF 4.0.0 on 2026-11-17. Ground truth: every structural claim is verifiable against <code>src/cemaf/</code>; module count and fan-in come from the graph data in <code>cemaf-graph.html</code>. Companion reference: <a href="deep-architecture.md">deep-architecture.md</a> · module index: <a href="spec-module-map.md">spec-module-map.md</a>.
     Regenerate the module count &amp; fan-in figures with the commands in <code>deep-architecture.md</code> after any refactor.
   </div>
 </footer>
