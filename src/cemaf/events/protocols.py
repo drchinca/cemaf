@@ -98,6 +98,9 @@ class EventType(StrEnum):
     BLUEPRINT_VALIDATED = "blueprint.validated"
     BLUEPRINT_VALIDATION_FAILED = "blueprint.validation.failed"
 
+    # Knowledge ontologies (SPEC-27)
+    ONTOLOGY_VIOLATION = "ontology.violation"
+
 
 class Event(BaseModel):
     """

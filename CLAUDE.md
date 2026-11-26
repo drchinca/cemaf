@@ -61,6 +61,7 @@ CEMAF is a **protocol-first, multi-agent orchestration framework** for context e
 | SPEC-24 Durable event bus | 🟢 | Redis fan-out per subscriber, redelivery, dead-letter stream; tested on real Redis |
 | SPEC-25 Recorded LLM replay | 🟢 | A captured Ollama call replays through the real adapter in CI |
 | SPEC-26 Honest offline embeddings | 🟢 | Non-semantic embedders are named for what they do and warn once |
+| SPEC-27 Knowledge ontologies | 🟡 | Model, validation and `OntologyKnowledgeGraph` (advisory); `CEMAF_SELF_ONTOLOGY` not built yet |
 
 CEMAF ships no HTTP API, container image or authentication layer **by design**: it is a library that applications compose (`cemaf-service`, `iccha_autonomy`, `kyi`, `meridiansight`), and each application owns its own server and auth. Do not add one here. The CLI exposes `inspect`, `docs` and `blueprint` commands, not engine runs.
 
@@ -195,6 +196,7 @@ Opt-in modules where CEMAF uses its own primitives to introspect, audit, and ext
 | Composed Engine | ONE DAG run threads council → auction → agent → online-eval → harvest through one composition root (`test_composed_engine.py`); `examples/composed_engine.py` is the runnable canonical "whole engine" demo |
 | Interceptor GATE | GateEvalInterceptor (POST) on a real 2-node DAG: short output fails the gate → downstream never runs; long output passes; empty pipeline = no-op; gate-reject doesn't burn retries (`test_interceptor_gate.py`) |
 | NodeResolver dispatch | execute_node dispatches via the resolver chain (council/auction/static, first-match wins); a custom resolver registered ahead of the built-ins handles its node and short-circuits — adding a node 'kind' is registering a resolver, not a new `if`-branch (`test_resolver_chain.py`) |
+| Ontology KG | OntologyKnowledgeGraph over a real MemoryBackedKnowledgeGraph + real InMemoryEventBus → bad writes still land, one violation per broken rule recorded and published, cardinality skips rewrites, hidden endpoints report "not found or not visible", entities_of_class includes subclasses (`test_ontology_knowledge_graph.py`) |
 
 ## Pattern Reference
 
