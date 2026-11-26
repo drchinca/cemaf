@@ -54,20 +54,27 @@ flowchart LR
 
 ```python
 class PropertyType(StrEnum):
-    STRING; INTEGER; NUMBER; BOOLEAN; DATE; DATETIME
+    STRING; INTEGER; NUMBER; BOOLEAN; DATE; DATETIME; LIST; OBJECT
+    # DATE accepts datetime.date or an ISO-8601 date string (YAML's parsed dates included);
+    # DATETIME accepts datetime.datetime or an ISO-8601 datetime string; BOOLEAN is not an
+    # INTEGER; LIST = list/tuple; OBJECT = mapping.
 
 @dataclass(frozen=True, slots=True)
 class PropertySpec:
     type: PropertyType
     required: bool = False
-    allowed: tuple[str, ...] = ()          # empty = any value of the type
+    allowed: tuple[str, ...] = ()          # STRING only; empty = any string. On another type
+                                            # it is an OntologyDefinitionError.
     description: str = ""
 
 @dataclass(frozen=True, slots=True)
 class OntologyClass:
     name: str
     is_a: str | None = None
-    properties: Mapping[str, PropertySpec]
+    properties: Mapping[str, PropertySpec] = EMPTY_PROPERTIES   # read-only MappingProxyType
+    closed: bool = False                    # True: properties the class (and its ancestors)
+                                            # don't declare are UNKNOWN_PROPERTY violations.
+                                            # False (default): they are allowed.
     description: str = ""
 
 @dataclass(frozen=True, slots=True)
@@ -82,14 +89,17 @@ class RelationSpec:
 class Ontology:
     name: str
     version: int
-    classes: Mapping[str, OntologyClass]
-    relations: Mapping[str, RelationSpec]
+    classes: Mapping[str, OntologyClass]      # read-only MappingProxyType
+    relations: Mapping[str, RelationSpec]     # read-only MappingProxyType
     def ancestors(self, *, class_name: str) -> tuple[str, ...]: ...      # nearest first
     def is_a(self, *, class_name: str, ancestor: str) -> bool: ...
     def properties_of(self, *, class_name: str) -> Mapping[str, PropertySpec]: ...  # inherited + own
     def validate_entity(self, *, entity: KGEntity) -> tuple[OntologyViolation, ...]: ...
     def validate_relation(self, *, relation: KGRelation, source: KGEntity | None,
-                          target: KGEntity | None, existing_from_source: int) -> tuple[OntologyViolation, ...]: ...
+                          target: KGEntity | None, existing_from_source: int,
+                          ) -> tuple[OntologyViolation, ...]: ...
+        # source/target None = not found. existing_from_source counts the source's OUTGOING
+        # relations of this type, excluding one with the same (source, target, type) key.
 
 class ViolationKind(StrEnum):
     UNKNOWN_CLASS; MISSING_PROPERTY; UNKNOWN_PROPERTY; WRONG_PROPERTY_TYPE; VALUE_NOT_ALLOWED
@@ -101,25 +111,38 @@ class OntologyViolation:
     subject_id: str                         # entity id, or "source->target:relation"
     message: str
 
-def load_ontology(*, path: Path) -> Ontology: ...          # YAML or JSON; raises OntologyDefinitionError
+def load_ontology(*, path: Path) -> Ontology: ...          # .yaml/.yml (pyyaml, imported lazily from the
+                                                           # okf extra) or .json; OntologyDefinitionError
 def ontology_from_mapping(*, data: Mapping[str, object]) -> Ontology: ...
+# Python code builds an Ontology directly from the dataclasses, or via ontology_from_mapping.
 
 class OntologyDefinitionError(ValueError): ...             # the ontology itself is malformed
 
 class OntologyKnowledgeGraph:                               # implements KnowledgeGraph
     def __init__(self, *, graph: KnowledgeGraph, ontology: Ontology,
-                 event_bus: EventBus | None = None) -> None: ...
+                 event_bus: EventBus | None = None, recent_violation_limit: int = 1_000) -> None: ...
     @property
     def ontology(self) -> Ontology: ...
-    def violations(self) -> tuple[OntologyViolation, ...]: ...
+    def recent_violations(self) -> tuple[OntologyViolation, ...]: ...   # last N; events carry all
     async def entities_of_class(self, *, class_name: str, include_subclasses: bool = True) -> tuple[KGEntity, ...]: ...
+        # exhaustive: entities_of_type for the class and each descendant, not text search
     async def related(self, *, entity_id: str, relation: str) -> tuple[KGEntity, ...]: ...
-    # every KnowledgeGraph method delegates to `graph`; writes validate first, then always write.
+        # OUTGOING relations of that type from entity_id, one hop
+    # Every other KnowledgeGraph method delegates to `graph`; writes validate first, then
+    # always write. capabilities() is passed through. Branching (BranchingKnowledgeGraph)
+    # is not exposed by the wrapper.
 
-CEMAF_SELF_ONTOLOGY: Ontology   # classes = EntityType values, relations = RelationType values
+# KnowledgeGraph protocol gains one method (all implementations: MemoryBackedKnowledgeGraph,
+# HubKnowledgeGraph, test doubles):
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]: ...
+        # every visible entity of exactly that type; no limit, no ranking
+
+CEMAF_SELF_ONTOLOGY: Ontology   # classes = EntityType values (open), relations = RelationType values
 
 KGEntity.type: str              # was EntityType; EntityType (a StrEnum) still fits as a class name
 KGRelation.type: str            # was RelationType
+# Filters typed EntityType / RelationType (search, query_neighbors, hub_spoke, meta tools)
+# take str. Reading back an entity no longer converts its type to the enum.
 
 EventType.ONTOLOGY_VIOLATION    # payload: {"ontology", "version", "kind", "subject_id", "message"}
 ```
@@ -146,6 +169,13 @@ relations:
   on_call_for: {from: Engineer, to: Service, max_per_source: 3}
 ```
 
+**Write semantics (no ambiguity):**
+- Re-writing an entity re-validates the entity only; its existing relations are not re-checked.
+- A relation written before an endpoint exists records `MISSING_ENDPOINT` for that end.
+- An endpoint that exists but is above the graph's clearance is not judged: no endpoint
+  violation is recorded, so existence is not leaked.
+- A property value of `None` counts as absent.
+
 ## 3. Invariants (DbC)
 
 1. `IF an ontology declares is_a to an unknown class, an inheritance cycle, a relation endpoint that is not a class, or a duplicate name, THEN load SHALL raise OntologyDefinitionError` naming the problem.
@@ -155,12 +185,14 @@ relations:
 5. `WHEN a write breaks the ontology, THE System SHALL record one OntologyViolation per broken rule and, if an event bus is set, publish ONTOLOGY_VIOLATION for each.`
 6. `A write that satisfies the ontology SHALL produce no violation and no event.`
 7. `A relation's source and target SHALL qualify through inheritance`: an Engineer satisfies `from: Person`.
-8. `WHEN a source already has max_per_source relations of a type, THE next one SHALL be a TOO_MANY_RELATIONS violation.`
+8. `WHEN a source already has max_per_source OUTGOING relations of a type, a further, different relation of that type SHALL be a TOO_MANY_RELATIONS violation`; re-writing an existing relation never is.
 9. `entities_of_class(C, include_subclasses=True) SHALL return entities of C and of every descendant of C.`
-10. `CEMAF_SELF_ONTOLOGY SHALL accept every entity and relation the meta layer writes today` — the self-hosting layer produces no violations.
-11. `THE ontology SHALL be immutable`; a changed ontology is a new version.
+10. `CEMAF_SELF_ONTOLOGY SHALL accept the entities and relations CEMAF actually writes` — the meta layer's solution versioning (`meta/agents.py`, list and mapping properties included) and OKF import produce no violations.
+11. `THE ontology SHALL be immutable` (read-only mappings); a changed ontology is a new version.
+12. `IF a class is closed, THEN a property neither it nor an ancestor declares SHALL be an UNKNOWN_PROPERTY violation`; open classes accept undeclared properties.
+13. `entities_of_type SHALL return every visible entity of that type`, with no result limit.
 
-Budget: 11 invariants.
+Budget: 13 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -212,13 +244,23 @@ Feature: Knowledge ontologies
     When related(team, "owns") runs
     Then both Services are returned
 
+  Scenario: Re-writing a relation is not a cardinality break
+    Given an Engineer on call for 3 Services
+    When one of those 3 relations is written again
+    Then no violation is recorded
+
+  Scenario: A closed class reports undeclared properties
+    Given Service is closed
+    When a Service with an undeclared "colour" property is written
+    Then an UNKNOWN_PROPERTY violation is recorded
+
   Scenario: CEMAF's own knowledge fits its ontology
-    Given the meta layer's knowledge refresh over a real run
-    When it writes to an OntologyKnowledgeGraph bound to CEMAF_SELF_ONTOLOGY
+    Given the meta layer's solution-versioning step and an OKF import
+    When they write to an OntologyKnowledgeGraph bound to CEMAF_SELF_ONTOLOGY
     Then no violation is recorded
 ```
 
-Budget: 10 scenarios.
+Budget: 12 scenarios.
 
 ## 5. Out of Scope
 
@@ -227,6 +269,8 @@ Budget: 10 scenarios.
 - Importing OWL / RDF / SHACL / schema.org (a later adapter producing an `Ontology`).
 - Multiple inheritance, reasoning beyond `is_a`, and rules across more than one relation.
 - Strict (rejecting) enforcement.
+- Ontology-checked branches (`BranchingKnowledgeGraph` through the wrapper).
+- Incoming-relation traversal in `related()`.
 - Migrating stored knowledge between ontology versions.
 
 ## 6. Dependencies
@@ -257,10 +301,21 @@ and every C entity is returned by `entities_of_class(A)`.
 - **Log**: `ontology.violation` at INFO per violation; `ontology.loaded` with class and
   relation counts.
 
-## 10. Test Coverage Update
+## 10. Delivery plan
+
+Four PRs, each under the size limit, each green on its own:
+
+| PR | Contents |
+|---|---|
+| A | `KGEntity.type` / `KGRelation.type` → `str` at every site (graph read-back, `.type.value`, typed filters, meta tools, pull interceptor) plus `entities_of_type` on the protocol and every implementation |
+| B | `Ontology` model, `PropertyType`, YAML/JSON loading, `OntologyDefinitionError`, inheritance, `validate_entity` / `validate_relation` |
+| C | `OntologyKnowledgeGraph`, `ONTOLOGY_VIOLATION`, recent-violation window, cardinality counting, `entities_of_class`, `related` |
+| D | `CEMAF_SELF_ONTOLOGY` and the real-write scenario over solution versioning and OKF import |
+
+## 11. Test Coverage Update
 
 - **Unit** (`tests/unit/knowledge/test_ontology.py`): loading, definition errors,
   inheritance, every `ViolationKind`, property-based inheritance checks (Property 3).
 - **Integration** (`tests/integration/test_ontology_knowledge_graph.py`): §4 scenarios
   through a real `MemoryBackedKnowledgeGraph` and `InMemoryEventBus`, including the
-  `cemaf-self` scenario over a real meta-layer knowledge refresh.
+  `cemaf-self` scenario over the real solution-versioning write and an OKF import.
