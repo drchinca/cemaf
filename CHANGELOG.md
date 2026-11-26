@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   broken rule is kept in `recent_violations()` and published as an
   `ONTOLOGY_VIOLATION` event. `entities_of_class()` lists a class and its
   subclasses exhaustively, and `related()` walks one typed relation (SPEC-27).
+- `CEMAF_SELF_ONTOLOGY` describes what CEMAF writes about itself: a root class
+  `thing`, a class per `EntityType` and a relation per `RelationType`, with the
+  properties the meta layer records when it versions a solution on `dag`.
+  Solution versioning and OKF import pass it with no violations (SPEC-27).
 - `Ontology.validate_relation()` checks a relation's type, its endpoints'
   classes (subclasses qualify) and the per-source limit. An endpoint the graph
   doesn't return is reported as "not found or not visible", never revealing

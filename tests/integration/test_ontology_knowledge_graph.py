@@ -6,15 +6,25 @@ from dataclasses import replace
 
 import pytest
 
+from cemaf.agents.base import AgentContext
+from cemaf.agents.registry import AgentRegistry
 from cemaf.context.patch import SecurityLevel
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.knowledge.graph import MemoryBackedKnowledgeGraph
 from cemaf.knowledge.models import KGEntity, KGRelation
+from cemaf.knowledge.okf import OKFBundle, OKFDocument
+from cemaf.knowledge.okf_graph import import_okf_bundle
 from cemaf.knowledge.ontology import Ontology, ViolationKind
 from cemaf.knowledge.ontology_graph import OntologyKnowledgeGraph
 from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.knowledge.self_ontology import CEMAF_SELF_ONTOLOGY
 from cemaf.memory.factories import create_memory_manager
+from cemaf.meta.bootstrap import MetaServices, create_meta_executor
+from cemaf.meta.goals import SolutionGoal
+from cemaf.orchestration.executor import ExecutorConfig
+from cemaf.orchestration.services import RuntimeServices
+from cemaf.tools.registry import ToolRegistry
 from tests.unit.knowledge.test_ontology import service_catalog
 
 
@@ -225,3 +235,70 @@ async def test_reads_pass_through_and_branching_is_not_advertised() -> None:
 def test_the_recent_window_must_hold_something() -> None:
     with pytest.raises(ValueError, match="at least 1"):
         OntologyKnowledgeGraph(graph=Harness().raw, ontology=service_catalog(), recent_violation_limit=0)
+
+
+class TestCemafSelfOntology:
+    """Invariant 10: CEMAF's real writes fit CEMAF_SELF_ONTOLOGY, and a broken write is still caught."""
+
+    @staticmethod
+    def _checked_graph() -> Harness:
+        return Harness(ontology=CEMAF_SELF_ONTOLOGY)
+
+    @pytest.mark.asyncio
+    async def test_solution_versioning_fits_the_self_ontology(self) -> None:
+        h = self._checked_graph()
+        agent_registry, tool_registry = AgentRegistry(), ToolRegistry()
+        create_meta_executor(
+            agent_registry=agent_registry,
+            tool_registry=tool_registry,
+            services=RuntimeServices(event_bus=h.bus, memory_manager=h.memory),
+            meta_services=MetaServices(knowledge_graph=h.graph),
+            config=ExecutorConfig(enable_events=False),
+            clearance=SecurityLevel.CONFIDENTIAL,
+        )
+        designer = agent_registry.get("MetaSolutionDesigner")
+        assert designer is not None
+
+        result = await designer.run(
+            goal=SolutionGoal(
+                use_case="Route support tickets", constraints={"max_agents": 3}, version_tag="v2"
+            ),
+            context=AgentContext(run_id="self-ontology", agent_id="MetaSolutionDesigner"),
+        )
+
+        assert result.success
+        versions = await h.raw.entities_of_type(entity_type="dag")
+        assert len(versions) == 1
+        assert versions[0].properties["version"] == "v2"
+        assert isinstance(versions[0].properties["node_count"], int)
+        assert h.graph.recent_violations() == ()
+
+    @pytest.mark.asyncio
+    async def test_an_okf_import_fits_the_self_ontology(self) -> None:
+        h = self._checked_graph()
+        finding = OKFDocument(
+            path="findings/latency.md",
+            frontmatter={
+                "type": "Finding",
+                "title": "Latency",
+                "sources": [{"resource": "../runbooks/load.md"}],
+            },
+            body="p99 doubled under load. See [runbook](/runbooks/load.md).",
+        )
+        runbook = OKFDocument(path="runbooks/load.md", frontmatter={"type": "Runbook"}, body="Ramp to 2x.")
+
+        imported = await import_okf_bundle(OKFBundle((finding, runbook)), graph=h.graph, bundle_id="ops")
+
+        assert (imported.entity_count, imported.relation_count) == (2, 2)
+        assert h.graph.recent_violations() == ()
+
+    @pytest.mark.asyncio
+    async def test_a_wrongly_typed_dag_property_is_still_caught(self) -> None:
+        h = self._checked_graph()
+
+        await h.graph.add_entity(
+            KGEntity(id="dag-1", type="dag", name="broken", properties={"node_count": "five"})
+        )
+
+        assert h.kinds() == [ViolationKind.WRONG_PROPERTY_TYPE]
+        assert await h.raw.get_entity(entity_id="dag-1") is not None
