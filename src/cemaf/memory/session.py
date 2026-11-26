@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
@@ -96,6 +97,7 @@ class SessionManager(Protocol):
         value: JSON,
         *,
         confidence: float = 1.0,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem: ...
 
     async def compact(
@@ -183,6 +185,7 @@ class DefaultSessionManager:
         value: JSON,
         *,
         confidence: float = 1.0,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem:
         """Store to SESSION scope and record episodic event."""
         state = self._sessions.get(session_id)
@@ -193,6 +196,7 @@ class DefaultSessionManager:
                 key=stored_key,
                 value=value,
                 confidence=confidence,
+                security_level=security_level,
             )
             return replace(item, key=key)
         if state.phase != SessionPhase.ACTIVE:
@@ -203,6 +207,7 @@ class DefaultSessionManager:
             key=stored_key,
             value=value,
             confidence=confidence,
+            security_level=security_level,
         )
 
         # Record episodic event
@@ -336,6 +341,7 @@ class DefaultSessionManager:
                         key=logical_key,
                         value=item.value,
                         confidence=float(item.confidence),
+                        security_level=item.security_level,
                     )
 
         # Clean up session-scoped memories explicitly (not global cleanup).
@@ -460,6 +466,7 @@ class ReportingSessionManager(DefaultSessionManager):
                         key=logical_key,
                         value=item.value,
                         confidence=float(item.confidence),
+                        security_level=item.security_level,
                     )
 
         removed = 0

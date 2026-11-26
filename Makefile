@@ -5,6 +5,7 @@
 # you can copy any recipe line into a terminal and it will run unchanged.
 
 .PHONY: help install test test-unit test-integration coverage lint typecheck format \
+        test-context-provenance check-context-provenance accept-context-provenance \
         benchmark benchmark-report \
         check audit-links audit-imports audit-graph audit-traces audit-voice audit-release-naming \
         audit-loop-ops audit-package audit-all \
@@ -38,6 +39,15 @@ test-unit:  ## Just the unit tests (fast)
 
 test-integration:  ## Just the integration tests
 	uv run pytest tests/integration/ -v
+
+test-context-provenance:  ## Report context/provenance acceptance evidence
+	uv run pytest tests/acceptance/context_provenance -q -rx
+
+check-context-provenance:  ## Require all implemented engineering acceptance cases
+	uv run pytest tests/acceptance/context_provenance --require-context-provenance-engineering -q --tb=short
+
+accept-context-provenance:  ## Strict pilot adoption gate; fails on defects or missing evidence
+	uv run pytest tests/acceptance/context_provenance --require-context-provenance -q --tb=short
 
 coverage:  ## Run tests with coverage report (fails under 80%)
 	uv run pytest tests/unit --cov=src/cemaf --cov-fail-under=80 -q --no-header
@@ -94,8 +104,8 @@ check: lint typecheck audit-all  ## Pre-PR: lint + typecheck + every audit
 
 # ---- demo / traces / showcase ----------------------------------------------
 
-demo:  ## Regenerate the 7 real CEMAF run traces (writes docs/architecture/traces/*.json)
-	uv run python docs/architecture/scripts/produce_dag_trace.py
+demo:  ## Regenerate the 7 real CEMAF run traces and inline them into cemaf-graph.html
+	uv run python docs/architecture/scripts/produce_dag_trace.py --inline
 
 demo-step:  ## Regenerate one trace (use STEP=N, e.g. make demo-step STEP=7)
 	@if [ -z "$(STEP)" ]; then echo "usage: make demo-step STEP=N (N is 1..7)"; exit 2; fi

@@ -1,5 +1,11 @@
 # Self-Hosting Layer
 
+The self-hosting layer can exchange its architecture and runtime descriptions as
+[Open Knowledge Format bundles](okf.md#cemaf-describing-itself). Run
+`uv run cemaf docs export-okf --output build/cemaf-okf` to export the checkout's
+guides, modules, protocols, declared skills, and registered meta-capabilities.
+Custom `DocSource` adapters and governed mapping exports use the same path.
+
 > CEMAF uses CEMAF to introspect, audit, spec, and extend itself. The self-hosting layer is CEMAF's first client — every meta-component is a standard CEMAF citizen.
 
 ## Why self-hosting matters

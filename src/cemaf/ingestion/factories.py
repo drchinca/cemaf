@@ -64,12 +64,19 @@ def _create_chunk_adapter(**kwargs: Any) -> ContextAdapter:
     return ChunkAdapter(**kwargs)
 
 
+def _create_okf_adapter(**kwargs: Any) -> ContextAdapter:
+    from cemaf.ingestion.okf import OKFAdapter
+
+    return OKFAdapter(**kwargs)
+
+
 adapter_registry.register(backend="text", factory=_create_text_adapter)
 adapter_registry.register(backend="json", factory=_create_json_adapter)
 adapter_registry.register(backend="table", factory=_create_table_adapter)
 adapter_registry.register(backend="chunk", factory=_create_chunk_adapter)
+adapter_registry.register(backend="okf", factory=_create_okf_adapter)
 
-_BUILTIN_ADAPTER_BACKENDS = frozenset({"text", "json", "table", "chunk"})
+_BUILTIN_ADAPTER_BACKENDS = frozenset({"text", "json", "table", "chunk", "okf"})
 
 
 def create_adapter(
@@ -113,7 +120,8 @@ def create_adapter(
     # Apply config
     if config:
         adapter_type = config.adapter_type
-        kwargs.setdefault("chars_per_token", config.chars_per_token)
+        if adapter_type != "okf":
+            kwargs.setdefault("chars_per_token", config.chars_per_token)
 
         if adapter_type == "text":
             kwargs.setdefault("max_tokens", config.max_tokens)
@@ -141,6 +149,8 @@ def create_adapter(
 
     if overrides:
         kwargs.update(overrides.extra)
+        if adapter_type == "okf" and overrides.token_estimator is not None:
+            kwargs["token_estimator"] = overrides.token_estimator
 
     return adapter_registry.create(backend=adapter_type, **kwargs)
 

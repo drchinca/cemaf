@@ -102,7 +102,7 @@ def create_executor_config(
     max_parallel: int | None = None,
     enable_logging: bool = True,
     enable_events: bool = True,
-    enable_moderation: bool = False,
+    enable_moderation: bool = True,
     merge_strategy: str = "last_write_wins",
     node_timeout_seconds: float = 300.0,
 ) -> ExecutorConfig:
@@ -160,7 +160,7 @@ def create_dag_executor_from_config(
     - CEMAF_ORCHESTRATION_MAX_PARALLEL_NODES: Max parallel execution (default: 10)
     - CEMAF_ORCHESTRATION_ENABLE_LOGGING: Enable logging (default: true)
     - CEMAF_ORCHESTRATION_ENABLE_EVENTS: Enable events (default: true)
-    - CEMAF_ORCHESTRATION_ENABLE_MODERATION: Enable moderation (default: false)
+    - CEMAF_ORCHESTRATION_ENABLE_MODERATION: Enable moderation (default: true)
 
     Args:
         node_executor: Required node execution strategy
@@ -178,7 +178,7 @@ def create_dag_executor_from_config(
     max_parallel = int(os.getenv("CEMAF_ORCHESTRATION_MAX_PARALLEL_NODES", "10"))
     enable_logging = os.getenv("CEMAF_ORCHESTRATION_ENABLE_LOGGING", "true").lower() == "true"
     enable_events = os.getenv("CEMAF_ORCHESTRATION_ENABLE_EVENTS", "true").lower() == "true"
-    enable_moderation = os.getenv("CEMAF_ORCHESTRATION_ENABLE_MODERATION", "false").lower() == "true"
+    enable_moderation = os.getenv("CEMAF_ORCHESTRATION_ENABLE_MODERATION", "true").lower() == "true"
 
     config = create_executor_config(
         max_parallel=max_parallel,

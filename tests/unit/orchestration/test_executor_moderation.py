@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.events.bus import InMemoryEventBus
@@ -24,8 +25,9 @@ from cemaf.moderation.protocols import (
     ModerationResult,
     ModerationViolation,
 )
+from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 from cemaf.orchestration.dag import DAG, Node
-from cemaf.orchestration.executor import ExecutorConfig
+from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
 
 
@@ -106,6 +108,7 @@ def _registry() -> AgentRegistry:
 async def test_clean_output_is_allowed() -> None:
     pipeline = ModerationPipeline(post_flight=_KeywordBlockGate())
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=False, enable_moderation=True),
         services=RuntimeServices(moderation_pipeline=pipeline),
@@ -138,6 +141,7 @@ async def test_blocked_output_fails_node_and_dag() -> None:
     bus.subscribe_all(capture)
     pipeline = ModerationPipeline(post_flight=_KeywordBlockGate())
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=True, enable_moderation=True),
         services=RuntimeServices(
@@ -164,6 +168,7 @@ async def test_blocked_output_fails_node_and_dag() -> None:
 @pytest.mark.asyncio
 async def test_no_pipeline_configured_is_passthrough() -> None:
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),
@@ -171,3 +176,34 @@ async def test_no_pipeline_configured_is_passthrough() -> None:
     result = await executor.run(dag=_single_node_dag(payload="anything BLOCKED goes"))
     assert result.status == RunStatus.COMPLETED
     assert result.node_results[0].success is True
+
+
+@pytest.mark.asyncio
+async def test_direct_executor_honors_enable_moderation_false() -> None:
+    """SPEC-22 Inv 2: a DAGExecutor built directly with enable_moderation=False never moderates."""
+
+    executor = DAGExecutor(
+        node_executor=ContextNodeExecutor(agent_registry=_registry(), clearance=SecurityLevel.CONFIDENTIAL),
+        config=ExecutorConfig(enable_events=False, enable_moderation=False),
+        services=RuntimeServices(moderation_pipeline=ModerationPipeline(post_flight=_KeywordBlockGate())),
+    )
+
+    result = await executor.run(dag=_single_node_dag(payload="BLOCKED words pass through"))
+
+    assert result.status == RunStatus.COMPLETED
+    assert result.node_results[0].success is True
+
+
+@pytest.mark.asyncio
+async def test_direct_executor_moderates_by_default() -> None:
+    """SPEC-22 Inv 1: a DAGExecutor built directly with a pipeline and no config moderates."""
+
+    executor = DAGExecutor(
+        node_executor=ContextNodeExecutor(agent_registry=_registry(), clearance=SecurityLevel.CONFIDENTIAL),
+        services=RuntimeServices(moderation_pipeline=ModerationPipeline(post_flight=_KeywordBlockGate())),
+    )
+
+    result = await executor.run(dag=_single_node_dag(payload="BLOCKED content"))
+
+    assert result.status == RunStatus.FAILED
+    assert result.node_results[0].success is False

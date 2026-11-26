@@ -9,6 +9,7 @@ Drop-in replacement for DefaultSessionManager:
   to DefaultSessionManager
 """
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
@@ -92,6 +93,7 @@ class DistributedSessionManager:
         value: JSON,
         *,
         confidence: float = 1.0,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem:
         """Store to SESSION scope and record episodic event."""
         state = await self._session_store.get_state(session_id)
@@ -101,6 +103,7 @@ class DistributedSessionManager:
                 key=key,
                 value=value,
                 confidence=confidence,
+                security_level=security_level,
             )
         if state.phase != SessionPhase.ACTIVE:
             raise ValueError(f"Cannot ingest in phase {state.phase.value}, must be active")
@@ -110,6 +113,7 @@ class DistributedSessionManager:
             key=key,
             value=value,
             confidence=confidence,
+            security_level=security_level,
         )
 
         if state.episode_id:

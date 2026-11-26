@@ -12,7 +12,7 @@ from cemaf.memory.scope_hierarchy import (
 )
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 class TestScopePath:
@@ -61,7 +61,7 @@ class TestPropagatingScorer:
 
     def test_satisfies_protocol(self) -> None:
         store = InMemoryStore()
-        embedding_provider = MockEmbeddingProvider()
+        embedding_provider = CharacterHashEmbeddingProvider()
         semantic_store = DefaultSemanticMemoryStore(
             memory_store=store,
             vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
@@ -74,7 +74,7 @@ class TestPropagatingScorer:
     @pytest.mark.asyncio
     async def test_empty_scopes_returns_empty(self) -> None:
         store = InMemoryStore()
-        embedding_provider = MockEmbeddingProvider()
+        embedding_provider = CharacterHashEmbeddingProvider()
         semantic_store = DefaultSemanticMemoryStore(
             memory_store=store,
             vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
@@ -97,7 +97,7 @@ class TestQueryWithScopePath:
     async def test_scope_path_narrows_results(self) -> None:
         """Items at 'project/a' and 'project/b', query for 'project/a' → only 'a' items."""
         store = InMemoryStore()
-        embedding_provider = MockEmbeddingProvider()
+        embedding_provider = CharacterHashEmbeddingProvider()
         semantic_store = DefaultSemanticMemoryStore(
             memory_store=store,
             vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
@@ -138,7 +138,7 @@ class TestQueryWithScopePath:
     async def test_no_scope_path_returns_all(self) -> None:
         """Without scope_path filter, all items returned."""
         store = InMemoryStore()
-        embedding_provider = MockEmbeddingProvider()
+        embedding_provider = CharacterHashEmbeddingProvider()
         semantic_store = DefaultSemanticMemoryStore(
             memory_store=store,
             vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),

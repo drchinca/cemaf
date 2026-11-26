@@ -57,6 +57,55 @@ dependency chain above.
 | ID | Title | Depends on | Owns |
 |---|---|---|---|
 | [SPEC-19](SPEC-19-property-assertions.md) | Property Assertions | none | sticky `always`/`sometimes`/`reachable`/`unreachable` accumulation, closes vacuous-coverage gaps in concurrency tests |
+
+## Node Dispatch (SPEC-20)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-20](SPEC-20-node-resolver-chain.md) | Node Resolver Chain | SPEC-09, SPEC-10 | first-match resolver order; public `RuntimeServices.node_resolvers` registration |
+
+## Durable Execution (SPEC-21)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-21](SPEC-21-checkpoint-resume-outcomes.md) | Checkpoint Resume Keeps Node Outcomes | none | `DAGCheckpoint.unsuccessful_nodes`; resume rebuilds failed-but-continued nodes as failed |
+
+## Composition Root (SPEC-22)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-22](SPEC-22-supplied-services-are-used.md) | Supplied Runtime Services Are Used | none | `ExecutorConfig.enable_moderation` defaults to True, so a supplied moderation pipeline is never a silent no-op |
+
+## Audit (SPEC-23)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-23](SPEC-23-postgres-audit-log.md) | Postgres Audit Log | none | durable `AuditLog` backend, signed-chain verification, tamper detection |
+
+## Events (SPEC-24)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-24](SPEC-24-durable-event-bus.md) | Durable Event Bus Delivery | none | `RedisEventBus` fan-out per subscriber, redelivery, dead-letter stream |
+
+## LLM Testing (SPEC-25)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-25](SPEC-25-recorded-llm-replay.md) | Recorded LLM Replay | none | injectable HTTP transport on `OpenAICompatClient`; captured-once, replayed-in-CI model cassettes |
+
+## Retrieval (SPEC-26)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-26](SPEC-26-honest-offline-embeddings.md) | Honest Offline Embeddings | none | `CharacterHashEmbeddingProvider` as the named, warned-about offline fallback |
+
+## Knowledge (SPEC-27)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-27](SPEC-27-knowledge-ontologies.md) | Knowledge Ontologies | SPEC-02, SPEC-07 | declared classes, properties and relations for a knowledge base; advisory validation on KG writes; typed queries; `cemaf-self` ontology |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see

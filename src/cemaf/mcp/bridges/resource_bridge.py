@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.mcp.types import MCPResource, MCPResourceContents
 from cemaf.memory.base import MemoryItem
 from cemaf.memory.protocols import MemoryStore
@@ -52,8 +53,8 @@ class ResourceBridge:
         )
 
     @staticmethod
-    async def list_resources(store: MemoryStore) -> list[MCPResource]:
-        """List all memory items as MCP resources."""
+    async def list_resources(*, store: MemoryStore, clearance: SecurityLevel) -> list[MCPResource]:
+        """List memory items at or below clearance as MCP resources."""
         from cemaf.core.enums import MemoryScope
 
         resources: list[MCPResource] = []
@@ -62,6 +63,8 @@ class ResourceBridge:
             try:
                 items = await store.list_by_scope(scope)
                 for item in items:
+                    if item.security_level.rank > clearance.rank:
+                        continue
                     resource = ResourceBridge.memory_item_to_resource(
                         scope=scope.value,
                         key=item.key,
@@ -81,10 +84,12 @@ class ResourceBridge:
 
     @staticmethod
     async def read_resource(
+        *,
         store: MemoryStore,
         uri: str,
+        clearance: SecurityLevel,
     ) -> MCPResourceContents | None:
-        """Read a memory item by URI (memory://scope/key)."""
+        """Read a memory item by URI (memory://scope/key); items above clearance read as missing."""
         from cemaf.core.enums import MemoryScope
 
         if not uri.startswith("memory://"):
@@ -103,7 +108,7 @@ class ResourceBridge:
             return None
 
         item = await store.get(scope, key)
-        if item is None:
+        if item is None or item.security_level.rank > clearance.rank:
             return None
 
         text = json.dumps(item.value, indent=2)

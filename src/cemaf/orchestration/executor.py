@@ -19,9 +19,10 @@ Type imports happen at runtime within methods that need them.
 import asyncio
 import dataclasses
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -37,12 +38,13 @@ from cemaf.core.execution import CancellationToken
 from cemaf.core.recovery import AutoHealManager
 from cemaf.core.types import JSON, NodeID, RunID
 from cemaf.core.utils import utc_now
+from cemaf.evals.online import EvalTrigger, GateFailure, OnlineEvalPipeline
 from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import Event, EventBus, EventType
 from cemaf.memory.session import SessionManager
 from cemaf.moderation.pipeline import ModerationPipeline
 from cemaf.observability import get_logger, get_metrics
-from cemaf.observability.budget_guard import BudgetGuard
+from cemaf.observability.budget_guard import BudgetGuard, RuntimeUsage, track_runtime_usage
 from cemaf.observability.health import HealthMonitor
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Edge, EdgeCondition, Node
@@ -87,6 +89,32 @@ class HaltReason(StrEnum):
 
     BUDGET_EXHAUSTED = "budget_exhausted"
     QUALITY_DEGRADED = "quality_degraded"
+    GATE_EVAL_FAILED = "gate_eval_failed"
+
+
+ONLINE_GATE_METADATA_KEY = "online_gate"
+ONLINE_GATE_SOURCE = "OnlineEvalPipeline"
+HALT_METADATA_KEY = "halt"
+CHECKPOINT_SNAPSHOT_MAX_CHARS = 500
+
+
+def _context_snapshot(*, context: Context) -> dict[str, str]:
+    """Context values as trimmed strings, the shape checkpoint events and gates see."""
+    return {key: str(value)[:CHECKPOINT_SNAPSHOT_MAX_CHARS] for key, value in context.data.items()}
+
+
+def _replace_node_result(
+    *,
+    node_results: list[NodeResult],
+    completed: dict[NodeID, NodeResult],
+    result: NodeResult,
+) -> None:
+    """Swap the latest recorded result for this node with a revised one."""
+    for result_index in range(len(node_results) - 1, -1, -1):
+        if node_results[result_index].node_id == result.node_id:
+            node_results[result_index] = result
+            break
+    completed[result.node_id] = result
 
 
 @dataclass(slots=True)
@@ -111,6 +139,34 @@ class HaltSignal:
     reason: HaltReason
     source: str
     detail: str = ""
+
+
+def _stop_metadata(*, checkpoint_error: str | None) -> JSON:
+    """Result metadata recording a stop checkpoint that could not be saved."""
+    return {"checkpoint_error": checkpoint_error} if checkpoint_error else {}
+
+
+def _new_run_id() -> RunID:
+    """A run id with 128 random bits, so runs started at the same instant never share checkpoints."""
+    return RunID(f"run_{uuid4().hex}")
+
+
+def _failure_stops_run(*, node: Node, result: NodeResult) -> bool:
+    """True when a failed node ends the run rather than letting it continue down other edges.
+
+    A deterministic gate rejection, or a failed online GATE check, is terminal even when
+    the node normally retries failures: the output was already judged, so unconditional
+    edges must not let downstream work run around that decision.
+    """
+    interceptor_metadata = result.metadata.get("interceptors")
+    gate_rejected = isinstance(interceptor_metadata, dict) and bool(interceptor_metadata.get("gate_rejected"))
+    # An online GATE verdict (SPEC-01a Inv 15) halts the run even for retrying or CONDITIONAL nodes.
+    online_gate_failed = ONLINE_GATE_METADATA_KEY in result.metadata
+    return (
+        not result.success
+        and (not node.retry_on_failure or gate_rejected or online_gate_failed)
+        and (node.type != NodeType.CONDITIONAL or online_gate_failed)
+    )
 
 
 def _current_route_choices() -> dict[NodeID, set[NodeID]]:
@@ -184,7 +240,7 @@ class ExecutorConfig(BaseModel):
         description="Enable event bus integration",
     )
     enable_moderation: bool = Field(
-        default=False,
+        default=True,
         description="Enable moderation pipeline for content safety",
     )
     merge_strategy: str = Field(
@@ -309,8 +365,9 @@ class DAGExecutor:
         )
         self._run_logger = services.run_logger
         self._event_bus = services.event_bus
-        self._moderation_pipeline = services.moderation_pipeline
+        self._moderation_pipeline = services.moderation_pipeline if cfg.enable_moderation else None
         self._quality_police = services.quality_police
+        self._online_eval_pipeline = services.online_eval_pipeline
         self._merge_strategy = merge_strategy or DEFAULT_MERGE_STRATEGY
         self._health_registry = services.health_monitor
         self._require_healthy = require_healthy
@@ -324,6 +381,7 @@ class DAGExecutor:
         self._checkpoint_interval = services.checkpoint_interval
         self._knowledge_graph = services.knowledge_graph
         self._agent_directory = services.agent_directory
+        self._collision_policy = services.collision_policy
 
     def _halt_signal(self) -> HaltSignal | None:
         """Aggregate halt check across all outer controllers.
@@ -348,6 +406,38 @@ class DAGExecutor:
             )
         return None
 
+    async def _check_online_gate(
+        self,
+        *,
+        pipeline: OnlineEvalPipeline,
+        node: Node,
+        result: NodeResult,
+        context: Context,
+        run_id: RunID,
+        dag_name: str,
+    ) -> GateFailure | None:
+        """Run the online GATE bindings for a finished node; checkpointed nodes also check the context."""
+        workspace_raw = context.data.get("workspace_id")
+        workspace_id = str(workspace_raw) if workspace_raw is not None else None
+        gate_failure = await pipeline.check_gate(
+            node_id=str(node.id),
+            output=result.output,
+            trigger=EvalTrigger.EVERY_NODE,
+            run_id=str(run_id),
+            dag_name=dag_name,
+            workspace_id=workspace_id,
+        )
+        if gate_failure is not None or not (node.checkpoint_enabled or node.type == NodeType.CHECKPOINT):
+            return gate_failure
+        return await pipeline.check_gate(
+            node_id=str(node.id),
+            output=_context_snapshot(context=context),
+            trigger=EvalTrigger.CHECKPOINT_ONLY,
+            run_id=str(run_id),
+            dag_name=dag_name,
+            workspace_id=workspace_id,
+        )
+
     def _should_halt(self) -> bool:
         """Bool adapter over _halt_signal() for the NodeHandlerContext.should_halt callback."""
         return self._halt_signal() is not None
@@ -363,6 +453,30 @@ class DAGExecutor:
             correlation_id=_correlation_id_var.get(),
         )
         await self._event_bus.publish(event=event)
+
+    async def _save_checkpoint_on_stop(
+        self,
+        *,
+        run_id: RunID,
+        dag: DAG,
+        completed: dict[NodeID, NodeResult],
+        context: Context,
+        error: str,
+    ) -> str | None:
+        """Save the FAILED checkpoint for a stopping run; return the save error instead of raising it."""
+        try:
+            await self._save_runtime_checkpoint(
+                run_id=run_id,
+                dag=dag,
+                status=RunStatus.FAILED,
+                completed=completed,
+                context=context,
+                error=error,
+            )
+        except Exception as exc:
+            logger.warning("Could not save the stop checkpoint", run_id=str(run_id), error=str(exc))
+            return str(exc)
+        return None
 
     async def _save_runtime_checkpoint(
         self,
@@ -396,6 +510,9 @@ class DAGExecutor:
                 dag_name=dag.name,
                 status=status,
                 completed_nodes=tuple(completed),
+                unsuccessful_nodes=tuple(
+                    node_id for node_id, result in completed.items() if not result.success
+                ),
                 pending_nodes=pending_nodes,
                 context=context,
                 error=error,
@@ -471,7 +588,7 @@ class DAGExecutor:
         cancellation_token: CancellationToken | None = None,
     ) -> ExecutionResult:
         """Public entry point. Wraps _run_impl in ContextVar reset guard."""
-        effective_run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        effective_run_id = run_id or _new_run_id()
         route_token = _route_choices_var.set({})
         correlation_token = _correlation_id_var.set(str(effective_run_id))
         try:
@@ -545,7 +662,7 @@ class DAGExecutor:
         """
         # ContextVars were set by the public run() wrapper and will be
         # reset in its finally block. We just read them here.
-        run_id = run_id or RunID(f"run_{utc_now().isoformat()}")
+        run_id = run_id or _new_run_id()
         context = initial_context or Context()
         node_results: list[NodeResult] = []
         started_at = utc_now()
@@ -582,6 +699,7 @@ class DAGExecutor:
             payload={"dag_name": dag.name, "run_id": str(run_id)},
         )
 
+        completed: dict[NodeID, NodeResult] = {}
         try:
             # Validate DAG
             dag.validate_structure()
@@ -629,13 +747,12 @@ class DAGExecutor:
             order = dag.topological_sort()
 
             # Track completed nodes for edge conditions
-            completed: dict[NodeID, NodeResult] = {}
             if resume_checkpoint is not None:
                 for completed_node in resume_checkpoint.completed_nodes:
                     if completed_node != resume_checkpoint.failed_node:
                         completed[completed_node] = NodeResult(
                             node_id=completed_node,
-                            success=True,
+                            success=completed_node not in resume_checkpoint.unsuccessful_nodes,
                             metadata={"resumed_from_checkpoint": True},
                         )
 
@@ -664,6 +781,8 @@ class DAGExecutor:
                 correlation_id=_correlation_id_var.get(),
                 should_halt=self._should_halt,
                 agent_directory=self._agent_directory,
+                collision_policy=self._collision_policy,
+                event_bus=self._event_bus,
             )
 
             for node_id in order:
@@ -671,6 +790,9 @@ class DAGExecutor:
                 if cancellation_token and cancellation_token.is_cancelled:
                     cancel_msg = f"Execution cancelled: {cancellation_token.reason}"
                     logger.warning(cancel_msg, dag_name=dag.name, run_id=str(run_id))
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=cancel_msg
+                    )
                     if self._run_logger:
                         self._run_logger.end_run(
                             final_context=context,
@@ -687,6 +809,7 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=utc_now(),
                         health_check_metadata=health_check_metadata,
+                        metadata=_stop_metadata(checkpoint_error=checkpoint_error),
                     )
 
                 if node_id in completed:
@@ -702,6 +825,40 @@ class DAGExecutor:
 
                 if not should_execute:
                     continue
+
+                # Halt before spending on the next node, not only after a node
+                # succeeds: a resumed run whose budget is already spent must stop
+                # here instead of paying for one more node on every resume.
+                pre_node_halt = self._halt_signal()
+                if pre_node_halt is not None:
+                    halt_msg = f"Execution halted before {node_id}: {pre_node_halt.reason.value}"
+                    logger.warning(
+                        halt_msg, dag_name=dag.name, run_id=str(run_id), source=pre_node_halt.source
+                    )
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=halt_msg
+                    )
+                    if self._run_logger:
+                        self._run_logger.end_run(final_context=context, success=False, error=halt_msg)
+                    return ExecutionResult(
+                        run_id=run_id,
+                        dag_name=dag.name,
+                        status=RunStatus.FAILED,
+                        node_results=tuple(node_results),
+                        final_context=context,
+                        error=halt_msg,
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        health_check_metadata=health_check_metadata,
+                        metadata={
+                            HALT_METADATA_KEY: {
+                                "reason": pre_node_halt.reason.value,
+                                "source": pre_node_halt.source,
+                                "detail": pre_node_halt.detail,
+                            },
+                            **_stop_metadata(checkpoint_error=checkpoint_error),
+                        },
+                    )
 
                 # Keep the pre-node state so non-standard aggregate nodes can
                 # be rolled back if their final output fails moderation.
@@ -779,7 +936,7 @@ class DAGExecutor:
                             "dag_total_nodes": len(order),
                             "run_id": str(run_id),
                             "workspace_id": _cp_workspace,
-                            "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
+                            "context_snapshot": _context_snapshot(context=context),
                         },
                     )
 
@@ -800,11 +957,37 @@ class DAGExecutor:
                         result = moderated_result
                         if not result.success:
                             context = context_before_node
-                        for result_index in range(len(node_results) - 1, -1, -1):
-                            if node_results[result_index].node_id == node_id:
-                                node_results[result_index] = result
-                                break
-                        completed[node_id] = result
+                        _replace_node_result(node_results=node_results, completed=completed, result=result)
+
+                # Online GATE bindings are checked here, before the node is announced
+                # or checkpointed, so a failure turns into a terminal node failure on
+                # any event bus and a resume re-runs (and re-checks) this node.
+                online_gate_failure: GateFailure | None = None
+                if result.success and self._online_eval_pipeline is not None:
+                    online_gate_failure = await self._check_online_gate(
+                        pipeline=self._online_eval_pipeline,
+                        node=node,
+                        result=result,
+                        context=context,
+                        run_id=run_id,
+                        dag_name=dag.name,
+                    )
+                    if online_gate_failure is not None:
+                        result = NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            error=online_gate_failure.message,
+                            duration_ms=result.duration_ms,
+                            metadata={
+                                **result.metadata,
+                                ONLINE_GATE_METADATA_KEY: {
+                                    "score": online_gate_failure.score,
+                                    "rejected_output": result.output,
+                                },
+                            },
+                        )
+                        context = context_before_node
+                        _replace_node_result(node_results=node_results, completed=completed, result=result)
 
                 # Record per-node metrics.
                 # We deliberately do NOT include node_id or run_id in tags —
@@ -874,7 +1057,7 @@ class DAGExecutor:
                             "dag_total_nodes": len(order),
                             "run_id": str(run_id),
                             "workspace_id": _cp2_workspace,
-                            "context_snapshot": {k: str(v)[:500] for k, v in context.data.items()},
+                            "context_snapshot": _context_snapshot(context=context),
                         },
                     )
 
@@ -886,7 +1069,7 @@ class DAGExecutor:
                         completed=completed,
                         context=context,
                         error=result.error,
-                        failed_node=node_id if not result.success else None,
+                        failed_node=node_id if _failure_stops_run(node=node, result=result) else None,
                     )
 
                 # Budget guard halt check after each node. Cost recording
@@ -898,6 +1081,9 @@ class DAGExecutor:
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
                     halt_msg = "Budget exhausted - execution halted"
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=halt_msg
+                    )
                     logger.warning(
                         halt_msg,
                         dag_name=dag.name,
@@ -919,13 +1105,19 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=completed_at,
                         health_check_metadata=health_check_metadata,
-                        metadata={"budget_guard": self._budget_guard.to_dict()},
+                        metadata={
+                            "budget_guard": self._budget_guard.to_dict(),
+                            **_stop_metadata(checkpoint_error=checkpoint_error),
+                        },
                     )
 
                 # Quality police check after each node
                 if self._quality_police and self._quality_police.should_halt():
                     completed_at = utc_now()
                     halt_msg = "Quality degradation - execution halted"
+                    checkpoint_error = await self._save_checkpoint_on_stop(
+                        run_id=run_id, dag=dag, completed=completed, context=context, error=halt_msg
+                    )
                     logger.warning(
                         halt_msg,
                         dag_name=dag.name,
@@ -947,21 +1139,10 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=completed_at,
                         health_check_metadata=health_check_metadata,
+                        metadata=_stop_metadata(checkpoint_error=checkpoint_error),
                     )
 
-                # A deterministic gate rejection is terminal even when the
-                # node normally retries failures. The interceptor has already
-                # decided the output is unsafe/invalid; unconditional edges
-                # must not let downstream work execute around that decision.
-                _interceptor_metadata = result.metadata.get("interceptors")
-                _gate_rejected_result = isinstance(_interceptor_metadata, dict) and bool(
-                    _interceptor_metadata.get("gate_rejected")
-                )
-                if (
-                    not result.success
-                    and (not node.retry_on_failure or _gate_rejected_result)
-                    and node.type != NodeType.CONDITIONAL
-                ):
+                if _failure_stops_run(node=node, result=result):
                     # Record DAG failure metrics
                     completed_at = utc_now()
                     duration_ms = (completed_at - started_at).total_seconds() * 1000
@@ -1021,6 +1202,23 @@ class DAGExecutor:
                         started_at=started_at,
                         completed_at=completed_at,
                         health_check_metadata=health_check_metadata,
+                        metadata=(
+                            {
+                                HALT_METADATA_KEY: {
+                                    **asdict(
+                                        HaltSignal(
+                                            reason=HaltReason.GATE_EVAL_FAILED,
+                                            source=ONLINE_GATE_SOURCE,
+                                            detail=online_gate_failure.message,
+                                        )
+                                    ),
+                                    "node_id": online_gate_failure.node_id,
+                                    "score": online_gate_failure.score,
+                                }
+                            }
+                            if online_gate_failure is not None
+                            else {}
+                        ),
                     )
 
             # End run logging - success
@@ -1095,7 +1293,7 @@ class DAGExecutor:
                     run_id=run_id,
                     dag=dag,
                     status=RunStatus.FAILED,
-                    completed={result.node_id: result for result in node_results},
+                    completed=completed,
                     context=context,
                     error=str(e),
                 )
@@ -1391,10 +1589,11 @@ class DAGExecutor:
 
         try:
             try:
-                result = await asyncio.wait_for(
-                    self._node_executor.execute_node(node, resolved_context),
-                    timeout=self._node_timeout,
-                )
+                with track_runtime_usage(self._budget_guard) as usage:
+                    result = await asyncio.wait_for(
+                        self._node_executor.execute_node(node, resolved_context),
+                        timeout=self._node_timeout,
+                    )
             except TimeoutError:
                 result = NodeResult(
                     node_id=node.id,
@@ -1402,7 +1601,7 @@ class DAGExecutor:
                     error=f"Node timed out after {self._node_timeout}s",
                 )
 
-            self._record_budget_usage(result=result)
+            self._record_budget_usage(result=result, accounted=usage)
             result = await self._moderate_result(result=result, context=context)
             if result.success:
                 result = await self._ingest_accepted_result(
@@ -1444,7 +1643,7 @@ class DAGExecutor:
             if node_span is not None:
                 node_span.end()
 
-    def _record_budget_usage(self, *, result: NodeResult) -> None:
+    def _record_budget_usage(self, *, result: NodeResult, accounted: RuntimeUsage | None = None) -> None:
         """Record per-node cost against BudgetGuard, NaN-safe.
 
         Failed-but-billed calls count — the runaway-spend scenario the guard
@@ -1462,6 +1661,9 @@ class DAGExecutor:
 
         if math.isnan(cost) or math.isinf(cost):
             cost = 0.0
+        if accounted is not None:
+            cost = max(0.0, cost - accounted.cost_usd)
+            tokens = max(0, tokens - accounted.tokens)
         if cost > 0 or tokens > 0:
             self._budget_guard.record_usage(cost_usd=cost, tokens=tokens)
 
@@ -1553,6 +1755,8 @@ class DAGExecutor:
             run_logger=self._run_logger,
             correlation_id=_correlation_id_var.get(),
             agent_directory=self._agent_directory,
+            collision_policy=self._collision_policy,
+            event_bus=self._event_bus,
         )
         return await _run_parallel_nodes(
             nodes=nodes,

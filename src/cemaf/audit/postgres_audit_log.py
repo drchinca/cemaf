@@ -1,9 +1,10 @@
 """
-PostgreSQL-backed append-only AuditLog with Ed25519 signature storage.
+PostgreSQL-backed AuditLog with Ed25519 signature storage.
 
-The application DB user must have INSERT + SELECT only — DELETE/UPDATE
-are revoked at table creation to enforce append-only at the DB level.
-Monthly range partitions for retention management.
+The log only ever INSERTs and SELECTs, but this module does not revoke UPDATE or
+DELETE — grant the application role INSERT + SELECT only to make the table
+append-only at the database level. With a signing registry, ``verify_chain``
+detects any row edited after it was written. The table is not partitioned.
 
 Requires ``asyncpg`` (``pip install 'cemaf[postgres]'``).
 """
@@ -142,7 +143,7 @@ class PostgresAuditLog:
             signer_key_id = signed.signer_key_id
             sig_alg = signed.signature_algorithm
 
-        sql = f"""  # nosec B608
+        sql = f"""
         INSERT INTO {self._schema}.audit_log
             (id, type, timestamp, run_id, source, correlation_id,
              payload, metadata, signature, signer_key_id, signature_algorithm)
@@ -198,7 +199,7 @@ class PostgresAuditLog:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         params.append(limit)
 
-        sql = f"""  # nosec B608
+        sql = f"""
         SELECT id, type, timestamp, run_id, source,
                correlation_id, payload, metadata
         FROM {self._schema}.audit_log
@@ -250,7 +251,7 @@ class PostgresAuditLog:
 
         pool = await self._get_pool()
 
-        sql = f"""  # nosec B608
+        sql = f"""
         SELECT id, type, timestamp, run_id, source,
                correlation_id, payload, metadata,
                signature, signer_key_id, signature_algorithm

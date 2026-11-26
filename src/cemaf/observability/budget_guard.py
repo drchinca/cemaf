@@ -1,8 +1,61 @@
 """Budget Guard - Enforces cost and token limits across DAG runs."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
+
+class BudgetExhaustedError(RuntimeError):
+    """Raised before dispatch when the active runtime allowance is exhausted."""
+
+
+@dataclass
+class RuntimeUsage:
+    """Task-local accounting shared with child calls within one node attempt."""
+
+    guard: BudgetGuard | None
+    tokens: int = 0
+    cost_usd: float = 0.0
+    parent: RuntimeUsage | None = None
+
+
+_runtime_usage: ContextVar[RuntimeUsage | None] = ContextVar("cemaf_runtime_usage", default=None)
+
+
+@contextmanager
+def track_runtime_usage(guard: BudgetGuard | None) -> Iterator[RuntimeUsage]:
+    """Bind a node attempt's usage without mixing parallel node receipts."""
+    usage = RuntimeUsage(guard=guard, parent=_runtime_usage.get())
+    token = _runtime_usage.set(usage)
+    try:
+        yield usage
+    finally:
+        _runtime_usage.reset(token)
+
+
+def check_runtime_budget() -> None:
+    """Prevent another instrumented model call after the runtime cap is spent."""
+    usage = _runtime_usage.get()
+    while usage is not None:
+        if usage.guard is not None and usage.guard.should_halt():
+            raise BudgetExhaustedError("Runtime token or cost budget exhausted")
+        usage = usage.parent
+
+
+def record_runtime_usage(*, tokens: int, cost_usd: float) -> None:
+    """Charge provider-reported usage immediately, including billed failures."""
+    usage = _runtime_usage.get()
+    charged: set[int] = set()
+    while usage is not None:
+        usage.tokens += tokens
+        usage.cost_usd += cost_usd
+        if usage.guard is not None and id(usage.guard) not in charged:
+            usage.guard.record_usage(tokens=tokens, cost_usd=cost_usd)
+            charged.add(id(usage.guard))
+        usage = usage.parent
 
 
 class AlertLevel(StrEnum):

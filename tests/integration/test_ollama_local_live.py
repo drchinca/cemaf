@@ -11,18 +11,16 @@ import os
 import pytest
 
 from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.llm.ollama import create_ollama_client
 from cemaf.llm.protocols import LLMClient, Message
 from cemaf.rlm import create_rlm_tool
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1",
-    reason="set CEMAF_RUN_LOCAL_LLM_TESTS=1 with Ollama running to execute live local-model proof",
-)
-
 
 @pytest.mark.asyncio
 async def test_real_ollama_client_completes_with_token_telemetry() -> None:
+    if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1":
+        pytest.skip("Live Ollama check requires CEMAF_RUN_LOCAL_LLM_TESTS=1 and a running local model")
     client = create_ollama_client(
         model=os.getenv("CEMAF_LOCAL_LLM_MODEL", "gemma3:4b"),
         temperature=0,
@@ -42,6 +40,8 @@ async def test_real_ollama_client_completes_with_token_telemetry() -> None:
 
 @pytest.mark.asyncio
 async def test_real_ollama_recursively_decomposes_and_aggregates_bounded_context() -> None:
+    if os.getenv("CEMAF_RUN_LOCAL_LLM_TESTS") != "1":
+        pytest.skip("Live Ollama RLM check requires CEMAF_RUN_LOCAL_LLM_TESTS=1 and a running local model")
     client = create_ollama_client(
         model=os.getenv("CEMAF_LOCAL_LLM_MODEL", "gemma3:4b"),
         temperature=0,
@@ -54,6 +54,7 @@ async def test_real_ollama_recursively_decomposes_and_aggregates_bounded_context
         chunk_size=100,
         max_depth=3,
         max_tokens=300,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     content = "\n\n".join(
         (

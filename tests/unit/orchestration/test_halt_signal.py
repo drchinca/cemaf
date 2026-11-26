@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID
 from cemaf.evals.police import QualityPolice, QualityPoliceConfig
 from cemaf.observability.budget_guard import BudgetGuard
@@ -63,6 +64,7 @@ def test_halt_signal_is_frozen() -> None:
 def test_halt_signal_none_when_no_controllers() -> None:
     registry = AgentRegistry()
     executor: DAGExecutor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),
@@ -76,6 +78,7 @@ def test_halt_signal_reports_budget_reason_when_budget_exhausted() -> None:
     guard.record_usage(cost_usd=5.0, tokens=500)  # Over cap
 
     executor: DAGExecutor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard),
@@ -99,6 +102,7 @@ def test_halt_signal_budget_wins_over_quality_when_both_trip() -> None:
     police.record_score(score=0.1, node_id="n1")
 
     executor: DAGExecutor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard, quality_police=police),
@@ -115,6 +119,7 @@ def test_should_halt_bool_adapter_still_works() -> None:
     guard = BudgetGuard(max_cost_usd=1.0)
     guard.record_usage(cost_usd=5.0, tokens=500)
     executor: DAGExecutor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard),

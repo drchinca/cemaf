@@ -17,7 +17,7 @@ script. Every station is a first-class CEMAF citizen:
                   ├─ events ─▶ ONLINE-EVAL  (quality gate on the draft)
                   └─ events ─▶ HARVEST       (distil this run into a reusable blueprint)
 
-Wired through ONE `create_executor(services=RuntimeServices(...))`. No mocks; the
+Wired through ONE `create_executor(clearance=..., services=RuntimeServices(...))`. No mocks; the
 agents are deterministic (LLM-free) so the demo is reproducible and free to run.
 
 Three modes — the lifecycle of a real engine run:
@@ -63,6 +63,7 @@ from cemaf.blueprint import (
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
@@ -267,6 +268,7 @@ def build_engine() -> tuple[object, dict[str, object]]:
 
     budget_guard = BudgetGuard(max_cost_usd=5.0)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(

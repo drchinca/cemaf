@@ -15,18 +15,19 @@ from __future__ import annotations
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.models import EntityType, KGEntity
 from cemaf.memory.factories import create_memory_manager
 from cemaf.retrieval.hybrid import HybridRetriever
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 from cemaf.retrieval.protocols import Document, SearchResult
 
 
 @pytest.mark.asyncio
 async def test_kg_ranker_contributes_to_hybrid_output() -> None:
     """A doc surfaced only by the KG ranker reaches the merged output, alongside vector."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     vector_store = InMemoryVectorStore(embedding_provider=embedding_provider)
 
     # Seed the vector store with two docs.
@@ -35,7 +36,7 @@ async def test_kg_ranker_contributes_to_hybrid_output() -> None:
 
     # Seed a real KG with two entities, one of which is NOT in the vector store.
     memory_manager = create_memory_manager()
-    kg = create_knowledge_graph(memory_manager=memory_manager)
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)
     await kg.add_entity(
         KGEntity(
             id="mod:context",

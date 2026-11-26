@@ -13,6 +13,7 @@ from datetime import datetime
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, TokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.core.types import TokenCount
 from cemaf.core.utils import utc_now
@@ -66,9 +67,13 @@ class StreamingContextCompiler:
         memories: tuple[tuple[str, str], ...],
         budget: TokenBudget,
         priorities: dict[str, int] | None = None,
+        *,
+        clearance: SecurityLevel,
+        source_levels: dict[str, SecurityLevel] | None = None,
     ) -> CompiledContext:
         """Backward-compatible compile — converts pairs to ContextSource then streams."""
         priorities = priorities or {}
+        levels = source_levels or {}
         sources: list[ContextSource] = []
 
         for key, content in artifacts:
@@ -80,6 +85,7 @@ class StreamingContextCompiler:
                     priority=priorities.get(key, 0),
                     source_type="artifact",
                     source_id=key,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                 )
             )
         for key, content in memories:
@@ -91,6 +97,7 @@ class StreamingContextCompiler:
                     priority=priorities.get(key, -1),
                     source_type="memory",
                     source_id=key,
+                    security_level=levels.get(key, SecurityLevel.INTERNAL),
                 )
             )
 
@@ -98,12 +105,14 @@ class StreamingContextCompiler:
             for s in sources:
                 yield s
 
-        return await self.compile_stream(_gen(), budget)
+        return await self.compile_stream(sources=_gen(), budget=budget, clearance=clearance)
 
     async def compile_stream(
         self,
         sources: AsyncIterator[ContextSource],
         budget: TokenBudget,
+        *,
+        clearance: SecurityLevel,
     ) -> CompiledContext:
         """
         Stream-oriented compilation with O(heap_size) peak memory.
@@ -118,8 +127,12 @@ class StreamingContextCompiler:
         heap_cap = max(_MIN_HEAP_SIZE, available // _DEFAULT_AVG_SOURCE_TOKENS)
 
         heap: list[_HeapItem] = []
+        security_excluded: list[str] = []
 
         async for source in sources:
+            if source.security_level.rank > clearance.rank:
+                security_excluded.append(source.source_id)
+                continue
             item = _HeapItem(
                 neg_priority=-source.priority,
                 timestamp=source.timestamp,
@@ -163,6 +176,7 @@ class StreamingContextCompiler:
             compiled_at=utc_now(),
             metadata={
                 "compiler": "streaming",
+                "security_excluded": security_excluded,
                 "heap_capacity": heap_cap,
                 "selected_count": len(selected),
             },

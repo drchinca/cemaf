@@ -9,13 +9,13 @@ from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.tiered import TruncationTierGenerator
 from cemaf.memory.tiered_store import TieredMemoryStore
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _wire_tiered_store() -> TieredMemoryStore:
     """Wire up a real tiered store for testing."""
     store = InMemoryStore()
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
 
     semantic_store = DefaultSemanticMemoryStore(

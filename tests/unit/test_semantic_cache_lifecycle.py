@@ -16,7 +16,7 @@ from cemaf.context.context import Context
 from cemaf.retrieval.protocols import Document
 
 
-class MockEmbeddingProvider:
+class CharacterHashEmbeddingProvider:
     """Mock embedding provider for testing."""
 
     async def embed(self, text: str) -> list[float]:
@@ -49,7 +49,7 @@ async def test_cache_ttl_expiration():
     WHEN: Cache is accessed after TTL expires
     THEN: Should return None (expired)
     """
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     vector_store = MockVectorStore()
     cache = SemanticStateCache(
         vector_store=vector_store,
@@ -80,7 +80,7 @@ async def test_cache_lru_eviction():
     WHEN: Add 3 items to the cache
     THEN: Only 2 most recent items should remain (oldest evicted)
     """
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     vector_store = MockVectorStore()
     cache = SemanticStateCache(
         vector_store=vector_store,
@@ -113,7 +113,7 @@ async def test_cache_preserves_context_fully():
     WHEN: Context is cached and retrieved
     THEN: Full Context (with patch history) should be preserved
     """
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     vector_store = MockVectorStore()
     cache = SemanticStateCache(
         vector_store=vector_store,
@@ -139,7 +139,7 @@ async def test_cache_disables_ttl_when_not_set():
     WHEN: Add context and wait
     THEN: Context should not expire
     """
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     vector_store = MockVectorStore()
     cache = SemanticStateCache(
         vector_store=vector_store,
@@ -165,7 +165,7 @@ async def test_cache_max_size_none_means_unlimited():
     WHEN: Add many contexts
     THEN: All should be cached (no LRU eviction)
     """
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     vector_store = MockVectorStore()
     cache = SemanticStateCache(
         vector_store=vector_store,

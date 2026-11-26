@@ -441,7 +441,30 @@ the prior "static unless a selector is wired" semantics.
 **Adding a node "kind" is registering a resolver, not editing `execute_node`.**
 The dispatch loop walks the chain and the first `matches()` wins; `Node.council`
 and `Node.auction` are just factories that stamp the config key their resolver
-looks for.
+looks for. Register your own through `RuntimeServices` (SPEC-20). They are
+matched before the built-ins, `ContextNodeExecutor.resolver_ids` lists the chain
+in match order, and duplicate `resolver_id`s fail at construction:
+
+```python
+class ApprovalResolver:
+    resolver_id = "approval"
+
+    def matches(self, *, node: Node) -> bool:
+        return bool(node.config.get("approval"))
+
+    async def resolve(self, *, node: Node, resolved_inputs: object, run_id: str, start: float) -> NodeComplete:
+        return NodeComplete(result=NodeResult(node_id=node.id, success=True, output="approved"))
+
+
+executor = create_executor(
+    agent_registry=registry,
+    clearance=SecurityLevel.CONFIDENTIAL,
+    services=RuntimeServices(node_resolvers=(ApprovalResolver(),)),
+)
+```
+
+A resolver that returns `NodeComplete` skips the interceptor chain (as the
+council does); moderation and events still apply.
 
 ## Budget-Guarded Execution
 
@@ -515,13 +538,21 @@ handler_ctx = NodeHandlerContext(
 ### Parallel Execution Details
 
 `execute_parallel_node()` and `run_parallel_nodes()` handle:
+- Collision coordination before dispatch (SPEC-12 §2.4): children whose
+  `output_key`s share a top-level key the merge strategy would not handle are
+  resolved in sibling order — the earlier one runs, the others are recorded as
+  steered (`metadata["collision"]`) and never dispatched. Set
+  `RuntimeServices(collision_policy=None)` to turn this off.
 - Semaphore-bounded concurrency (configurable via `max_parallel`)
 - Context isolation per branch (each branch gets a copy)
 - Context merging after all branches complete (via `MergeStrategy`)
 - Merge conflict recording as context patches when `RunLogger` is available
 - Exception handling: failed branches produce error `NodeResult` without crashing others
 
-Merge strategies are protocol-first and registry-backed:
+Merge strategies are protocol-first and registry-backed. A strategy implements
+`merge(base, branches)` and `handles_shared_writes(*, key)`, which returns True
+for top-level keys it merges or reports on purpose (so siblings writing them are
+never steered) and False for keys where it would keep only one branch:
 
 ```python
 from cemaf.context import create_merge_strategy, merge_strategy_registry

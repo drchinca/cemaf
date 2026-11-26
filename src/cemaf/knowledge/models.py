@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
 
@@ -20,6 +21,7 @@ class EntityType(StrEnum):
     MODULE = "module"
     PROTOCOL = "protocol"
     SKILL = "skill"
+    CONCEPT = "concept"
 
 
 class RelationType(StrEnum):
@@ -32,6 +34,7 @@ class RelationType(StrEnum):
     EXTRACTED_FROM = "extracted_from"
     CONTAINS = "contains"
     IMPLEMENTS = "implements"
+    REFERENCES = "references"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,26 +51,35 @@ class KGBranchRef:
     metadata: JSON = field(default_factory=dict)
 
 
+RELATION_KEY_SEPARATOR = ":"
+
+
 @dataclass(frozen=True, slots=True)
 class KGEntity:
     """An entity node in the knowledge graph."""
 
     id: str
-    type: EntityType
+    type: str
     name: str
     description: str = ""
     properties: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
+
+    def __post_init__(self) -> None:
+        if not self.type:
+            raise ValueError("KGEntity.type must be a non-empty type name")
 
     def to_dict(self) -> JSON:
         """Serialize entity to JSON-compatible dict."""
         return {
             "id": self.id,
-            "type": self.type.value,
+            "type": str(self.type),
             "name": self.name,
             "description": self.description,
             "properties": dict(self.properties),
             "created_at": self.created_at.isoformat(),
+            "security_level": self.security_level.value,
         }
 
 
@@ -77,18 +89,25 @@ class KGRelation:
 
     source_id: str
     target_id: str
-    type: RelationType
+    type: str
     properties: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
+
+    def __post_init__(self) -> None:
+        # The type is part of the stored relation key "source:type:target", so ":" would collide.
+        if not self.type or RELATION_KEY_SEPARATOR in self.type:
+            raise ValueError(f"KGRelation.type must be non-empty and contain no {RELATION_KEY_SEPARATOR!r}")
 
     def to_dict(self) -> JSON:
         """Serialize relation to JSON-compatible dict."""
         return {
             "source_id": self.source_id,
             "target_id": self.target_id,
-            "type": self.type.value,
+            "type": str(self.type),
             "properties": dict(self.properties),
             "created_at": self.created_at.isoformat(),
+            "security_level": self.security_level.value,
         }
 
 

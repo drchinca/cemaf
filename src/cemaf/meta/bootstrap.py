@@ -15,6 +15,7 @@ from cemaf.blueprint.harvest import (
 )
 from cemaf.blueprint.library import WritableBlueprintSource
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.knowledge.factories import create_knowledge_graph
 from cemaf.knowledge.hub_spoke import (
     SpokeCacheConfig,
@@ -73,6 +74,7 @@ class MetaServices:
 def create_meta_executor(
     *,
     agent_registry: AgentRegistry,
+    clearance: SecurityLevel,
     tool_registry: ToolRegistry | None = None,
     config: ExecutorConfig | None = None,
     services: RuntimeServices | None = None,
@@ -99,7 +101,14 @@ def create_meta_executor(
     elif svc.knowledge_graph is not None:
         kg = svc.knowledge_graph
     elif svc.memory_manager is not None:
-        kg = create_knowledge_graph(memory_manager=svc.memory_manager)
+        kg = create_knowledge_graph(memory_manager=svc.memory_manager, clearance=clearance)
+
+    supplied_clearance = getattr(kg, "clearance", None)
+    if supplied_clearance is not None and supplied_clearance != clearance:
+        raise ValueError(
+            f"Knowledge graph clearance {supplied_clearance.value} does not match "
+            f"executor clearance {clearance.value}"
+        )
 
     # Optionally front the KG with a hub-and-spoke cache (SPEC-07). Meta-agents
     # share one spoke; writes still hit the hub-of-record and invalidate it.
@@ -177,6 +186,7 @@ def create_meta_executor(
     # Delegate to standard bootstrap
     return create_executor(
         agent_registry=agent_registry,
+        clearance=clearance,
         config=config,
         services=svc,
     )

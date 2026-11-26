@@ -2,6 +2,7 @@
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.memory.base import InMemoryStore, MemoryItem
@@ -14,7 +15,7 @@ from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.session import DefaultSessionManager
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _wire_full_stack() -> tuple[
@@ -25,7 +26,7 @@ def _wire_full_stack() -> tuple[
 ]:
     """Wire manager + deduplicator + extraction pipeline + session manager."""
     store = InMemoryStore()
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
 
     semantic_store = DefaultSemanticMemoryStore(
@@ -165,7 +166,7 @@ class TestDisposeActuallyRemovesSessionItems:
         await session_manager.bootstrap(session_id="s1")
 
         # Semantically distinct values — near-identical dicts ({"v":0}/{"v":1})
-        # embed ~0.9 cosine under MockEmbeddingProvider and would be deduped,
+        # embed ~0.9 cosine under CharacterHashEmbeddingProvider and would be deduped,
         # which would mask what this test is actually checking.
         distinct_values = [
             {"insight": "users prefer concise responses"},
@@ -213,3 +214,32 @@ class TestDisposeActuallyRemovesSessionItems:
         # The original SESSION item is gone; a PROJECT copy survives.
         assert len(session_after) == 0
         assert any(item.key == "keep" for item in project_after)
+
+
+class TestExtractionKeepsClassification:
+    """Promotion must not relabel session content to a lower security level (SPEC-11)."""
+
+    @pytest.mark.asyncio
+    async def test_promoted_memories_inherit_most_restrictive_session_level(self) -> None:
+        manager, _, pipeline, _ = _wire_full_stack()
+        session_memories = (
+            MemoryItem(
+                scope=MemoryScope.SESSION,
+                key="salary-band",
+                value={"fact": "band C is 120k"},
+                confidence=Confidence(0.9),
+                security_level=SecurityLevel.CONFIDENTIAL,
+            ),
+            MemoryItem(
+                scope=MemoryScope.SESSION,
+                key="office-city",
+                value={"fact": "office is in Lima"},
+                confidence=Confidence(0.9),
+            ),
+        )
+
+        report = await pipeline.run(session_memories=session_memories, episodes=(), recent_events=())
+        promoted = await manager.recall(query=MemoryQuery(scope=MemoryScope.PROJECT))
+
+        assert report.stored_count == 2
+        assert {r.item.security_level for r in promoted} == {SecurityLevel.CONFIDENTIAL}

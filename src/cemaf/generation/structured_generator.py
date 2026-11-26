@@ -160,7 +160,7 @@ class DefaultStructuredGenerator:
         policy_attempt = 0
 
         while True:
-            raw_text, cited = await self._run_tool_loop(
+            raw_text, cited, gen_tokens_consumed = await self._run_tool_loop(
                 request=request,
                 client=client,
                 tool_registry=tool_registry,
@@ -199,10 +199,10 @@ class DefaultStructuredGenerator:
             final_text = raw_text
 
             async def _regenerate(hint: SchemaRepairHint) -> JSON:
-                nonlocal final_text, cited
+                nonlocal final_text, cited, gen_tokens_consumed
                 messages.append(Message(role=MessageRole.ASSISTANT, content=final_text))
                 messages.append(Message(role=MessageRole.USER, content=hint.to_prompt()))
-                final_text, cited = await self._run_tool_loop(
+                final_text, cited, gen_tokens_consumed = await self._run_tool_loop(
                     request=request,
                     client=client,
                     tool_registry=tool_registry,
@@ -236,13 +236,17 @@ class DefaultStructuredGenerator:
         messages: list[Message],
         tool_definitions: list[Any],
         gen_tokens_consumed_start: int,
-    ) -> tuple[str, tuple[Citation, ...]]:
-        """Drives one TERMINAL_TOOL round loop to TERMINAL_STOP; returns (text, citations)."""
+    ) -> tuple[str, tuple[Citation, ...], int]:
+        """Return text, citations, and cumulative consumption across every repair round."""
         gen_tokens_consumed = gen_tokens_consumed_start
         collected_citations: list[Citation] = []
 
         for _round_index in range(request.tool_loop_budget):
             remaining = max(0, request.style.max_tokens - gen_tokens_consumed)
+            if remaining == 0:
+                raise StreamingIncompleteError(
+                    finish_reason=str(FinishReason.PARTIAL_LENGTH), partial_tokens=gen_tokens_consumed
+                )
             config_override = client.config.model_copy(update={"max_tokens": remaining})
             result = await client.complete(
                 messages, tools=tool_definitions or None, config_override=config_override
@@ -254,10 +258,14 @@ class DefaultStructuredGenerator:
                 )
 
             gen_tokens_consumed += int(result.completion_tokens)
+            if gen_tokens_consumed > request.style.max_tokens:
+                raise StreamingIncompleteError(
+                    finish_reason=str(FinishReason.PARTIAL_LENGTH), partial_tokens=gen_tokens_consumed
+                )
 
             if result.finish_reason == FinishReason.TERMINAL_STOP:
                 text = str(result.message.content)
-                return text, tuple(collected_citations)
+                return text, tuple(collected_citations), gen_tokens_consumed
 
             if result.finish_reason == FinishReason.TERMINAL_TOOL:
                 tool_calls = result.message.tool_calls

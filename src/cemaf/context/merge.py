@@ -23,12 +23,108 @@ Usage:
         handle_error(result.error)
 """
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from cemaf.context.context import Context
+from cemaf.context.patch import ContextPatch, PatchSource, SecurityLevel
 from cemaf.core.provider_registry import ProviderRegistry
+
+_MERGE_SOURCE_ID = "context.merge"
+_MERGE_REASON = "parallel branch merge"
+
+
+def _branch_level(*, key: str, branches: list[Context]) -> SecurityLevel:
+    """Most restrictive level any branch wrote at or under key; INTERNAL if none did."""
+    levels = [
+        patch.security_level
+        for branch in branches
+        for patch in branch.patch_history
+        if patch.path == key or patch.path.startswith(f"{key}.")
+    ]
+    return max(levels, key=lambda level: level.rank, default=SecurityLevel.INTERNAL)
+
+
+def _same_value(*, left: Any, right: Any) -> bool:
+    """Equal and of the same type, so 1 and True count as different values."""
+    return type(left) is type(right) and left == right
+
+
+def _delete_modify_conflicts(*, base: Context, branches: list[Context]) -> list[MergeConflict]:
+    """Base keys that one branch deleted while another changed them."""
+    conflicts: list[MergeConflict] = []
+    for key, base_value in base.data.items():
+        deleted = [i for i, branch in enumerate(branches) if key not in branch.data]
+        changed = [
+            i
+            for i, branch in enumerate(branches)
+            if key in branch.data and not _same_value(left=branch.data[key], right=base_value)
+        ]
+        if deleted and changed:
+            conflicts.append(
+                MergeConflict(
+                    key=key,
+                    values=[None for _ in deleted] + [branches[i].data[key] for i in changed],
+                    branch_indices=deleted + changed,
+                )
+            )
+    return conflicts
+
+
+def _drop_branch_deletions(
+    *, base: Context, branches: list[Context], merged_data: dict[str, Any]
+) -> dict[str, Any]:
+    """Remove base keys a branch deleted, unless another branch changed that key."""
+    kept = dict(merged_data)
+    for key in base.data:
+        deleted = any(key not in branch.data for branch in branches)
+        changed = any(
+            key in branch.data and not _same_value(left=branch.data[key], right=base.data[key])
+            for branch in branches
+        )
+        if deleted and not changed:
+            kept.pop(key, None)
+    return kept
+
+
+def _record_merge(*, base: Context, branches: list[Context], merged_data: dict[str, Any]) -> Context:
+    """Apply branch deletions, then return base plus one level-labelled patch per changed key.
+
+    Top-level keys containing "." cannot be expressed as patch paths; they are kept exactly
+    in the result but do not replay from its history.
+    """
+    merged_data = _drop_branch_deletions(base=base, branches=branches, merged_data=merged_data)
+    result = base
+    for key in sorted(base.data.keys() - merged_data.keys()):
+        result = result.apply(
+            ContextPatch.delete(
+                path=key,
+                source=PatchSource.SYSTEM,
+                source_id=_MERGE_SOURCE_ID,
+                reason=_MERGE_REASON,
+                security_level=_branch_level(key=key, branches=branches),
+            )
+        )
+    for key, value in merged_data.items():
+        if key in base.data and _same_value(left=base.data[key], right=value):
+            continue
+        if "." in key:
+            continue
+        result = result.apply(
+            ContextPatch.set(
+                path=key,
+                value=value,
+                source=PatchSource.SYSTEM,
+                source_id=_MERGE_SOURCE_ID,
+                reason=_MERGE_REASON,
+                security_level=_branch_level(key=key, branches=branches),
+            )
+        )
+    if any("." in key for key in merged_data):
+        return Context(data=copy.deepcopy(merged_data), patch_history=result.patch_history)
+    return result
 
 
 @dataclass(frozen=True)
@@ -95,6 +191,10 @@ class MergeStrategy(Protocol):
     execution branches back into a single context.
     """
 
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """True when branches writing this top-level key are merged or reported on purpose."""
+        ...
+
     def merge(
         self,
         base: Context,
@@ -129,6 +229,10 @@ class LastWriteWinsStrategy:
     cause failures.
     """
 
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Overlapping writes keep only the last branch, so siblings must be coordinated."""
+        return False
+
     def merge(
         self,
         base: Context,
@@ -145,7 +249,10 @@ class LastWriteWinsStrategy:
             branch_changes.append(changes)
 
         # Detect conflicts (same key written by multiple branches)
-        conflicts = self._detect_conflicts(branch_changes)
+        conflicts = [
+            *self._detect_conflicts(branch_changes),
+            *_delete_modify_conflicts(base=base, branches=branches),
+        ]
 
         # Merge all branches sequentially (last wins)
         merged_data = dict(base.data)
@@ -154,7 +261,7 @@ class LastWriteWinsStrategy:
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, branches=branches, merged_data=merged_data),
             conflicts=conflicts,
         )
 
@@ -213,6 +320,10 @@ class RaiseOnConflictStrategy:
     Same values from multiple branches are NOT considered conflicts.
     """
 
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Overlapping writes surface as a conflict error."""
+        return True
+
     def merge(
         self,
         base: Context,
@@ -229,7 +340,10 @@ class RaiseOnConflictStrategy:
             branch_changes.append(changes)
 
         # Detect conflicts
-        conflicts = self._detect_conflicts(branch_changes)
+        conflicts = [
+            *self._detect_conflicts(branch_changes),
+            *_delete_modify_conflicts(base=base, branches=branches),
+        ]
 
         # Raise if conflicts found
         if conflicts:
@@ -242,7 +356,7 @@ class RaiseOnConflictStrategy:
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, branches=branches, merged_data=merged_data),
             conflicts=[],
         )
 
@@ -301,6 +415,10 @@ class DeepMergeStrategy:
     Lists and other types are replaced, not merged.
     """
 
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Overlapping writes are merged on purpose."""
+        return True
+
     def merge(
         self,
         base: Context,
@@ -310,7 +428,7 @@ class DeepMergeStrategy:
         if not branches:
             return MergeResult(success=True, context=base, conflicts=[])
 
-        conflicts: list[MergeConflict] = []
+        conflicts: list[MergeConflict] = _delete_modify_conflicts(base=base, branches=branches)
 
         # Start with base data and track which branch wrote each value
         merged_data = dict(base.data)
@@ -326,7 +444,7 @@ class DeepMergeStrategy:
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, branches=branches, merged_data=merged_data),
             conflicts=conflicts,
         )
 
@@ -435,6 +553,10 @@ class ReducerMergeStrategy:
         )
     """
 
+    def handles_shared_writes(self, *, key: str) -> bool:
+        """Only keys with a reducer are combined; the rest keep the last branch."""
+        return key in self._reducers
+
     def __init__(
         self,
         reducers: dict[str, Callable[[list[Any]], Any]] | None = None,
@@ -471,7 +593,7 @@ class ReducerMergeStrategy:
 
         # Apply reducers or fallback
         merged_data = dict(base.data)
-        conflicts: list[MergeConflict] = []
+        conflicts: list[MergeConflict] = _delete_modify_conflicts(base=base, branches=branches)
         errors: list[str] = []
 
         for key, writes in key_values.items():
@@ -500,14 +622,14 @@ class ReducerMergeStrategy:
         if errors:
             return MergeResult(
                 success=False,
-                context=Context(data=merged_data),
+                context=_record_merge(base=base, branches=branches, merged_data=merged_data),
                 conflicts=conflicts,
                 error="; ".join(errors),
             )
 
         return MergeResult(
             success=True,
-            context=Context(data=merged_data),
+            context=_record_merge(base=base, branches=branches, merged_data=merged_data),
             conflicts=conflicts,
         )
 

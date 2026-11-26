@@ -50,7 +50,7 @@ from cemaf.audit.factories import create_audit_system
 from cemaf.audit.protocols import AuditLog
 from cemaf.bootstrap import create_executor
 from cemaf.citation.tracker import CitationTracker
-from cemaf.context.patch import PatchOperation, PatchSource
+from cemaf.context.patch import PatchOperation, PatchSource, SecurityLevel
 from cemaf.core.types import JSON, AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.types import Opinion
@@ -62,7 +62,7 @@ from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.results import ExecutionResult
 from cemaf.orchestration.services import RuntimeServices
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import InMemoryVectorStore, CharacterHashEmbeddingProvider
 from cemaf.retrieval.protocols import Document, VectorStore
 
 # ---------------------------------------------------------------------------
@@ -398,7 +398,7 @@ async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditL
     audit_log, _audit_trail = create_audit_system(event_bus=event_bus)
 
     # Real retrieval source + real citation tracker for the Researcher.
-    vector_store = InMemoryVectorStore(embedding_provider=MockEmbeddingProvider(dimension=64))
+    vector_store = InMemoryVectorStore(embedding_provider=CharacterHashEmbeddingProvider(dimension=64))
     await vector_store.add(
         Document(
             id="doc.cemaf_design#traceability",
@@ -463,6 +463,7 @@ async def run_traced(*, use_otel: bool = False) -> tuple[ExecutionResult, AuditL
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(

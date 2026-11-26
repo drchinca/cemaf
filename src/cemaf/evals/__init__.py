@@ -65,7 +65,7 @@ from cemaf.evals.factories import (
 )
 from cemaf.evals.hierarchy import HierarchicalJudge, HierarchicalJudgeConfig, TierResult
 from cemaf.evals.llm_judge import JudgeCriteria, LLMJudgeEvaluator
-from cemaf.evals.online import EvalMode, NodeEvalBinding, OnlineEvalPipeline
+from cemaf.evals.online import EvalMode, GateFailure, NodeEvalBinding, OnlineEvalPipeline, TriggerSource
 from cemaf.evals.police import AlertLevel, QualityAlert, QualityPolice, QualityPoliceConfig
 from cemaf.evals.protocols import (
     BaseEvaluator,
@@ -116,6 +116,8 @@ __all__ = [
     "OnlineEvalPipeline",
     "NodeEvalBinding",
     "EvalMode",
+    "GateFailure",
+    "TriggerSource",
     # Quality police
     "QualityPolice",
     "QualityPoliceConfig",

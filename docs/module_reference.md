@@ -774,7 +774,7 @@ print(f"Metadata: {result.metadata}")
 ### `retrieval/memory_store.py`
 
 - **Purpose**: In-memory vector store implementation
-- **Key Classes**: `InMemoryVectorStore`, `MockEmbeddingProvider`
+- **Key Classes**: `InMemoryVectorStore`, `CharacterHashEmbeddingProvider`
 - **Features**: Fast in-memory storage for development and testing
 
 ### `retrieval/openai_embeddings.py`

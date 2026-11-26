@@ -21,6 +21,7 @@ from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.agents.selection import Fidelity
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID
 from cemaf.interceptors import (
@@ -147,7 +148,10 @@ async def test_cognitive_fidelity_escalation_under_safety_gate() -> None:
     services = RuntimeServices(interceptor_pipeline=pipeline, llm_client=router)
 
     executor = create_executor(
-        agent_registry=registry, services=services, config=ExecutorConfig(enable_events=False)
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        services=services,
+        config=ExecutorConfig(enable_events=False),
     )
 
     # 4. Construct DAG

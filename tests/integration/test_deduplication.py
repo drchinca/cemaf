@@ -9,13 +9,13 @@ from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _wire_stack_with_dedup() -> tuple[DefaultMemoryManager, DefaultSemanticMemoryStore]:
     """Wire full stack with deduplicator."""
     store = InMemoryStore()
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
 
     semantic_store = DefaultSemanticMemoryStore(
@@ -93,7 +93,7 @@ class TestRememberWithDeduplication:
     async def test_without_deduplicator_stores_normally(self) -> None:
         """Manager without deduplicator stores everything."""
         store = InMemoryStore()
-        embedding_provider = MockEmbeddingProvider()
+        embedding_provider = CharacterHashEmbeddingProvider()
         scorer = TemporalDecayScorer()
 
         semantic_store = DefaultSemanticMemoryStore(

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.observability.budget_guard import BudgetGuard
@@ -92,6 +93,7 @@ async def test_loop_halts_mid_body_on_budget_exhaustion() -> None:
     registry.register_agent(agent_instance=agent, goal_type=_TickGoal)
     guard = BudgetGuard(max_cost_usd=1.0)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(budget_guard=guard),
@@ -113,6 +115,7 @@ async def test_loop_completes_normally_without_halt_signal() -> None:
     agent = _CountingAgent()
     registry.register_agent(agent_instance=agent, goal_type=_TickGoal)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),

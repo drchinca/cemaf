@@ -37,7 +37,11 @@ class TestClearanceGateUnderRealBudget:
 
         # Ungated: the high-priority confidential source wins the single slot.
         ungated = await compiler.compile(
-            artifacts=artifacts, memories=(), budget=budget, priorities=priorities
+            artifacts=artifacts,
+            memories=(),
+            budget=budget,
+            priorities=priorities,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert [s.key for s in ungated.sources] == ["secret"]
 
@@ -79,21 +83,23 @@ class TestClearanceGateUnderRealBudget:
         assert result.metadata["security_excluded"] == []
 
     @pytest.mark.asyncio
-    async def test_ungated_compile_is_byte_identical_to_pre_spec11(self) -> None:
-        """Non-interference: clearance=None yields the exact same compiled content_hash as
-        omitting the security kwargs entirely (the pre-SPEC-11 call shape)."""
+    async def test_full_clearance_compile_is_byte_identical_to_unclassified(self) -> None:
+        """Non-interference: a CONFIDENTIAL caller gets the same content_hash whether or not
+        sources are classified, since every level is admitted."""
         compiler = _compiler()
         artifacts = (("a", "alpha"), ("b", "beta"))
         memories = (("m", "memo"),)
         budget = TokenBudget(max_tokens=1000, reserved_for_output=0)
 
-        legacy = await compiler.compile(artifacts=artifacts, memories=memories, budget=budget)
+        legacy = await compiler.compile(
+            artifacts=artifacts, memories=memories, budget=budget, clearance=SecurityLevel.CONFIDENTIAL
+        )
         with_kwargs = await compiler.compile(
             artifacts=artifacts,
             memories=memories,
             budget=budget,
             source_levels={"a": SecurityLevel.CONFIDENTIAL},
-            clearance=None,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
         assert with_kwargs.content_hash == legacy.content_hash
 

@@ -17,6 +17,7 @@ from cemaf.knowledge.hub_spoke import (
     LocalSpokeCache,
     SpokeCacheConfig,
     create_hub_spoke_kg,
+    entity_digest,
 )
 from cemaf.knowledge.models import (
     EntityType,
@@ -66,6 +67,14 @@ class FakeKG:
 
     async def remove_entity(self, entity_id: str) -> bool:
         return self.entities.pop(entity_id, None) is not None
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return tuple(e for e in getattr(self, "_entities", {}).values() if e.type == entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return ()
 
 
 def _entity(id_: str = "e1", name: str = "Entity 1") -> KGEntity:
@@ -124,7 +133,9 @@ class TestSpokeCache:
         s1 = spokes["s1"]
         await fake_kg.add_entity(_entity())
         await s1.get_entity("e1")  # cached
-        await s1.invalidate(KGInvalidationEvent(kind=InvalidationKind.ENTITY_UPDATED, entity_ids=("e1",)))
+        await s1.invalidate(
+            KGInvalidationEvent.for_entities(kind=InvalidationKind.ENTITY_UPDATED, entity_ids=("e1",))
+        )
         before = fake_kg.get_calls
         await s1.get_entity("e1")
         assert fake_kg.get_calls == before + 1  # forced miss
@@ -307,7 +318,9 @@ class TestSpokeCache:
 
         get_task = asyncio.create_task(spoke.get_entity("e1"))
         await asyncio.sleep(0)  # allow task to start, enter _inflight
-        await spoke.invalidate(KGInvalidationEvent(kind=InvalidationKind.ENTITY_UPDATED, entity_ids=("e1",)))
+        await spoke.invalidate(
+            KGInvalidationEvent.for_entities(kind=InvalidationKind.ENTITY_UPDATED, entity_ids=("e1",))
+        )
         gate.set()
         result = await get_task
 
@@ -329,4 +342,4 @@ class TestSpokeCache:
         await asyncio.sleep(0)  # let the bus dispatch
         assert len(received) == 1
         assert received[0].payload["kind"] == "entity_updated"
-        assert received[0].payload["entity_ids"] == ["e1"]
+        assert received[0].payload["entity_digests"] == [entity_digest(entity_id="e1")]

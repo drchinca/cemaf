@@ -13,6 +13,7 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import NodeID
 from cemaf.events.bus import InMemoryEventBus
@@ -36,7 +37,7 @@ async def test_specifier_registered_when_workspace_present(tmp_path: Path) -> No
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "meta-openspec")
     runtime = FakeOpenSpecRuntime()
@@ -61,6 +62,7 @@ async def test_specifier_registered_when_workspace_present(tmp_path: Path) -> No
         config=ExecutorConfig(enable_events=False),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     assert agent_registry.get("MetaSpecifier") is not None
@@ -77,6 +79,7 @@ async def test_specifier_not_registered_without_workspace() -> None:
         tool_registry=tool_registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     assert agent_registry.get("MetaSpecifier") is None
     assert tool_registry.get("openspec_validate") is None
@@ -116,6 +119,7 @@ async def test_specifier_end_to_end_writes_and_validates(tmp_path: Path) -> None
             openspec_runtime=runtime,
             openspec_workspace=workspace,
         ),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     specifier = agent_registry.get("MetaSpecifier")
     assert specifier is not None
@@ -195,7 +199,7 @@ async def test_self_spec_dag_runs_through_executor(tmp_path: Path) -> None:
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
     runtime = FakeOpenSpecRuntime()
@@ -223,6 +227,7 @@ async def test_self_spec_dag_runs_through_executor(tmp_path: Path) -> None:
         config=ExecutorConfig(enable_events=True),
         services=services,
         meta_services=meta_services,
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     # Parameterize the DAG with concrete inputs for Specifier.
@@ -292,6 +297,7 @@ async def test_specifier_against_available_openspec_runtime(tmp_path: Path) -> N
             openspec_runtime=runtime,
             openspec_workspace=workspace,
         ),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
     specifier = agent_registry.get("MetaSpecifier")
     assert specifier is not None

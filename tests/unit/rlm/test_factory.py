@@ -1,12 +1,13 @@
 """
 Unit tests for RLM factory function.
 
-Tests the create_rlm_tool() factory for creating configured RLM tools.
+Tests the create_rlm_tool(clearance=SecurityLevel.CONFIDENTIAL) factory for creating configured RLM tools.
 """
 
 import pytest
 
 from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import ToolID
 from cemaf.llm.protocols import CompletionResult, LLMConfig, Message, ToolDefinition
 from cemaf.rlm import create_rlm_tool
@@ -55,7 +56,7 @@ class MockLLMClient:
 
 
 class TestCreateRLMTool:
-    """Tests for create_rlm_tool() factory function."""
+    """Tests for create_rlm_tool(clearance=SecurityLevel.CONFIDENTIAL) factory function."""
 
     @pytest.fixture
     def llm_client(self) -> MockLLMClient:
@@ -64,14 +65,14 @@ class TestCreateRLMTool:
 
     def test_factory_creates_tool(self, llm_client: MockLLMClient) -> None:
         """Test that factory creates an RLMQueryTool instance."""
-        tool = create_rlm_tool(llm_client)
+        tool = create_rlm_tool(llm_client, clearance=SecurityLevel.CONFIDENTIAL)
 
         assert isinstance(tool, RLMQueryTool)
         assert tool.id == ToolID("rlm_query")
 
     def test_factory_default_parameters(self, llm_client: MockLLMClient) -> None:
         """Test factory uses default parameters."""
-        tool = create_rlm_tool(llm_client)
+        tool = create_rlm_tool(llm_client, clearance=SecurityLevel.CONFIDENTIAL)
 
         # Verify defaults through tool schema
         schema = tool.schema
@@ -81,21 +82,21 @@ class TestCreateRLMTool:
 
     def test_factory_custom_chunk_size(self, llm_client: MockLLMClient) -> None:
         """Test factory with custom chunk size."""
-        tool = create_rlm_tool(llm_client, chunk_size=1000)
+        tool = create_rlm_tool(llm_client, chunk_size=1000, clearance=SecurityLevel.CONFIDENTIAL)
 
         schema = tool.schema
         assert "default=1000" in schema.parameters["properties"]["chunk_size"]["description"]
 
     def test_factory_custom_max_depth(self, llm_client: MockLLMClient) -> None:
         """Test factory with custom max depth."""
-        tool = create_rlm_tool(llm_client, max_depth=5)
+        tool = create_rlm_tool(llm_client, max_depth=5, clearance=SecurityLevel.CONFIDENTIAL)
 
         schema = tool.schema
         assert "default=5" in schema.parameters["properties"]["max_depth"]["description"]
 
     def test_factory_custom_max_tokens(self, llm_client: MockLLMClient) -> None:
         """Test factory with custom max tokens."""
-        tool = create_rlm_tool(llm_client, max_tokens=8000)
+        tool = create_rlm_tool(llm_client, max_tokens=8000, clearance=SecurityLevel.CONFIDENTIAL)
 
         schema = tool.schema
         assert "default=8000" in schema.parameters["properties"]["max_tokens"]["description"]
@@ -103,7 +104,9 @@ class TestCreateRLMTool:
     def test_factory_with_custom_token_estimator(self, llm_client: MockLLMClient) -> None:
         """Test factory with custom token estimator."""
         custom_estimator = SimpleTokenEstimator(chars_per_token=5.0)
-        tool = create_rlm_tool(llm_client, token_estimator=custom_estimator)
+        tool = create_rlm_tool(
+            llm_client, token_estimator=custom_estimator, clearance=SecurityLevel.CONFIDENTIAL
+        )
 
         assert isinstance(tool, RLMQueryTool)
 
@@ -114,6 +117,7 @@ class TestCreateRLMTool:
             chunk_size=750,
             max_depth=4,
             max_tokens=6000,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         schema = tool.schema
@@ -124,7 +128,7 @@ class TestCreateRLMTool:
     @pytest.mark.asyncio
     async def test_factory_tool_executes(self, llm_client: MockLLMClient) -> None:
         """Test that tool created by factory can execute queries."""
-        tool = create_rlm_tool(llm_client, chunk_size=100, max_depth=2)
+        tool = create_rlm_tool(llm_client, chunk_size=100, max_depth=2, clearance=SecurityLevel.CONFIDENTIAL)
 
         result = await tool.execute(
             instruction="Test query",
@@ -136,8 +140,8 @@ class TestCreateRLMTool:
 
     def test_factory_creates_new_instances(self, llm_client: MockLLMClient) -> None:
         """Test that factory creates new instances each time."""
-        tool1 = create_rlm_tool(llm_client, chunk_size=100)
-        tool2 = create_rlm_tool(llm_client, chunk_size=200)
+        tool1 = create_rlm_tool(llm_client, chunk_size=100, clearance=SecurityLevel.CONFIDENTIAL)
+        tool2 = create_rlm_tool(llm_client, chunk_size=200, clearance=SecurityLevel.CONFIDENTIAL)
 
         # Different tools should be different instances
         assert tool1 is not tool2
@@ -148,7 +152,7 @@ class TestCreateRLMTool:
 
     def test_factory_components_integration(self, llm_client: MockLLMClient) -> None:
         """Test that factory integrates components correctly."""
-        tool = create_rlm_tool(llm_client, chunk_size=500)
+        tool = create_rlm_tool(llm_client, chunk_size=500, clearance=SecurityLevel.CONFIDENTIAL)
 
         # Verify the tool has the expected structure
         # We can't directly inspect private attributes, but we can verify behavior

@@ -2,17 +2,27 @@
 
 import pytest
 
+from cemaf.collision import (
+    Advisory,
+    AdvisoryLevel,
+    AgentWriteSet,
+    CollisionChannels,
+    CollisionPolicy,
+    create_collision_policy,
+)
 from cemaf.context.context import Context
-from cemaf.context.merge import DEFAULT_MERGE_STRATEGY
+from cemaf.context.merge import DEFAULT_MERGE_STRATEGY, MergeStrategy, ReducerMergeStrategy
 from cemaf.core.enums import NodeType
 from cemaf.core.types import NodeID
 from cemaf.orchestration.dag import DAG, Node
 from cemaf.orchestration.executor import NodeResult
 from cemaf.orchestration.node_handlers import (
     NodeHandlerContext,
+    ParallelWritePlan,
     execute_conditional_node,
     execute_loop_node,
     execute_router_node,
+    plan_parallel_writes,
 )
 
 
@@ -307,3 +317,93 @@ class TestExecuteLoopNode:
         assert result.success is False
         assert "failed at iteration 0" in result.error
         assert len(body_results) == 1
+
+
+def _writer(*, node_id: str, output_key: str) -> Node:
+    """An agent node that writes one context key."""
+    return Node.agent(id=node_id, name=node_id, agent_id=node_id, output_key=output_key)
+
+
+class SteerEarlierPolicy:
+    """Custom policy that always steers the first write set it is given."""
+
+    def advise(self, a: AgentWriteSet, b: AgentWriteSet) -> Advisory:
+        return Advisory(
+            level=AdvisoryLevel.RESOLUTION_ADVISORY,
+            risk=1.0,
+            channels=CollisionChannels(overlap=1.0, dependency=0.0, tree=0.0),
+            transmit=True,
+            steer=a.agent_id,
+            hold=b.agent_id,
+        )
+
+
+def _plan(
+    *nodes: Node,
+    policy: CollisionPolicy | None = None,
+    merge_strategy: MergeStrategy = DEFAULT_MERGE_STRATEGY,
+) -> ParallelWritePlan:
+    """Plan with the default policy and last-write-wins unless told otherwise."""
+    return plan_parallel_writes(
+        nodes=nodes,
+        policy=policy or create_collision_policy(),
+        merge_strategy=merge_strategy,
+    )
+
+
+class TestPlanParallelWrites:
+    """Sibling-order resolution of overlapping PARALLEL writes (SPEC-12 §2.4)."""
+
+    def test_same_key_steers_the_later_sibling(self) -> None:
+        plan = _plan(
+            _writer(node_id="first", output_key="decision"), _writer(node_id="second", output_key="decision")
+        )
+
+        assert [(s.node_id, s.held_by, s.output_key) for s in plan.steered] == [
+            (NodeID("second"), NodeID("first"), "decision")
+        ]
+        assert [a.node_id for a in plan.advisories] == [NodeID("second")]
+
+    def test_paths_sharing_a_top_level_key_collide(self) -> None:
+        plan = _plan(
+            _writer(node_id="left", output_key="results.a"), _writer(node_id="right", output_key="results.b")
+        )
+
+        assert [s.node_id for s in plan.steered] == [NodeID("right")]
+
+    def test_different_top_level_keys_steer_nobody_and_publish_nothing(self) -> None:
+        plan = _plan(
+            _writer(node_id="research", output_key="research"),
+            _writer(node_id="outline", output_key="outline"),
+        )
+
+        assert plan.steered == ()
+        assert plan.advisories == ()
+
+    def test_children_without_an_output_key_are_ignored(self) -> None:
+        plan = _plan(_writer(node_id="first", output_key=""), _writer(node_id="second", output_key=""))
+
+        assert plan.steered == ()
+
+    def test_keys_the_merge_strategy_handles_are_left_alone(self) -> None:
+        plan = _plan(
+            _writer(node_id="first", output_key="findings"),
+            _writer(node_id="second", output_key="findings"),
+            merge_strategy=ReducerMergeStrategy(reducers={"findings": list}),
+        )
+
+        assert plan.steered == ()
+
+    def test_policy_may_steer_the_earlier_sibling_who_then_steers_nobody(self) -> None:
+        plan = _plan(
+            _writer(node_id="a", output_key="decision"),
+            _writer(node_id="b", output_key="decision"),
+            _writer(node_id="c", output_key="decision"),
+            policy=SteerEarlierPolicy(),
+        )
+
+        # a vs b steers a; a is then out, so b vs c is judged next and steers b. c runs.
+        assert [(s.node_id, s.held_by) for s in plan.steered] == [
+            (NodeID("a"), NodeID("b")),
+            (NodeID("b"), NodeID("c")),
+        ]

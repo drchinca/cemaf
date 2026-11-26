@@ -4,15 +4,23 @@ In-memory vector store for testing and development.
 Uses cosine similarity for search.
 """
 
+import functools
 import math
 
 from cemaf.core.types import JSON
+from cemaf.observability import get_logger
 from cemaf.retrieval.embedding_validation import normalize_embedding_dimension, require_positive_dimension
 from cemaf.retrieval.protocols import (
     Document,
     EmbeddingProvider,
     SearchResult,
 )
+
+logger = get_logger("retrieval.memory_store")
+
+CHARACTER_HASH_MODEL_NAME = "character-hash"
+CHARACTER_HASH_BACKEND = "character_hash"
+DEFAULT_OFFLINE_DIMENSION = 384
 
 
 def cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
@@ -34,16 +42,16 @@ def cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     return dot_product / (norm_a * norm_b)
 
 
-class MockEmbeddingProvider:
-    """
-    Mock embedding provider for testing.
+class CharacterHashEmbeddingProvider:
+    """Offline, deterministic embeddings from a character-position hash.
 
-    Generates deterministic embeddings based on text content.
+    Texts sharing characters score as similar; meaning plays no part. Fine for
+    tests and zero-config demos, not for semantic recall (SPEC-26).
     """
 
-    def __init__(self, dimension: int = 384) -> None:
+    def __init__(self, dimension: int = DEFAULT_OFFLINE_DIMENSION) -> None:
         self._dimension = require_positive_dimension(dimension)
-        self._model_name = "mock-embeddings"
+        self._model_name = CHARACTER_HASH_MODEL_NAME
 
     @property
     def dimension(self) -> int:
@@ -70,6 +78,24 @@ class MockEmbeddingProvider:
     async def embed_batch(self, texts: list[str]) -> list[tuple[float, ...]]:
         """Generate embeddings for multiple texts."""
         return [await self.embed(text) for text in texts]
+
+
+@functools.cache
+def warn_non_semantic_embeddings(*, provider_name: str, matches: str) -> None:
+    """Log, once per process and provider, that recall is running without a semantic embedder."""
+    logger.warning(
+        f"Embedding with {provider_name}: memory recall matches {matches}, not meaning. "
+        "Configure a real embedding provider (e.g. OpenAI, Hugging Face, sentence-transformers) "
+        "for semantic recall."
+    )
+
+
+def offline_embedding_provider(
+    *, dimension: int = DEFAULT_OFFLINE_DIMENSION
+) -> CharacterHashEmbeddingProvider:
+    """The fallback every factory uses when no embedding provider was configured; warns once."""
+    warn_non_semantic_embeddings(provider_name="CharacterHashEmbeddingProvider", matches="shared characters")
+    return CharacterHashEmbeddingProvider(dimension=dimension)
 
 
 class InMemoryVectorStore:

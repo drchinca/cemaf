@@ -8,6 +8,7 @@ import pytest
 
 from cemaf.context import Context, ContextPatch, PatchSource
 from cemaf.context.compiler import SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.llm.mock import MockLLMClient
 from cemaf.observability.run_logger import InMemoryRunLogger, LLMCall, ToolCall
 from cemaf.rlm import create_rlm_tool
@@ -37,6 +38,7 @@ class TestRLMMultiAgent:
     def rlm_tool(self, llm_client: MockLLMClient, estimator: SimpleTokenEstimator) -> object:
         """Create RLM tool."""
         return create_rlm_tool(
+            clearance=SecurityLevel.CONFIDENTIAL,
             llm_client=llm_client,
             token_estimator=estimator,
             chunk_size=500,

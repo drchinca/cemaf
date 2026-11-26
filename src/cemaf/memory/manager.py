@@ -39,6 +39,7 @@ Then inject via `RuntimeServices(memory_manager=manager, session_manager=...)`.
 from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON, Confidence
 from cemaf.events.protocols import Event, EventBus, EventType
@@ -62,6 +63,7 @@ class MemoryManager(Protocol):
         *,
         confidence: float = 1.0,
         content_for_embedding: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem: ...
 
     async def recall(self, query: MemoryQuery) -> tuple[MemorySearchResult, ...]: ...
@@ -71,6 +73,8 @@ class MemoryManager(Protocol):
         scope: MemoryScope,
         key: str,
     ) -> MemoryItem | None: ...
+
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
 
     async def forget(self, scope: MemoryScope, key: str) -> bool: ...
 
@@ -122,6 +126,7 @@ class DefaultMemoryManager:
         *,
         confidence: float = 1.0,
         content_for_embedding: str | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> MemoryItem:
         """Store a memory item with optional deduplication."""
         item = MemoryItem(
@@ -129,6 +134,7 @@ class DefaultMemoryManager:
             key=key,
             value=value,
             confidence=Confidence(confidence),
+            security_level=security_level,
         )
 
         if self._deduplicator is not None:
@@ -178,6 +184,10 @@ class DefaultMemoryManager:
     ) -> MemoryItem | None:
         """Direct key-value lookup."""
         return await self._semantic.get(scope=scope, key=key)
+
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]:
+        """Every stored item in scope whose key starts with key_prefix; a full scan, no limit."""
+        return await self._semantic.list_by_prefix(scope=scope, key_prefix=key_prefix)
 
     async def forget(self, scope: MemoryScope, key: str) -> bool:
         """Delete a memory item."""

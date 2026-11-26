@@ -13,12 +13,12 @@
     },
     {
       "step": 3,
-      "label": "parallel \u2014 fan-out + fan-in",
+      "label": "parallel \u2014 fan-out + collision steer + fan-in",
       "path": "traces/step-3.json"
     },
     {
       "step": 4,
-      "label": "council \u2014 3-member vote",
+      "label": "council \u2014 3-member weighted vote",
       "path": "traces/step-4.json"
     },
     {
@@ -28,12 +28,12 @@
     },
     {
       "step": 6,
-      "label": "quality gate \u2014 composite eval",
+      "label": "quality gate \u2014 eval interceptor + recover",
       "path": "traces/step-6.json"
     },
     {
       "step": 7,
-      "label": "full flow \u2014 research\u2192vote\u2192write\u2192gate\u2192publish",
+      "label": "full flow \u2014 research\u2192parallel\u2192council\u2192auction\u2192gate\u2192harvest",
       "path": "traces/step-7.json"
     }
   ]

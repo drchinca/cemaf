@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID, RunID
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.interceptors import GateEvalInterceptor, GateFailureMode, create_interceptor_pipeline
@@ -72,6 +73,7 @@ async def test_runtime_services_exports_parented_node_cost_token_and_recovery_sp
         )
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(

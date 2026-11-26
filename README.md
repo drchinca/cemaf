@@ -30,9 +30,14 @@
 
 **Open source** context engineering infrastructure for multi-agent systems. Use CEMAF as the execution substrate, or compose its modules into an existing stack without inheriting a second application framework.
 
+[Open Knowledge Format support](docs/okf.md) connects portable Markdown knowledge
+to budgeted context, graph queries, citations, and reviewable agent proposals.
+For long-running research and project memory, agents discover concepts through
+compact directory catalogs and load selected documents into each turn.
+
 > **See it run — 60 seconds.** Open [`docs/architecture/cemaf-graph.html`](docs/architecture/cemaf-graph.html) in a browser. Two tabs:
 > - **Module graph** — every module in `src/cemaf/` as a node, every `import` as an edge, AST-exact (regenerate with [`docs/architecture/build_graph_data.py`](docs/architecture/build_graph_data.py)).
-> - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Generate fresh traces with [`uv run python docs/architecture/scripts/produce_dag_trace.py`](docs/architecture/scripts/produce_dag_trace.py).
+> - **DAG process** — 7 progressive runs (`hello → chain → parallel → council → auction → gate → full flow`) showing real `EventBus` output from actual `executor.run(dag)` calls. Regenerate and re-inline them with `make demo` ([`produce_dag_trace.py --inline`](docs/architecture/scripts/produce_dag_trace.py)).
 >
 > Deeper read: [`docs/architecture/deep-architecture.md`](docs/architecture/deep-architecture.md) · [`docs/architecture/cemaf-architecture.html`](docs/architecture/cemaf-architecture.html) (interactive atlas) · [`docs/architecture/spec-module-map.md`](docs/architecture/spec-module-map.md).
 
@@ -53,13 +58,14 @@
    ↑ every read/write a wire · every patch carries source + reason + run_id
 ```
 
-CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `task.started`, `council.ballot(weight)`, `auction.bid(fitness, load)`, `auction.award(saved_p95_ms)`, `citation.added(claim, src, supported, strength)`, `eval.completed(composite, sub, verdict)`, `memory.hit(tier)`, `blueprint.harvested(score)`, `dag.completed`. **Glass-box by default**, not by configuration.
+CEMAF treats every agent decision and every context byte as a **first-class structured event**. One `executor.run(dag)` emits a typed stream — `dag.started`, `task.started`, `context.conflict(steer, hold, risk)`, `task.completed` carrying the council verdict and tally, the auction winner and score, and gate recovery attempts, `citation.added`, `eval.completed(overall_score, results)`, `dag.completed`. **Glass-box by default**, not by configuration.
 
-### Patterns CEMAF Standardizes
+### Framework contracts and specifications
 
-Most agent stacks grow glue code around the same runtime concerns. CEMAF packages those concerns as protocols, services, and DAG primitives. Less ceremony, fewer private assumptions, and yes, fewer places for future-you to mutter at a constructor.
+These contracts guide CEMAF's implementation and acceptance work. Production
+readiness and wider adoption require measured evidence.
 
-| Hard problem the field keeps re-solving | CEMAF's standard | Spec |
+| Requirement | CEMAF contract | Spec |
 |---|---|---|
 | "How do I keep agents from blowing the token budget?" | `Context` is immutable, compiled per-turn under a `TokenBudget` with priority selection. Every byte has provenance. | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) |
 | "How do I keep confidential context out of a low-clearance prompt?" | Every `ContextPatch` carries a `SecurityLevel` (PUBLIC/INTERNAL/CONFIDENTIAL); `PriorityContextCompiler` gates sources above the caller's clearance *before* selection, recording each drop in `metadata["security_excluded"]`. Default INTERNAL → backward-compatible. | [SPEC-11](docs/specs/SPEC-11-context-security-classification.md) |
@@ -74,6 +80,24 @@ Most agent stacks grow glue code around the same runtime concerns. CEMAF package
 | "How do I stop one project's learned blueprints from polluting another's?" | Harvested blueprints carry `project_id` + `scope`; `ProjectScopedRecipeDistiller` namespaces entries per project (no cross-project clobber), and `evaluate_promotion` only lifts a blueprint to `GLOBAL` once it's proven in ≥2 distinct projects at mean confidence ≥0.8. | [SPEC-13](docs/specs/SPEC-13-scoped-blueprint-harvest.md) |
 | "Where does the framework end and my code begin?" | `RuntimeServices` frozen dataclass with ~20 optional `Protocol`-typed fields. `bootstrap.create_executor(services=...)` is the composition root. **No module-level singletons. No magic.** | [SPEC-00](docs/specs/SPEC-00-enterprise-context-brain.md) · [patterns.md](docs/patterns.md) |
 | "How do I expose run state to a dashboard / CLI / MCP without coupling to internals?" | `cemaf.session.v1` — a versioned, read-only `SessionSnapshot` projected deterministically from a `RunRecord` or `ExecutionResult` via `snapshot_from_run_record` / `snapshot_from_execution_result`. The stable operator-plane contract every surface renders from; absent services show as `"absent"`, never errors. | [SPEC-14](docs/specs/SPEC-14-session-snapshot-contract.md) |
+
+### Requirements for industry-standard adoption
+
+CEMAF cannot honestly claim “industry standard” without these pillars:
+
+- **Durable execution**: disposable workers, automatic takeover, fencing, replay, healing.
+- **Huge-context management**: versioned context manifests, compaction, retrieval, provenance, and bounded prompt projection.
+- **Big-data separation**: never place huge datasets inside checkpoints. Store references to obj storage, tables, indexes, and artifacts.
+- **Distributed scheduling**: partitioning, backpressure, priorities, quotas, data locality, and fair task claiming.
+- **Deterministic auditability**: every decision, context mutation, recovery, citation, and effect traceable.
+- **Safe autonomy**: budgets, authorization, moderation, evaluation, retry limits, and human intervention.
+- **Backend portability**: PostgreSQL/Mongo authority; object storage for large payloads; Elastic vector stores for retrieval; DuckDB/warehouses for analytics.
+- **Evidence**: multi-day runs, terabyte-scale referenced datasets, worker kills, backend failover, replay parity, and adversarial benchmarks.
+
+The [context and provenance acceptance slice](docs/architecture/context-provenance-acceptance.md)
+currently verifies 25 engineering cases offline. Live-provider portability and
+independently measured pilot value remain unverified. This bounded local evidence
+path does not close the distributed-production requirements above.
 
 <details><summary><b>Where these primitives live</b> (copy-paste imports)</summary>
 
@@ -164,9 +188,9 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          LAYER 2  —  Self-Hosting                    │
-│   audit/  •  knowledge/  •  meta/  (MetaSpecifier, MetaScaffolder…)  │
+│   audit/  •  meta/  (MetaSpecifier, MetaScaffolder…)  •  operator/   │
 │                              ▲                                       │
-│                              │ one-way dependency                    │
+│                              │ consumes (base imports lazily only)   │
 │ ─────────────────────────────┴─────────────────────────────────────  │
 │                          LAYER 1  —  Base Framework                  │
 │                                                                      │
@@ -174,7 +198,7 @@ Full treatment: [`docs/architecture.md#cost-model-pull-context-and-unit-of-work-
 │       │                  (topo sort → node dispatch → context)       │
 │       ▼                                                              │
 │  agents/  •  tools/  •  skills/  •  blueprint/                       │
-│  context/ •  memory/ •  retrieval/ •  rlm/                          │
+│  context/ •  memory/ •  retrieval/ •  rlm/  •  knowledge/           │
 │  llm/     •  generation/ • streaming/                                │
 │  evals/   •  moderation/ • validation/ • citation/                  │
 │  events/  •  observability/ • resilience/ • persistence/            │
@@ -201,7 +225,7 @@ CEMAF's self-hosting layer is its first client. Meta-agents, meta-tools, and pre
 
 | Meta-agent | Role | Tools |
 |---|---|---|
-| `MetaArchitect` | Design DAG pipelines from a feature description | `IntrospectRegistryTool`, `GenerateDAGTool` |
+| `MetaArchitect` | Build a DAG from every registered agent, ordered by tool-safety flags (the description names the DAG; no LLM planning yet) | `IntrospectRegistryTool`, `GenerateDAGTool` |
 | `MetaSynthesizer` | Generate CEMAF agent Python source from templates | (template-based) |
 | `MetaAuditor` | Analyze execution traces for quality / anomalies | `TraceAnalyzerTool` |
 | `MetaKnowledgeGraph` | Query and refresh the entity knowledge graph | `KnowledgeGraphTool` |
@@ -565,11 +589,11 @@ See the [Integration Guide](docs/integration.md) for detailed patterns.
 - **Resilience**: Retry, circuit breaker, rate limiting as composable decorators
 
 ### Self-Hosting Engine
-CEMAF is its own first client — opt-in modules where the framework uses its own primitives to introspect, audit, spec, and extend itself. Fully decoupled from the base framework (one-way dependency).
+CEMAF is its own first client — opt-in modules where the framework uses its own primitives to introspect, audit, spec, and extend itself. The base framework does not import `meta`, `audit` or `operator` at load time (the CLI's OKF export and RBAC audit logging import them lazily). The knowledge graph started here and is now part of the base layer through `RuntimeServices.knowledge_graph`.
 
 - **Audit Trail**: `EventBusAuditLog` subscribes to EventBus, converts events into queryable `AuditEntry` records with quality trend analysis and z-score anomaly detection
 - **Knowledge Graph**: `MemoryBackedKnowledgeGraph` — entities and relations backed by MemoryManager with semantic search and neighbor traversal
-- **Meta-Agents**: `MetaArchitect` (DAG design), `MetaSpecifier` (OpenSpec proposal authoring), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations), `MetaScaffolder` (runnable CEMAF-app synthesis)
+- **Meta-Agents**: `MetaArchitect` (DAG from the registered agents), `MetaSpecifier` (OpenSpec proposal authoring), `MetaSynthesizer` (agent code gen), `MetaAuditor` (trace analysis), `MetaKnowledgeGraph` (KG operations), `MetaScaffolder` (runnable CEMAF-app synthesis)
 - **OpenSpec Bridge**: `OpenSpecRuntime` protocol (System/Npx/Fake impls) + `OpenSpecWorkspace` (atomic writes, per-change locks) exposes `openspec validate/list/show/write/delete` as CEMAF tools
 - **Pre-built DAGs**: `create_self_audit_dag()`, `create_feature_synthesis_dag()`, `create_knowledge_refresh_dag()`, `create_self_spec_dag()`, `create_app_synthesis_dag()`
 - **Entry point**: `create_meta_executor()` wraps `create_executor()`, auto-wires audit + KG from `RuntimeServices` and MetaSpecifier/OpenSpec tools from `MetaServices`

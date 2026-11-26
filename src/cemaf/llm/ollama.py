@@ -27,6 +27,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+try:
+    import httpx
+except ImportError:  # pragma: no cover - httpx ships with the llm extras
+    httpx = None  # type: ignore[assignment,unused-ignore]
+
 from cemaf.core.types import LLMProvider
 from cemaf.llm.model_router import ModelRoute, ModelRouter
 from cemaf.llm.openai_compat import OpenAICompatClient
@@ -46,6 +51,7 @@ def create_ollama_client(
     temperature: float = 0.7,
     max_tokens: int = 4096,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> LLMClient:
     """Create an LLMClient backed by a single Ollama-hosted model.
 
@@ -60,6 +66,7 @@ def create_ollama_client(
         max_tokens=max_tokens,
         timeout_seconds=timeout_seconds,
         provider=LLMProvider.OLLAMA,
+        transport=transport,
     )
 
 
@@ -95,6 +102,7 @@ def create_tiered_ollama_router(
     base_url: str = DEFAULT_BASE_URL,
     escalation_chars: int = DEFAULT_ESCALATION_CHARS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> ModelRouter:
     """Route simple prompts to `small_model`, complex ones to `large_model`.
 
@@ -107,11 +115,13 @@ def create_tiered_ollama_router(
         model=small_model,
         base_url=base_url,
         timeout_seconds=timeout_seconds,
+        transport=transport,
     )
     large = create_ollama_client(
         model=large_model,
         base_url=base_url,
         timeout_seconds=timeout_seconds,
+        transport=transport,
     )
     return ModelRouter(
         routes=[

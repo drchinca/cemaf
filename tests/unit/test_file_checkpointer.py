@@ -147,3 +147,18 @@ def test_checkpoint_serialization_preserves_route_choices() -> None:
     restored = checkpoint_from_dict(checkpoint_to_dict(checkpoint))
 
     assert restored.route_choices == {"route": ["selected"]}
+
+
+@pytest.mark.unit
+def test_checkpoint_serialization_preserves_unsuccessful_nodes() -> None:
+    checkpoint = DAGCheckpoint(
+        run_id=RunID("continued"),
+        dag_name="dag",
+        status=RunStatus.FAILED,
+        completed_nodes=(NodeID("first"), NodeID("second")),
+        unsuccessful_nodes=(NodeID("second"),),
+    )
+
+    restored = checkpoint_from_dict(checkpoint_to_dict(checkpoint))
+
+    assert restored.unsuccessful_nodes == (NodeID("second"),)

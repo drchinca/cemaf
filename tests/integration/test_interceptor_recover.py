@@ -5,7 +5,7 @@ forecloses the highest-value retry case (revise output against eval feedback).
 With RECOVER, the executor re-runs the agent with the eval reason surfaced under
 ``agent_context.global_memory["recovery_hints"]`` — the agent reads it and corrects.
 
-Bounded by ``ContextNodeExecutor(max_recovery_attempts=...)`` so a deterministic
+Bounded by ``ContextNodeExecutor(clearance=..., max_recovery_attempts=...)`` so a deterministic
 gate cannot loop forever.
 """
 
@@ -18,6 +18,7 @@ from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID, NodeID
 from cemaf.evals.evaluators import LengthEvaluator
 from cemaf.interceptors import (
@@ -95,6 +96,7 @@ def _executor_with_writer(*, max_recovery_attempts: int) -> tuple[DAGExecutor, _
     )
     # Build the executor manually so we can pass max_recovery_attempts.
     node_executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         interceptor_pipeline=pipeline,
         max_recovery_attempts=max_recovery_attempts,
@@ -153,6 +155,7 @@ async def test_recovery_charges_every_attempt_to_budget_guard() -> None:
     )
     guard = BudgetGuard(max_cost_usd=1.0, max_total_tokens=10_000)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(
@@ -209,7 +212,10 @@ async def test_recovery_exhausted_downgrades_to_reject() -> None:
         )
     )
     node_executor = ContextNodeExecutor(
-        agent_registry=registry, interceptor_pipeline=pipeline, max_recovery_attempts=1
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        interceptor_pipeline=pipeline,
+        max_recovery_attempts=1,
     )
 
     node = Node.agent(id="write", name="write", agent_id="Stubborn")
@@ -281,7 +287,10 @@ async def test_recovery_hint_trail_survives_agent_exception() -> None:
         )
     )
     node_executor = ContextNodeExecutor(
-        agent_registry=registry, interceptor_pipeline=pipeline, max_recovery_attempts=2
+        clearance=SecurityLevel.CONFIDENTIAL,
+        agent_registry=registry,
+        interceptor_pipeline=pipeline,
+        max_recovery_attempts=2,
     )
     node = Node.agent(id="write", name="write", agent_id="Crasher")
     result = await node_executor.execute_node(node, Context())
@@ -331,6 +340,7 @@ async def test_recovery_info_surfaces_on_task_completed_event() -> None:
         )
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(
@@ -376,6 +386,7 @@ async def test_bootstrap_create_executor_threads_max_recovery_attempts() -> None
         max_recovery_attempts=2,
     )
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=services,
@@ -406,7 +417,9 @@ async def test_reject_path_unchanged_when_on_failure_is_default() -> None:
             ),
         )
     )
-    node_executor = ContextNodeExecutor(agent_registry=registry, interceptor_pipeline=pipeline)
+    node_executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, interceptor_pipeline=pipeline
+    )
     services = RuntimeServices(interceptor_pipeline=pipeline)
     executor = DAGExecutor(
         node_executor=node_executor,

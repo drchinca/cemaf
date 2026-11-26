@@ -1,0 +1,529 @@
+{
+  "schema_version": "cemaf.context_provenance.acceptance.v1",
+  "scope": "Support-policy evidence pilot; SPEC-17 acceptance slice",
+  "cases": [
+    {
+      "id": "compiled_revision_ids",
+      "invariants": [
+        "HC-2",
+        "HC-3",
+        "DA-1"
+      ],
+      "given": "Two policy revisions have distinct revision-qualified source IDs.",
+      "when": "The compiler selects their evidence.",
+      "then": [
+        "Each selected ID resolves to the supplied revision.",
+        "The rendered context retains selected identifiers."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_selected_revision_ids_survive_compilation"
+      ]
+    },
+    {
+      "id": "selection_budget",
+      "invariants": [
+        "HC-3",
+        "SA-2"
+      ],
+      "given": "Two policies compete for a budget that holds one under the injected estimator.",
+      "when": "PriorityContextCompiler selects evidence.",
+      "then": [
+        "Estimated source tokens fit the available budget.",
+        "The omitted source has a budget exclusion reason."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_budget_selection_reports_omitted_evidence"
+      ]
+    },
+    {
+      "id": "clearance_filter",
+      "invariants": [
+        "HC-3",
+        "SA-1"
+      ],
+      "given": "A confidential policy has higher priority than a permitted policy.",
+      "when": "The caller compiles with INTERNAL clearance.",
+      "then": [
+        "The confidential text is absent from model context.",
+        "The permitted policy fills the freed budget."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_restricted_policy_never_enters_compiled_context"
+      ]
+    },
+    {
+      "id": "compaction_lineage",
+      "invariants": [
+        "HC-4",
+        "DA-3"
+      ],
+      "given": "Old evidence is compacted while recent evidence is preserved.",
+      "when": "The real compiler creates a summary.",
+      "then": [
+        "The summary names every compacted parent.",
+        "Recent evidence and its identifier remain intact."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_summary_keeps_parent_identifiers"
+      ]
+    },
+    {
+      "id": "citation_membership",
+      "invariants": [
+        "DA-1",
+        "SA-1"
+      ],
+      "given": "Only the selected policy revision is citable for the answer.",
+      "when": "A real DAG emits a selected, superseded, excluded, or fabricated citation.",
+      "then": [
+        "Only the selected revision passes the citation gate.",
+        "A rejected citation prevents downstream publication."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_only_selected_policy_revision_can_pass_publication_gate[fabricated-policy-False]",
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_only_selected_policy_revision_can_pass_publication_gate[tenant-a/refunds@v1-False]",
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_only_selected_policy_revision_can_pass_publication_gate[tenant-a/refunds@v2-True]",
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_only_selected_policy_revision_can_pass_publication_gate[tenant-b/refunds@v1-False]"
+      ]
+    },
+    {
+      "id": "citation_verification_status",
+      "invariants": [
+        "HC-5",
+        "EV-3"
+      ],
+      "given": "An answer cites a source present in the selected evidence.",
+      "when": "CitationTracker records the claim without an independent support check.",
+      "then": [
+        "The claim remains UNVERIFIED.",
+        "Source membership is not labeled factual verification."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_citation_membership_does_not_assert_claim_truth"
+      ]
+    },
+    {
+      "id": "recorded_messages",
+      "invariants": [
+        "DA-1",
+        "DA-3"
+      ],
+      "given": "An instrumented LLM receives compiled policy messages and returns a fixed response.",
+      "when": "The run record is serialized and restored.",
+      "then": [
+        "The exact message order and text survive.",
+        "The recorded output and token usage survive."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_exact_model_messages_and_citation_metadata_survive_round_trip"
+      ]
+    },
+    {
+      "id": "runtime_replay",
+      "invariants": [
+        "DA-1",
+        "DA-3"
+      ],
+      "given": "A policy-answer agent runs through create_executor and RuntimeServices.",
+      "when": "The final RunRecord is restored and replayed in PATCH_ONLY mode.",
+      "then": [
+        "The final state matches the original.",
+        "Replay makes no further model call.",
+        "The original evidence identity survives."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_policy_run_reconstructs_recorded_state_without_model_reexecution"
+      ]
+    },
+    {
+      "id": "ordered_input_hash",
+      "invariants": [
+        "HC-4",
+        "DA-3"
+      ],
+      "given": "The same evidence appears in two different prompt orders.",
+      "when": "Their rendered messages and fingerprints are compared.",
+      "then": [
+        "Different rendered message orders produce different input fingerprints."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_primitives.py::test_different_rendered_order_has_a_different_fingerprint"
+      ]
+    },
+    {
+      "id": "scoped_read",
+      "invariants": [
+        "XS-1",
+        "SA-1"
+      ],
+      "given": "A user has an explicit read grant for the item scope path.",
+      "when": "RBACMemoryStore.get loads that permitted policy.",
+      "then": [
+        "The authorized item is returned without a global role."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_permitted_policy_can_be_read_with_a_scoped_grant"
+      ]
+    },
+    {
+      "id": "abac_list",
+      "invariants": [
+        "XS-1",
+        "SA-1"
+      ],
+      "given": "A user can list tenant A, but a tenant B grant fails its attribute condition.",
+      "when": "RBACMemoryStore lists project policies.",
+      "then": [
+        "Only tenant A items are returned.",
+        "Tenant B content and identifiers are absent."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_denied_attribute_grant_cannot_expand_visible_policy_list"
+      ]
+    },
+    {
+      "id": "concurrent_logger",
+      "invariants": [
+        "DA-1",
+        "DA-3"
+      ],
+      "given": "Two runs overlap on one executor with one run logger.",
+      "when": "Both runs complete after a synchronization barrier.",
+      "then": [
+        "Both runs succeed.",
+        "Two separate records contain their own output and run identity."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_concurrent_policy_runs_have_separate_complete_records"
+      ]
+    },
+    {
+      "id": "runtime_budget",
+      "invariants": [
+        "SA-2"
+      ],
+      "given": "A custom agent emits no optional token metadata but its LLM calls are instrumented.",
+      "when": "Recorded token usage exceeds the configured run budget.",
+      "then": [
+        "The guard charges actual logged usage.",
+        "Further dispatch is blocked before another model call."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_budget_stops_another_call_inside_one_agent_without_double_charging[False]",
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_budget_stops_another_call_inside_one_agent_without_double_charging[True]",
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_logged_tokens_exhaust_budget_before_second_dispatch"
+      ]
+    },
+    {
+      "id": "repair_budget",
+      "invariants": [
+        "SA-2",
+        "SA-3"
+      ],
+      "given": "Schema repair requires two model calls and the cumulative output allowance is five tokens.",
+      "when": "The first response consumes four tokens and requires repair.",
+      "then": [
+        "The next allowance is at most one token.",
+        "Repair never resets the cumulative allowance."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_schema_repair_uses_only_the_remaining_generation_allowance"
+      ]
+    },
+    {
+      "id": "result_failure_resilience",
+      "invariants": [
+        "SA-3"
+      ],
+      "given": "A protocol adapter returns retryable failed completion results.",
+      "when": "The foreground client executes its retry and circuit policies.",
+      "then": [
+        "Attempt count respects the configured retry policy.",
+        "Failed results count toward opening the circuit."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_runtime_contracts.py::test_returned_retryable_failures_are_retried_and_counted_by_circuit"
+      ]
+    },
+    {
+      "id": "snapshot_integrity",
+      "invariants": [
+        "HC-4",
+        "BD-2",
+        "DA-3"
+      ],
+      "given": "A manifest pins a policy revision, content digest, and exact excerpt.",
+      "when": "The backing bytes are modified, replaced, or missing.",
+      "then": [
+        "Resolution fails before model dispatch.",
+        "The original snapshot remains independently verifiable."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_pinned_snapshots_reject_corruption_before_dispatch[alter_excerpt]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_pinned_snapshots_reject_corruption_before_dispatch[missing]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_pinned_snapshots_reject_corruption_before_dispatch[modify]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_pinned_snapshots_reject_corruption_before_dispatch[replace_revision]"
+      ]
+    },
+    {
+      "id": "request_manifest",
+      "invariants": [
+        "HC-4",
+        "DA-1",
+        "EV-2"
+      ],
+      "given": "One model call includes messages, tools, model options, and compiler/policy versions.",
+      "when": "An independently loaded evidence manifest is inspected.",
+      "then": [
+        "Every input field and ordered message is recoverable.",
+        "Changing input order, tool schema, model settings, source revision, or policy version changes the request identity."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_complete_request_identity_includes_order_tools_options_and_versions"
+      ]
+    },
+    {
+      "id": "actual_prompt_budget",
+      "invariants": [
+        "HC-3",
+        "SA-2"
+      ],
+      "given": "A complete request includes system/user messages, framing, tools, and an output reservation.",
+      "when": "The application computes the provider-specific input allowance before dispatch.",
+      "then": [
+        "Actual input accounting includes the complete rendered request, not only raw source estimates.",
+        "Over-budget or zero-remaining-budget requests halt before the provider call.",
+        "Estimated and provider-reported token counts remain separately labeled."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_actual_estimate_and_reported_counts_have_separate_labels",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_full_request_preflight_blocks_before_model_dispatch[no_input]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_full_request_preflight_blocks_before_model_dispatch[question]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_full_request_preflight_blocks_before_model_dispatch[system]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_full_request_preflight_blocks_before_model_dispatch[tools]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_full_request_preflight_blocks_before_model_dispatch[uncertified]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_full_request_preflight_blocks_before_model_dispatch[zero_output]"
+      ]
+    },
+    {
+      "id": "permission_revocation",
+      "invariants": [
+        "XS-1",
+        "SA-1",
+        "DA-4"
+      ],
+      "given": "A policy is retrieved while authorized and access is revoked before dispatch or export.",
+      "when": "The application attempts to use or disclose the snapshot.",
+      "then": [
+        "Authorization is rechecked at the declared boundary.",
+        "Denied bytes and identifiers do not reach the caller or model.",
+        "Historical evidence access follows current retention and authorization policy."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_export_withholds_a_summary_after_its_parent_is_revoked",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_revocation_during_preflight_blocks_dispatch_and_historical_disclosure",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_summary_cannot_bypass_revoked_parent_permissions"
+      ]
+    },
+    {
+      "id": "fresh_conflicting_policy",
+      "invariants": [
+        "HC-3",
+        "HC-5"
+      ],
+      "given": "Policy fixtures include superseded, expired, future-effective, and conflicting current revisions.",
+      "when": "The application answers an as-of-date question.",
+      "then": [
+        "Only an authoritative effective revision supports an answer.",
+        "Unresolved conflict or missing current evidence yields an explicit abstention."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_app_selects_approved_effective_policy_and_abstains_on_conflict"
+      ]
+    },
+    {
+      "id": "claim_support",
+      "invariants": [
+        "HC-5",
+        "EV-3"
+      ],
+      "given": "The selected policy says thirty days and proposed claims say thirty days, ninety days, or contain an uncited extra assertion.",
+      "when": "Claims are checked against independently labeled supporting excerpts.",
+      "then": [
+        "Supported and contradicted claims receive distinct verdicts.",
+        "Unsupported additional claims cannot be published as verified."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_claim_verdict_and_real_publication_gate[All return shipping is free.-unsupported]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_claim_verdict_and_real_publication_gate[Approved returns are accepted within 30 days of delivery.-supported]",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_claim_verdict_and_real_publication_gate[Approved returns are accepted within 90 days of delivery.-contradicted]"
+      ]
+    },
+    {
+      "id": "change_impact",
+      "invariants": [
+        "HC-4",
+        "DA-1",
+        "DA-4"
+      ],
+      "given": "Answers depend on different revisions and some evidence is used only through a summary.",
+      "when": "One source revision changes, expires, or is revoked.",
+      "then": [
+        "Exactly the dependent answers are flagged, including transitive summary dependencies.",
+        "Unrelated answers and the historical record are unchanged."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_change_lookup_finds_only_direct_and_transitive_answers_after_restart"
+      ]
+    },
+    {
+      "id": "export_privacy",
+      "invariants": [
+        "XS-1",
+        "SA-1",
+        "DA-4"
+      ],
+      "given": "A reviewer can access public evidence but not restricted documents or secrets.",
+      "when": "The application exports an evidence record or telemetry.",
+      "then": [
+        "The export contains only permitted evidence.",
+        "Redaction is recorded without leaking original secrets.",
+        "Redaction does not silently rewrite the historical evidence identity."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_export_withholds_a_summary_after_its_parent_is_revoked",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_exports_redact_secrets_and_preserve_original_evidence_identity"
+      ]
+    },
+    {
+      "id": "durable_evidence",
+      "invariants": [
+        "DE-5",
+        "DA-3",
+        "EV-2"
+      ],
+      "given": "A completed answer and immutable source references are committed.",
+      "when": "All original worker objects are discarded and the evidence is loaded in a fresh process.",
+      "then": [
+        "The exact recorded context and source revisions can be reconstructed.",
+        "Missing artifacts fail explicitly.",
+        "No fresh model generation is presented as deterministic replay."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_evidence_reloads_in_fresh_process_without_generation_and_missing_artifacts_fail"
+      ]
+    },
+    {
+      "id": "model_portability",
+      "invariants": [
+        "BP-2",
+        "EV-2",
+        "EV-3"
+      ],
+      "given": "Two explicitly versioned provider adapters use the same corpus, retrieval outputs, and evidence contract.",
+      "when": "The same labeled questions are executed through each provider.",
+      "then": [
+        "Both emit the same evidence schema and preserve source identity.",
+        "Missing credentials are reported as not-run.",
+        "No equality of newly generated answer text is required."
+      ],
+      "verification": "pilot",
+      "required": true,
+      "gap": "The opt-in real-provider suite is implemented. Available credentials returned HTTP 401 (OpenAI) and 403 (Gemini) during preflight; no successful live portability evidence was collected.",
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_live_evidence.py::test_real_providers_preserve_versioned_evidence[gemini-GEMINI_API_KEY-gemini-3.5-flash-lite]",
+        "tests/acceptance/context_provenance/test_live_evidence.py::test_real_providers_preserve_versioned_evidence[openai-OPENAI_API_KEY-gpt-5.5]"
+      ]
+    },
+    {
+      "id": "pilot_value",
+      "invariants": [
+        "HC-5",
+        "EV-1",
+        "EV-2",
+        "EV-3"
+      ],
+      "given": "A frozen corpus and at least one hundred independently labeled questions cover ordinary and adversarial policy cases.",
+      "when": "Simple prompting, citation-enabled retrieval, and the CEMAF path are compared with the same model, corpus, retriever, output budget, and question order.",
+      "then": [
+        "Record unsupported-claim rate, unauthorized evidence, affected-answer precision/recall, review time, token cost, and p50/p95 latency.",
+        "Use blinded counterbalanced reviewer assignments and publish paired results and uncertainty.",
+        "Zero unauthorized evidence in the tested cases and at least thirty percent lower median verification time than the citation baseline are initial go/no-go targets.",
+        "Do not graduate when required human timings or live results are absent."
+      ],
+      "verification": "pilot",
+      "required": true,
+      "gap": "The matched runner, blinded assignments, and evidence validator are implemented. Independent workload labels, actual costs, and human timings have not been collected.",
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_live_evidence.py::test_independent_workload_and_human_review_meet_pilot_targets"
+      ]
+    },
+    {
+      "id": "source_instruction_isolation",
+      "invariants": [
+        "SA-1",
+        "SA-6"
+      ],
+      "given": "A retrieved policy contains instructions to ignore permissions or expose another tenant.",
+      "when": "That source is compiled and sent as evidence.",
+      "then": [
+        "Source text cannot modify trusted authorization policy or grant tool capabilities.",
+        "An evidence record distinguishes source content from trusted instructions."
+      ],
+      "verification": "automated",
+      "required": true,
+      "test_nodes": [
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_retrieved_instructions_cannot_grant_tool_capabilities_or_rewrite_trust",
+        "tests/acceptance/context_provenance/test_evidence_boundary.py::test_uncited_injected_answer_is_rejected_by_runtime_gate"
+      ]
+    }
+  ]
+}

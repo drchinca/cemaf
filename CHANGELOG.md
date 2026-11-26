@@ -7,6 +7,183 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-26
+
+Knowledge graphs hold any domain's types. This is the first step of
+knowledge ontologies (SPEC-27): types are open names, and the graph can list
+every entity of a type and every outgoing relation of an entity. This is
+also the first release published from `main` since 3.3.0; 4.0.0 shipped from
+`development`.
+
+**Breaking:**
+- `KGEntity.type` and `KGRelation.type` are plain type names (`str`), so a
+  graph can hold any domain's types. Code that read `.type.value` should use
+  `.type` (or `str(.type)`); the `EntityType`/`RelationType` members still
+  work as values. An empty type, or a relation type containing `:`, raises
+  `ValueError` (#275).
+
+**Added:**
+- `KnowledgeGraph.entities_of_type()` lists every visible entity of a type by
+  full scan (no search limit), and `relations_from()` lists an entity's
+  outgoing relations; both respect clearance. `MemoryManager.list_by_prefix()`
+  and `SemanticMemoryStore.list_by_prefix()` back them (SPEC-27) (#275).
+
+## [4.0.0] - 2026-11-09
+
+A correctness and real-infrastructure release. Quality gates, resume and
+parallel steps now do what their specs promise; the Postgres audit log, Redis
+event bus and a real LLM call are exercised in CI; and several defaults stop
+failing silently. Breaking changes are listed first, as upgrade notes.
+
+**Breaking:**
+- `MergeStrategy` gains `handles_shared_writes(*, key) -> bool`. Custom
+  strategies must implement it; return True for keys the strategy merges or
+  reports on purpose (#262).
+- PARALLEL nodes coordinate their children's writes by default: when children
+  write the same top-level context key and the merge strategy would keep only
+  one, the earlier sibling runs and the others are recorded as steered. Under
+  last-write-wins the first sibling's value now wins instead of the last. Pass
+  `RuntimeServices(collision_policy=None)` to restore uncoordinated writes (#262).
+- `MockEmbeddingProvider` is renamed `CharacterHashEmbeddingProvider`, and the
+  `"mock"` embedding backend is now `"character_hash"` (#270).
+- `ExecutorConfig.enable_moderation` and `create_executor_config` default to
+  True, so a moderation pipeline supplied through `RuntimeServices` is used.
+  Pass `enable_moderation=False` to opt out (#266).
+- Online `EvalMode.GATE` bindings run only when `DAGExecutor` checks them; an
+  `OnlineEvalPipeline` used with `subscribe()` alone no longer runs GATE
+  bindings (#261).
+- `RedisEventBus` consumer groups are now named per subscriber
+  (`group-<type>-<subscriber>`). New groups read each stream from the start, so
+  the first deploy replays retained history; trim streams or destroy the old
+  `group-<type>` groups first if that is unwanted. Lambdas and
+  `functools.partial` handlers need `subscriber_name=`. Failed messages are
+  redelivered after `redelivery_idle_ms` (default 60 s) (#268).
+
+**Added:**
+- Custom node kinds: register `NodeResolver`s through
+  `RuntimeServices.node_resolvers`; they are matched before the built-in
+  council, auction and static resolvers, and `ContextNodeExecutor.resolver_ids`
+  lists the chain (SPEC-20) (#264).
+- An injectable `httpx` transport on `OpenAICompatClient`,
+  `create_ollama_client`, `create_tiered_ollama_router` and the LLM factories.
+  CI replays a real captured Ollama completion through the production adapter
+  and fails if the request drifts from the recording (SPEC-25) (#269).
+- The CI integration job runs real `pgvector/pgvector` and `redis` service
+  containers; the Postgres memory store, pgvector store, Postgres audit log and
+  Redis event bus are tested against them on every PR (#267, #268).
+- `offline_embedding_provider()` and `warn_non_semantic_embeddings()`: factories
+  that fall back to a non-semantic embedder (character hash, or the configured
+  `"hash"` default) log once that recall matches characters or identical text,
+  not meaning (SPEC-26) (#270).
+- Open Knowledge Format (OKF) import/export for Markdown knowledge bundles,
+  preserving frontmatter, supporting files, provenance, and reviewable proposals.
+  Install the optional `cemaf[okf]` dependencies to use the adapters.
+- Budgeted knowledge catalogs, paginated file indexes, snapshot revisions, and
+  bundle diffs for selective context loading and incremental project memory.
+- Protocol-first OKF adapters for documentation, Python contracts, registered
+  agents, skills, tools, capabilities, and explicitly selected RBAC/ABAC policy
+  descriptions. Runtime authorization gates exports; imported descriptions do
+  not grant access.
+- `cemaf docs export-okf` and a versioned CEMAF vocabulary profile, with offline
+  research, persistent project-memory, and self-hosting DAG examples exercising
+  context compilation, knowledge graphs, citations, and proposal review.
+- Engine showcase with a flagship flow diagram and component-to-module map,
+  separating design targets from the current implementation evidence (#244).
+- Opt-in live PostgreSQL/pgvector round-trip and bulk-write regression tests
+  accompanying the schema and vector-decoding fixes (#243).
+- Context and provenance acceptance cases for a support-policy evidence pilot,
+  with a versioned case catalog, adversarial policy fixtures, public-path tests,
+  a required test matrix, an engineering gate, and a strict adoption gate that
+  rejects missing live or human evidence.
+- Immutable text snapshots, context/request manifests, provider-specific token
+  preflight, durable evidence records, and transitive answer dependencies through
+  public protocols and `RuntimeServices`.
+- Current-authorization evidence export with explicit redaction/view identity,
+  separate claim-support verdicts and publication gates, and an offline policy
+  example with matched baselines and blinded pilot-review tooling.
+- Anthropic automatic prompt caching with a five-minute default TTL or an
+  optional one-hour TTL. Explicit breakpoints are supported on tools, system
+  instructions, structured message blocks, and tool exchanges.
+- Cache policy options on `create_resilient_client` and
+  `create_resilient_llm_client`, including TTL, automatic caching, and controls
+  for tool, system, and previous-turn breakpoints.
+- Cache read/write metadata and metrics for completions and streaming, with
+  offline integration coverage through the installed Anthropic SDK, resilient
+  factory, and run logger.
+
+**Fixed:**
+- A failing online GATE eval now fails its node, withholds its output and halts
+  the run, on any event bus and with events disabled, including CONDITIONAL and
+  retrying nodes. Before, it only published an alert nothing acted on
+  (SPEC-01a Invariant 15) (#261).
+- Resume no longer rebuilds failed nodes as successes: `DAGCheckpoint` records
+  `unsuccessful_nodes`, and `failed_node` is set only for failures that end the
+  run. Halt controllers are checked before each node, so resuming with a spent
+  budget runs nothing. Cancellation and budget/quality halts save a FAILED
+  checkpoint; a failed save no longer hides the stop reason
+  (`metadata["checkpoint_error"]`) (SPEC-21) (#263).
+- Run ids are `run_<uuid4>` instead of a timestamp, so runs started in the same
+  microsecond no longer share (and overwrite) a checkpoint (#263).
+- PARALLEL children writing the same top-level context key no longer race; a
+  `CONTEXT_CONFLICT` event is published for each resolved conflict, and a
+  steered child is restored as unsuccessful on resume (SPEC-12 §2.4) (#262).
+- `PostgresAuditLog` read queries began with a linter comment inside the SQL
+  string, so `query`, `count` and `verify_chain` failed on every real database.
+  Its docstring no longer claims revoked UPDATE/DELETE or monthly partitions
+  (SPEC-23) (#267).
+- `RedisEventBus` delivers every event to every subscriber (two subscribers to
+  one type used to split the events), and failed messages are redelivered and
+  dead-lettered after 3 deliveries instead of staying pending forever
+  (SPEC-24) (#268).
+- `Context.set`, `merge`, `delete`, `append`, and `deep_merge` record patches
+  for replay; `to_dict()` returns a deep copy to prevent untracked mutations
+  through exported dictionaries (#258).
+- `PgVectorStore` creates custom schemas, passes bulk-copy schema names through
+  asyncpg's dedicated argument, and accepts vector wrappers exposing `to_list()`
+  as well as iterable embeddings (#243). Fresh databases install the vector
+  extension before pooled connections register its codec.
+- Agent and skill protocol declarations accept populated skill/tool tuples;
+  citations preserve source-document metadata, including OKF provenance.
+- Worker-kill assurance tests use an injected, shared lease clock to exercise
+  expiry and fencing without a half-second startup race. Worker exits are
+  reported immediately with diagnostics, and real process-kill assertions remain.
+- Scoped memory access now checks the item's path; list filtering respects grant
+  actions, attribute conditions, and unrestricted roles without widening access.
+- Concurrent runs keep separate active logger records, and instrumented usage
+  charges runtime budgets without relying on optional agent metadata or counting
+  the same usage twice. Further instrumented calls stop after budget exhaustion.
+- Structured generation carries its output allowance through schema and policy
+  repair rounds; exhausted or exceeded allowances fail explicitly.
+- Retryable failed completion results count toward retries and circuit failures;
+  permanent failures are not retried, and billed failed attempts retain usage.
+- Compiled context fingerprints preserve evidence order. Run records retain
+  complete message metadata, tools, configuration, failure details, and evidence IDs.
+- Compacted summaries and additional source types survive message rendering.
+- Gemini separates trusted system instructions and keeps API keys out of URLs.
+  Opt-in live tests report missing prerequisites as skips instead of mock success.
+- Gemini token totals include thinking tokens and retain billed usage when no
+  answer candidate is returned; records preserve the provider's served model version.
+- Automatic caching uses the SDK's supported `extra_body` transport field,
+  including SDK versions without a named `cache_control` argument.
+- Prompt token totals include uncached input, cache reads, and cache writes so
+  context usage is preserved through instrumentation. Provider usage remains
+  available separately in result and final-stream metadata.
+- Anthropic conversion preserves structured content, all system messages,
+  explicit cache markers, and tool exchanges without mutating caller data.
+- Generated caching policy respects caller breakpoints, the four-breakpoint
+  limit, and TTL ordering; invalid wrapper TTLs and negative thresholds fail
+  at construction.
+
+**Changed:**
+- CLAUDE.md states what each spec actually ships (shipped / partial / design
+  only), corrects the layering and `MetaArchitect` claims, and records that
+  CEMAF ships no server by design (#265).
+- Reconciled the SPEC-18 peer-communication draft and index with the existing
+  specification and phase-one identity implementation, retaining newer test and
+  specification updates while integrating the original PR history (#247).
+- The prompt-caching decorator composes the adapter's public completion and
+  streaming methods rather than duplicating SDK calls and response parsing.
+
 ## [3.3.0] - 2026-09-22
 
 MessageBoard foundation (agent identity substrate), Blueprint schema
@@ -461,6 +638,7 @@ For complete documentation, see [README.md](README.md) and [docs/](docs/).
 
 ---
 
-[Unreleased]: https://github.com/drchinca/cemaf/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/drchinca/cemaf/compare/v4.1.0...HEAD
+[4.1.0]: https://github.com/drchinca/cemaf/compare/v4.0.0...v4.1.0
 [0.2.0]: https://github.com/drchinca/cemaf/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/drchinca/cemaf/releases/tag/v0.1.0

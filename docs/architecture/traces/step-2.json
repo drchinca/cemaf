@@ -3,23 +3,24 @@
   "step": 2,
   "label": "chain \u2014 2 agents",
   "dag_name": "chain",
-  "total_ms": 112,
+  "status": "completed",
+  "total_ms": 43,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.468075+00:00",
+      "corr": "run_7fa30ceab0794f209f01de4cba0713df",
       "attrs": {
         "dag_name": "chain",
-        "run_id": "run_2026-06-11T23:52:15.468075+00:00"
+        "run_id": "run_7fa30ceab0794f209f01de4cba0713df"
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.468075+00:00",
+      "corr": "run_7fa30ceab0794f209f01de4cba0713df",
       "attrs": {
         "node_id": "greet",
         "node_type": "agent",
@@ -31,60 +32,60 @@
       }
     },
     {
-      "t_ms": 61,
+      "t_ms": 21,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.468075+00:00",
+      "corr": "run_7fa30ceab0794f209f01de4cba0713df",
       "attrs": {
         "node_id": "greet",
         "success": true,
-        "duration_ms": 61.11541698919609,
+        "duration_ms": 21.131167000021378,
         "error": null,
-        "output": "{\"text\": \"Hello, world!\", \"tokens_in\": 12, \"tokens_out\": 8}",
-        "run_id": "run_2026-06-11T23:52:15.468075+00:00",
+        "output": "Hello, world!",
+        "run_id": "run_7fa30ceab0794f209f01de4cba0713df",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 61,
+      "t_ms": 21,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.468075+00:00",
+      "corr": "run_7fa30ceab0794f209f01de4cba0713df",
       "attrs": {
-        "node_id": "upper",
+        "node_id": "shout",
         "node_type": "agent",
-        "agent_id": "Upper",
+        "agent_id": "Shouter",
         "inputs": {
-          "text": "world (greeted)"
+          "text": "Hello, world!"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 112,
+      "t_ms": 42,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.468075+00:00",
+      "corr": "run_7fa30ceab0794f209f01de4cba0713df",
       "attrs": {
-        "node_id": "upper",
+        "node_id": "shout",
         "success": true,
-        "duration_ms": 51.145915989764035,
+        "duration_ms": 21.17029199962417,
         "error": null,
-        "output": "{\"text\": \"WORLD (GREETED)\", \"tokens_in\": 18, \"tokens_out\": 18}",
-        "run_id": "run_2026-06-11T23:52:15.468075+00:00",
+        "output": "HELLO, WORLD!",
+        "run_id": "run_7fa30ceab0794f209f01de4cba0713df",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 112,
+      "t_ms": 43,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.468075+00:00",
+      "corr": "run_7fa30ceab0794f209f01de4cba0713df",
       "attrs": {
         "dag_name": "chain",
-        "run_id": "run_2026-06-11T23:52:15.468075+00:00",
+        "run_id": "run_7fa30ceab0794f209f01de4cba0713df",
         "num_nodes": 2,
-        "duration_ms": 112.679
+        "duration_ms": 42.977000000000004
       }
     }
   ]

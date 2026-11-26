@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol, runtime_checkable
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON
 from cemaf.core.utils import utc_now
@@ -13,6 +14,10 @@ from cemaf.memory.protocols import MemoryStore as MemoryStoreProtocol
 from cemaf.memory.scoring import MemoryScorer, ScoredMemoryItem
 from cemaf.memory.session_keys import parse_session_memory_key, session_memory_logical_key
 from cemaf.retrieval.protocols import Document, EmbeddingProvider, SearchResult, VectorStore
+
+_CANDIDATE_MULTIPLIER = 3
+_CANDIDATE_GROWTH = 4
+_MAX_CANDIDATES = 1000
 
 
 @dataclass(frozen=True)
@@ -27,6 +32,7 @@ class MemoryQuery:
     limit: int = 10
     scope_path: str | None = None  # Filter to items under this hierarchical scope path
     session_id: str | None = None  # Isolate and normalize SESSION memories for one run
+    max_security_level: SecurityLevel | None = None  # Drop items above this level before the limit
 
 
 @dataclass(frozen=True)
@@ -53,6 +59,8 @@ class SemanticMemoryStore(Protocol):
     async def search(self, query: MemoryQuery) -> tuple[MemorySearchResult, ...]: ...
 
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None: ...
+
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
 
     async def delete(self, scope: MemoryScope, key: str) -> bool: ...
 
@@ -117,6 +125,11 @@ class DefaultSemanticMemoryStore:
         """Direct key-value lookup."""
         return await self._memory_store.get(scope=scope, key=key)
 
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]:
+        """Every stored item in scope whose key starts with key_prefix; a full scan, no limit."""
+        items = await self._memory_store.list_by_scope(scope=scope)
+        return tuple(item for item in items if item.key.startswith(key_prefix))
+
     async def delete(self, scope: MemoryScope, key: str) -> bool:
         """Delete from both stores."""
         full_key = f"{scope.value}:{key}"
@@ -136,13 +149,38 @@ class DefaultSemanticMemoryStore:
             raise ValueError("Semantic search requires query.text to be set")
 
         search_filter = self._build_filter(query=query)
-        # Fetch extra candidates for re-ranking after filtering
-        vector_results: list[SearchResult] = await self._vector_store.search_by_text(
-            query_text=query.text,
-            k=query.limit * 3,
-            filter=search_filter,
-        )
+        # Fetch extra candidates for re-ranking after filtering, and widen the window
+        # while item filters (e.g. clearance) reject so many that fewer than limit survive.
+        candidate_count = query.limit * _CANDIDATE_MULTIPLIER
+        while True:
+            vector_results: list[SearchResult] = await self._vector_store.search_by_text(
+                query_text=query.text,
+                k=candidate_count,
+                filter=search_filter,
+            )
+            results = await self._score_candidates(query=query, vector_results=vector_results)
+            exhausted = len(vector_results) < candidate_count
+            if len(results) >= query.limit or exhausted or candidate_count >= _MAX_CANDIDATES:
+                break
+            candidate_count *= _CANDIDATE_GROWTH
 
+        # Sort by combined score, assign ranks, limit
+        results.sort(key=lambda r: r.combined_score, reverse=True)
+        ranked = tuple(
+            MemorySearchResult(
+                item=r.item,
+                similarity=r.similarity,
+                combined_score=r.combined_score,
+                rank=i,
+            )
+            for i, r in enumerate(results[: query.limit])
+        )
+        return ranked
+
+    async def _score_candidates(
+        self, *, query: MemoryQuery, vector_results: list[SearchResult]
+    ) -> list[MemorySearchResult]:
+        """Load, filter and score vector candidates."""
         results: list[MemorySearchResult] = []
         for vr in vector_results:
             try:
@@ -170,18 +208,7 @@ class DefaultSemanticMemoryStore:
                 )
             )
 
-        # Sort by combined score, assign ranks, limit
-        results.sort(key=lambda r: r.combined_score, reverse=True)
-        ranked = tuple(
-            MemorySearchResult(
-                item=r.item,
-                similarity=r.similarity,
-                combined_score=r.combined_score,
-                rank=i,
-            )
-            for i, r in enumerate(results[: query.limit])
-        )
-        return ranked
+        return results
 
     async def _scope_search(
         self,
@@ -240,6 +267,8 @@ class DefaultSemanticMemoryStore:
         ):
             return False
         if float(item.confidence) < query.min_confidence:
+            return False
+        if query.max_security_level is not None and item.security_level.rank > query.max_security_level.rank:
             return False
         if item.is_expired:
             return False

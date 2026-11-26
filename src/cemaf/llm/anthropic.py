@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import Any, cast
 
 from cemaf.core.types import LLMProvider, TokenCount
@@ -60,6 +61,11 @@ class AnthropicLLMClient:
             kwargs["system"] = system_msg
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
+        if cfg.cache_control:
+            # extra_body also supports SDK versions predating automatic caching.
+            kwargs["extra_body"] = {"cache_control": cfg.cache_control}
+        if cfg.stop_sequences:
+            kwargs["stop_sequences"] = list(cfg.stop_sequences)
 
         start = time.monotonic()
         try:
@@ -93,9 +99,13 @@ class AnthropicLLMClient:
         )
 
         native = response.stop_reason or "end_turn"
-        return CompletionResult.ok(
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        cache_created = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+        cache_metadata = _cache_usage(response.usage)
+
+        result = CompletionResult.ok(
             message=message,
-            prompt_tokens=response.usage.input_tokens,
+            prompt_tokens=response.usage.input_tokens + cache_read + cache_created,
             completion_tokens=response.usage.output_tokens,
             model=response.model,
             finish_reason=coerce_finish_reason(native),
@@ -103,6 +113,9 @@ class AnthropicLLMClient:
             provider=LLMProvider.ANTHROPIC,
             latency_ms=latency_ms,
         )
+        if cache_metadata:
+            result = replace(result, metadata=cache_metadata)
+        return result
 
     async def stream(
         self,
@@ -124,6 +137,10 @@ class AnthropicLLMClient:
             kwargs["system"] = system_msg
         if tools:
             kwargs["tools"] = [t.to_anthropic_format() for t in tools]
+        if cfg.cache_control:
+            kwargs["extra_body"] = {"cache_control": cfg.cache_control}
+        if cfg.stop_sequences:
+            kwargs["stop_sequences"] = list(cfg.stop_sequences)
 
         stream_message = cast(Any, self._client.messages.stream)
         async with stream_message(**kwargs) as stream:
@@ -166,14 +183,19 @@ class AnthropicLLMClient:
                     current_tool_id = ""
 
             final_message = await stream.get_final_message()
+            cache_read = getattr(final_message.usage, "cache_read_input_tokens", 0) or 0
+            cache_created = getattr(final_message.usage, "cache_creation_input_tokens", 0) or 0
+            final_metadata = _cache_usage(final_message.usage)
+
             yield StreamChunk(
                 content="",
                 accumulated_content=accumulated_text,
                 tool_calls=tuple(tool_calls),
                 is_final=True,
                 finish_reason=coerce_finish_reason(final_message.stop_reason or "end_turn"),
-                prompt_tokens=TokenCount(final_message.usage.input_tokens),
+                prompt_tokens=TokenCount(final_message.usage.input_tokens + cache_read + cache_created),
                 completion_tokens=TokenCount(final_message.usage.output_tokens),
+                metadata=final_metadata,
             )
 
     def count_tokens(self, text: str) -> TokenCount:
@@ -244,32 +266,37 @@ class AnthropicLLMClient:
 def _convert_messages(
     *,
     messages: list[Message],
-) -> tuple[str | None, list[dict[str, object]]]:
-    """Extract system message and convert CEMAF messages to Anthropic format."""
-    system_msg: str | None = None
-    api_messages: list[dict[str, object]] = []
+) -> tuple[str | list[dict[str, Any]] | None, list[dict[str, Any]]]:
+    """Extract system message and convert CEMAF messages to Anthropic format.
+
+    Preserves explicit prompt caching breakpoints from `Message.metadata["cache_control"]`.
+    """
+    system_blocks: list[dict[str, Any]] = []
+    api_messages: list[dict[str, Any]] = []
 
     for msg in messages:
+        cc = msg.metadata.get("cache_control")
         if msg.role == MessageRole.SYSTEM:
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            system_msg = content
+            blocks = _content_blocks(msg.content)
+            if cc:
+                _mark_cache_breakpoint(blocks, cc)
+            system_blocks.extend(blocks)
         elif msg.role == MessageRole.TOOL:
+            block: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": msg.tool_call_id,
+                "content": msg.content,
+            }
+            if cc:
+                block["cache_control"] = cc
             api_messages.append(
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": msg.tool_call_id,
-                            "content": msg.content if isinstance(msg.content, str) else str(msg.content),
-                        }
-                    ],
+                    "content": [block],
                 }
             )
         elif msg.role == MessageRole.ASSISTANT and msg.tool_calls:
-            content_blocks: list[dict[str, object]] = []
-            if msg.content:
-                content_blocks.append({"type": "text", "text": str(msg.content)})
+            content_blocks = _content_blocks(msg.content) if msg.content else []
             for tc in msg.tool_calls:
                 content_blocks.append(
                     {
@@ -279,9 +306,48 @@ def _convert_messages(
                         "input": tc.arguments,
                     }
                 )
+            if cc and content_blocks:
+                _mark_cache_breakpoint(content_blocks, cc)
             api_messages.append({"role": "assistant", "content": content_blocks})
         else:
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            api_messages.append({"role": msg.role.value, "content": content})
+            if cc or isinstance(msg.content, list):
+                blocks = _content_blocks(msg.content)
+                if cc:
+                    _mark_cache_breakpoint(blocks, cc)
+                api_messages.append({"role": msg.role.value, "content": blocks})
+            else:
+                api_messages.append({"role": msg.role.value, "content": msg.content})
 
+    system_msg: str | list[dict[str, Any]] | None = system_blocks or None
+    if len(system_blocks) == 1 and set(system_blocks[0]) == {"type", "text"}:
+        system_msg = system_blocks[0]["text"]
     return system_msg, api_messages
+
+
+def _content_blocks(content: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Copy blocks so adding cache markers never mutates caller messages."""
+    return [{"type": "text", "text": content}] if isinstance(content, str) else [dict(b) for b in content]
+
+
+def _mark_cache_breakpoint(blocks: list[dict[str, Any]], cache_control: Any) -> None:
+    """Mark the last eligible block; thinking and empty text cannot be cached."""
+    for block in reversed(blocks):
+        if block.get("type") in {"thinking", "redacted_thinking"}:
+            continue
+        if block.get("type") == "text" and not block.get("text"):
+            continue
+        block["cache_control"] = cache_control
+        return
+
+
+def _cache_usage(usage: Any) -> dict[str, Any]:
+    """Keep the provider's input breakdown alongside total prompt token usage."""
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_created = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    if not (cache_read or cache_created):
+        return {}
+    return {
+        "input_tokens": usage.input_tokens,
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": cache_created,
+    }

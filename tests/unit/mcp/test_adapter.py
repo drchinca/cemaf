@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.result import Result
 from cemaf.core.types import ToolID
@@ -58,7 +59,7 @@ def _make_adapter(
     for tool in tools or []:
         adapter.register_tool(tool)
     if memory_store:
-        adapter.set_memory_store(memory_store)
+        adapter.set_memory_store(memory_store, clearance=SecurityLevel.INTERNAL)
     return adapter
 
 
@@ -229,3 +230,31 @@ class TestReadResource:
         response = await adapter.handle_request(request)
 
         assert response.is_error
+
+
+class TestResourcesRespectClearance:
+    """Memory above the adapter's clearance is neither listed nor readable over MCP."""
+
+    @pytest.mark.asyncio
+    async def test_confidential_memory_is_hidden_from_list_and_read(self) -> None:
+        store = InMemoryStore()
+        await store.set(
+            MemoryItem(
+                scope=MemoryScope.PROJECT,
+                key="salaries",
+                value={"ceo": 1},
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        )
+        await store.set(MemoryItem(scope=MemoryScope.PROJECT, key="office", value={"city": "Lima"}))
+        adapter = _make_adapter(memory_store=store)
+
+        listed = await adapter.handle_request(MCPRequest(method="resources/list", id=1))
+        read = await adapter.handle_request(
+            MCPRequest(method="resources/read", id=2, params={"uri": "memory://project/salaries"})
+        )
+
+        names = {r["name"] for r in listed.result["resources"]}
+        assert "project:office" in names
+        assert "project:salaries" not in names
+        assert read.error is not None

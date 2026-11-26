@@ -1,9 +1,11 @@
 """Bridge between memory system and context compiler pipeline."""
 
+from dataclasses import replace
 from typing import Protocol, runtime_checkable
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler, TokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.memory.compaction import MemoryCompactor
 from cemaf.memory.manager import MemoryManager
@@ -49,6 +51,7 @@ class DefaultMemoryContextProvider:
         compactor: MemoryCompactor,
         compiler: ContextCompiler,
         token_estimator: TokenEstimator,
+        clearance: SecurityLevel,
         tiered_store: TieredMemoryStore | None = None,
     ) -> None:
         self._memory_manager = memory_manager
@@ -56,6 +59,7 @@ class DefaultMemoryContextProvider:
         self._compiler = compiler
         self._token_estimator = token_estimator
         self._tiered_store = tiered_store
+        self._clearance = clearance
 
     async def provide_context_sources(
         self,
@@ -63,7 +67,13 @@ class DefaultMemoryContextProvider:
         *,
         token_budget: int,
     ) -> tuple[ContextSource, ...]:
-        """Fetch, compact, and return as ContextSource objects."""
+        """Fetch, compact, and return the memories this provider's clearance admits."""
+        sources = await self._provide_all(query=query, token_budget=token_budget)
+        return tuple(source for source in sources if source.security_level.rank <= self._clearance.rank)
+
+    async def _provide_all(self, *, query: MemoryQuery, token_budget: int) -> tuple[ContextSource, ...]:
+        """Fetch and compact matching memories at or below clearance, so withheld ones use no budget."""
+        query = replace(query, max_security_level=self._clearance)
         if self._tiered_store is not None:
             return await self._provide_via_tiered(query=query, token_budget=token_budget)
         return await self._provide_via_flat(query=query, token_budget=token_budget)
@@ -74,7 +84,7 @@ class DefaultMemoryContextProvider:
         *,
         token_budget: int,
     ) -> tuple[tuple[str, str], ...]:
-        """Fetch, compact, and return as (key, content) pairs for the compiler."""
+        """Fetch, compact, and return admitted memories as (key, content) pairs."""
         sources = await self.provide_context_sources(
             query=query,
             token_budget=token_budget,
@@ -95,16 +105,19 @@ class DefaultMemoryContextProvider:
             artifact_count=len(artifacts),
         )
 
-        memories = await self.provide_memories_for_compiler(
-            query=memory_query,
-            token_budget=memory_budget,
-        )
+        # Memories are filtered at the query; the compiler gates artifacts and keeps memory levels.
+        sources = await self._provide_all(query=memory_query, token_budget=memory_budget)
+        clashing = {key for key, _ in artifacts} & {source.source_id for source in sources}
+        if clashing:
+            raise ValueError(f"Artifact keys collide with memory keys: {sorted(clashing)}")
 
         return await self._compiler.compile(
+            clearance=self._clearance,
             artifacts=artifacts,
-            memories=memories,
+            memories=tuple((source.source_id, source.content) for source in sources),
             budget=budget,
             priorities=priorities,
+            source_levels={source.source_id: source.security_level for source in sources},
         )
 
     async def _provide_via_tiered(

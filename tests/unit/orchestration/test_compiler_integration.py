@@ -10,6 +10,7 @@ from cemaf.context.compiler import (
     SimpleTokenEstimator,
 )
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import NodeType
 from cemaf.core.types import NodeID
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
@@ -63,7 +64,7 @@ class TestExecutorWithoutCompiler:
         assert agent is not None
         registry.register_agent(agent_instance=agent)
 
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(agent_registry=registry, clearance=SecurityLevel.CONFIDENTIAL)
 
         context = Context(
             data={"_resolved_inputs": {"intent_query": "test query"}},
@@ -97,6 +98,7 @@ class TestExecutorWithCompiler:
             agent_registry=registry,
             context_compiler=compiler,
             token_budget=token_budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         context = Context(
@@ -125,6 +127,7 @@ class TestExecutorWithCompiler:
             agent_registry=registry,
             context_compiler=compiler,
             token_budget=token_budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         compiled = await executor._compile_context(
@@ -146,7 +149,7 @@ class TestExecutorWithCompiler:
         registry: AgentRegistry,
     ) -> None:
         """_compile_context returns None when compiler is not configured."""
-        executor = ContextNodeExecutor(agent_registry=registry)
+        executor = ContextNodeExecutor(agent_registry=registry, clearance=SecurityLevel.CONFIDENTIAL)
 
         compiled = await executor._compile_context(
             agent_name="test_agent",
@@ -188,6 +191,7 @@ class TestCompilationFailureGraceful:
             agent_registry=registry,
             context_compiler=FailingCompiler(),  # type: ignore[arg-type]
             token_budget=token_budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         context = Context(
@@ -217,6 +221,7 @@ class TestCompiledContextRespectsBudget:
             agent_registry=registry,
             context_compiler=compiler,
             token_budget=tight_budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         # Feed large inputs that exceed the budget
@@ -248,6 +253,7 @@ class TestCompiledContextRespectsBudget:
             agent_registry=registry,
             context_compiler=compiler,
             token_budget=generous_budget,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         compiled = await executor._compile_context(

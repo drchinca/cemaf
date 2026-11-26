@@ -4,6 +4,7 @@ import pytest
 
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
 
@@ -14,14 +15,16 @@ class TestCreateExecutor:
     def test_minimal_creation(self):
         """Create executor with just a registry."""
         registry = AgentRegistry()
-        executor = create_executor(agent_registry=registry)
+        executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
         assert isinstance(executor, DAGExecutor)
 
     def test_with_config(self):
         """Create executor with custom config."""
         registry = AgentRegistry()
         config = ExecutorConfig(max_parallel=5, node_timeout_seconds=60.0)
-        executor = create_executor(agent_registry=registry, config=config)
+        executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, config=config
+        )
         assert isinstance(executor, DAGExecutor)
         assert executor._max_parallel == 5
         assert executor._node_timeout == 60.0
@@ -41,7 +44,9 @@ class TestCreateExecutor:
             memory_manager=memory_manager,
             session_manager=session_manager,
         )
-        executor = create_executor(agent_registry=registry, services=services)
+        executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry, services=services
+        )
         assert isinstance(executor, DAGExecutor)
         assert executor._run_logger is run_logger
         assert executor._session_manager is session_manager
@@ -55,6 +60,7 @@ class TestCreateExecutor:
         services = RuntimeServices(run_logger=InMemoryRunLogger())
 
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             config=config,
             services=services,
@@ -70,7 +76,7 @@ class TestCreateExecutor:
         from cemaf.orchestration.dag import DAG, Node
 
         registry = AgentRegistry()
-        executor = create_executor(agent_registry=registry)
+        executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
 
         dag = DAG(
             name="test",

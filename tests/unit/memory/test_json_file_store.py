@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.memory.base import JsonFileMemoryStore, MemoryItem
@@ -165,3 +166,23 @@ class TestJsonFileStorePersistence:
         items = await store.list_by_scope(MemoryScope.TENANT)
         assert items == ()
         assert "Ignoring corrupt JSON memory store file" in caplog.text
+
+
+async def test_security_level_survives_reload(tmp_path: Path) -> None:
+    """security_level roundtrips through the JSON file, so a reload cannot relabel a memory."""
+    path = tmp_path / "mem.json"
+    store = JsonFileMemoryStore(path=path)
+    await store.set(
+        item=MemoryItem(
+            scope=MemoryScope.TENANT,
+            key="salaries",
+            value={"ceo": 1},
+            confidence=Confidence(0.9),
+            security_level=SecurityLevel.CONFIDENTIAL,
+        )
+    )
+
+    reloaded = await JsonFileMemoryStore(path=path).get(scope=MemoryScope.TENANT, key="salaries")
+
+    assert reloaded is not None
+    assert reloaded.security_level == SecurityLevel.CONFIDENTIAL

@@ -43,6 +43,7 @@ class CompactedMemory:
             memory_key=self.item.full_key,
             token_count=TokenCount(self.compacted_token_count),
             timestamp=self.item.updated_at,
+            security_level=self.item.security_level,
         )
 
 

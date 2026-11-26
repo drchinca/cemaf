@@ -66,6 +66,7 @@ from cemaf.blueprint import (
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON, AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.types import Opinion
@@ -79,7 +80,7 @@ from cemaf.observability.budget_guard import BudgetGuard
 from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.orchestration.executor import ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import InMemoryVectorStore, CharacterHashEmbeddingProvider
 from cemaf.retrieval.protocols import Document
 from cemaf.scheduler.factories import create_managed_scheduler
 from cemaf.scheduler.primitives import JobDefinition, JobKind
@@ -179,7 +180,7 @@ class Reviewer:
 
 
 async def _seed_vector_store() -> InMemoryVectorStore:
-    store = InMemoryVectorStore(embedding_provider=MockEmbeddingProvider(dimension=64))
+    store = InMemoryVectorStore(embedding_provider=CharacterHashEmbeddingProvider(dimension=64))
     await store.add_batch(
         [
             Document(
@@ -353,6 +354,7 @@ async def main() -> None:
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(

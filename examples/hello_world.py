@@ -19,6 +19,7 @@ from cemaf import (
     Node,
     create_executor,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID
 
 
@@ -70,7 +71,7 @@ async def main() -> None:
         )
     )
 
-    executor = create_executor(agent_registry=registry)
+    executor = create_executor(clearance=SecurityLevel.CONFIDENTIAL, agent_registry=registry)
     result = await executor.run(dag=dag)
 
     print(f"Status: {result.status.value}")

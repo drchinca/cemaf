@@ -47,6 +47,10 @@ class TestKnowledgeGraphProtocol:
                 limit: int = 10,
             ) -> tuple[KGEntity, ...]: ...
             async def remove_entity(self, entity_id: str) -> bool: ...
+            async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]: ...
+            async def relations_from(
+                self, *, entity_id: str, relation_type: str | None = None
+            ) -> tuple[KGRelation, ...]: ...
 
         assert isinstance(FakeGraph(), KnowledgeGraph)
 
@@ -107,6 +111,10 @@ class TestOptionalKnowledgeGraphProtocols:
                 limit: int = 10,
             ) -> tuple[KGEntity, ...]: ...
             async def remove_entity(self, entity_id: str) -> bool: ...
+            async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]: ...
+            async def relations_from(
+                self, *, entity_id: str, relation_type: str | None = None
+            ) -> tuple[KGRelation, ...]: ...
 
         graph = FakeGraph()
         assert isinstance(graph, KnowledgeGraph)
@@ -134,7 +142,7 @@ class TestEntityType:
         assert EntityType.SKILL.value == "skill"
 
     def test_member_count(self) -> None:
-        assert len(EntityType) == 7
+        assert len(EntityType) == 8
 
 
 class TestRelationType:
@@ -150,7 +158,7 @@ class TestRelationType:
         assert RelationType.IMPLEMENTS.value == "implements"
 
     def test_member_count(self) -> None:
-        assert len(RelationType) == 7
+        assert len(RelationType) == 8
 
 
 class TestKGEntity:
@@ -198,7 +206,7 @@ class TestKGEntity:
             name="KnowledgeGraph",
         )
         d = entity.to_dict()
-        expected_keys = {"id", "type", "name", "description", "properties", "created_at"}
+        expected_keys = {"id", "type", "name", "description", "properties", "created_at", "security_level"}
         assert set(d.keys()) == expected_keys
 
 
@@ -244,7 +252,7 @@ class TestKGRelation:
             type=RelationType.IMPLEMENTS,
         )
         d = relation.to_dict()
-        expected_keys = {"source_id", "target_id", "type", "properties", "created_at"}
+        expected_keys = {"source_id", "target_id", "type", "properties", "created_at", "security_level"}
         assert set(d.keys()) == expected_keys
 
 

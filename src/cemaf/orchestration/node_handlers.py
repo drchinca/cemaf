@@ -3,18 +3,25 @@
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from enum import StrEnum
+from typing import Any, Final
 
 from cemaf.agents.directory_protocols import AgentDirectory
+from cemaf.collision import Advisory, AdvisoryLevel, AgentWriteSet, CollisionPolicy, WriteItem, emit_advisory
 from cemaf.context.context import Context
 from cemaf.context.merge import MergeConflictError, MergeStrategy
 from cemaf.context.patch import ContextPatch, PatchOperation, PatchSource
 from cemaf.core.types import AgentID, NodeID, RunID, TaskID
+from cemaf.events.protocols import EventBus
 from cemaf.observability import get_logger
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.dag import DAG, Node
+from cemaf.orchestration.results import NodeResult
 
 logger = get_logger("orchestration.node_handlers")
+
+COLLISION_METADATA_KEY: Final = "collision"
+PARALLEL_COLLISION_SOURCE: Final = "parallel_collision_guard"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +45,122 @@ class NodeHandlerContext:
     should_halt: Callable[[], bool] | None = None
     # SPEC-18 phase 1b — pre-dispatch identity admission for parallel peers.
     agent_directory: AgentDirectory | None = None
+    # SPEC-12 §2.4 — PARALLEL children writing overlapping keys; None = every child runs.
+    collision_policy: CollisionPolicy | None = None
+    event_bus: EventBus | None = None
+
+
+class SteeredField(StrEnum):
+    """Keys of the metadata["collision"] record on a steered child's result."""
+
+    STEERED = "steered"
+    HELD_BY = "held_by"
+    RISK = "risk"
+    OUTPUT_KEY = "output_key"
+
+
+@dataclass(frozen=True, slots=True)
+class SteeredWrite:
+    """A PARALLEL child kept from running because a sibling holds the key it would write."""
+
+    node_id: NodeID
+    held_by: NodeID
+    output_key: str
+    risk: float
+
+
+@dataclass(frozen=True, slots=True)
+class SiblingAdvisory:
+    """A collision advisory together with the later sibling of the pair it judged."""
+
+    node_id: NodeID
+    advisory: Advisory
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelWritePlan:
+    """Which PARALLEL children are steered off their writes, and the advisories worth publishing."""
+
+    steered: tuple[SteeredWrite, ...]
+    advisories: tuple[SiblingAdvisory, ...]
+
+
+def _top_level_key(*, output_key: str) -> str:
+    """The context key a merge replaces when a node writes output_key."""
+    return output_key.split(".", 1)[0]
+
+
+def plan_parallel_writes(
+    *,
+    nodes: tuple[Node, ...],
+    policy: CollisionPolicy,
+    merge_strategy: MergeStrategy,
+) -> ParallelWritePlan:
+    """Steer siblings whose writes the merge strategy would drop, judging pairs in sibling order."""
+    contenders = [
+        (
+            node,
+            AgentWriteSet(
+                agent_id=str(node.id),
+                items=(WriteItem(path=_top_level_key(output_key=node.output_key)),),
+                # Sibling order stands in for start time, so the earlier sibling holds by default.
+                started_at=float(position + 1),
+            ),
+        )
+        for position, node in enumerate(nodes)
+        if node.output_key
+        and not merge_strategy.handles_shared_writes(key=_top_level_key(output_key=node.output_key))
+    ]
+    steered: dict[NodeID, SteeredWrite] = {}
+    advisories: list[SiblingAdvisory] = []
+    for later_index, (later_node, later) in enumerate(contenders):
+        for earlier_node, earlier in contenders[:later_index]:
+            if earlier_node.id in steered or later_node.id in steered:
+                continue
+            advisory = policy.advise(a=earlier, b=later)
+            if advisory.transmit:
+                advisories.append(SiblingAdvisory(node_id=later_node.id, advisory=advisory))
+            if advisory.level != AdvisoryLevel.RESOLUTION_ADVISORY:
+                continue
+            if advisory.steer == later.agent_id:
+                loser, holder = later_node, earlier_node
+            elif advisory.steer == earlier.agent_id:
+                loser, holder = earlier_node, later_node
+            else:
+                continue
+            steered[loser.id] = SteeredWrite(
+                node_id=loser.id,
+                held_by=holder.id,
+                output_key=loser.output_key,
+                risk=advisory.risk,
+            )
+    return ParallelWritePlan(steered=tuple(steered.values()), advisories=tuple(advisories))
+
+
+def _steered_result(*, steered: SteeredWrite) -> NodeResult:
+    """The recorded result for a child that was never dispatched."""
+    return NodeResult(
+        node_id=steered.node_id,
+        success=False,
+        error=(
+            f"collision: {steered.node_id} steered off {steered.output_key!r}; "
+            f"{steered.held_by} holds right-of-way (risk={steered.risk:.2f})"
+        ),
+        metadata={
+            COLLISION_METADATA_KEY: {
+                SteeredField.STEERED: True,
+                SteeredField.HELD_BY: str(steered.held_by),
+                SteeredField.RISK: steered.risk,
+                SteeredField.OUTPUT_KEY: steered.output_key,
+            }
+        },
+    )
+
+
+def is_steered(result: NodeResult) -> bool:
+    """True when a PARALLEL child was steered off its write rather than failing."""
+    collision = (result.metadata or {}).get(COLLISION_METADATA_KEY)
+    return isinstance(collision, dict) and collision.get(SteeredField.STEERED) is True
 
 
 def execute_router_node(
@@ -303,7 +426,7 @@ async def execute_parallel_node(
         handler_ctx=handler_ctx,
     )
 
-    failures = [r for r in results if not r.success]
+    failures = [r for r in results if not r.success and not is_steered(r)]
     outputs: dict[str, Any] = {str(r.node_id): r.output for r in results if r.output is not None}
 
     error = None
@@ -373,10 +496,29 @@ async def run_parallel_nodes(
     *,
     handler_ctx: NodeHandlerContext,
 ) -> tuple[tuple[Any, ...], Context]:
-    """Execute multiple nodes in parallel with context merging."""
+    """Execute multiple nodes in parallel with context merging; steered children never dispatch."""
     from cemaf.orchestration.executor import NodeResult
 
-    await _preadmit_parallel_peers(nodes, context, handler_ctx=handler_ctx)
+    steered_by_node: dict[NodeID, SteeredWrite] = {}
+    if handler_ctx.collision_policy is not None:
+        plan = plan_parallel_writes(
+            nodes=nodes,
+            policy=handler_ctx.collision_policy,
+            merge_strategy=handler_ctx.merge_strategy,
+        )
+        steered_by_node = {steered.node_id: steered for steered in plan.steered}
+        if handler_ctx.event_bus is not None:
+            for sibling_advisory in plan.advisories:
+                await emit_advisory(
+                    event_bus=handler_ctx.event_bus,
+                    advisory=sibling_advisory.advisory,
+                    agent_id=str(sibling_advisory.node_id),
+                    source=PARALLEL_COLLISION_SOURCE,
+                    correlation_id=handler_ctx.correlation_id,
+                )
+    runnable = tuple(node for node in nodes if node.id not in steered_by_node)
+
+    await _preadmit_parallel_peers(runnable, context, handler_ctx=handler_ctx)
 
     semaphore = asyncio.Semaphore(handler_ctx.max_parallel)
 
@@ -385,26 +527,31 @@ async def run_parallel_nodes(
             result, branch_context = await handler_ctx.execute_with_retry(node, context.copy_context())
             return result, branch_context
 
-    tasks = [execute_with_semaphore(node) for node in nodes]
+    tasks = [execute_with_semaphore(node) for node in runnable]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    final_results: list[NodeResult] = []
+    results_by_node: dict[NodeID, NodeResult] = {}
     all_branch_contexts: list[Context] = []
 
     for i, res_tuple in enumerate(raw_results):
         if isinstance(res_tuple, BaseException):
-            final_results.append(
-                NodeResult(
-                    node_id=nodes[i].id,
-                    success=False,
-                    error=str(res_tuple),
-                )
+            results_by_node[runnable[i].id] = NodeResult(
+                node_id=runnable[i].id,
+                success=False,
+                error=str(res_tuple),
             )
             all_branch_contexts.append(context.copy_context())
         else:
             result, branch_context = res_tuple
-            final_results.append(result)
+            results_by_node[runnable[i].id] = result
             all_branch_contexts.append(branch_context)
+
+    final_results: list[NodeResult] = [
+        _steered_result(steered=steered_by_node[node.id])
+        if node.id in steered_by_node
+        else results_by_node[node.id]
+        for node in nodes
+    ]
 
     # Merge contexts from all parallel branches
     try:

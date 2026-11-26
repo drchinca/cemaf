@@ -22,7 +22,7 @@ from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.session import DefaultSessionManager
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,7 +32,7 @@ from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvi
 def _wire_stack(
     memory_store: InMemoryStore | JsonFileMemoryStore | None = None,
 ) -> tuple[DefaultMemoryManager, DefaultSessionManager]:
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
 
     semantic_store = DefaultSemanticMemoryStore(

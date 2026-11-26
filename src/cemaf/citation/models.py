@@ -148,6 +148,7 @@ class Citation:
 
         # Combine result metadata with additional info
         combined_metadata = {
+            **doc_metadata,
             **result.metadata,
             "search_rank": result.rank,
             "search_score": result.score,

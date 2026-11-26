@@ -20,6 +20,7 @@ from cemaf import (
     Node,
     create_executor,
 )
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID
 from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.model_router import ModelRoute, ModelRouter
@@ -109,6 +110,7 @@ class TestTieredRouterInRuntimeServices:
         )
 
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             services=RuntimeServices(llm_client=router),
         )
@@ -145,6 +147,7 @@ class TestTieredRouterInRuntimeServices:
         )
 
         executor = create_executor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=registry,
             services=RuntimeServices(llm_client=router),
         )

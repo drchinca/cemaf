@@ -9,6 +9,7 @@ events are dropped.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -19,11 +20,9 @@ from enum import StrEnum
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import Event, EventBus
 from cemaf.knowledge.models import (
-    EntityType,
     KGEntity,
     KGQueryResult,
     KGRelation,
-    RelationType,
 )
 from cemaf.knowledge.protocols import KnowledgeGraph
 
@@ -38,26 +37,38 @@ class InvalidationKind(StrEnum):
     RELATION_ADDED = "relation_added"
 
 
+def entity_digest(*, entity_id: str) -> str:
+    """SHA-256 of an entity ID, so invalidation events never carry the ID itself."""
+    return hashlib.sha256(entity_id.encode()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class KGInvalidationEvent:
     kind: InvalidationKind
-    entity_ids: tuple[str, ...]
+    entity_digests: tuple[str, ...]
     correlation_id: str = ""
+
+    @classmethod
+    def for_entities(cls, *, kind: InvalidationKind, entity_ids: tuple[str, ...]) -> KGInvalidationEvent:
+        """Build an event naming entities only by digest."""
+        return cls(
+            kind=kind, entity_digests=tuple(entity_digest(entity_id=entity_id) for entity_id in entity_ids)
+        )
 
     def to_payload(self) -> dict[str, object]:
         return {
             "kind": self.kind.value,
-            "entity_ids": list(self.entity_ids),
+            "entity_digests": list(self.entity_digests),
             "correlation_id": self.correlation_id,
         }
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> KGInvalidationEvent:
-        raw_ids = payload.get("entity_ids", [])
-        ids = raw_ids if isinstance(raw_ids, list) else []
+        raw = payload.get("entity_digests", [])
+        digests = raw if isinstance(raw, list) else []
         return cls(
             kind=InvalidationKind(str(payload["kind"])),
-            entity_ids=tuple(str(x) for x in ids),
+            entity_digests=tuple(str(x) for x in digests),
             correlation_id=str(payload.get("correlation_id", "")),
         )
 
@@ -141,8 +152,10 @@ class LocalSpokeCache:
     async def invalidate(self, event: KGInvalidationEvent) -> None:
         try:
             self._stats.invalidations_received += 1
-            for entity_id in event.entity_ids:
+            digests = set(event.entity_digests)
+            for entity_id in [key for key in self._entries if entity_digest(entity_id=key) in digests]:
                 self._entries.pop(entity_id, None)
+            for entity_id in [key for key in self._inflight if entity_digest(entity_id=key) in digests]:
                 self._inflight.discard(entity_id)
             self._stats.size = len(self._entries)
         except Exception:
@@ -190,18 +203,14 @@ class HubKnowledgeGraph:
     async def add_entity(self, entity: KGEntity) -> None:
         await self._kg.add_entity(entity)
         await self._publish(
-            KGInvalidationEvent(
-                kind=InvalidationKind.ENTITY_UPDATED,
-                entity_ids=(entity.id,),
-            )
+            KGInvalidationEvent.for_entities(kind=InvalidationKind.ENTITY_UPDATED, entity_ids=(entity.id,))
         )
 
     async def add_relation(self, relation: KGRelation) -> None:
         await self._kg.add_relation(relation)
         await self._publish(
-            KGInvalidationEvent(
-                kind=InvalidationKind.RELATION_ADDED,
-                entity_ids=(relation.source_id, relation.target_id),
+            KGInvalidationEvent.for_entities(
+                kind=InvalidationKind.RELATION_ADDED, entity_ids=(relation.source_id, relation.target_id)
             )
         )
 
@@ -211,7 +220,7 @@ class HubKnowledgeGraph:
     async def query_neighbors(
         self,
         entity_id: str,
-        relation_type: RelationType | None = None,
+        relation_type: str | None = None,
         depth: int = 1,
     ) -> KGQueryResult:
         return await self._kg.query_neighbors(entity_id=entity_id, relation_type=relation_type, depth=depth)
@@ -219,18 +228,25 @@ class HubKnowledgeGraph:
     async def search(
         self,
         query: str,
-        entity_type: EntityType | None = None,
+        entity_type: str | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
         return await self._kg.search(query=query, entity_type=entity_type, limit=limit)
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return await self._kg.entities_of_type(entity_type=entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return await self._kg.relations_from(entity_id=entity_id, relation_type=relation_type)
 
     async def remove_entity(self, entity_id: str) -> bool:
         result = await self._kg.remove_entity(entity_id)
         if result:
             await self._publish(
-                KGInvalidationEvent(
-                    kind=InvalidationKind.ENTITY_REMOVED,
-                    entity_ids=(entity_id,),
+                KGInvalidationEvent.for_entities(
+                    kind=InvalidationKind.ENTITY_REMOVED, entity_ids=(entity_id,)
                 )
             )
         return result
@@ -274,7 +290,7 @@ class SpokeReadHubWriteKG:
     async def query_neighbors(
         self,
         entity_id: str,
-        relation_type: RelationType | None = None,
+        relation_type: str | None = None,
         depth: int = 1,
     ) -> KGQueryResult:
         return await self._hub.query_neighbors(entity_id=entity_id, relation_type=relation_type, depth=depth)
@@ -282,10 +298,18 @@ class SpokeReadHubWriteKG:
     async def search(
         self,
         query: str,
-        entity_type: EntityType | None = None,
+        entity_type: str | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
         return await self._hub.search(query=query, entity_type=entity_type, limit=limit)
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return await self._hub.entities_of_type(entity_type=entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return await self._hub.relations_from(entity_id=entity_id, relation_type=relation_type)
 
     async def remove_entity(self, entity_id: str) -> bool:
         return await self._hub.remove_entity(entity_id)
@@ -311,6 +335,7 @@ __all__ = [
     "HubKnowledgeGraph",
     "InvalidationKind",
     "KGInvalidationEvent",
+    "entity_digest",
     "KG_INVALIDATION_EVENT_TYPE",
     "LocalSpokeCache",
     "SpokeCacheConfig",

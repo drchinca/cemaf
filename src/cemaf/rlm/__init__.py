@@ -17,7 +17,7 @@ Usage:
     from cemaf.llm.anthropic import AnthropicLLMClient
 
     llm = AnthropicLLMClient(api_key="...")
-    rlm_tool = create_rlm_tool(llm, chunk_size=500, max_depth=3)
+    rlm_tool = create_rlm_tool(llm, chunk_size=500, max_depth=3, clearance=SecurityLevel.CONFIDENTIAL)
 
     result = await rlm_tool.execute(
         instruction="Find all mentions of CEMAF",
@@ -26,6 +26,7 @@ Usage:
 """
 
 from cemaf.context.compiler import TokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.llm.protocols import LLMClient
 from cemaf.rlm.chunking import FixedSizeChunkingStrategy
 from cemaf.rlm.engine import DivideAndConquerQueryEngine
@@ -55,6 +56,8 @@ def create_rlm_tool(
     chunk_size: int = 500,
     max_depth: int = 3,
     max_tokens: int = 4000,
+    *,
+    clearance: SecurityLevel,
 ) -> RLMQueryTool:
     """
     Create RLM query tool with sensible defaults.
@@ -82,6 +85,7 @@ def create_rlm_tool(
             chunk_size=500,
             max_depth=3,
             max_tokens=4000,
+            clearance=SecurityLevel.CONFIDENTIAL,
         )
 
         result = await rlm_tool.execute(
@@ -100,7 +104,7 @@ def create_rlm_tool(
     compiler = PriorityContextCompiler(estimator)
 
     chunking = FixedSizeChunkingStrategy(estimator, chunk_size)
-    engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth)
+    engine = DivideAndConquerQueryEngine(llm_client, compiler, max_depth, clearance=clearance)
 
     return RLMQueryTool(
         engine,

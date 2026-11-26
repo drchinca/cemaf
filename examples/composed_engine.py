@@ -11,7 +11,7 @@ set of real subsystems through one composition root:
         ▼
     online-eval pipeline  →  blueprint harvester (distils a reusable blueprint)
 
-All wired through `create_executor(services=RuntimeServices(...))`. No mocks.
+All wired through `create_executor(clearance=..., services=RuntimeServices(...))`. No mocks.
 
 Run:
     uv run python examples/composed_engine.py
@@ -37,6 +37,7 @@ from cemaf.blueprint import (
 from cemaf.bootstrap import create_executor
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import AgentID, NodeID
 from cemaf.council.aggregator import DefaultVoteAggregator
 from cemaf.council.types import Opinion
@@ -130,11 +131,13 @@ async def main() -> None:
     for name, vote in (("p1", "ship"), ("p2", "ship"), ("p3", "hold")):
         registry.register_instance(item=Planner(name, vote))
     registry.register_agent(
-        agent_instance=Writer("WriterBusy", load=0.9), goal_type=_WriteGoal,
+        agent_instance=Writer("WriterBusy", load=0.9),
+        goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
     registry.register_agent(
-        agent_instance=Writer("WriterIdle", load=0.1), goal_type=_WriteGoal,
+        agent_instance=Writer("WriterIdle", load=0.1),
+        goal_type=_WriteGoal,
         capabilities=frozenset({Capability.WRITE}),
     )
 
@@ -157,6 +160,7 @@ async def main() -> None:
     )
 
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=True),
         services=RuntimeServices(
@@ -176,17 +180,23 @@ async def main() -> None:
         name="composed-engine",
         nodes=(
             Node.council(
-                id="plan", name="plan", members=("p1", "p2", "p3"),
-                options=("ship", "hold"), output_key="plan_verdict",
+                id="plan",
+                name="plan",
+                members=("p1", "p2", "p3"),
+                options=("ship", "hold"),
+                output_key="plan_verdict",
             ),
             Node.auction(
-                id="write", name="write",
-                capability=Capability.WRITE.value, output_key="article",
+                id="write",
+                name="write",
+                capability=Capability.WRITE.value,
+                output_key="article",
             ),
         ),
         edges=(
             Edge(
-                source=NodeID("plan"), target=NodeID("write"),
+                source=NodeID("plan"),
+                target=NodeID("write"),
                 condition=EdgeCondition.JSON_RULE,
                 condition_rule=Condition(
                     field="plan_verdict", operator=ConditionOperator.EQUALS, value="ship"
@@ -201,11 +211,15 @@ async def main() -> None:
 
     results = {str(r.node_id): r for r in run.node_results}
     print(f"run status        : {run.status.value}")
-    print(f"council verdict   : {results['plan'].output}  (tally {results['plan'].metadata['council']['tally']})")
+    print(
+        f"council verdict   : {results['plan'].output}  (tally {results['plan'].metadata['council']['tally']})"
+    )
     print(f"auction winner    : {results['write'].metadata['selection']['agent_id']}")
     print(f"online evals run  : {len(online._results)}")
     print(f"blueprints harvested: {len(list(harvest_source.load()))}")
-    print(f"accumulated cost  : ${run.node_results and sum(float(r.metadata.get('cost_estimate_usd', 0)) for r in run.node_results):.2f}")
+    print(
+        f"accumulated cost  : ${run.node_results and sum(float(r.metadata.get('cost_estimate_usd', 0)) for r in run.node_results):.2f}"
+    )
 
 
 if __name__ == "__main__":

@@ -55,13 +55,15 @@ OpenSpec deps. See `cemaf.meta.bootstrap`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from cemaf.agents.directory_protocols import AgentDirectory
 from cemaf.agents.selection import AgentSelector
 from cemaf.blueprint.harvest import BlueprintHarvesterEngine
 from cemaf.blueprint.library import BlueprintLibrary
+from cemaf.collision.factories import create_collision_policy
+from cemaf.collision.protocols import CollisionPolicy
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import ContextCompiler
 from cemaf.core.domain import DomainContext
@@ -73,6 +75,7 @@ from cemaf.evals.police import QualityPolice
 from cemaf.events.protocols import EventBus
 from cemaf.interceptors.pipeline import InterceptorPipeline
 from cemaf.knowledge.protocols import KnowledgeGraph
+from cemaf.llm.preflight import RequestTokenCounter
 from cemaf.llm.protocols import LLMClient
 from cemaf.memory.manager import MemoryManager
 from cemaf.memory.session import SessionManager
@@ -82,6 +85,9 @@ from cemaf.observability.health import HealthMonitor
 from cemaf.observability.protocols import Tracer
 from cemaf.observability.run_logger import RunLogger
 from cemaf.orchestration.blueprint_hook import BlueprintSelectorHook
+from cemaf.orchestration.resolvers.protocols import NodeResolver
+from cemaf.persistence.artifacts import ArtifactResolver
+from cemaf.persistence.evidence import EvidenceStore
 from cemaf.retrieval.protocols import VectorStore
 
 if TYPE_CHECKING:
@@ -113,6 +119,9 @@ class RuntimeServices:
     context_compiler: ContextCompiler | None = None
     token_budget: TokenBudget | None = None
     domain_context: DomainContext | None = None
+    artifact_registry: ArtifactResolver | None = None
+    evidence_store: EvidenceStore | None = None
+    request_token_counter: RequestTokenCounter | None = None
 
     # LLM + Retrieval
     llm_client: LLMClient | None = None
@@ -159,6 +168,14 @@ class RuntimeServices:
 
     # Identity (SPEC-18 phase 1) — per-spawn AgentInstance admission/lifecycle
     agent_directory: AgentDirectory | None = None
+
+    # Collision guard (SPEC-12 §2.4) — PARALLEL children writing overlapping keys;
+    # the earlier sibling runs. None turns coordination off (last write wins).
+    collision_policy: CollisionPolicy | None = field(default_factory=create_collision_policy)
+
+    # Node resolver chain (SPEC-20) — application node kinds, matched before the
+    # built-in council / auction / static resolvers. Empty = built-ins only.
+    node_resolvers: tuple[NodeResolver, ...] = ()
 
     def __post_init__(self) -> None:
         if self.agent_directory is not None and not isinstance(self.agent_directory, AgentDirectory):

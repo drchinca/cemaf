@@ -3,6 +3,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.memory.postgres_store import _row_to_item
 
@@ -18,6 +19,7 @@ def _make_row(
     ttl_seconds: float | None = None,
     expires_at: datetime | None = None,
     scope_path: str | None = None,
+    security_level: str = "internal",
 ) -> dict:
     """Build a dict that mimics an asyncpg Record with subscript access."""
     now = datetime.now(UTC)
@@ -31,6 +33,7 @@ def _make_row(
         "ttl_seconds": ttl_seconds,
         "expires_at": expires_at,
         "scope_path": scope_path,
+        "security_level": security_level,
     }
 
 
@@ -100,3 +103,9 @@ async def test_row_to_item_nested_value() -> None:
     item = _row_to_item(row)
 
     assert item.value == nested
+
+
+async def test_row_to_item_reads_security_level() -> None:
+    """_row_to_item restores security_level, so a reload cannot relabel a memory."""
+    item = _row_to_item(_make_row(key="salaries", security_level="confidential"))
+    assert item.security_level == SecurityLevel.CONFIDENTIAL

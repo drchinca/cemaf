@@ -17,6 +17,7 @@ from cemaf.agents.registry import AgentRegistry
 from cemaf.blueprint.library import BlueprintEntry, BlueprintLibrary
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.meta.blueprint_selector import LibraryBlueprintSelectorHook
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 
@@ -65,6 +66,7 @@ class TestHookReachesCompiledContext:
     ) -> None:
         hook = LibraryBlueprintSelectorHook(library=library_with_one_entry)
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=AgentRegistry(),
             context_compiler=compiler,
             token_budget=token_budget,
@@ -97,6 +99,7 @@ class TestHookReachesCompiledContext:
     ) -> None:
         hook = LibraryBlueprintSelectorHook(library=library_with_one_entry)
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=AgentRegistry(),
             context_compiler=compiler,
             token_budget=token_budget,
@@ -121,6 +124,7 @@ class TestHookReachesCompiledContext:
     ) -> None:
         """Without a hook, the compile path must not know blueprints exist."""
         executor_with_hook = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=AgentRegistry(),
             context_compiler=compiler,
             token_budget=token_budget,
@@ -162,6 +166,7 @@ class TestHookReachesCompiledContext:
         )
         hook = LibraryBlueprintSelectorHook(library=library)
         executor = ContextNodeExecutor(
+            clearance=SecurityLevel.CONFIDENTIAL,
             agent_registry=AgentRegistry(),
             context_compiler=compiler,
             token_budget=token_budget,

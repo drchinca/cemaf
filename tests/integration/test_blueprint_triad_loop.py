@@ -34,6 +34,7 @@ from cemaf.blueprint.library import BlueprintEntryKind, BlueprintLibrary
 from cemaf.blueprint.sources import InMemoryWritableBlueprintSource
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.events.protocols import Event, EventType
 from cemaf.meta.blueprint_selector import LibraryBlueprintSelectorHook
@@ -105,6 +106,7 @@ async def test_harvest_from_run_a_retrieved_in_run_b() -> None:
     # ---- Run B: a different run with a *matching* goal should retrieve it ----
     hook = LibraryBlueprintSelectorHook(library=library)
     executor = ContextNodeExecutor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=AgentRegistry(),
         context_compiler=PriorityContextCompiler(
             token_estimator=SimpleTokenEstimator(chars_per_token=4.0),

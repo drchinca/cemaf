@@ -16,7 +16,7 @@ from cemaf.memory.semantic import (
     SemanticMemoryStore,
 )
 from cemaf.memory.session_keys import session_memory_key
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -25,7 +25,7 @@ from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvi
 
 def _make_store() -> DefaultSemanticMemoryStore:
     """Create a fully wired semantic store for testing."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     return DefaultSemanticMemoryStore(
         memory_store=InMemoryStore(),
         vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),

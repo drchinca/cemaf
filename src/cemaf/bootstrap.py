@@ -1,6 +1,7 @@
 """Composition root -- single entry point for creating a fully-wired executor."""
 
 from cemaf.agents.registry import AgentRegistry
+from cemaf.context.patch import SecurityLevel
 from cemaf.orchestration.context_node_executor import ContextNodeExecutor
 from cemaf.orchestration.executor import DAGExecutor, ExecutorConfig
 from cemaf.orchestration.services import RuntimeServices
@@ -9,6 +10,7 @@ from cemaf.orchestration.services import RuntimeServices
 def create_executor(
     *,
     agent_registry: AgentRegistry,
+    clearance: SecurityLevel,
     config: ExecutorConfig | None = None,
     services: RuntimeServices | None = None,
 ) -> DAGExecutor:
@@ -18,6 +20,7 @@ def create_executor(
 
     node_executor = ContextNodeExecutor(
         agent_registry=agent_registry,
+        clearance=clearance,
         run_logger=svc.run_logger if cfg.enable_logging else None,
         domain_context=svc.domain_context,
         llm_client=svc.llm_client,
@@ -34,6 +37,7 @@ def create_executor(
         knowledge_graph=svc.knowledge_graph,
         agent_directory=svc.agent_directory,
         max_recovery_attempts=svc.max_recovery_attempts,
+        node_resolvers=svc.node_resolvers,
     )
 
     # Wire online eval pipeline and quality police subscriptions

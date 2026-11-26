@@ -8,7 +8,7 @@ credentials, and model choices.
 """
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cemaf.config.factories import load_settings_from_env_sync
 from cemaf.config.protocols import LLMSettings, Settings
@@ -20,6 +20,56 @@ from cemaf.llm.mock import MockLLMClient
 from cemaf.llm.protocols import LLMClient
 from cemaf.observability.run_logger import RunLogger
 from cemaf.resilience.retry import RetryPolicy
+
+if TYPE_CHECKING:
+    from cemaf.context.compiler import CompiledContext
+    from cemaf.context.manifest import ContextManifest
+    from cemaf.context.patch import SecurityLevel
+    from cemaf.llm.evidence import EvidenceLLMClient
+    from cemaf.orchestration.services import RuntimeServices
+
+
+def create_evidence_client(
+    *,
+    services: RuntimeServices,
+    context: ContextManifest,
+    compiled: CompiledContext,
+    principal_id: str,
+    clearance: SecurityLevel,
+    policy_version: str,
+    context_window: int,
+    compiler_version: str = "1",
+    node_id: str = "",
+    require_exact: bool = True,
+) -> EvidenceLLMClient:
+    """Compose an evidence boundary from the runtime's public service ports."""
+    from cemaf.llm.evidence import EvidenceLLMClient
+
+    if (
+        services.llm_client is None
+        or services.artifact_registry is None
+        or services.evidence_store is None
+        or services.request_token_counter is None
+    ):
+        raise ValueError(
+            "Evidence calls require llm_client, artifact_registry, evidence_store, and request_token_counter"
+        )
+    return EvidenceLLMClient(
+        client=services.llm_client,
+        registry=services.artifact_registry,
+        store=services.evidence_store,
+        counter=services.request_token_counter,
+        context=context,
+        compiled=compiled,
+        principal_id=principal_id,
+        clearance=clearance,
+        policy_version=policy_version,
+        context_window=context_window,
+        compiler_version=compiler_version,
+        node_id=node_id,
+        require_exact=require_exact,
+    )
+
 
 # Global LLM provider registry — extend with your own providers
 llm_registry: ProviderRegistry[LLMClient] = ProviderRegistry(name="llm")
@@ -73,6 +123,7 @@ def _create_openai_compatible(**kwargs: Any) -> LLMClient:
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("OPENAI_API_KEY", ""))
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         api_key=api_key,
         base_url=kwargs.get("base_url", DEFAULT_OPENAI_COMPAT_BASE_URL),
         model=kwargs.get("model", DEFAULT_FREE_LLM_MODEL),
@@ -93,6 +144,7 @@ def _create_ollama(**kwargs: Any) -> LLMClient:
         temperature=kwargs.get("temperature", 0.7),
         max_tokens=kwargs.get("max_tokens", 4096),
         timeout_seconds=kwargs.get("timeout_seconds", 300.0),
+        transport=kwargs.get("transport"),
     )
 
 
@@ -111,6 +163,7 @@ def _create_ollama_tiered(**kwargs: Any) -> LLMClient:
         base_url=kwargs.get("base_url", DEFAULT_BASE_URL),
         escalation_chars=kwargs.get("escalation_chars", DEFAULT_ESCALATION_CHARS),
         timeout_seconds=kwargs.get("timeout_seconds", 300.0),
+        transport=kwargs.get("transport"),
     )
 
 
@@ -126,6 +179,7 @@ def _create_ollama_cloud(**kwargs: Any) -> LLMClient:
     if not api_key:
         raise ValueError("api_key required for Ollama Cloud (or set OLLAMA_CLOUD_API_KEY)")
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url=kwargs.get("base_url", OLLAMA_CLOUD_BASE_URL),
         api_key=api_key,
         model=kwargs.get("model", DEFAULT_OLLAMA_CLOUD_MODEL),
@@ -142,6 +196,7 @@ def _create_groq(**kwargs: Any) -> LLMClient:
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("GROQ_API_KEY", ""))
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url="https://api.groq.com/openai/v1",
         api_key=api_key,
         model=kwargs.get("model", "llama-3.3-70b-versatile"),
@@ -158,6 +213,7 @@ def _create_together(**kwargs: Any) -> LLMClient:
 
     api_key: str = str(kwargs.get("api_key") or os.getenv("TOGETHER_API_KEY", ""))
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url="https://api.together.xyz/v1",
         api_key=api_key,
         model=kwargs.get("model", "Llama-3.3-70B-Instruct-Turbo"),
@@ -179,6 +235,7 @@ def _create_huggingface(**kwargs: Any) -> LLMClient:
         or os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
     )
     return OpenAICompatClient(
+        transport=kwargs.get("transport"),
         base_url=kwargs.get("base_url", "https://router.huggingface.co/v1"),
         api_key=api_key,
         model=kwargs.get("model", "google/gemma-2-2b-it"),
@@ -334,6 +391,11 @@ def create_resilient_llm_client(
     fallback_model: str | None = None,
     enable_caching: bool = False,
     cache_threshold_tokens: int = 1_000,
+    cache_ttl: str | None = None,
+    automatic_caching: bool = True,
+    cache_tools: bool = True,
+    cache_system: bool = True,
+    cache_messages: bool = True,
     metrics: Any | None = None,
 ) -> LLMClient:
     """Create a resilient text LLM client with provider auto-selection.
@@ -438,6 +500,11 @@ def create_resilient_llm_client(
         fallback_model=fallback_model,
         enable_caching=enable_caching,
         cache_threshold_tokens=cache_threshold_tokens,
+        cache_ttl=cache_ttl,
+        automatic_caching=automatic_caching,
+        cache_tools=cache_tools,
+        cache_system=cache_system,
+        cache_messages=cache_messages,
     )
 
 
@@ -469,6 +536,11 @@ def create_resilient_client(
     fallback_model: str | None = None,
     enable_caching: bool = False,
     cache_threshold_tokens: int = 1_000,
+    cache_ttl: str | None = None,
+    automatic_caching: bool = True,
+    cache_tools: bool = True,
+    cache_system: bool = True,
+    cache_messages: bool = True,
 ) -> LLMClient:
     """Create ResilientLLMClient with sensible defaults.
 
@@ -478,9 +550,14 @@ def create_resilient_client(
         fallback_model: Model name to fall back to after repeated failures.
         enable_caching: Wrap with CachedAnthropicLLMClient for prompt caching.
         cache_threshold_tokens: Minimum token count to mark a block cacheable.
+        cache_ttl: Optional TTL ('5m' or '1h') for cached blocks and automatic caching.
+        automatic_caching: Enable top-level automatic prompt caching.
+        cache_tools: Enable caching tool definitions on the last tool in tools array.
+        cache_system: Mark the end of system instructions when they meet the threshold.
+        cache_messages: Mark the previous turn when automatic caching is disabled.
 
     Returns:
-        LLMClient (ResilientLLMClient, optionally wrapped in CachedAnthropicLLMClient).
+        ResilientLLMClient wrapping the optionally cached inner client.
     """
     from cemaf.llm.resilient import ResilientLLMClient
     from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
@@ -495,6 +572,11 @@ def create_resilient_client(
             client=inner,
             cache_threshold_tokens=cache_threshold_tokens,
             metrics=metrics,
+            ttl=cache_ttl,
+            automatic_caching=automatic_caching,
+            cache_tools=cache_tools,
+            cache_system=cache_system,
+            cache_messages=cache_messages,
         )
 
     return ResilientLLMClient(

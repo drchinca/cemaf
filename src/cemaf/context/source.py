@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.types import JSON, TokenCount
 from cemaf.core.utils import utc_now
 
@@ -59,6 +60,8 @@ class ContextSource:
         compressible: Whether this source can be summarized if needed
         min_tokens: Minimum tokens to preserve even when compressed
         metadata: Additional source-specific metadata
+        context_type: Optional classification of the content kind
+        security_level: Data classification; unlabeled sources default to INTERNAL
 
     Legacy compatibility:
         - `type` field maps to `source_type`
@@ -75,6 +78,7 @@ class ContextSource:
     min_tokens: int = 0
     metadata: JSON = field(default_factory=dict)
     context_type: ContextType | None = None
+    security_level: SecurityLevel = SecurityLevel.INTERNAL
 
     # Legacy field aliases for backward compatibility
     @property
@@ -98,6 +102,7 @@ class ContextSource:
         compressible: bool = True,
         min_tokens: int = 0,
         metadata: JSON | None = None,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
         # Legacy parameters for backward compatibility
         type: str | None = None,  # noqa: A002
         key: str | None = None,
@@ -120,6 +125,7 @@ class ContextSource:
         object.__setattr__(self, "min_tokens", min_tokens)
         object.__setattr__(self, "metadata", metadata or {})
         object.__setattr__(self, "context_type", context_type)
+        object.__setattr__(self, "security_level", security_level)
 
     @classmethod
     def from_tool_output(
@@ -203,6 +209,7 @@ class ContextSource:
         priority: int = 7,
         timestamp: datetime | None = None,
         compressible: bool = False,
+        security_level: SecurityLevel = SecurityLevel.INTERNAL,
     ) -> ContextSource:
         """
         Create a ContextSource from memory.
@@ -228,6 +235,7 @@ class ContextSource:
             compressible=compressible,
             metadata={"memory_key": memory_key},
             context_type=ContextType.MEMORY,
+            security_level=security_level,
         )
 
     @classmethod
@@ -314,6 +322,7 @@ class ContextSource:
             min_tokens=self.min_tokens,
             metadata=self.metadata,
             context_type=self.context_type,
+            security_level=self.security_level,
         )
 
     def with_token_count(self, token_count: TokenCount) -> ContextSource:
@@ -329,6 +338,7 @@ class ContextSource:
             min_tokens=self.min_tokens,
             metadata=self.metadata,
             context_type=self.context_type,
+            security_level=self.security_level,
         )
 
     def age_seconds(self, reference_time: datetime | None = None) -> float:

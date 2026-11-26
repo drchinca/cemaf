@@ -17,6 +17,7 @@ from cemaf.core.enums import NodeType
 from cemaf.core.types import NodeID
 from cemaf.orchestration.dag import DAG, Condition, ConditionOperator, Edge, EdgeCondition, Node
 from cemaf.orchestration.executor import DAGExecutor, NodeResult
+from cemaf.orchestration.services import RuntimeServices
 
 # Import MockNodeExecutor from conftest for type hints
 from tests.conftest import MockNodeExecutor
@@ -643,10 +644,12 @@ class TestMergeStrategyIntegration:
             "branch2": NodeResult(node_id="branch2", success=True, output="second"),
         }
 
+        # Coordination off: with the default collision guard the second branch is steered
+        # and never writes, so there would be no merge conflict to log.
         executor = DAGExecutor(
             node_executor=mock_node_executor,
             merge_strategy=LastWriteWinsStrategy(),
-            run_logger=run_logger,
+            services=RuntimeServices(run_logger=run_logger, collision_policy=None),
         )
         result = await executor.run(dag)
 

@@ -62,23 +62,39 @@ async def compile(
     priorities: dict[str, int] | None = None,
     *,
     source_levels: dict[str, SecurityLevel] | None = None,  # key -> level; absent ⇒ INTERNAL
-    clearance: SecurityLevel | None = None,                 # None ⇒ no gating (current behavior)
+    clearance: SecurityLevel,                               # required; no None / ungated mode
 ) -> CompiledContext: ...
 ```
 
-Gate rule: when `clearance` is set, a source whose level `.rank > clearance.rank` is excluded
+Gate rule: a source whose level `.rank > clearance.rank` is excluded
 *before* the priority sort in `PriorityContextCompiler.compile`. Excluded keys are recorded in
 `CompiledContext.metadata["security_excluded"]` (provenance, not silent drop).
+
+### 2.3 Classification carriers
+
+The level travels with the content. `source_levels` exists only to label `(key, content)` pairs at the compiler boundary:
+
+- `ContextSource.security_level` (default INTERNAL); every compiler gates on this field.
+- `MemoryItem.security_level` (default INTERNAL); persisted by the JSON, SQLite and Postgres stores.
+- `MemoryManager.remember(..., security_level=)` and `SessionManager.ingest(..., security_level=)`
+  are the labelling entry points; the memory provider passes each memory's level to the compiler.
+- `KGEntity.security_level` and `KGRelation.security_level`; a `MemoryBackedKnowledgeGraph` takes a
+  required reader `clearance` and treats anything above it as absent.
 
 ## 3. Invariants (DbC)
 
 1. `WHEN a ContextPatch is created WITHOUT security_level, THE System SHALL default it to INTERNAL.`
 2. `WHEN from_dict reads a record lacking "security_level", THE System SHALL default to INTERNAL` (back-compat with all existing checkpoints).
-3. `WHEN clearance is None, THE compiler SHALL behave identically to the pre-SPEC-11 compiler` (zero excluded by classification).
+3. `WHEN clearance admits every level present, THE compiler SHALL select the identical set it selects with no classification` (zero excluded by classification).
 4. `IF a source level rank exceeds the caller clearance rank, THEN THE compiler SHALL exclude that source AND record its key under metadata["security_excluded"].`
 5. `security_level SHALL NOT alter content_hash determinism` — same content ⇒ same hash regardless of classification.
+6. `WHEN a source is derived (with_priority, with_token_count) or compacted into a summary, THE System SHALL keep its level, and a summary SHALL take the most restrictive level it replaces.`
+7. `WHEN a MemoryItem is persisted and reloaded, THE System SHALL restore its security_level.`
+8. `WHEN session memories are promoted, THE promoted item SHALL keep the session item's level; WHEN they are extracted, THE promoted items SHALL take the most restrictive level among the session memories` (extraction has no per-item provenance).
 
-Budget: 5 invariants.
+9. `WHEN a knowledge-graph clearance is below an entity or relation level, THE System SHALL NOT return it from get, search or neighbor traversal (a relation is hidden when either end is), SHALL NOT remove it or anything tied to it, and SHALL NOT overwrite it.`
+
+Budget: 9 invariants.
 
 ## 4. Acceptance Criteria (BDD)
 
@@ -99,13 +115,18 @@ Feature: Context security classification
     When compile runs with clearance=INTERNAL
     Then "notes" is included and "secrets" is in metadata["security_excluded"]
 
-  Scenario: No clearance means no gating
+  Scenario: Full clearance admits every level
     Given a CONFIDENTIAL artifact
-    When compile runs with clearance=None
+    When compile runs with clearance=CONFIDENTIAL
     Then the artifact is eligible for selection exactly as before
+
+  Scenario: Confidential memory withheld from internal clearance
+    Given a memory remembered with security_level=CONFIDENTIAL
+    When the memory provider compiles for clearance=INTERNAL
+    Then the memory is never fetched, so it is not selected and uses no budget
 ```
 
-Budget: 4 scenarios.
+Budget: 5 scenarios.
 
 ## 5. Out of Scope
 
@@ -134,9 +155,9 @@ classification and never raises. **Validates: §3 Inv 2, §4 "Legacy checkpoint 
 and every excluded-by-classification key appears in `security_excluded`.
 **Validates: §3 Inv 4, §4 "Confidential source excluded under low clearance".**
 
-### Property 3: Non-interference when ungated
-*For any* inputs, `compile(..., clearance=None)` selects the identical source set as the
-pre-SPEC-11 compiler. **Validates: §3 Inv 3, §4 "No clearance means no gating".**
+### Property 3: Non-interference at full clearance
+*For any* inputs, `compile(..., clearance=CONFIDENTIAL)` selects the identical source set as
+compiling the same inputs with no classification. **Validates: §3 Inv 3, §4 "Full clearance admits every level".**
 
 Budget: 3 properties.
 
@@ -157,7 +178,7 @@ enforcement.
 - **L0 (surface)**: `ContextPatch` round-trip with/without `security_level`; `to_dict/from_dict`
   field presence (§2.1). Compiler `compile` signature accepts new kwargs (§2.2).
 - **L2 (behavior)**: gate excludes CONFIDENTIAL under INTERNAL clearance & records key (Inv 4);
-  `clearance=None` identical-selection property test (Inv 3); content_hash unchanged by level (Inv 5);
+  `clearance=CONFIDENTIAL` identical-selection property test (Inv 3); content_hash unchanged by level (Inv 5);
   boundary cases (PUBLIC clearance drops INTERNAL, CONFIDENTIAL sees all, memory gating).
 - **Integration** (`tests/integration/test_security_clearance_compilation.py`): the behavioral
   payoff through the real `PriorityContextCompiler` + `GreedySelectionAlgorithm` + `TokenBudget` —

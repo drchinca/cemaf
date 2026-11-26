@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import math
+from collections import Counter
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +21,7 @@ from cemaf.agents.selection import AgentSelector
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import CompiledContext, ContextCompiler
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.domain import DomainContext
 from cemaf.core.enums import InstanceStatus, MemoryScope
 from cemaf.core.provenance import ProvenanceLink, SourceReference
@@ -110,6 +112,7 @@ class ContextNodeExecutor:
         self,
         *,
         agent_registry: AgentRegistry,
+        clearance: SecurityLevel,
         run_logger: RunLogger | None = None,
         domain_context: DomainContext | None = None,
         llm_client: LLMClient | None = None,
@@ -126,6 +129,7 @@ class ContextNodeExecutor:
         knowledge_graph: KnowledgeGraph | None = None,
         agent_directory: AgentDirectory | None = None,
         max_recovery_attempts: int = 2,
+        node_resolvers: tuple[NodeResolver, ...] = (),
     ) -> None:
         """Initialize with registry and optional compiler/budget for context compilation.
 
@@ -133,6 +137,9 @@ class ContextNodeExecutor:
         a POST interceptor can ask the executor to re-run the same node with a
         feedback hint before the result is treated as REJECT. 0 disables recovery
         (any RECOVER decision is treated as REJECT immediately).
+
+        ``node_resolvers`` (SPEC-20) are matched before the built-in resolvers; a
+        resolver_id repeated anywhere in the chain raises ValueError.
         """
         if max_recovery_attempts < 0:
             raise ValueError("max_recovery_attempts must be >= 0")
@@ -144,6 +151,7 @@ class ContextNodeExecutor:
         self._memory_manager = memory_manager
         self._session_manager = session_manager
         self._context_compiler = context_compiler
+        self._clearance = clearance
         self._token_budget = token_budget
         self._blueprint_selector = blueprint_selector
         self._agent_selector = agent_selector
@@ -154,12 +162,11 @@ class ContextNodeExecutor:
         self._agent_directory = agent_directory
         self._max_recovery_attempts = max_recovery_attempts
 
-        # NodeResolver chain — first match wins, registered most-specific first.
-        # Council short-circuits with its own NodeResult; AuctionResolver picks an
-        # agent (or falls through to ref_id); StaticRefResolver is the universal
-        # fallback. When agent_selector is absent, auction is skipped — preserves
-        # the prior "static unless a selector is wired" semantics.
+        # NodeResolver chain (SPEC-20) — first match wins. Application resolvers run
+        # first, then Council (its own NodeResult), Auction (only with an
+        # agent_selector), and StaticRefResolver as the universal fallback.
         resolvers: list[NodeResolver] = [
+            *node_resolvers,
             CouncilResolver(
                 registry=agent_registry,
                 aggregator=council_aggregator,
@@ -176,7 +183,16 @@ class ContextNodeExecutor:
                 )
             )
         resolvers.append(StaticRefResolver())
+        id_counts = Counter(resolver.resolver_id for resolver in resolvers)
+        duplicates = sorted(resolver_id for resolver_id, count in id_counts.items() if count > 1)
+        if duplicates:
+            raise ValueError(f"Node resolver ids must be unique; duplicated: {duplicates}")
         self._resolvers: tuple[NodeResolver, ...] = tuple(resolvers)
+
+    @property
+    def resolver_ids(self) -> tuple[str, ...]:
+        """The resolver chain's ids in the order nodes are matched."""
+        return tuple(resolver.resolver_id for resolver in self._resolvers)
 
     async def execute_node(
         self,
@@ -779,7 +795,12 @@ class ContextNodeExecutor:
             durable_scopes = tuple(scope for scope in MemoryScope if scope is not MemoryScope.SESSION)
             durable_results, session_results = await asyncio.gather(
                 self._memory_manager.recall(
-                    query=MemoryQuery(text=query_text, scopes=durable_scopes, limit=10),
+                    query=MemoryQuery(
+                        text=query_text,
+                        scopes=durable_scopes,
+                        limit=10,
+                        max_security_level=self._clearance,
+                    ),
                 ),
                 self._memory_manager.recall(
                     query=MemoryQuery(
@@ -787,12 +808,27 @@ class ContextNodeExecutor:
                         scope=MemoryScope.SESSION,
                         limit=10,
                         session_id=run_id,
+                        max_security_level=self._clearance,
                     ),
                 ),
             )
+            # Gate at recall: these values reach both the compiler and the agent's
+            # global_memory, so anything above clearance must never enter the dict.
             recalled: dict[str, Any] = {}
+            withheld: list[str] = []
             for result in (*durable_results, *session_results):
+                if result.item.security_level.rank > self._clearance.rank:
+                    withheld.append(result.item.key)
+                    continue
                 recalled[result.item.key] = result.item.value
+            if withheld and warnings is not None:
+                warnings.append(
+                    {
+                        "stage": "memory_clearance",
+                        "error_type": "SecurityExcluded",
+                        "error_message": f"withheld {len(withheld)} above clearance: {sorted(withheld)}",
+                    }
+                )
             return recalled
         except Exception as exc:
             logger.warning("Failed to recall memory for '%s'", agent_name, exc_info=True)
@@ -854,6 +890,7 @@ class ContextNodeExecutor:
                 artifacts=tuple(artifact_pairs),
                 memories=tuple(memory_pairs),
                 budget=self._token_budget,
+                clearance=self._clearance,
             )
         except Exception as exc:
             logger.warning(

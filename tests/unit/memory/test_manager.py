@@ -11,7 +11,7 @@ from cemaf.memory.episodic import EpisodicEvent, InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager, MemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -23,7 +23,7 @@ def _make_manager(
     with_event_bus: bool = False,
 ) -> tuple[DefaultMemoryManager, InMemoryEventBus | None]:
     """Create a fully wired memory manager."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     semantic_store = DefaultSemanticMemoryStore(
         memory_store=InMemoryStore(),
         vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),

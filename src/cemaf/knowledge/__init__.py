@@ -24,6 +24,8 @@ from cemaf.knowledge.models import (
     KnowledgeGraphCapabilities,
     RelationType,
 )
+from cemaf.knowledge.okf import OKFBundle, OKFBundleDiff, OKFDocument
+from cemaf.knowledge.okf_graph import OKFImportResult, import_okf_bundle
 from cemaf.knowledge.protocols import (
     BranchingKnowledgeGraph,
     KnowledgeGraph,
@@ -31,6 +33,11 @@ from cemaf.knowledge.protocols import (
 )
 
 __all__ = [
+    "OKFBundle",
+    "OKFBundleDiff",
+    "OKFDocument",
+    "OKFImportResult",
+    "import_okf_bundle",
     # Enums
     "EntityType",
     "InvalidationKind",

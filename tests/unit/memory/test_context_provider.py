@@ -4,6 +4,7 @@ import pytest
 
 from cemaf.context.budget import TokenBudget
 from cemaf.context.compiler import PriorityContextCompiler, SimpleTokenEstimator
+from cemaf.context.patch import SecurityLevel
 from cemaf.context.source import ContextSource
 from cemaf.core.enums import MemoryScope
 from cemaf.memory.base import InMemoryStore
@@ -16,7 +17,7 @@ from cemaf.memory.episodic import InMemoryEpisodicStore
 from cemaf.memory.manager import DefaultMemoryManager
 from cemaf.memory.scoring import TemporalDecayScorer
 from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Wiring helper — real implementations, no mocks
@@ -25,7 +26,7 @@ from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvi
 
 def _make_provider() -> tuple[DefaultMemoryManager, DefaultMemoryContextProvider]:
     """Wire a DefaultMemoryContextProvider with real implementations."""
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
     token_estimator = SimpleTokenEstimator()
 
@@ -45,6 +46,7 @@ def _make_provider() -> tuple[DefaultMemoryManager, DefaultMemoryContextProvider
     compiler = PriorityContextCompiler(token_estimator=token_estimator)
 
     provider = DefaultMemoryContextProvider(
+        clearance=SecurityLevel.CONFIDENTIAL,
         memory_manager=memory_manager,
         compactor=compactor,
         compiler=compiler,
@@ -271,5 +273,5 @@ def test_create_memory_context_provider_factory() -> None:
     from cemaf.memory.factories import create_memory_context_provider, create_memory_manager
 
     manager = create_memory_manager()
-    provider = create_memory_context_provider(memory_manager=manager)
+    provider = create_memory_context_provider(clearance=SecurityLevel.CONFIDENTIAL, memory_manager=manager)
     assert isinstance(provider, DefaultMemoryContextProvider)

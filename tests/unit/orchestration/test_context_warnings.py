@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope, NodeType, RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.memory.base import MemoryItem
@@ -106,6 +107,7 @@ async def test_memory_recall_failure_surfaces_as_context_warning() -> None:
     registry = AgentRegistry()
     registry.register_agent(agent_instance=_PingAgent(), goal_type=_PingGoal)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(memory_manager=_ExplodingMemoryManager()),
@@ -131,6 +133,7 @@ async def test_no_warnings_when_all_stages_succeed() -> None:
     registry = AgentRegistry()
     registry.register_agent(agent_instance=_PingAgent(), goal_type=_PingGoal)
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=registry,
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(),  # no memory manager at all

@@ -28,6 +28,7 @@ Entry point:
 
     executor = create_meta_executor(
         agent_registry=registry,
+        clearance=SecurityLevel.INTERNAL,
         services=RuntimeServices(...),
         meta_services=MetaServices(
             audit_log=..., audit_trail=..., knowledge_graph=...,

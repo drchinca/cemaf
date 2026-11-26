@@ -41,11 +41,12 @@ Example:
     >>> assert isinstance(MyCustomAgent(), Agent)
 """
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 # Re-export data classes from base (these are not changed)
 from cemaf.agents.base import AgentContext, AgentResult, AgentState
 from cemaf.core.types import AgentID
+from cemaf.skills.protocols import Skill
 
 __all__ = [
     "Agent",
@@ -158,7 +159,7 @@ class Agent[GoalT, ResultT](Protocol):
         ...
 
     @property
-    def skills(self) -> tuple[()]:
+    def skills(self) -> tuple[Skill[Any, Any], ...]:
         """
         Skills available to this agent.
 

@@ -35,6 +35,12 @@ def main() -> None:
     docs_show = docs_sub.add_parser("show", help="Print the full body of one entry")
     docs_show.add_argument("entry_id", help="Entry id (e.g. docs/architecture.md)")
 
+    docs_export = docs_sub.add_parser(
+        "export-okf", help="Export architecture and self-hosting capabilities as OKF"
+    )
+    docs_export.add_argument("--output", required=True, help="New bundle directory (must not exist)")
+    docs_export.add_argument("--repo-root", help="CEMAF checkout containing docs/ and src/cemaf/")
+
     docs_sub.add_parser(
         "serve",
         help="Run an MCP stdio server exposing the docs to any MCP client",
@@ -94,6 +100,11 @@ def main() -> None:
             _docs_show(entry_id=args.entry_id)
         elif sub == "serve":
             _docs_serve()
+        elif sub == "export-okf":
+            try:
+                _docs_export_okf(output=args.output, repo_root=args.repo_root)
+            except (ValueError, OSError, ImportError) as exc:
+                parser.error(str(exc))
         else:
             docs_parser.print_help()
     elif args.command == "blueprint":
@@ -113,6 +124,20 @@ def main() -> None:
             bp_parser.print_help()
     else:
         parser.print_help()
+
+
+def _docs_export_okf(*, output: str, repo_root: str | None) -> None:
+    from pathlib import Path
+
+    from cemaf.meta.okf import build_cemaf_okf_bundle
+
+    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
+    if not (root / "docs").is_dir() or not (root / "src" / "cemaf").is_dir():
+        raise ValueError("Pass --repo-root pointing to a CEMAF checkout with docs/ and src/cemaf/")
+    bundle = build_cemaf_okf_bundle(repo_root=root)
+    destination = bundle.write(output)
+    print(f"Exported {len(bundle.documents)} concepts to {destination}")
+    print(f"Bundle revision: {bundle.revision}")
 
 
 def _inspect() -> None:

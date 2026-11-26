@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,7 +13,26 @@ from cemaf.core.enums import RunStatus
 from cemaf.core.types import RunID
 from cemaf.orchestration.checkpointer import DAGCheckpoint
 from cemaf.orchestration.file_checkpointer import FileCheckpointer, StaleCheckpointWriteError
-from cemaf.orchestration.run_lease import FileRunLeaseStore, StaleRunLeaseError
+from cemaf.orchestration.run_lease import FencedCheckpointer, FileRunLeaseStore, StaleRunLeaseError
+
+
+async def test_expiry_and_takeover_use_the_injected_clock_and_fence_the_old_owner(tmp_path):
+    now = datetime(2026, 10, 21, tzinfo=UTC)
+    store = FileRunLeaseStore(tmp_path / "leases", clock=lambda: now)
+    run_id = RunID("controlled-expiry")
+    original = await store.acquire(run_id, "original", ttl=timedelta(seconds=0.5))
+    assert original is not None and await store.validate(original)
+    assert await store.acquire(run_id, "replacement", ttl=timedelta(seconds=0.5)) is None
+    now += timedelta(seconds=1)
+    assert not await store.validate(original)
+    replacement = await store.acquire(run_id, "replacement", ttl=timedelta(seconds=0.5))
+    assert replacement is not None and replacement.fencing_token == original.fencing_token + 1
+    assert await store.validate(replacement)
+    inner = FileCheckpointer(tmp_path / "checkpoints")
+    fenced = FencedCheckpointer(inner=inner, lease_store=store, lease=original)
+    with pytest.raises(StaleRunLeaseError):
+        await fenced.save(DAGCheckpoint(run_id=run_id, dag_name="expired", status=RunStatus.RUNNING))
+    assert await inner.load(run_id) is None
 
 
 @pytest.mark.asyncio

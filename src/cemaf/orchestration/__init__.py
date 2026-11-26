@@ -26,6 +26,7 @@ checks that individual construction skips.
     from cemaf.bootstrap import create_executor
     executor = create_executor(
         agent_registry=registry,
+        clearance=SecurityLevel.CONFIDENTIAL,
         services=RuntimeServices(...),
         config=ExecutorConfig(...),
     )

@@ -20,6 +20,7 @@ from cemaf.bootstrap import create_executor
 from cemaf.citation.eval import CitationMembershipEvaluator
 from cemaf.citation.models import Citation
 from cemaf.citation.registry import StaticSourceRegistry
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.core.types import AgentID, NodeID
 from cemaf.interceptors import GateEvalInterceptor, create_interceptor_pipeline
@@ -131,6 +132,7 @@ def _membership_gate_pipeline():
 async def test_fabricated_citation_blocks_downstream() -> None:
     citer, ran = _Cite("fabricated-source"), []
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(citer, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=_membership_gate_pipeline()),
@@ -147,6 +149,7 @@ async def test_fabricated_citation_blocks_downstream() -> None:
 async def test_fabricated_citation_in_answer_payload_blocks_downstream() -> None:
     citer, ran = _Cite("fabricated-source", as_payload=True), []
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(citer, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=_membership_gate_pipeline()),
@@ -164,6 +167,7 @@ async def test_fabricated_citation_in_answer_payload_blocks_downstream() -> None
 async def test_real_citation_lets_downstream_run() -> None:
     citer, ran = _Cite("doc-001"), []
     executor = create_executor(
+        clearance=SecurityLevel.CONFIDENTIAL,
         agent_registry=_registry(citer, ran),
         config=ExecutorConfig(enable_events=False),
         services=RuntimeServices(interceptor_pipeline=_membership_gate_pipeline()),

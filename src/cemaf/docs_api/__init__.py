@@ -34,12 +34,14 @@ Usage (via MCP):
     cemaf-docs serve        # stdio MCP server
 """
 
+from cemaf.docs_api.contracts import PythonContractDocSource
 from cemaf.docs_api.index import (
     DocEntry,
     DocEntryKind,
     DocIndex,
     build_default_index,
 )
+from cemaf.docs_api.okf import OKFDocSource, build_okf_bundle
 from cemaf.docs_api.protocols import DocSource
 from cemaf.docs_api.sources import (
     MarkdownDocSource,
@@ -48,6 +50,9 @@ from cemaf.docs_api.sources import (
 from cemaf.docs_api.tools import CemafDocsSearchTool, DocsRetrievalTool
 
 __all__ = [
+    "OKFDocSource",
+    "PythonContractDocSource",
+    "build_okf_bundle",
     "CemafDocsSearchTool",
     "DocEntry",
     "DocEntryKind",

@@ -18,6 +18,7 @@ from cemaf.agents.base import AgentContext
 from cemaf.agents.registry import AgentRegistry
 from cemaf.audit.factories import create_audit_system
 from cemaf.context.context import Context
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import RunStatus
 from cemaf.events.bus import InMemoryEventBus
 from cemaf.knowledge.factories import create_knowledge_graph
@@ -111,7 +112,7 @@ async def test_scaffolder_output_imports_and_runs(tmp_path: Path) -> None:
     registry = bootstrap_mod.create_app_registry()
     assert isinstance(registry, AgentRegistry)
 
-    executor = bootstrap_mod.create_app_executor()
+    executor = bootstrap_mod.create_app_executor(clearance=SecurityLevel.CONFIDENTIAL)
     assert executor is not None
 
     dag = dags_mod.create_main_dag()
@@ -124,7 +125,7 @@ async def test_scaffolder_registered_in_meta_executor(tmp_path: Path) -> None:
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
     runtime = FakeOpenSpecRuntime()
@@ -147,6 +148,7 @@ async def test_scaffolder_registered_in_meta_executor(tmp_path: Path) -> None:
             openspec_runtime=runtime,
             openspec_workspace=workspace,
         ),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     assert agent_registry.get("MetaScaffolder") is not None
@@ -159,7 +161,7 @@ async def test_app_synthesis_dag_runs_end_to_end(tmp_path: Path) -> None:
     event_bus = InMemoryEventBus()
     memory_manager = FakeMemoryManager()
     audit_log, audit_trail = create_audit_system(event_bus=event_bus)
-    kg = create_knowledge_graph(memory_manager=memory_manager)  # type: ignore[arg-type]
+    kg = create_knowledge_graph(memory_manager=memory_manager, clearance=SecurityLevel.CONFIDENTIAL)  # type: ignore[arg-type]
 
     workspace = OpenSpecWorkspace(root=tmp_path / "openspec")
     runtime = FakeOpenSpecRuntime()
@@ -182,6 +184,7 @@ async def test_app_synthesis_dag_runs_end_to_end(tmp_path: Path) -> None:
             openspec_runtime=runtime,
             openspec_workspace=workspace,
         ),
+        clearance=SecurityLevel.CONFIDENTIAL,
     )
 
     result = await executor.run(

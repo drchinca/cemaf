@@ -33,7 +33,7 @@ from cemaf.observability.structured import StructuredLogger
 from cemaf.resilience.circuit_breaker import CircuitBreaker, CircuitConfig
 from cemaf.resilience.rate_limiter import RateLimitConfig, RateLimiter
 from cemaf.resilience.retry import RetryConfig, RetryPolicy
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,7 +43,7 @@ from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvi
 def _wire_memory_manager_with_event_bus() -> tuple[DefaultMemoryManager, InMemoryEventBus]:
     """Wire a real DefaultMemoryManager backed by InMemoryStore + InMemoryEventBus."""
     store = InMemoryStore()
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     scorer = TemporalDecayScorer()
     semantic_store = DefaultSemanticMemoryStore(
         memory_store=store,

@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
+from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import Confidence
 from cemaf.core.utils import utc_now
@@ -50,6 +51,7 @@ def _row_to_item(row: Any) -> MemoryItem:
         ttl=timedelta(seconds=ttl_seconds) if ttl_seconds is not None else None,
         expires_at=expires_at,
         scope_path=row["scope_path"],
+        security_level=SecurityLevel(row["security_level"]),
     )
 
 
@@ -113,8 +115,11 @@ class PostgresMemoryStore(MemoryStore):
                 ttl_seconds REAL,
                 expires_at TIMESTAMPTZ,
                 scope_path TEXT,
+                security_level TEXT NOT NULL DEFAULT 'internal',
                 PRIMARY KEY (tenant_id, scope, key)
             );
+            ALTER TABLE {s}.memory_items
+                ADD COLUMN IF NOT EXISTS security_level TEXT NOT NULL DEFAULT 'internal';
             CREATE INDEX IF NOT EXISTS idx_mi_expires
                 ON {s}.memory_items USING BRIN (expires_at);
             CREATE INDEX IF NOT EXISTS idx_mi_gin
@@ -136,7 +141,7 @@ class PostgresMemoryStore(MemoryStore):
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 f"SELECT scope, key, value_json::text, confidence, created_at, updated_at, "  # nosec B608
-                f"ttl_seconds, expires_at, scope_path "
+                f"ttl_seconds, expires_at, scope_path, security_level "
                 f"FROM {s}.memory_items "
                 f"WHERE tenant_id = $1 AND scope = $2 AND key = $3",
                 self._tenant_id,
@@ -159,15 +164,16 @@ class PostgresMemoryStore(MemoryStore):
             await conn.execute(
                 f"INSERT INTO {s}.memory_items "  # nosec B608
                 f"(tenant_id, scope, key, value_json, confidence, created_at, updated_at, "
-                f"ttl_seconds, expires_at, scope_path) "
-                f"VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10) "
+                f"ttl_seconds, expires_at, scope_path, security_level) "
+                f"VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11) "
                 f"ON CONFLICT (tenant_id, scope, key) DO UPDATE SET "
                 f"value_json = EXCLUDED.value_json, "
                 f"confidence = EXCLUDED.confidence, "
                 f"updated_at = EXCLUDED.updated_at, "
                 f"ttl_seconds = EXCLUDED.ttl_seconds, "
                 f"expires_at = EXCLUDED.expires_at, "
-                f"scope_path = EXCLUDED.scope_path",
+                f"scope_path = EXCLUDED.scope_path, "
+                f"security_level = EXCLUDED.security_level",
                 self._tenant_id,
                 item.scope.value,
                 item.key,
@@ -178,6 +184,7 @@ class PostgresMemoryStore(MemoryStore):
                 item.ttl.total_seconds() if item.ttl is not None else None,
                 item.expires_at,
                 item.scope_path,
+                item.security_level.value,
             )
 
     async def delete(self, scope: MemoryScope, key: str) -> bool:
@@ -224,7 +231,7 @@ class PostgresMemoryStore(MemoryStore):
 
         query = (
             f"SELECT scope, key, value_json::text, confidence, created_at, updated_at, "  # nosec B608
-            f"ttl_seconds, expires_at, scope_path "
+            f"ttl_seconds, expires_at, scope_path, security_level "
             f"FROM {s}.memory_items "
             f"WHERE {' AND '.join(where_clauses)}"
         )

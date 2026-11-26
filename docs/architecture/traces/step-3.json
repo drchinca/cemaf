@@ -1,173 +1,130 @@
 {
   "schema_version": 1,
   "step": 3,
-  "label": "parallel \u2014 fan-out + fan-in",
+  "label": "parallel \u2014 fan-out + collision steer + fan-in",
   "dag_name": "parallel",
-  "total_ms": 365,
+  "status": "completed",
+  "total_ms": 113,
   "events": [
     {
       "t_ms": 0,
       "kind": "dag.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
         "dag_name": "parallel",
-        "run_id": "run_2026-06-11T23:52:15.581339+00:00"
+        "run_id": "run_f9b51c9c326d458ab80a8b55ab782d10"
+      }
+    },
+    {
+      "t_ms": 0,
+      "kind": "context.conflict",
+      "source": "parallel_collision_guard",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
+      "attrs": {
+        "agent_id": "fetch_spec_again",
+        "level": "resolution_advisory",
+        "risk": 1.0,
+        "steer": "fetch_spec_again",
+        "hold": "fetch_spec",
+        "channels": {
+          "overlap": 1.0,
+          "dependency": 0.0,
+          "tree": 1.0
+        }
       }
     },
     {
       "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
-        "node_id": "seed",
+        "node_id": "fetch_spec",
         "node_type": "agent",
-        "agent_id": "Greeter",
+        "agent_id": "FetcherSpec",
         "inputs": {
-          "text": "x"
+          "topic": "TLS 1.3 handshake"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 61,
-      "kind": "task.completed",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
-      "attrs": {
-        "node_id": "seed",
-        "success": true,
-        "duration_ms": 61.126916960347444,
-        "error": null,
-        "output": "{\"text\": \"Hello, x!\", \"tokens_in\": 12, \"tokens_out\": 8}",
-        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
-        "workspace_id": null
-      }
-    },
-    {
-      "t_ms": 61,
+      "t_ms": 0,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
-        "node_id": "a",
+        "node_id": "fetch_web",
         "node_type": "agent",
-        "agent_id": "FetcherA",
+        "agent_id": "FetcherWeb",
         "inputs": {
-          "text": "x"
+          "topic": "TLS 1.3 handshake"
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 162,
-      "kind": "memory.hit",
-      "source": "FetcherA",
-      "corr": "",
-      "attrs": {
-        "tier": "L0",
-        "hits": 1
-      }
-    },
-    {
-      "t_ms": 162,
+      "t_ms": 101,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
-        "node_id": "a",
+        "node_id": "fan",
         "success": true,
-        "duration_ms": 101.19254200253636,
+        "duration_ms": 0.0,
         "error": null,
-        "output": "{\"text\": \"A:x\", \"tokens_in\": 24, \"tokens_out\": 10}",
-        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
-        "workspace_id": null
-      }
-    },
-    {
-      "t_ms": 162,
-      "kind": "task.started",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
-      "attrs": {
-        "node_id": "b",
-        "node_type": "agent",
-        "agent_id": "FetcherB",
-        "inputs": {
-          "text": "x"
+        "output": {
+          "fetch_spec": "TLS 1.3 handshake completes in one round trip (1-RTT) for a new connection.",
+          "fetch_web": "TLS 1.3 handshake resumption supports 0-RTT early data with replay caveats."
         },
-        "goal_text": ""
-      }
-    },
-    {
-      "t_ms": 323,
-      "kind": "memory.hit",
-      "source": "FetcherB",
-      "corr": "",
-      "attrs": {
-        "tier": "L1",
-        "hits": 3
-      }
-    },
-    {
-      "t_ms": 323,
-      "kind": "task.completed",
-      "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
-      "attrs": {
-        "node_id": "b",
-        "success": true,
-        "duration_ms": 161.19308402994648,
-        "error": null,
-        "output": "{\"text\": \"B:x\", \"tokens_in\": 64, \"tokens_out\": 32}",
-        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "run_id": "run_f9b51c9c326d458ab80a8b55ab782d10",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 324,
+      "t_ms": 101,
       "kind": "task.started",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
         "node_id": "join",
         "node_type": "agent",
         "agent_id": "Joiner",
         "inputs": {
           "items": [
-            "A:x",
-            "B:x"
+            "TLS 1.3 handshake completes in one round trip (1-RTT) for a new connection.",
+            "TLS 1.3 handshake resumption supports 0-RTT early data with replay caveats."
           ]
         },
         "goal_text": ""
       }
     },
     {
-      "t_ms": 365,
+      "t_ms": 113,
       "kind": "task.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
         "node_id": "join",
         "success": true,
-        "duration_ms": 41.014667018316686,
+        "duration_ms": 11.166374999447726,
         "error": null,
-        "output": "{\"text\": \"A:x + B:x\", \"tokens_in\": 20, \"tokens_out\": 14}",
-        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
+        "output": "TLS 1.3 handshake completes in one round trip (1-RTT) for a new connection. | TLS 1.3 handshake resumption supports 0-RTT early data with replay caveats.",
+        "run_id": "run_f9b51c9c326d458ab80a8b55ab782d10",
         "workspace_id": null
       }
     },
     {
-      "t_ms": 365,
+      "t_ms": 113,
       "kind": "dag.completed",
       "source": "dag_executor",
-      "corr": "run_2026-06-11T23:52:15.581339+00:00",
+      "corr": "run_f9b51c9c326d458ab80a8b55ab782d10",
       "attrs": {
         "dag_name": "parallel",
-        "run_id": "run_2026-06-11T23:52:15.581339+00:00",
-        "num_nodes": 4,
-        "duration_ms": 365.12600000000003
+        "run_id": "run_f9b51c9c326d458ab80a8b55ab782d10",
+        "num_nodes": 5,
+        "duration_ms": 113.088
       }
     }
   ]

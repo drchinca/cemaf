@@ -16,12 +16,12 @@ from cemaf.memory.semantic import DefaultSemanticMemoryStore, MemoryQuery
 from cemaf.memory.session import DefaultSessionManager
 from cemaf.memory.tiered import TruncationTierGenerator
 from cemaf.memory.tiered_store import TieredMemoryStore
-from cemaf.retrieval.memory_store import InMemoryVectorStore, MockEmbeddingProvider
+from cemaf.retrieval.memory_store import CharacterHashEmbeddingProvider, InMemoryVectorStore
 
 
 def _wire_semantic_store() -> DefaultSemanticMemoryStore:
     store = InMemoryStore()
-    embedding_provider = MockEmbeddingProvider()
+    embedding_provider = CharacterHashEmbeddingProvider()
     return DefaultSemanticMemoryStore(
         memory_store=store,
         vector_store=InMemoryVectorStore(embedding_provider=embedding_provider),
