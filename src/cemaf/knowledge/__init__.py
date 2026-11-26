@@ -44,9 +44,11 @@ from cemaf.knowledge.protocols import (
     KnowledgeGraph,
     KnowledgeGraphCapabilitiesProvider,
 )
+from cemaf.knowledge.self_ontology import CEMAF_SELF_ONTOLOGY
 
 __all__ = [
     # Ontologies (SPEC-27)
+    "CEMAF_SELF_ONTOLOGY",
     "Ontology",
     "OntologyClass",
     "OntologyDefinitionError",

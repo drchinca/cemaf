@@ -1,7 +1,7 @@
 ---
 title: Knowledge Ontologies
 spec_id: SPEC-27
-status: Draft
+status: Implemented
 last_reviewed: 2026-11-26
 owner: drchinca
 parent: SPEC-02 — KG and DataSource services
