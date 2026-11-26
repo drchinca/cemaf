@@ -35,6 +35,8 @@ from cemaf.knowledge.ontology import (
     PropertyType,
     RelationSpec,
     ViolationKind,
+    load_ontology,
+    ontology_from_mapping,
 )
 from cemaf.knowledge.protocols import (
     BranchingKnowledgeGraph,
@@ -52,6 +54,8 @@ __all__ = [
     "PropertyType",
     "RelationSpec",
     "ViolationKind",
+    "load_ontology",
+    "ontology_from_mapping",
     "OKFBundle",
     "OKFBundleDiff",
     "OKFDocument",

@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
-from typing import TypeIs
+from pathlib import Path
+from typing import Final, TypeIs
 
 from cemaf.knowledge.models import KGEntity, KGRelation
+
+_log = logging.getLogger(__name__)
+
+YAML_SUFFIXES: Final = frozenset({".yaml", ".yml"})
+JSON_SUFFIX: Final = ".json"
 
 
 class OntologyDefinitionError(ValueError):
@@ -340,3 +348,152 @@ def _refuse_duplicates(*, names: list[str], what: str) -> None:
         if name in seen:
             raise OntologyDefinitionError(f"duplicate {what} name {name!r}")
         seen.add(name)
+
+
+_TOP_KEYS: Final = frozenset({"ontology", "version", "classes", "relations"})
+_CLASS_KEYS: Final = frozenset({"is_a", "properties", "closed", "description"})
+_PROPERTY_KEYS: Final = frozenset({"type", "required", "allowed", "description"})
+_RELATION_KEYS: Final = frozenset({"from", "to", "max_per_source", "description"})
+
+
+def ontology_from_mapping(*, data: Mapping[str, object]) -> Ontology:
+    """Build an Ontology from its YAML/JSON structure."""
+    _refuse_unknown_keys(data=data, allowed=_TOP_KEYS, where="ontology")
+    name = data.get("ontology")
+    version = data.get("version")
+    if not isinstance(name, str) or not name:
+        raise OntologyDefinitionError("'ontology' must be a non-empty name")
+    if not _is_integer(version):
+        raise OntologyDefinitionError("'version' must be an integer")
+    classes = tuple(
+        _class_from_mapping(name=class_name, data=body)
+        for class_name, body in _section(data=data, key="classes").items()
+    )
+    relations = tuple(
+        _relation_from_mapping(name=rel_name, data=body)
+        for rel_name, body in _section(data=data, key="relations").items()
+    )
+    return Ontology(name=name, version=version, classes=classes, relations=relations)
+
+
+def load_ontology(*, path: Path) -> Ontology:
+    """Load an ontology from a .yaml/.yml or .json file."""
+    suffix = path.suffix.lower()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise OntologyDefinitionError(f"cannot read ontology {path}: {exc}") from exc
+    if suffix in YAML_SUFFIXES:
+        data = _parse_yaml(text=text, path=path)
+    elif suffix == JSON_SUFFIX:
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise OntologyDefinitionError(f"{path} is not valid JSON: {exc}") from exc
+    else:
+        raise OntologyDefinitionError(f"{path}: ontologies are .yaml, .yml or .json files")
+    if not isinstance(data, Mapping):
+        raise OntologyDefinitionError(f"{path} must hold a mapping at the top level")
+    ontology = ontology_from_mapping(data=data)
+    _log.info(
+        "ontology.loaded",
+        extra={
+            "ontology": ontology.name,
+            "version": ontology.version,
+            "class_count": len(ontology.classes),
+            "relation_count": len(ontology.relations),
+        },
+    )
+    return ontology
+
+
+def _parse_yaml(*, text: str, path: Path) -> object:
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError as exc:
+        raise OntologyDefinitionError("YAML ontologies need pyyaml: install cemaf[okf]") from exc
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise OntologyDefinitionError(f"{path} is not valid YAML: {exc}") from exc
+
+
+def _section(*, data: Mapping[str, object], key: str) -> Mapping[str, object]:
+    section = data.get(key) or {}
+    if not isinstance(section, Mapping):
+        raise OntologyDefinitionError(f"'{key}' must be a mapping of names to definitions")
+    return section
+
+
+def _body(*, data: object, where: str) -> Mapping[str, object]:
+    if data is None:
+        return {}
+    if not isinstance(data, Mapping):
+        raise OntologyDefinitionError(f"{where} must be a mapping")
+    return data
+
+
+def _class_from_mapping(*, name: str, data: object) -> OntologyClass:
+    body = _body(data=data, where=f"class {name!r}")
+    _refuse_unknown_keys(data=body, allowed=_CLASS_KEYS, where=f"class {name!r}")
+    is_a = body.get("is_a")
+    if is_a is not None and not isinstance(is_a, str):
+        raise OntologyDefinitionError(f"class {name!r} is_a must be a class name")
+    properties = tuple(
+        _property_from_mapping(class_name=name, name=prop_name, data=prop_body)
+        for prop_name, prop_body in _body(data=body.get("properties"), where=f"{name}.properties").items()
+    )
+    return OntologyClass(
+        name=name,
+        is_a=is_a,
+        properties=properties,
+        closed=bool(body.get("closed", False)),
+        description=str(body.get("description", "")),
+    )
+
+
+def _property_from_mapping(*, class_name: str, name: str, data: object) -> PropertySpec:
+    where = f"property {class_name}.{name}"
+    body = _body(data=data, where=where)
+    _refuse_unknown_keys(data=body, allowed=_PROPERTY_KEYS, where=where)
+    raw_type = body.get("type")
+    try:
+        prop_type = PropertyType(str(raw_type))
+    except ValueError as exc:
+        choices = ", ".join(PropertyType)
+        raise OntologyDefinitionError(f"{where} has type {raw_type!r}; expected one of {choices}") from exc
+    allowed = body.get("allowed") or ()
+    if not isinstance(allowed, list | tuple):
+        raise OntologyDefinitionError(f"{where} allowed must be a list")
+    return PropertySpec(
+        name=name,
+        type=prop_type,
+        required=bool(body.get("required", False)),
+        allowed=tuple(str(value) for value in allowed),
+        description=str(body.get("description", "")),
+    )
+
+
+def _relation_from_mapping(*, name: str, data: object) -> RelationSpec:
+    where = f"relation {name!r}"
+    body = _body(data=data, where=where)
+    _refuse_unknown_keys(data=body, allowed=_RELATION_KEYS, where=where)
+    source, target = body.get("from"), body.get("to")
+    if not isinstance(source, str) or not isinstance(target, str):
+        raise OntologyDefinitionError(f"{where} needs 'from' and 'to' class names")
+    max_per_source = body.get("max_per_source")
+    if max_per_source is not None and not _is_integer(max_per_source):
+        raise OntologyDefinitionError(f"{where} max_per_source must be an integer")
+    return RelationSpec(
+        name=name,
+        source=source,
+        target=target,
+        max_per_source=max_per_source,
+        description=str(body.get("description", "")),
+    )
+
+
+def _refuse_unknown_keys(*, data: Mapping[str, object], allowed: frozenset[str], where: str) -> None:
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise OntologyDefinitionError(f"{where} has unknown keys: {', '.join(unknown)}")
