@@ -133,8 +133,8 @@ class OntologyKnowledgeGraph:                               # implements Knowled
     async def related(self, *, entity_id: str, relation: str) -> tuple[KGEntity, ...]: ...
         # OUTGOING relations of that type from entity_id, one hop
     # Every other KnowledgeGraph method delegates to `graph`; writes validate first, then
-    # always write. capabilities() is passed through. Branching (BranchingKnowledgeGraph)
-    # is not exposed by the wrapper.
+    # always write. The capabilities property is passed through with branching=False, because
+    # branching (BranchingKnowledgeGraph) is not exposed by the wrapper.
 
 # KnowledgeGraph protocol gains two methods. Implementations: MemoryBackedKnowledgeGraph,
 # HubKnowledgeGraph and SpokeReadHubWriteKG (both delegate), and every test double.

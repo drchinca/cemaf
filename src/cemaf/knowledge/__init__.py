@@ -38,6 +38,7 @@ from cemaf.knowledge.ontology import (
     load_ontology,
     ontology_from_mapping,
 )
+from cemaf.knowledge.ontology_graph import OntologyKnowledgeGraph
 from cemaf.knowledge.protocols import (
     BranchingKnowledgeGraph,
     KnowledgeGraph,
@@ -49,6 +50,7 @@ __all__ = [
     "Ontology",
     "OntologyClass",
     "OntologyDefinitionError",
+    "OntologyKnowledgeGraph",
     "OntologyViolation",
     "PropertySpec",
     "PropertyType",
