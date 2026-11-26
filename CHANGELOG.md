@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   classes (subclasses qualify) and the per-source limit. An endpoint the graph
   doesn't return is reported as "not found or not visible", never revealing
   whether it exists (SPEC-27).
+- `load_ontology()` reads an ontology from YAML (with the `okf` extra) or
+  JSON, and `ontology_from_mapping()` builds one from the same structure.
+  Unknown keys, a bad property type or an unreadable file raise
+  `OntologyDefinitionError` (SPEC-27).
 
 ## [4.1.0] - 2026-11-26
 
