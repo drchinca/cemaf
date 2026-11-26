@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-26
+
+Knowledge graphs hold any domain's types. This is the first step of
+knowledge ontologies (SPEC-27): types are open names, and the graph can list
+every entity of a type and every outgoing relation of an entity. This is
+also the first release published from `main` since 3.3.0; 4.0.0 shipped from
+`development`.
+
 **Breaking:**
 - `KGEntity.type` and `KGRelation.type` are plain type names (`str`), so a
   graph can hold any domain's types. Code that read `.type.value` should use
@@ -630,6 +638,7 @@ For complete documentation, see [README.md](README.md) and [docs/](docs/).
 
 ---
 
-[Unreleased]: https://github.com/drchinca/cemaf/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/drchinca/cemaf/compare/v4.1.0...HEAD
+[4.1.0]: https://github.com/drchinca/cemaf/compare/v4.0.0...v4.1.0
 [0.2.0]: https://github.com/drchinca/cemaf/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/drchinca/cemaf/releases/tag/v0.1.0
