@@ -61,6 +61,7 @@ class PropertyType(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class PropertySpec:
+    name: str
     type: PropertyType
     required: bool = False
     allowed: tuple[str, ...] = ()          # STRING only; empty = any string. On another type
@@ -71,7 +72,7 @@ class PropertySpec:
 class OntologyClass:
     name: str
     is_a: str | None = None
-    properties: Mapping[str, PropertySpec] = EMPTY_PROPERTIES   # read-only MappingProxyType
+    properties: tuple[PropertySpec, ...] = ()   # tuples keep every ontology type hashable
     closed: bool = False                    # True: properties the class (and its ancestors)
                                             # don't declare are UNKNOWN_PROPERTY violations.
                                             # False (default): they are allowed.
@@ -89,11 +90,13 @@ class RelationSpec:
 class Ontology:
     name: str
     version: int
-    classes: Mapping[str, OntologyClass]      # read-only MappingProxyType
-    relations: Mapping[str, RelationSpec]     # read-only MappingProxyType
+    classes: tuple[OntologyClass, ...]
+    relations: tuple[RelationSpec, ...]
+    def class_named(self, *, name: str) -> OntologyClass | None: ...
+    def relation_named(self, *, name: str) -> RelationSpec | None: ...
     def ancestors(self, *, class_name: str) -> tuple[str, ...]: ...      # nearest first
     def is_a(self, *, class_name: str, ancestor: str) -> bool: ...
-    def properties_of(self, *, class_name: str) -> Mapping[str, PropertySpec]: ...  # inherited + own
+    def properties_of(self, *, class_name: str) -> tuple[PropertySpec, ...]: ...  # ancestors' first, then own
     def validate_entity(self, *, entity: KGEntity) -> tuple[OntologyViolation, ...]: ...
     def validate_relation(self, *, relation: KGRelation, source: KGEntity | None,
                           target: KGEntity | None, existing_from_source: int,
@@ -132,17 +135,38 @@ class OntologyKnowledgeGraph:                               # implements Knowled
     # always write. capabilities() is passed through. Branching (BranchingKnowledgeGraph)
     # is not exposed by the wrapper.
 
-# KnowledgeGraph protocol gains one method (all implementations: MemoryBackedKnowledgeGraph,
-# HubKnowledgeGraph, test doubles):
+# KnowledgeGraph protocol gains two methods. Implementations: MemoryBackedKnowledgeGraph,
+# HubKnowledgeGraph and SpokeReadHubWriteKG (both delegate), and every test double.
     async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]: ...
         # every visible entity of exactly that type; no limit, no ranking
+    async def relations_from(self, *, entity_id: str, relation_type: str | None = None,
+                             ) -> tuple[KGRelation, ...]: ...
+        # visible relations whose source is entity_id, whatever the target's visibility.
+        # MemoryBackedKnowledgeGraph reads the entity's relation index (kg:index:<id>).
+        # The wrapper's cardinality count is len(relations_from(...)) minus the relation
+        # being written if it already exists.
 
-CEMAF_SELF_ONTOLOGY: Ontology   # classes = EntityType values (open), relations = RelationType values
+# MemoryManager protocol gains one method so entities_of_type can be exhaustive:
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
+        # every stored item in scope whose key starts with key_prefix (a full scan of the
+        # scope through the store's list_by_scope; no result limit)
+
+CEMAF_SELF_ONTOLOGY: Ontology
+    # Root class "thing"; every EntityType value is a class with is_a="thing" (all open).
+    # Every RelationType value is a relation from "thing" to "thing".
+    # "dag" declares the properties CEMAF writes when versioning a solution
+    # (meta/agents.py): version STRING, use_case STRING, roles LIST, node_count INTEGER,
+    # constraints OBJECT.
 
 KGEntity.type: str              # was EntityType; EntityType (a StrEnum) still fits as a class name
 KGRelation.type: str            # was RelationType
-# Filters typed EntityType / RelationType (search, query_neighbors, hub_spoke, meta tools)
-# take str. Reading back an entity no longer converts its type to the enum.
+# Filters typed EntityType / RelationType take str: KnowledgeGraph.search and
+# query_neighbors, hub_spoke.py, meta/tools.py. Reading back an entity or relation keeps
+# the stored string (graph.py no longer calls EntityType(...) / RelationType(...)).
+# `.type.value` becomes `.type` in models.py (to_dict), graph.py (relation key),
+# interceptors/pull.py and meta/tools.py.
+# meta/tools.py accepts any type string: no rejection of names outside the enums, and a
+# given type filters exactly; only an empty or missing filter means "no filter".
 
 EventType.ONTOLOGY_VIOLATION    # payload: {"ontology", "version", "kind", "subject_id", "message"}
 ```
@@ -172,8 +196,9 @@ relations:
 **Write semantics (no ambiguity):**
 - Re-writing an entity re-validates the entity only; its existing relations are not re-checked.
 - A relation written before an endpoint exists records `MISSING_ENDPOINT` for that end.
-- An endpoint that exists but is above the graph's clearance is not judged: no endpoint
-  violation is recorded, so existence is not leaked.
+- An endpoint the graph does not return — absent, or above its clearance; the protocol
+  cannot tell these apart — is a `MISSING_ENDPOINT` violation whose message says
+  "not found or not visible", so existence is never revealed.
 - A property value of `None` counts as absent.
 
 ## 3. Invariants (DbC)
@@ -187,7 +212,7 @@ relations:
 7. `A relation's source and target SHALL qualify through inheritance`: an Engineer satisfies `from: Person`.
 8. `WHEN a source already has max_per_source OUTGOING relations of a type, a further, different relation of that type SHALL be a TOO_MANY_RELATIONS violation`; re-writing an existing relation never is.
 9. `entities_of_class(C, include_subclasses=True) SHALL return entities of C and of every descendant of C.`
-10. `CEMAF_SELF_ONTOLOGY SHALL accept the entities and relations CEMAF actually writes` — the meta layer's solution versioning (`meta/agents.py`, list and mapping properties included) and OKF import produce no violations.
+10. `CEMAF_SELF_ONTOLOGY SHALL accept the entities and relations CEMAF actually writes` — the meta layer's solution versioning (`meta/agents.py`, list and mapping properties included) and OKF import produce no violations — and SHALL still catch a wrongly typed `dag` property (e.g. `node_count: "five"`), so the check is not vacuous.
 11. `THE ontology SHALL be immutable` (read-only mappings); a changed ontology is a new version.
 12. `IF a class is closed, THEN a property neither it nor an ancestor declares SHALL be an UNKNOWN_PROPERTY violation`; open classes accept undeclared properties.
 13. `entities_of_type SHALL return every visible entity of that type`, with no result limit.
@@ -258,9 +283,14 @@ Feature: Knowledge ontologies
     Given the meta layer's solution-versioning step and an OKF import
     When they write to an OntologyKnowledgeGraph bound to CEMAF_SELF_ONTOLOGY
     Then no violation is recorded
+
+  Scenario: The self-ontology still catches a broken write
+    Given a dag entity whose node_count is "five"
+    When it is written under CEMAF_SELF_ONTOLOGY
+    Then a WRONG_PROPERTY_TYPE violation is recorded
 ```
 
-Budget: 12 scenarios.
+Budget: 13 scenarios.
 
 ## 5. Out of Scope
 
@@ -307,7 +337,7 @@ Four PRs, each under the size limit, each green on its own:
 
 | PR | Contents |
 |---|---|
-| A | `KGEntity.type` / `KGRelation.type` → `str` at every site (graph read-back, `.type.value`, typed filters, meta tools, pull interceptor) plus `entities_of_type` on the protocol and every implementation |
+| A | `KGEntity.type` / `KGRelation.type` → `str` at every site listed in §2; `MemoryManager.list_by_prefix`; `entities_of_type` and `relations_from` on the protocol and all three implementations |
 | B | `Ontology` model, `PropertyType`, YAML/JSON loading, `OntologyDefinitionError`, inheritance, `validate_entity` / `validate_relation` |
 | C | `OntologyKnowledgeGraph`, `ONTOLOGY_VIOLATION`, recent-violation window, cardinality counting, `entities_of_class`, `related` |
 | D | `CEMAF_SELF_ONTOLOGY` and the real-write scenario over solution versioning and OKF import |
