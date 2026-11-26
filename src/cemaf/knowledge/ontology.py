@@ -8,7 +8,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import TypeIs
 
-from cemaf.knowledge.models import KGEntity
+from cemaf.knowledge.models import KGEntity, KGRelation
 
 
 class OntologyDefinitionError(ValueError):
@@ -204,6 +204,69 @@ class Ontology:
                 if key not in declared_names
             )
         return tuple(violations)
+
+    def validate_relation(
+        self,
+        *,
+        relation: KGRelation,
+        source: KGEntity | None,
+        target: KGEntity | None,
+        existing_from_source: int,
+    ) -> tuple[OntologyViolation, ...]:
+        """Every rule the relation breaks; source/target None means not found or not visible."""
+        subject_id = f"{relation.source_id}->{relation.target_id}:{relation.type}"
+        spec = self.relation_named(name=relation.type)
+        if spec is None:
+            message = f"{relation.type!r} is not a relation in ontology {self.name!r}"
+            return _one(kind=ViolationKind.UNKNOWN_RELATION, subject_id=subject_id, message=message)
+        violations = [
+            *self._check_endpoint(
+                entity=source,
+                entity_id=relation.source_id,
+                expected=spec.source,
+                kind=ViolationKind.WRONG_SOURCE_CLASS,
+                end="source",
+                subject_id=subject_id,
+            ),
+            *self._check_endpoint(
+                entity=target,
+                entity_id=relation.target_id,
+                expected=spec.target,
+                kind=ViolationKind.WRONG_TARGET_CLASS,
+                end="target",
+                subject_id=subject_id,
+            ),
+        ]
+        if spec.max_per_source is not None and existing_from_source >= spec.max_per_source:
+            violations.append(
+                OntologyViolation(
+                    kind=ViolationKind.TOO_MANY_RELATIONS,
+                    subject_id=subject_id,
+                    message=(
+                        f"{relation.source_id} already has {existing_from_source} {spec.name!r} relations; "
+                        f"at most {spec.max_per_source} allowed"
+                    ),
+                )
+            )
+        return tuple(violations)
+
+    def _check_endpoint(
+        self,
+        *,
+        entity: KGEntity | None,
+        entity_id: str,
+        expected: str,
+        kind: ViolationKind,
+        end: str,
+        subject_id: str,
+    ) -> tuple[OntologyViolation, ...]:
+        if entity is None:
+            message = f"{end} {entity_id} not found or not visible"
+            return _one(kind=ViolationKind.MISSING_ENDPOINT, subject_id=subject_id, message=message)
+        if self.is_a(class_name=entity.type, ancestor=expected):
+            return ()
+        message = f"{end} {entity_id} is a {entity.type!r}, not a {expected!r}"
+        return (OntologyViolation(kind=kind, subject_id=subject_id, message=message),)
 
 
 def _check_property(

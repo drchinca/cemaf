@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 import pytest
 
-from cemaf.knowledge.models import KGEntity
+from cemaf.knowledge.models import KGEntity, KGRelation
 from cemaf.knowledge.ontology import (
     Ontology,
     OntologyClass,
@@ -295,6 +295,91 @@ class TestPropertyTypes:
 
         assert check(good) == []
         assert check(bad) == [ViolationKind.WRONG_PROPERTY_TYPE]
+
+
+class TestRelationValidation:
+    @staticmethod
+    def _entities() -> dict[str, KGEntity]:
+        return {
+            "eng": KGEntity(id="eng-1", type="Engineer", name="Ada"),
+            "person": KGEntity(id="p-1", type="Person", name="Grace"),
+            "team": KGEntity(id="team-1", type="Team", name="Payments"),
+            "svc": KGEntity(id="svc-1", type="Service", name="Billing"),
+        }
+
+    def test_a_conforming_relation_has_no_violations(self, catalog: Ontology) -> None:
+        e = self._entities()
+        relation = KGRelation(source_id="team-1", target_id="svc-1", type="owns")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=e["team"], target=e["svc"], existing_from_source=0
+        )
+
+        assert violations == ()
+
+    def test_endpoints_qualify_through_inheritance(self, catalog: Ontology) -> None:
+        e = self._entities()
+        relation = KGRelation(source_id="eng-1", target_id="p-1", type="mentors")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=e["eng"], target=e["person"], existing_from_source=0
+        )
+
+        assert violations == ()
+
+    def test_a_relation_between_the_wrong_classes(self, catalog: Ontology) -> None:
+        e = self._entities()
+        relation = KGRelation(source_id="svc-1", target_id="team-1", type="owns")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=e["svc"], target=e["team"], existing_from_source=0
+        )
+
+        assert _kinds(violations) == [ViolationKind.WRONG_SOURCE_CLASS, ViolationKind.WRONG_TARGET_CLASS]
+        assert violations[0].subject_id == "svc-1->team-1:owns"
+
+    def test_a_parent_does_not_qualify_for_a_subclass_end(self, catalog: Ontology) -> None:
+        e = self._entities()
+        relation = KGRelation(source_id="p-1", target_id="team-1", type="member_of")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=e["person"], target=e["team"], existing_from_source=0
+        )
+
+        assert _kinds(violations) == [ViolationKind.WRONG_SOURCE_CLASS]
+
+    def test_a_missing_endpoint_never_reveals_whether_it_exists(self, catalog: Ontology) -> None:
+        relation = KGRelation(source_id="team-1", target_id="svc-9", type="owns")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=self._entities()["team"], target=None, existing_from_source=0
+        )
+
+        assert _kinds(violations) == [ViolationKind.MISSING_ENDPOINT]
+        assert violations[0].message == "target svc-9 not found or not visible"
+
+    def test_an_unknown_relation(self, catalog: Ontology) -> None:
+        e = self._entities()
+        relation = KGRelation(source_id="team-1", target_id="svc-1", type="admires")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=e["team"], target=e["svc"], existing_from_source=0
+        )
+
+        assert _kinds(violations) == [ViolationKind.UNKNOWN_RELATION]
+
+    @pytest.mark.parametrize(("existing", "expected"), [(2, []), (3, [ViolationKind.TOO_MANY_RELATIONS])])
+    def test_cardinality_counts_existing_outgoing_relations(
+        self, catalog: Ontology, existing: int, expected: list[ViolationKind]
+    ) -> None:
+        e = self._entities()
+        relation = KGRelation(source_id="eng-1", target_id="svc-1", type="on_call_for")
+
+        violations = catalog.validate_relation(
+            relation=relation, source=e["eng"], target=e["svc"], existing_from_source=existing
+        )
+
+        assert _kinds(violations) == expected
 
 
 class TestInheritanceConsistency:
