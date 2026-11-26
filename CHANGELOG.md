@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a per-source limit. A malformed ontology raises
   `OntologyDefinitionError`. `validate_entity()` returns one
   `OntologyViolation` per broken rule (SPEC-27).
+- `Ontology.validate_relation()` checks a relation's type, its endpoints'
+  classes (subclasses qualify) and the per-source limit. An endpoint the graph
+  doesn't return is reported as "not found or not visible", never revealing
+  whether it exists (SPEC-27).
 
 ## [4.1.0] - 2026-11-26
 
