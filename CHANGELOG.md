@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Added:**
+- Knowledge ontologies, part 1: `Ontology` declares classes (single `is_a`
+  inheritance, typed properties, open or closed), relations between classes
+  and a per-source limit. A malformed ontology raises
+  `OntologyDefinitionError`. `validate_entity()` returns one
+  `OntologyViolation` per broken rule (SPEC-27).
+
 ## [4.1.0] - 2026-11-26
 
 Knowledge graphs hold any domain's types. This is the first step of

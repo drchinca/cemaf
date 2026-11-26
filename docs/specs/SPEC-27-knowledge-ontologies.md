@@ -96,6 +96,7 @@ class Ontology:
     def relation_named(self, *, name: str) -> RelationSpec | None: ...
     def ancestors(self, *, class_name: str) -> tuple[str, ...]: ...      # nearest first
     def is_a(self, *, class_name: str, ancestor: str) -> bool: ...
+    def descendants(self, *, class_name: str) -> tuple[str, ...]: ...  # every class below it
     def properties_of(self, *, class_name: str) -> tuple[PropertySpec, ...]: ...  # ancestors' first, then own
     def validate_entity(self, *, entity: KGEntity) -> tuple[OntologyViolation, ...]: ...
     def validate_relation(self, *, relation: KGRelation, source: KGEntity | None,
@@ -184,11 +185,11 @@ version: 1
 classes:
   Person:
     properties:
-      name: {type: string, required: true}
+      email: {type: string, required: true}
   Engineer: {is_a: Person}
   Team:
     properties:
-      name: {type: string, required: true}
+      channel: {type: string}
   Service:
     properties:
       tier: {type: string, required: true, allowed: [critical, standard, experimental]}
@@ -205,6 +206,12 @@ relations:
   cannot tell these apart — is a `MISSING_ENDPOINT` violation whose message says
   "not found or not visible", so existence is never revealed.
 - A property value of `None` counts as absent.
+- Properties are the entity's `properties` mapping. `KGEntity`'s own fields (`id`, `type`,
+  `name`, `description`) are not properties and are never checked.
+- A class or relation that is declared with a name already used, an `allowed` list on a
+  non-STRING property, a `max_per_source` below 1, or a key the format doesn't define is
+  also an `OntologyDefinitionError`, raised by `Ontology` itself so Python-built ontologies
+  are checked too.
 
 ## 3. Invariants (DbC)
 
@@ -232,7 +239,7 @@ Feature: Knowledge ontologies
   Scenario: Load an ontology from YAML
     Given the service-catalog YAML above
     When it is loaded
-    Then Engineer is_a Person and Engineer has the required property "name"
+    Then Engineer is_a Person and Engineer has the required property "email"
 
   Scenario: A malformed ontology is refused
     Given an ontology where Engineer is_a Engineer
