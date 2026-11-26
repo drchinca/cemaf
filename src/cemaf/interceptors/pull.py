@@ -170,14 +170,14 @@ class PullInterceptor:
                     source_id=SourceKind.KG,
                     source_type="knowledge_graph",
                     section=relation.target_id,
-                    quote=relation.type.value,
+                    quote=str(relation.type),
                 )
                 chunks.append(
                     CiteableChunk(
-                        chunk_id=f"kg:{relation.source_id}:{relation.target_id}:{relation.type.value}",
-                        content=f"{relation.source_id} {relation.type.value} {relation.target_id}",
+                        chunk_id=f"kg:{relation.source_id}:{relation.target_id}:{str(relation.type)}",
+                        content=f"{relation.source_id} {str(relation.type)} {relation.target_id}",
                         citation=citation,
-                        token_count=max(1, len(relation.type.value) // 4 + len(relation.target_id) // 4),
+                        token_count=max(1, len(str(relation.type)) // 4 + len(relation.target_id) // 4),
                         source_kind=SourceKind.KG,
                     )
                 )

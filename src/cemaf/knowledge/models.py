@@ -56,7 +56,7 @@ class KGEntity:
     """An entity node in the knowledge graph."""
 
     id: str
-    type: EntityType
+    type: str
     name: str
     description: str = ""
     properties: JSON = field(default_factory=dict)
@@ -67,7 +67,7 @@ class KGEntity:
         """Serialize entity to JSON-compatible dict."""
         return {
             "id": self.id,
-            "type": self.type.value,
+            "type": str(self.type),
             "name": self.name,
             "description": self.description,
             "properties": dict(self.properties),
@@ -82,7 +82,7 @@ class KGRelation:
 
     source_id: str
     target_id: str
-    type: RelationType
+    type: str
     properties: JSON = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
     security_level: SecurityLevel = SecurityLevel.INTERNAL
@@ -92,7 +92,7 @@ class KGRelation:
         return {
             "source_id": self.source_id,
             "target_id": self.target_id,
-            "type": self.type.value,
+            "type": str(self.type),
             "properties": dict(self.properties),
             "created_at": self.created_at.isoformat(),
             "security_level": self.security_level.value,

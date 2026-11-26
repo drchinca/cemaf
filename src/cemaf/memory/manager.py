@@ -74,6 +74,8 @@ class MemoryManager(Protocol):
         key: str,
     ) -> MemoryItem | None: ...
 
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
+
     async def forget(self, scope: MemoryScope, key: str) -> bool: ...
 
     # Episodic memory
@@ -182,6 +184,10 @@ class DefaultMemoryManager:
     ) -> MemoryItem | None:
         """Direct key-value lookup."""
         return await self._semantic.get(scope=scope, key=key)
+
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]:
+        """Every stored item in scope whose key starts with key_prefix; a full scan, no limit."""
+        return await self._semantic.list_by_prefix(scope=scope, key_prefix=key_prefix)
 
     async def forget(self, scope: MemoryScope, key: str) -> bool:
         """Delete a memory item."""

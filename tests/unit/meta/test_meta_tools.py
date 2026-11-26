@@ -592,15 +592,16 @@ class TestKnowledgeGraphTool:
         assert graph._entities["ent-new"].name == "New Agent"
 
     @pytest.mark.asyncio
-    async def test_add_entity_invalid_type_fails(self) -> None:
+    async def test_add_entity_accepts_a_domain_type(self) -> None:
+        """SPEC-27: entity types are open names declared by an ontology, not a fixed enum."""
         tool = self._make_tool()
         result = await tool.execute(
             operation="add_entity",
-            entity={"id": "e1", "type": "invalid_type", "name": "Bad"},
+            entity={"id": "svc-1", "type": "Service", "name": "Billing"},
         )
 
-        assert not result.success
-        assert "invalid_type" in result.error.lower()
+        assert result.success
+        assert result.data["type"] == "Service"
 
     @pytest.mark.asyncio
     async def test_add_entity_missing_fields_fails(self) -> None:

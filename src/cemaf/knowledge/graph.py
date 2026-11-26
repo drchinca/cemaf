@@ -8,11 +8,9 @@ from cemaf.context.patch import SecurityLevel
 from cemaf.core.enums import MemoryScope
 from cemaf.core.types import JSON
 from cemaf.knowledge.models import (
-    EntityType,
     KGEntity,
     KGQueryResult,
     KGRelation,
-    RelationType,
 )
 from cemaf.memory.base import MemoryItem
 from cemaf.memory.manager import MemoryManager
@@ -63,7 +61,7 @@ class MemoryBackedKnowledgeGraph:
 
     async def add_relation(self, relation: KGRelation) -> None:
         """Store relation and update both entities' relation indexes."""
-        rel_key = f"{self._RELATION_PREFIX}{relation.source_id}:{relation.type.value}:{relation.target_id}"
+        rel_key = f"{self._RELATION_PREFIX}{relation.source_id}:{relation.type}:{relation.target_id}"
         await self._refuse_overwrite_above_clearance(key=rel_key)
         await self._memory.remember(
             scope=self._SCOPE,
@@ -91,7 +89,7 @@ class MemoryBackedKnowledgeGraph:
     async def query_neighbors(
         self,
         entity_id: str,
-        relation_type: RelationType | None = None,
+        relation_type: str | None = None,
         depth: int = 1,
     ) -> KGQueryResult:
         """Find connected entities via the relation index."""
@@ -119,7 +117,7 @@ class MemoryBackedKnowledgeGraph:
     async def search(
         self,
         query: str,
-        entity_type: EntityType | None = None,
+        entity_type: str | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
         """Semantic search for entities; widens the window when relation and index items fill it."""
@@ -141,6 +139,38 @@ class MemoryBackedKnowledgeGraph:
             if len(results) < window or window >= _MAX_SEARCH_WINDOW:
                 return tuple(entities)
             window *= _SEARCH_WINDOW_GROWTH
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        """Every visible entity of exactly this type, by full scan; no limit or ranking."""
+        items = await self._memory.list_by_prefix(scope=self._SCOPE, key_prefix=self._ENTITY_PREFIX)
+        entities = [
+            self._entity_from_dict(data=item.value)
+            for item in items
+            if self._admits(item) and item.value.get("type") == entity_type
+        ]
+        return tuple(sorted(entities, key=lambda entity: entity.id))
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        """Visible relations whose source is entity_id, whatever the target's visibility."""
+        index_item = await self._memory.recall_by_key(
+            scope=self._SCOPE, key=f"{self._INDEX_PREFIX}{entity_id}"
+        )
+        if index_item is None:
+            return ()
+        relations: list[KGRelation] = []
+        for rel_key in index_item.value.get("relation_keys", []):
+            rel_item = await self._memory.recall_by_key(scope=self._SCOPE, key=rel_key)
+            if rel_item is None or not self._admits(rel_item):
+                continue
+            relation = self._relation_from_dict(data=rel_item.value)
+            if relation.source_id != entity_id:
+                continue
+            if relation_type is not None and relation.type != relation_type:
+                continue
+            relations.append(relation)
+        return tuple(relations)
 
     async def remove_entity(self, entity_id: str) -> bool:
         """Remove entity, its relations, and clean up indexes."""
@@ -195,7 +225,7 @@ class MemoryBackedKnowledgeGraph:
         self,
         *,
         entity_id: str,
-        relation_type: RelationType | None,
+        relation_type: str | None,
         depth: int,
         visited: set[str],
         entities_out: list[KGEntity],
@@ -303,7 +333,7 @@ class MemoryBackedKnowledgeGraph:
         """Reconstruct KGEntity from stored dict."""
         return KGEntity(
             id=data["id"],
-            type=EntityType(data["type"]),
+            type=str(data["type"]),
             name=data["name"],
             description=data.get("description", ""),
             properties=data.get("properties", {}),
@@ -317,7 +347,7 @@ class MemoryBackedKnowledgeGraph:
         return KGRelation(
             source_id=data["source_id"],
             target_id=data["target_id"],
-            type=RelationType(data["type"]),
+            type=str(data["type"]),
             properties=data.get("properties", {}),
             created_at=datetime.fromisoformat(data["created_at"]),
             security_level=SecurityLevel(data.get("security_level", SecurityLevel.INTERNAL.value)),
