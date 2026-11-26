@@ -146,10 +146,14 @@ class OntologyKnowledgeGraph:                               # implements Knowled
         # The wrapper's cardinality count is len(relations_from(...)) minus the relation
         # being written if it already exists.
 
-# MemoryManager protocol gains one method so entities_of_type can be exhaustive:
+# So entities_of_type can be exhaustive, a prefix scan is added at each memory layer:
+#   MemoryManager.list_by_prefix        -> delegates to its SemanticMemoryStore
+#   SemanticMemoryStore.list_by_prefix  -> DefaultSemanticMemoryStore filters its
+#                                          MemoryStore.list_by_scope(scope) by key prefix;
+#                                          TieredMemoryStore delegates to its inner store
     async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
-        # every stored item in scope whose key starts with key_prefix (a full scan of the
-        # scope through the store's list_by_scope; no result limit)
+        # every stored item in scope whose key starts with key_prefix; a full scan of the
+        # scope, no result limit. Every MemoryStore already has list_by_scope.
 
 CEMAF_SELF_ONTOLOGY: Ontology
     # Root class "thing"; every EntityType value is a class with is_a="thing" (all open).
@@ -213,7 +217,7 @@ relations:
 8. `WHEN a source already has max_per_source OUTGOING relations of a type, a further, different relation of that type SHALL be a TOO_MANY_RELATIONS violation`; re-writing an existing relation never is.
 9. `entities_of_class(C, include_subclasses=True) SHALL return entities of C and of every descendant of C.`
 10. `CEMAF_SELF_ONTOLOGY SHALL accept the entities and relations CEMAF actually writes` — the meta layer's solution versioning (`meta/agents.py`, list and mapping properties included) and OKF import produce no violations — and SHALL still catch a wrongly typed `dag` property (e.g. `node_count: "five"`), so the check is not vacuous.
-11. `THE ontology SHALL be immutable` (read-only mappings); a changed ontology is a new version.
+11. `THE ontology SHALL be immutable and hashable` (frozen dataclasses holding tuples); a changed ontology is a new version.
 12. `IF a class is closed, THEN a property neither it nor an ancestor declares SHALL be an UNKNOWN_PROPERTY violation`; open classes accept undeclared properties.
 13. `entities_of_type SHALL return every visible entity of that type`, with no result limit.
 
@@ -337,7 +341,7 @@ Four PRs, each under the size limit, each green on its own:
 
 | PR | Contents |
 |---|---|
-| A | `KGEntity.type` / `KGRelation.type` → `str` at every site listed in §2; `MemoryManager.list_by_prefix`; `entities_of_type` and `relations_from` on the protocol and all three implementations |
+| A | `KGEntity.type` / `KGRelation.type` → `str` at every site listed in §2; `list_by_prefix` on `MemoryManager` and `SemanticMemoryStore` (both implementations); `entities_of_type` and `relations_from` on the KG protocol and all three implementations |
 | B | `Ontology` model, `PropertyType`, YAML/JSON loading, `OntologyDefinitionError`, inheritance, `validate_entity` / `validate_relation` |
 | C | `OntologyKnowledgeGraph`, `ONTOLOGY_VIOLATION`, recent-violation window, cardinality counting, `entities_of_class`, `related` |
 | D | `CEMAF_SELF_ONTOLOGY` and the real-write scenario over solution versioning and OKF import |
