@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Breaking:**
+- `KGEntity.type` and `KGRelation.type` are plain type names (`str`), so a
+  graph can hold any domain's types. Code that read `.type.value` should use
+  `.type` (or `str(.type)`); the `EntityType`/`RelationType` members still
+  work as values. An empty type, or a relation type containing `:`, raises
+  `ValueError` (#275).
+
+**Added:**
+- `KnowledgeGraph.entities_of_type()` lists every visible entity of a type by
+  full scan (no search limit), and `relations_from()` lists an entity's
+  outgoing relations; both respect clearance. `MemoryManager.list_by_prefix()`
+  and `SemanticMemoryStore.list_by_prefix()` back them (SPEC-27) (#275).
+
 ## [4.0.0] - 2026-11-09
 
 A correctness and real-infrastructure release. Quality gates, resume and

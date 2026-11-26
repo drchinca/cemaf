@@ -242,6 +242,14 @@ class FakeKnowledgeGraph:
             return True
         return False
 
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return tuple(e for e in getattr(self, "_entities", {}).values() if e.type == entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return ()
+
 
 # ---------------------------------------------------------------------------
 # IntrospectRegistryTool
@@ -678,6 +686,30 @@ class TestKnowledgeGraphTool:
         assert result.success
         assert len(result.data) == 1
         assert result.data[0]["type"] == "tool"
+
+    @pytest.mark.asyncio
+    async def test_search_with_a_domain_type_filters_exactly(self) -> None:
+        graph = FakeKnowledgeGraph()
+        await graph.add_entity(entity=KGEntity(id="svc-1", type="Service", name="Billing service"))
+        await graph.add_entity(entity=KGEntity(id="team-1", type="Team", name="Billing team"))
+        tool = self._make_tool(graph=graph)
+
+        result = await tool.execute(operation="search", query="Billing", entity_type="Service")
+
+        assert result.success
+        assert [e["id"] for e in result.data] == ["svc-1"]
+
+    @pytest.mark.asyncio
+    async def test_search_with_an_empty_type_does_not_filter(self) -> None:
+        graph = FakeKnowledgeGraph()
+        await graph.add_entity(entity=KGEntity(id="svc-1", type="Service", name="Billing service"))
+        await graph.add_entity(entity=KGEntity(id="team-1", type="Team", name="Billing team"))
+        tool = self._make_tool(graph=graph)
+
+        result = await tool.execute(operation="search", query="Billing", entity_type="")
+
+        assert result.success
+        assert sorted(e["id"] for e in result.data) == ["svc-1", "team-1"]
 
     @pytest.mark.asyncio
     async def test_query_neighbors(self) -> None:

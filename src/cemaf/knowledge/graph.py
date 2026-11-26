@@ -154,6 +154,12 @@ class MemoryBackedKnowledgeGraph:
         self, *, entity_id: str, relation_type: str | None = None
     ) -> tuple[KGRelation, ...]:
         """Visible relations whose source is entity_id, whatever the target's visibility."""
+        source_item = await self._memory.recall_by_key(
+            scope=self._SCOPE, key=f"{self._ENTITY_PREFIX}{entity_id}"
+        )
+        if source_item is not None and not self._admits(source_item):
+            # Edges from an entity above clearance would reveal that it exists.
+            return ()
         index_item = await self._memory.recall_by_key(
             scope=self._SCOPE, key=f"{self._INDEX_PREFIX}{entity_id}"
         )

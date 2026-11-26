@@ -771,3 +771,42 @@ class TestOpenTypesAndScans:
 
         assert await reader.relations_from(entity_id="eng-1") == ()
         assert len(await writer.relations_from(entity_id="eng-1")) == 1
+
+    @pytest.mark.asyncio
+    async def test_relations_from_a_source_above_clearance_returns_nothing(self) -> None:
+        manager = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
+        reader = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.INTERNAL)
+        await writer.add_entity(
+            KGEntity(id="eng-9", type="Engineer", name="Hidden", security_level=SecurityLevel.CONFIDENTIAL)
+        )
+        await writer.add_entity(KGEntity(id="svc-1", type="Service", name="Billing"))
+        await writer.add_relation(KGRelation(source_id="eng-9", target_id="svc-1", type="on_call_for"))
+
+        assert await reader.relations_from(entity_id="eng-9") == ()
+        assert len(await writer.relations_from(entity_id="eng-9")) == 1
+
+    def test_an_empty_entity_type_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            KGEntity(id="x", type="", name="X")
+
+    @pytest.mark.parametrize("relation_type", ["", "owns:team"])
+    def test_a_relation_type_that_breaks_the_stored_key_is_rejected(self, relation_type: str) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            KGRelation(source_id="a", target_id="b", type=relation_type)
+
+
+class TestListByPrefix:
+    """The exhaustive scan the ontology layer counts on, through the real manager and semantic store."""
+
+    @pytest.mark.asyncio
+    async def test_returns_every_item_under_the_prefix_and_nothing_else(self) -> None:
+        manager = create_memory_manager()
+        for n in range(3):
+            await manager.remember(MemoryScope.PROJECT, f"kg:entity:{n}", {"n": n})
+        await manager.remember(MemoryScope.PROJECT, "kg:rel:a:owns:b", {"n": 9})
+        await manager.remember(MemoryScope.SESSION, "kg:entity:other-scope", {"n": 7})
+
+        items = await manager.list_by_prefix(scope=MemoryScope.PROJECT, key_prefix="kg:entity:")
+
+        assert sorted(item.key for item in items) == ["kg:entity:0", "kg:entity:1", "kg:entity:2"]
