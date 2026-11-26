@@ -26,6 +26,16 @@ from cemaf.knowledge.models import (
 )
 from cemaf.knowledge.okf import OKFBundle, OKFBundleDiff, OKFDocument
 from cemaf.knowledge.okf_graph import OKFImportResult, import_okf_bundle
+from cemaf.knowledge.ontology import (
+    Ontology,
+    OntologyClass,
+    OntologyDefinitionError,
+    OntologyViolation,
+    PropertySpec,
+    PropertyType,
+    RelationSpec,
+    ViolationKind,
+)
 from cemaf.knowledge.protocols import (
     BranchingKnowledgeGraph,
     KnowledgeGraph,
@@ -33,6 +43,15 @@ from cemaf.knowledge.protocols import (
 )
 
 __all__ = [
+    # Ontologies (SPEC-27)
+    "Ontology",
+    "OntologyClass",
+    "OntologyDefinitionError",
+    "OntologyViolation",
+    "PropertySpec",
+    "PropertyType",
+    "RelationSpec",
+    "ViolationKind",
     "OKFBundle",
     "OKFBundleDiff",
     "OKFDocument",
