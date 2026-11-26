@@ -100,6 +100,12 @@ dependency chain above.
 |---|---|---|---|
 | [SPEC-26](SPEC-26-honest-offline-embeddings.md) | Honest Offline Embeddings | none | `CharacterHashEmbeddingProvider` as the named, warned-about offline fallback |
 
+## Knowledge (SPEC-27)
+
+| ID | Title | Depends on | Owns |
+|---|---|---|---|
+| [SPEC-27](SPEC-27-knowledge-ontologies.md) | Knowledge Ontologies | SPEC-02, SPEC-07 | declared classes, properties and relations for a knowledge base; advisory validation on KG writes; typed queries; `cemaf-self` ontology |
+
 ## Implementation order
 
 Specs depend in number order. PRs flat against `main`, one PR per spec — see
