@@ -60,6 +60,8 @@ class SemanticMemoryStore(Protocol):
 
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None: ...
 
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
+
     async def delete(self, scope: MemoryScope, key: str) -> bool: ...
 
     async def cleanup_expired(self) -> int: ...
@@ -122,6 +124,11 @@ class DefaultSemanticMemoryStore:
     async def get(self, scope: MemoryScope, key: str) -> MemoryItem | None:
         """Direct key-value lookup."""
         return await self._memory_store.get(scope=scope, key=key)
+
+    async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]:
+        """Every stored item in scope whose key starts with key_prefix; a full scan, no limit."""
+        items = await self._memory_store.list_by_scope(scope=scope)
+        return tuple(item for item in items if item.key.startswith(key_prefix))
 
     async def delete(self, scope: MemoryScope, key: str) -> bool:
         """Delete from both stores."""

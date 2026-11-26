@@ -149,8 +149,9 @@ class OntologyKnowledgeGraph:                               # implements Knowled
 # So entities_of_type can be exhaustive, a prefix scan is added at each memory layer:
 #   MemoryManager.list_by_prefix        -> delegates to its SemanticMemoryStore
 #   SemanticMemoryStore.list_by_prefix  -> DefaultSemanticMemoryStore filters its
-#                                          MemoryStore.list_by_scope(scope) by key prefix;
-#                                          TieredMemoryStore delegates to its inner store
+#                                          MemoryStore.list_by_scope(scope) by key prefix
+#                                          (its only implementation; TieredMemoryStore is a
+#                                          separate API, not a SemanticMemoryStore)
     async def list_by_prefix(self, *, scope: MemoryScope, key_prefix: str) -> tuple[MemoryItem, ...]: ...
         # every stored item in scope whose key starts with key_prefix; a full scan of the
         # scope, no result limit. Every MemoryStore already has list_by_scope.
@@ -167,8 +168,8 @@ KGRelation.type: str            # was RelationType
 # Filters typed EntityType / RelationType take str: KnowledgeGraph.search and
 # query_neighbors, hub_spoke.py, meta/tools.py. Reading back an entity or relation keeps
 # the stored string (graph.py no longer calls EntityType(...) / RelationType(...)).
-# `.type.value` becomes `.type` in models.py (to_dict), graph.py (relation key),
-# interceptors/pull.py and meta/tools.py.
+# `.type.value` becomes `str(.type)` in models.py (to_dict), graph.py (relation key)
+# and interceptors/pull.py. (meta/tools.py's `.type.value` is an AuditEntry type, unchanged.)
 # meta/tools.py accepts any type string: no rejection of names outside the enums, and a
 # given type filters exactly; only an empty or missing filter means "no filter".
 

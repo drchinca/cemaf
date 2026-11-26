@@ -523,6 +523,14 @@ class TestFactory:
             async def remove_entity(self, entity_id: str) -> bool:
                 return False
 
+            async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+                return ()
+
+            async def relations_from(
+                self, *, entity_id: str, relation_type: str | None = None
+            ) -> tuple[KGRelation, ...]:
+                return ()
+
         def _factory(**kwargs):
             created["args"] = kwargs
             return CustomKnowledgeGraph()
@@ -676,3 +684,129 @@ async def test_search_returns_limit_entities_when_relations_fill_the_window() ->
     found = await graph.search(query="office", limit=3)
 
     assert sorted(e.id for e in found) == ["office-1", "office-2", "office-3"]
+
+
+class TestOpenTypesAndScans:
+    """SPEC-27 PR A: open type names; exhaustive type listing and outgoing-relation scans."""
+
+    def _graph(self, *, clearance: SecurityLevel = SecurityLevel.CONFIDENTIAL) -> MemoryBackedKnowledgeGraph:
+        return MemoryBackedKnowledgeGraph(memory_manager=create_memory_manager(), clearance=clearance)
+
+    @pytest.mark.asyncio
+    async def test_a_domain_type_round_trips_as_its_name(self) -> None:
+        graph = self._graph()
+        await graph.add_entity(KGEntity(id="svc-1", type="Service", name="Billing"))
+        await graph.add_entity(KGEntity(id="team-1", type="Team", name="Payments"))
+        await graph.add_relation(KGRelation(source_id="team-1", target_id="svc-1", type="owns"))
+
+        entity = await graph.get_entity(entity_id="svc-1")
+        neighbors = await graph.query_neighbors(entity_id="team-1", relation_type="owns")
+
+        assert entity is not None and entity.type == "Service"
+        assert [r.type for r in neighbors.relations] == ["owns"]
+
+    @pytest.mark.asyncio
+    async def test_entities_of_type_is_exhaustive_past_the_search_window(self) -> None:
+        graph = self._graph()
+        for n in range(1_050):
+            await graph.add_entity(KGEntity(id=f"svc-{n:04d}", type="Service", name=f"service {n}"))
+        await graph.add_entity(KGEntity(id="team-1", type="Team", name="Payments"))
+
+        services = await graph.entities_of_type(entity_type="Service")
+
+        assert len(services) == 1_050
+        assert {e.type for e in services} == {"Service"}
+
+    @pytest.mark.asyncio
+    async def test_entities_of_type_hides_entities_above_clearance(self) -> None:
+        manager = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
+        reader = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.INTERNAL)
+        await writer.add_entity(KGEntity(id="open", type="Service", name="Billing"))
+        await writer.add_entity(
+            KGEntity(id="secret", type="Service", name="Vault", security_level=SecurityLevel.CONFIDENTIAL)
+        )
+
+        visible = await reader.entities_of_type(entity_type="Service")
+
+        assert [e.id for e in visible] == ["open"]
+
+    @pytest.mark.asyncio
+    async def test_relations_from_counts_outgoing_only_whatever_the_target_visibility(self) -> None:
+        manager = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
+        reader = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.INTERNAL)
+        await writer.add_entity(KGEntity(id="eng-1", type="Engineer", name="Ada"))
+        await writer.add_entity(KGEntity(id="svc-1", type="Service", name="Billing"))
+        await writer.add_entity(
+            KGEntity(id="svc-2", type="Service", name="Vault", security_level=SecurityLevel.CONFIDENTIAL)
+        )
+        await writer.add_entity(KGEntity(id="team-1", type="Team", name="Payments"))
+        await writer.add_relation(KGRelation(source_id="eng-1", target_id="svc-1", type="on_call_for"))
+        await writer.add_relation(KGRelation(source_id="eng-1", target_id="svc-2", type="on_call_for"))
+        await writer.add_relation(KGRelation(source_id="eng-1", target_id="team-1", type="member_of"))
+        await writer.add_relation(KGRelation(source_id="team-1", target_id="eng-1", type="employs"))
+
+        on_call = await reader.relations_from(entity_id="eng-1", relation_type="on_call_for")
+        everything = await reader.relations_from(entity_id="eng-1")
+
+        assert sorted(r.target_id for r in on_call) == ["svc-1", "svc-2"]
+        assert sorted(r.type for r in everything) == ["member_of", "on_call_for", "on_call_for"]
+
+    @pytest.mark.asyncio
+    async def test_relations_from_hides_relations_above_clearance(self) -> None:
+        manager = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
+        reader = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.INTERNAL)
+        await writer.add_entity(KGEntity(id="eng-1", type="Engineer", name="Ada"))
+        await writer.add_entity(KGEntity(id="svc-1", type="Service", name="Billing"))
+        await writer.add_relation(
+            KGRelation(
+                source_id="eng-1",
+                target_id="svc-1",
+                type="on_call_for",
+                security_level=SecurityLevel.CONFIDENTIAL,
+            )
+        )
+
+        assert await reader.relations_from(entity_id="eng-1") == ()
+        assert len(await writer.relations_from(entity_id="eng-1")) == 1
+
+    @pytest.mark.asyncio
+    async def test_relations_from_a_source_above_clearance_returns_nothing(self) -> None:
+        manager = create_memory_manager()
+        writer = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
+        reader = MemoryBackedKnowledgeGraph(memory_manager=manager, clearance=SecurityLevel.INTERNAL)
+        await writer.add_entity(
+            KGEntity(id="eng-9", type="Engineer", name="Hidden", security_level=SecurityLevel.CONFIDENTIAL)
+        )
+        await writer.add_entity(KGEntity(id="svc-1", type="Service", name="Billing"))
+        await writer.add_relation(KGRelation(source_id="eng-9", target_id="svc-1", type="on_call_for"))
+
+        assert await reader.relations_from(entity_id="eng-9") == ()
+        assert len(await writer.relations_from(entity_id="eng-9")) == 1
+
+    def test_an_empty_entity_type_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            KGEntity(id="x", type="", name="X")
+
+    @pytest.mark.parametrize("relation_type", ["", "owns:team"])
+    def test_a_relation_type_that_breaks_the_stored_key_is_rejected(self, relation_type: str) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            KGRelation(source_id="a", target_id="b", type=relation_type)
+
+
+class TestListByPrefix:
+    """The exhaustive scan the ontology layer counts on, through the real manager and semantic store."""
+
+    @pytest.mark.asyncio
+    async def test_returns_every_item_under_the_prefix_and_nothing_else(self) -> None:
+        manager = create_memory_manager()
+        for n in range(3):
+            await manager.remember(MemoryScope.PROJECT, f"kg:entity:{n}", {"n": n})
+        await manager.remember(MemoryScope.PROJECT, "kg:rel:a:owns:b", {"n": 9})
+        await manager.remember(MemoryScope.SESSION, "kg:entity:other-scope", {"n": 7})
+
+        items = await manager.list_by_prefix(scope=MemoryScope.PROJECT, key_prefix="kg:entity:")
+
+        assert sorted(item.key for item in items) == ["kg:entity:0", "kg:entity:1", "kg:entity:2"]

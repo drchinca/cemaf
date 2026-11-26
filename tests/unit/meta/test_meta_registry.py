@@ -58,6 +58,14 @@ class FakeKnowledgeGraph:
     async def remove_entity(self, entity_id: str) -> bool:
         return False
 
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return tuple(e for e in getattr(self, "_entities", {}).values() if e.type == entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return ()
+
 
 # ---------------------------------------------------------------------------
 # Tests

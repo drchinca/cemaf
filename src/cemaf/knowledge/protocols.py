@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from cemaf.knowledge.models import (
-    EntityType,
     KGBranchDiff,
     KGBranchRef,
     KGEntity,
@@ -13,7 +12,6 @@ from cemaf.knowledge.models import (
     KGQueryResult,
     KGRelation,
     KnowledgeGraphCapabilities,
-    RelationType,
 )
 
 
@@ -36,7 +34,7 @@ class KnowledgeGraph(Protocol):
     async def query_neighbors(
         self,
         entity_id: str,
-        relation_type: RelationType | None = None,
+        relation_type: str | None = None,
         depth: int = 1,
     ) -> KGQueryResult:
         """Find entities connected to the given entity."""
@@ -45,10 +43,20 @@ class KnowledgeGraph(Protocol):
     async def search(
         self,
         query: str,
-        entity_type: EntityType | None = None,
+        entity_type: str | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
         """Search entities by text query with optional type filter."""
+        ...
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        """Every visible entity of exactly this type; no limit or ranking (SPEC-27)."""
+        ...
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        """Visible relations whose source is entity_id, whatever the target's visibility (SPEC-27)."""
         ...
 
     async def remove_entity(self, entity_id: str) -> bool:

@@ -20,11 +20,9 @@ from enum import StrEnum
 from cemaf.core.utils import utc_now
 from cemaf.events.protocols import Event, EventBus
 from cemaf.knowledge.models import (
-    EntityType,
     KGEntity,
     KGQueryResult,
     KGRelation,
-    RelationType,
 )
 from cemaf.knowledge.protocols import KnowledgeGraph
 
@@ -222,7 +220,7 @@ class HubKnowledgeGraph:
     async def query_neighbors(
         self,
         entity_id: str,
-        relation_type: RelationType | None = None,
+        relation_type: str | None = None,
         depth: int = 1,
     ) -> KGQueryResult:
         return await self._kg.query_neighbors(entity_id=entity_id, relation_type=relation_type, depth=depth)
@@ -230,10 +228,18 @@ class HubKnowledgeGraph:
     async def search(
         self,
         query: str,
-        entity_type: EntityType | None = None,
+        entity_type: str | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
         return await self._kg.search(query=query, entity_type=entity_type, limit=limit)
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return await self._kg.entities_of_type(entity_type=entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return await self._kg.relations_from(entity_id=entity_id, relation_type=relation_type)
 
     async def remove_entity(self, entity_id: str) -> bool:
         result = await self._kg.remove_entity(entity_id)
@@ -284,7 +290,7 @@ class SpokeReadHubWriteKG:
     async def query_neighbors(
         self,
         entity_id: str,
-        relation_type: RelationType | None = None,
+        relation_type: str | None = None,
         depth: int = 1,
     ) -> KGQueryResult:
         return await self._hub.query_neighbors(entity_id=entity_id, relation_type=relation_type, depth=depth)
@@ -292,10 +298,18 @@ class SpokeReadHubWriteKG:
     async def search(
         self,
         query: str,
-        entity_type: EntityType | None = None,
+        entity_type: str | None = None,
         limit: int = 10,
     ) -> tuple[KGEntity, ...]:
         return await self._hub.search(query=query, entity_type=entity_type, limit=limit)
+
+    async def entities_of_type(self, *, entity_type: str) -> tuple[KGEntity, ...]:
+        return await self._hub.entities_of_type(entity_type=entity_type)
+
+    async def relations_from(
+        self, *, entity_id: str, relation_type: str | None = None
+    ) -> tuple[KGRelation, ...]:
+        return await self._hub.relations_from(entity_id=entity_id, relation_type=relation_type)
 
     async def remove_entity(self, entity_id: str) -> bool:
         return await self._hub.remove_entity(entity_id)

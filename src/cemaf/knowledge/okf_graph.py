@@ -27,7 +27,7 @@ async def import_okf_bundle(bundle: OKFBundle, *, graph: KnowledgeGraph, bundle_
     revision = bundle.revision
     documents = {doc.concept_id: doc for doc in bundle.documents}
     entities = []
-    relations: dict[tuple[str, str, RelationType], KGRelation] = {}
+    relations: dict[tuple[str, str, str], KGRelation] = {}
     unresolved: set[tuple[str, str]] = set()
     # Build and validate everything before the first graph write.
     for document in bundle.documents:

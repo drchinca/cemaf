@@ -228,3 +228,41 @@ async def test_meta_executor_wires_hub_spoke_kg() -> None:
     kg_tool = tool_registry.get("meta_knowledge_graph")
     assert kg_tool is not None
     assert isinstance(kg_tool._knowledge_graph, SpokeReadHubWriteKG)  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_open_types_and_scans_through_hub_and_spoke_over_real_sqlite(
+    tmp_path, event_bus: InMemoryEventBus
+) -> None:
+    """SPEC-27 PR A: domain type names, the exhaustive type listing and the outgoing scan all work
+    through SpokeReadHubWriteKG over a knowledge graph stored in real SQLite."""
+    from cemaf.memory.sqlite_store import SqliteMemoryStore
+
+    # The store holds a long-lived aiosqlite connection; close it even when an assertion fails,
+    # or its worker thread keeps the test process from exiting.
+    store = SqliteMemoryStore(db_path=str(tmp_path / "kg.db"))
+    try:
+        manager = create_memory_manager(memory_store=store)
+        backing = create_knowledge_graph(memory_manager=manager, clearance=SecurityLevel.CONFIDENTIAL)
+        hub, spokes = create_hub_spoke_kg(
+            backing_kg=backing,
+            event_bus=event_bus,
+            spoke_configs={"catalog": SpokeCacheConfig(max_entities=16)},
+        )
+        kg = SpokeReadHubWriteKG(hub=hub, spoke=spokes["catalog"])
+
+        for n in range(3):
+            await kg.add_entity(KGEntity(id=f"svc-{n}", type="Service", name=f"service {n}"))
+        await kg.add_entity(KGEntity(id="team-1", type="Team", name="Payments"))
+        for n in range(3):
+            await kg.add_relation(KGRelation(source_id="team-1", target_id=f"svc-{n}", type="owns"))
+
+        services = await kg.entities_of_type(entity_type="Service")
+        owned = await kg.relations_from(entity_id="team-1", relation_type="owns")
+        incoming = await kg.relations_from(entity_id="svc-0")
+
+        assert [e.id for e in services] == ["svc-0", "svc-1", "svc-2"]
+        assert sorted(r.target_id for r in owned) == ["svc-0", "svc-1", "svc-2"]
+        assert incoming == ()
+    finally:
+        await store.close()

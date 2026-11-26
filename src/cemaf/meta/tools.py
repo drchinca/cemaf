@@ -9,7 +9,7 @@ from cemaf.audit.models import AuditEntry
 from cemaf.audit.protocols import AuditTrail
 from cemaf.core.result import Result
 from cemaf.core.types import JSON, NodeID, ToolID
-from cemaf.knowledge.models import EntityType, KGEntity, KGRelation, RelationType
+from cemaf.knowledge.models import KGEntity, KGRelation
 from cemaf.knowledge.protocols import KnowledgeGraph
 from cemaf.orchestration.dag import DAG, Edge, Node
 from cemaf.tools.base import Tool, ToolResult, ToolSchema
@@ -468,17 +468,9 @@ class KnowledgeGraphTool(Tool):
         if not entity_id or not entity_type_raw or not name:
             return Result.fail(error="entity requires id, type, and name fields")
 
-        try:
-            entity_type = EntityType(entity_type_raw)
-        except ValueError:
-            return Result.fail(
-                error=f"Invalid entity type: {entity_type_raw!r}. "
-                f"Valid types: {[t.value for t in EntityType]}"
-            )
-
         entity = KGEntity(
             id=entity_id,
-            type=entity_type,
+            type=str(entity_type_raw),
             name=name,
             description=entity_data.get("description", ""),
             properties=entity_data.get("properties", {}),
@@ -498,18 +490,10 @@ class KnowledgeGraphTool(Tool):
         if not source_id or not target_id or not rel_type_raw:
             return Result.fail(error="relation requires source_id, target_id, and type fields")
 
-        try:
-            rel_type = RelationType(rel_type_raw)
-        except ValueError:
-            return Result.fail(
-                error=f"Invalid relation type: {rel_type_raw!r}. "
-                f"Valid types: {[t.value for t in RelationType]}"
-            )
-
         relation = KGRelation(
             source_id=source_id,
             target_id=target_id,
-            type=rel_type,
+            type=str(rel_type_raw),
             properties=relation_data.get("properties", {}),
         )
         await self._knowledge_graph.add_relation(relation=relation)
@@ -531,21 +515,11 @@ def _serialize_audit_entries(*, entries: tuple[AuditEntry, ...]) -> list[JSON]:
     ]
 
 
-def _parse_entity_type(*, raw: str | None) -> EntityType | None:
-    """Parse an optional entity type string to the enum."""
-    if not raw:
-        return None
-    try:
-        return EntityType(raw)
-    except ValueError:
-        return None
+def _parse_entity_type(*, raw: str | None) -> str | None:
+    """An entity-type filter: the given type exactly, or None (no filter) when empty."""
+    return raw or None
 
 
-def _parse_relation_type(*, raw: str | None) -> RelationType | None:
-    """Parse an optional relation type string to the enum."""
-    if not raw:
-        return None
-    try:
-        return RelationType(raw)
-    except ValueError:
-        return None
+def _parse_relation_type(*, raw: str | None) -> str | None:
+    """A relation-type filter: the given type exactly, or None (no filter) when empty."""
+    return raw or None
