@@ -43,6 +43,12 @@ event bus and a real LLM call are exercised in CI; and several defaults stop
 failing silently. Breaking changes are listed first, as upgrade notes.
 
 **Breaking:**
+- `clearance: SecurityLevel` is required on `create_executor`,
+  `ContextNodeExecutor`, `DefaultMemoryContextProvider`, the RLM engine and the
+  other composition roots; `None` no longer means "no gate". Pass
+  `SecurityLevel.INTERNAL` for unclassified content, which is the level
+  memories and context sources get by default. (This note was missing from the
+  4.0.0 release.)
 - `MergeStrategy` gains `handles_shared_writes(*, key) -> bool`. Custom
   strategies must implement it; return True for keys the strategy merges or
   reports on purpose (#262).
