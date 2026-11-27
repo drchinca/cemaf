@@ -61,6 +61,7 @@ CEMAF is a **protocol-first, multi-agent orchestration framework** for context e
 | SPEC-24 Durable event bus | 🟢 | Redis fan-out per subscriber, redelivery, dead-letter stream; tested on real Redis |
 | SPEC-25 Recorded LLM replay | 🟢 | A captured Ollama call replays through the real adapter in CI |
 | SPEC-26 Honest offline embeddings | 🟢 | Non-semantic embedders are named for what they do and warn once |
+| SPEC-27 Knowledge ontologies | 🟢 | Model, YAML/JSON loading, advisory `OntologyKnowledgeGraph`, `CEMAF_SELF_ONTOLOGY`; agent use of ontologies is SPEC-28 |
 
 CEMAF ships no HTTP API, container image or authentication layer **by design**: it is a library that applications compose (`cemaf-service`, `iccha_autonomy`, `kyi`, `meridiansight`), and each application owns its own server and auth. Do not add one here. The CLI exposes `inspect`, `docs` and `blueprint` commands, not engine runs.
 
@@ -195,6 +196,7 @@ Opt-in modules where CEMAF uses its own primitives to introspect, audit, and ext
 | Composed Engine | ONE DAG run threads council → auction → agent → online-eval → harvest through one composition root (`test_composed_engine.py`); `examples/composed_engine.py` is the runnable canonical "whole engine" demo |
 | Interceptor GATE | GateEvalInterceptor (POST) on a real 2-node DAG: short output fails the gate → downstream never runs; long output passes; empty pipeline = no-op; gate-reject doesn't burn retries (`test_interceptor_gate.py`) |
 | NodeResolver dispatch | execute_node dispatches via the resolver chain (council/auction/static, first-match wins); a custom resolver registered ahead of the built-ins handles its node and short-circuits — adding a node 'kind' is registering a resolver, not a new `if`-branch (`test_resolver_chain.py`) |
+| Ontology KG | OntologyKnowledgeGraph over a real MemoryBackedKnowledgeGraph + real InMemoryEventBus → bad writes still land, one violation per broken rule recorded and published, cardinality skips rewrites, hidden endpoints report "not found or not visible", entities_of_class includes subclasses (`test_ontology_knowledge_graph.py`) |
 
 ## Pattern Reference
 
@@ -308,7 +310,7 @@ return Result.fail(error="Rate limit exceeded")
 | `memory` | Semantic + episodic memory, tiered storage, dedup, extraction, session | `base.py`, `manager.py`, `semantic.py`, `session.py`, `sqlite_store.py` |
 | `retrieval` | VectorStore, EmbeddingProvider protocols | `protocols.py`, `memory_store.py` |
 | `rlm` | Recursive Language Model — divide-and-conquer large context queries | `base.py`, `protocols.py` |
-| `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07). A base dependency via `RuntimeServices.knowledge_graph` | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py` |
+| `knowledge` | Knowledge graph — entities/relations backed by MemoryManager; hub-and-spoke caching (SPEC-07); ontologies with advisory write checks (SPEC-27). A base dependency via `RuntimeServices.knowledge_graph` | `graph.py`, `protocols.py`, `models.py`, `hub_spoke.py`, `ontology.py`, `ontology_graph.py` |
 
 ### LLM Integration (talking to models)
 

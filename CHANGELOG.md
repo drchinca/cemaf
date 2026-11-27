@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-26
+
+Knowledge ontologies (SPEC-27). An ontology declares the classes, properties
+and relations a knowledge base should follow. It can be written in Python or
+loaded from YAML or JSON. `OntologyKnowledgeGraph` checks every write against
+it without ever rejecting one: what doesn't fit is recorded and published as
+an event. CEMAF describes its own knowledge with `CEMAF_SELF_ONTOLOGY`.
+
+**Added:**
+- `Ontology` declares classes (single `is_a` inheritance, typed properties,
+  open or closed), relations between classes and a per-source limit. A
+  malformed ontology raises `OntologyDefinitionError`. `validate_entity()`
+  returns one `OntologyViolation` per broken rule (#278).
+- `Ontology.validate_relation()` checks a relation's type, its endpoints'
+  classes (subclasses qualify) and the per-source limit. An endpoint the graph
+  doesn't return is reported as "not found or not visible", never revealing
+  whether it exists (#279).
+- `load_ontology()` reads an ontology from YAML (with the `okf` extra) or
+  JSON, and `ontology_from_mapping()` builds one from the same structure.
+  Unknown keys, a bad property type or an unreadable file raise
+  `OntologyDefinitionError` (#281).
+- `OntologyKnowledgeGraph` wraps any `KnowledgeGraph` and checks every write
+  against an ontology in advisory mode: the write always lands, and each
+  broken rule is kept in `recent_violations()` and published as an
+  `ONTOLOGY_VIOLATION` event. `entities_of_class()` lists a class and its
+  subclasses exhaustively, and `related()` walks one typed relation (#282).
+- `CEMAF_SELF_ONTOLOGY` describes what CEMAF writes about itself: a root class
+  `thing`, a class per `EntityType` and a relation per `RelationType`, with the
+  properties the meta layer records when it versions a solution on `dag`.
+  Solution versioning and OKF import pass it with no violations (#283).
+
+**Docs:**
+- The 4.0.0 notes now list `clearance` becoming required on `create_executor`
+  and the other composition roots (#280).
+
 ## [4.1.0] - 2026-11-26
 
 Knowledge graphs hold any domain's types. This is the first step of
@@ -36,6 +71,12 @@ event bus and a real LLM call are exercised in CI; and several defaults stop
 failing silently. Breaking changes are listed first, as upgrade notes.
 
 **Breaking:**
+- `clearance: SecurityLevel` is required on `create_executor`,
+  `ContextNodeExecutor`, `DefaultMemoryContextProvider`, the RLM engine and the
+  other composition roots; `None` no longer means "no gate". Pass
+  `SecurityLevel.INTERNAL` for unclassified content, which is the level
+  memories and context sources get by default. (This note was missing from the
+  4.0.0 release.)
 - `MergeStrategy` gains `handles_shared_writes(*, key) -> bool`. Custom
   strategies must implement it; return True for keys the strategy merges or
   reports on purpose (#262).
@@ -638,7 +679,8 @@ For complete documentation, see [README.md](README.md) and [docs/](docs/).
 
 ---
 
-[Unreleased]: https://github.com/drchinca/cemaf/compare/v4.1.0...HEAD
+[Unreleased]: https://github.com/drchinca/cemaf/compare/v4.2.0...HEAD
+[4.2.0]: https://github.com/drchinca/cemaf/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/drchinca/cemaf/compare/v4.0.0...v4.1.0
 [0.2.0]: https://github.com/drchinca/cemaf/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/drchinca/cemaf/releases/tag/v0.1.0
