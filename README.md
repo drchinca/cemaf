@@ -2,6 +2,75 @@
 
 **Context Engineering Multi-Agent Framework**
 
+## Start here: Mode B first
+
+Adopt CEMAF in three steps. Start inside your existing workflow; add local
+knowledge and inference next; graduate to CEMAF orchestration when you need it.
+Python 3.14+ is required.
+
+### Step 1 — 5 min: Mode B drop-in
+
+Keep your **LangGraph, CrewAI, or custom script** in charge. Install `cemaf`
+(`pip install cemaf`) and add these controls at your retrieval/model-call boundary:
+
+```python
+from cemaf.context import TokenBudget, SecurityLevel, PriorityContextCompiler
+from cemaf.observability import BudgetGuard
+from cemaf.citation import CitationTracker
+```
+
+- **TokenBudget**: compile context with `PriorityContextCompiler` under a per-call
+  token allowance, reserving room for the output.
+- **BudgetGuard**: record provider-reported usage with `record_usage(...)` and
+  check `should_halt()` before dispatching the next call.
+- **SecurityLevel**: classify context sources and pass the caller's `clearance`
+  into compilation so higher-classification sources are excluded.
+- **CitationTracker**: register retrieved `SearchResult` objects with
+  `track_search_results(...)` and attach their citations to claims.
+
+Follow the [Mode B integration patterns](docs/integration.md) and
+[citation guide](docs/citation.md). For LangGraph/LCEL, build on the inner
+`build_langgraph_lcel_app()` workflow in
+[`cemaf_langgraph_lcel_poc.py`](examples/app_shapes/cemaf_langgraph_lcel_poc.py),
+adding these controls inside your nodes. The full PoC wraps that workflow in a
+CEMAF DAG; that outer wrapper belongs to Step 3.
+
+### Step 2 — 10 min: Free & Sovereign
+
+Run inference locally with **Ollama (qwen3 / gemma3)** and keep knowledge in
+portable Markdown with **OKFBundle**. With Ollama installed, prepare a local model:
+
+```bash
+pip install 'cemaf[ollama,okf]'
+ollama pull gemma3:4b  # alternatively, pull qwen3 and use that model name
+ollama serve          # if Ollama is not already running
+```
+
+Use `create_ollama_client(model="gemma3:4b")` from `cemaf.llm.ollama` for
+local calls, and `OKFBundle.load("path/to/knowledge")` from `cemaf.knowledge`
+to load your knowledge folder. Discover concepts with `bundle.catalog()` and
+load selected documents with `bundle.get(...)` into Step 1's budgeted context.
+After installing dependencies and downloading the model, inference and knowledge
+access run offline on your hardware, without a paid API key.
+See the [Ollama example](examples/ollama_gemma.py),
+[OKF loading guide](docs/okf.md), and
+[offline project-memory example](examples/app_shapes/okf_project_memory.py).
+Allow extra setup time for the initial model download.
+
+### Step 3 — Scale up: Mode A
+
+When you need **councils, auctions, collision avoidance, and deterministic replay**,
+graduate to **DAGExecutor + RuntimeServices**. Wire your registry and services
+through `create_executor(agent_registry=..., clearance=SecurityLevel.INTERNAL,
+services=RuntimeServices(...))`,
+then express the workflow with `DAG`, `Node`, and `Edge`.
+Start with the [Mode A quick start](#quick-start) and
+[composed-engine example](examples/composed_engine.py); explore
+[collision avoidance](examples/collision_avoidance.py) and
+[recorded-run replay](docs/replay.md) as you add those services.
+
+---
+
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red?style=flat-square)](https://opensource.org)
 [![Project Status: 3.1](https://img.shields.io/badge/Status-3.1-green?style=flat-square)](https://github.com/drchinca/cemaf)
 [![Discord](https://img.shields.io/badge/Discord-Join_Community-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/C8ZXAbD8)
@@ -127,6 +196,7 @@ Live-verified at HEAD on every CI run — every name above resolves against `src
 
 ## Table of Contents
 
+- [Start here: Mode B first](#start-here-mode-b-first)
 - [Overview](#overview)
 - [The Hard Problems We Solve](#the-hard-problems-we-solve)
 - [Installation](#installation)
@@ -375,11 +445,15 @@ Full architecture-fan-in view (not by feature category, by measured import count
 
 ## Quick Start
 
+This is the **Step 3 / Mode A** path, where CEMAF owns execution. For the
+five-minute drop-in path, begin with [Step 1](#step-1--5-min-mode-b-drop-in).
+
 ```python
 from pydantic import BaseModel
 from cemaf.agents.base import Agent, AgentContext, AgentResult, AgentState
 from cemaf.agents.registry import AgentRegistry
 from cemaf.bootstrap import create_executor
+from cemaf.context import SecurityLevel
 from cemaf.core.enums import NodeType
 from cemaf.core.types import AgentID, NodeID
 from cemaf.orchestration.dag import DAG, Node
@@ -425,6 +499,7 @@ registry.register_agent(agent_instance=Researcher(), goal_type=ResearchGoal)
 
 executor = create_executor(
     agent_registry=registry,
+    clearance=SecurityLevel.INTERNAL,
     services=RuntimeServices(),           # defaults; add budget_guard, event_bus, …
     config=ExecutorConfig(enable_events=False),
 )
@@ -484,25 +559,6 @@ that proves how it was produced.
 
 ## Integration Modes
 
-### Mode A: CEMAF Orchestrates
-
-CEMAF owns execution, external frameworks are "engines":
-
-```python
-from cemaf.orchestration import DAGExecutor
-from cemaf.observability import InMemoryRunLogger
-
-executor = DAGExecutor(
-    node_executor=LangGraphNodeExecutor(langgraph_app),
-    run_logger=InMemoryRunLogger(),
-)
-result = await executor.run(dag, context)
-
-# Replay later for debugging
-replayer = Replayer(run_logger.get_record("run-123"))
-await replayer.replay()
-```
-
 ### Mode B: CEMAF as Library
 
 External frameworks orchestrate, CEMAF provides infrastructure:
@@ -523,6 +579,25 @@ def my_node(state):
     # Compile within budget
     compiled = compiler.compile(ctx, budget)
     return compiled.to_dict()
+```
+
+### Mode A: CEMAF Orchestrates
+
+CEMAF owns execution, external frameworks are "engines":
+
+```python
+from cemaf.orchestration import DAGExecutor
+from cemaf.observability import InMemoryRunLogger
+
+executor = DAGExecutor(
+    node_executor=LangGraphNodeExecutor(langgraph_app),
+    run_logger=InMemoryRunLogger(),
+)
+result = await executor.run(dag, context)
+
+# Replay later for debugging
+replayer = Replayer(run_logger.get_record("run-123"))
+await replayer.replay()
 ```
 
 See the [Integration Guide](docs/integration.md) for detailed patterns.

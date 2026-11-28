@@ -114,6 +114,13 @@ search the docs/API again.
   clean, stop and report the blocker instead of switching branches or continuing
   silently.
 
+## Pull Request Delivery
+
+- Deliver repository changes through a pull request by default.
+- Read the current PR template and contribution guidance before publishing.
+- Before reporting completion, verify the remote PR title, body, head branch,
+  base branch, and draft state.
+
 ## Verification
 
 For docs changes:
